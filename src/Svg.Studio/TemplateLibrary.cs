@@ -260,7 +260,7 @@ public sealed class TemplateLibrary
     }
 
     /// <summary>
-    /// Adds <paramref name="imports"/> to <paramref name="target"/> from <paramref name="index"/> on,
+    /// Adds <paramref name="imports"/> to <paramref name="target"/>,
     /// with the declarations their templates need and the target does not inherit, as one undo step.
     /// </summary>
     /// <param name="notes">A drawing that was left out and why, or a name two templates declare differently.</param>
@@ -268,7 +268,6 @@ public sealed class TemplateLibrary
     public static IReadOnlyList<ProjectDrawing> Import(
         ProjectWorkspace workspace,
         ProjectGroup target,
-        int index,
         IReadOnlyList<TemplateImport> imports,
         ICollection<string> notes)
     {
@@ -287,8 +286,7 @@ public sealed class TemplateLibrary
 
         workspace.Do(
             prepared.Texts.Count == 1 ? $"add {prepared.Texts[0].Import.Name}" : $"add {prepared.Texts.Count} drawings",
-            // The block is one of the group's own nodes, so this puts the declarations back as well.
-            () => ProjectSnapshot.Contents(target),
+            () => ProjectSnapshot.All(ProjectSnapshot.Code(target), ProjectSnapshot.Contents(target)),
             () =>
             {
                 if (prepared.Code is { } code && target.SetCode(code) is { } refusal)
@@ -302,7 +300,7 @@ public sealed class TemplateLibrary
                 {
                     try
                     {
-                        var drawing = target.AddDrawing(import.Name, text, index++);
+                        var drawing = target.AddDrawing(import.Name, text);
 
                         drawing.Source = import.Source;
 
@@ -354,7 +352,7 @@ public sealed class TemplateLibrary
                 // The text first: it can be refused where the block, checked in Prepared, cannot, and
                 // a refusal before anything is written leaves no half of the update behind.
                 // Indented as AddDrawing indents, since the text arrives written for a file of its own.
-                refusal = drawing.Inline(text, indent: true);
+                refusal = drawing.SetText(text);
 
                 if (refusal is null && prepared.Code is { } code)
                 {

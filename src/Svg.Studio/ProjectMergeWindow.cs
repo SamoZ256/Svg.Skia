@@ -10,7 +10,7 @@ using Avalonia.Media;
 
 namespace Svg.Studio;
 
-/// <summary>The nodes a merge could not decide, each with our and their version to keep one of.</summary>
+/// <summary>The files a merge could not decide, each with our and their version to keep one of.</summary>
 /// <remarks>
 /// Shown modally, and answers true for Resolve, false for Abort merge, and null when it is closed,
 /// which leaves the merge as it is.
@@ -76,7 +76,6 @@ public sealed class ProjectMergeWindow : Window
 
     private Control Row(ProjectConflict conflict)
     {
-        var node = (conflict.Ours ?? conflict.Theirs)!;
         var group = "conflict" + conflict.GetHashCode();
 
         // On a deletion the choice is whether the side that still has it wins, so the buttons say
@@ -95,7 +94,8 @@ public sealed class ProjectMergeWindow : Window
             IsChecked = conflict.Choice == ProjectSide.Theirs
         };
 
-        mine.IsCheckedChanged += (_, _) => conflict.Choice = mine.IsChecked == true ? ProjectSide.Ours : ProjectSide.Theirs;
+        mine.IsCheckedChanged += (_, _) => Chose(mine, ProjectSide.Ours);
+        theirs.IsCheckedChanged += (_, _) => Chose(theirs, ProjectSide.Theirs);
 
         var sides = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Height = 180 };
         var ours = Choosing(ProjectCompareWindow.Side("Mine", ProjectCompareWindow.Rendered(conflict.Ours, _owned)), mine);
@@ -105,15 +105,34 @@ public sealed class ProjectMergeWindow : Window
         sides.Children.Add(ours);
         sides.Children.Add(others);
 
-        return new StackPanel
+        var row = new StackPanel
         {
             Spacing = 6,
             Children =
             {
-                new TextBlock { Text = ProjectWorkspace.Label(node), FontWeight = FontWeight.SemiBold },
+                new TextBlock { Text = conflict.Path, FontWeight = FontWeight.SemiBold },
                 sides
             }
         };
+
+        // Both added a drawing of one name, so neither need go: theirs is kept beside ours.
+        if (conflict.IsAddition)
+        {
+            var both = new RadioButton { GroupName = group, Content = "Keep both", IsChecked = conflict.Choice == ProjectSide.Both };
+
+            both.IsCheckedChanged += (_, _) => Chose(both, ProjectSide.Both);
+            row.Children.Add(both);
+        }
+
+        return row;
+
+        void Chose(RadioButton button, ProjectSide side)
+        {
+            if (button.IsChecked == true)
+            {
+                conflict.Choice = side;
+            }
+        }
     }
 
     private static Control Choosing(Control side, RadioButton choice)

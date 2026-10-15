@@ -201,9 +201,7 @@ public class StreamlinePanelTests : IDisposable
 
         if (project)
         {
-            var path = Path.Combine(_directory, "icons.svgstudio");
-
-            File.WriteAllText(path, text);
+            var path = TestPackage.Write(Path.Combine(_directory, "icons.svgstudio"), text);
 
             await window.OpenAsync(new[] { path });
             Dispatcher.UIThread.RunJobs();
@@ -217,6 +215,16 @@ public class StreamlinePanelTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         return window;
+    }
+
+    /// <summary>What came straight into <paramref name="group"/> from Streamline, by where it says it came from.</summary>
+    private static IReadOnlyList<ProjectDrawing> Imported(ProjectGroup group)
+    {
+        var imported = group.Children.OfType<ProjectDrawing>().Where(drawing => drawing.Source?.StartsWith("streamline:", StringComparison.Ordinal) == true).ToList();
+
+        Assert.NotEmpty(imported);
+
+        return imported;
     }
 
     private static ProjectGroup Group(MainWindow window, string name)
@@ -440,8 +448,9 @@ public class StreamlinePanelTests : IDisposable
         Assert.Equal("stateAccentColor", row.Role("#000000"));
         Assert.Empty(row.Declares);
 
-        var added = scheme.Children.Skip(before).ToList();
+        var added = scheme.Children.Where(child => child.Name is "bell" or "bin").ToList();
 
+        Assert.Equal(before + 2, scheme.Children.Count);
         Assert.Equal(new[] { "bell", "bin" }, added.Select(drawing => drawing.Name));
         Assert.Equal(new[] { "streamline:ico_a", "streamline:ico_b" }, added.OfType<ProjectDrawing>().Select(drawing => drawing.Source));
         Assert.All(added.OfType<ProjectDrawing>(), drawing => Assert.Contains("fill=\"{{ stateAccentColor }}\"", drawing.Text, StringComparison.Ordinal));
@@ -544,7 +553,7 @@ public class StreamlinePanelTests : IDisposable
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
 
-        Assert.Contains("fill=\"{{ stateBlackColor }}\"", ((ProjectDrawing)scheme.Children[^1]).Text, StringComparison.Ordinal);
+        Assert.All(Imported(scheme), drawing => Assert.Contains("fill=\"{{ stateBlackColor }}\"", drawing.Text, StringComparison.Ordinal));
         Assert.Equal("Mono glyph", TemplateLibrary.Remembered(icon));
     }
 
@@ -567,7 +576,7 @@ public class StreamlinePanelTests : IDisposable
         await panel.PickAsync(0, KeyModifiers.None);
         await panel.OpenImportAsync();
 
-        var bell = (ProjectDrawing)scheme.Children[^1];
+        var bell = scheme.Drawings.Single(drawing => drawing.Name == "bell");
 
         Assert.Equal("bell", bell.Name);
         Assert.Contains("fill=\"{{ stateBlackColor }}\"", bell.Text, StringComparison.Ordinal);
@@ -744,7 +753,7 @@ public class StreamlinePanelTests : IDisposable
         await panel.PickAsync(1, KeyModifiers.Shift);
         await panel.OpenImportAsync();
 
-        Assert.Contains("fill=\"{{ stateBlackColor }}\"", ((ProjectDrawing)Group(window, "Scheme").Children[^1]).Text, StringComparison.Ordinal);
+        Assert.All(Imported(Group(window, "Scheme")), drawing => Assert.Contains("fill=\"{{ stateBlackColor }}\"", drawing.Text, StringComparison.Ordinal));
 
         static Border Frame(ListBoxItem card) => card.GetLogicalDescendants().OfType<Border>().First(border => border.Classes.Contains("card"));
 
@@ -909,7 +918,7 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(streamline);
         var panel = window.Streamline;
         var root = window.Workspace!.Document.Root;
-        var before = window.Workspace.Document.ToXml();
+        var before = TestPackage.Dump(window.Workspace.Document);
 
         panel.Target = root;
         panel.ConfirmFamily = _ => Task.FromResult(true);
@@ -924,7 +933,7 @@ public class StreamlinePanelTests : IDisposable
         Assert.Equal("import Core Duo", window.Workspace.UndoLabel);
 
         Assert.True(window.Workspace.Undo());
-        Assert.Equal(before, window.Workspace.Document.ToXml());
+        Assert.Equal(before, TestPackage.Dump(window.Workspace.Document));
     }
 
     private static Streamline Catalogue()
@@ -1457,7 +1466,7 @@ public class StreamlinePanelTests : IDisposable
     {
         var window = await Host(new Streamline());
         var workspace = window.Workspace!;
-        var was = workspace.Document.ToXml();
+        var was = TestPackage.Dump(workspace.Document);
         var bell = (ProjectDrawing)Group(window, "Scheme").Children.Single(node => node.Name == "Bell");
 
         Named(window, "Accent from Bell");
@@ -1473,12 +1482,12 @@ public class StreamlinePanelTests : IDisposable
                 </e:recipe>
               </e:templates>
             """.ReplaceLineEndings("\n"),
-            workspace.Document.ToXml(),
+            TestPackage.Dump(workspace.Document),
             StringComparison.Ordinal);
         Assert.Equal("add template Accent from Bell", workspace.UndoLabel);
 
         Assert.True(workspace.Undo());
-        Assert.Equal(was, workspace.Document.ToXml());
+        Assert.Equal(was, TestPackage.Dump(workspace.Document));
         Assert.False(workspace.CanUndo);
     }
 
@@ -1490,7 +1499,7 @@ public class StreamlinePanelTests : IDisposable
         var workspace = window.Workspace!;
         var root = workspace.Document.Root;
         var panel = window.Streamline;
-        var was = workspace.Document.ToXml();
+        var was = TestPackage.Dump(workspace.Document);
         var owners = new List<Window>();
 
         panel.Target = Group(window, "Scheme");
@@ -1507,7 +1516,7 @@ public class StreamlinePanelTests : IDisposable
             await shown.RenameAsync("Accent glyph");
 
             Assert.Contains("already has a template called 'Mono glyph'", shown.Said, StringComparison.Ordinal);
-            Assert.Equal(was, workspace.Document.ToXml());
+            Assert.Equal(was, TestPackage.Dump(workspace.Document));
 
             Named(window, "Accent", owners: owners);
             await shown.RenameAsync("Accent glyph");
@@ -1594,7 +1603,7 @@ public class StreamlinePanelTests : IDisposable
             Assert.True(workspace.Undo());
         }
 
-        Assert.Equal(was, workspace.Document.ToXml());
+        Assert.Equal(was, TestPackage.Dump(workspace.Document));
         Assert.False(workspace.CanUndo);
     }
 
@@ -1676,7 +1685,7 @@ public class StreamlinePanelTests : IDisposable
         var was = drawing.Text;
         var panel = window.Streamline;
 
-        Assert.Equal(new[] { "first", "a", "last" }, group.Children.Select(node => node.Name));
+        Assert.Equal(new[] { "a", "first", "last" }, group.Children.Select(node => node.Name));
 
         // Chosen when it came in from a search under a style.
         TemplateLibrary.Remember(TemplateLibrary.Prepare(Glyph, "core-duo", "line", "a", new[] { "#000000" }), "Mono glyph");
@@ -1699,8 +1708,8 @@ public class StreamlinePanelTests : IDisposable
         Assert.Contains("fill=\"{{ stateBlackColor }}\"", drawing.Text, StringComparison.Ordinal);
         Assert.Equal("a", drawing.Name);
         Assert.Equal("streamline:ico_a", drawing.Source);
-        Assert.Equal(new[] { "first", "a", "last" }, group.Children.Select(node => node.Name));
-        Assert.Same(drawing, group.Children[1]);
+        Assert.Equal(new[] { "a", "first", "last" }, group.Children.Select(node => node.Name));
+        Assert.Same(drawing, group.Children[0]);
         Assert.Equal(new[] { "zed" }, panel.Picked.Select(icon => icon.Name));
 
         Assert.True(workspace.Undo());
@@ -1841,7 +1850,7 @@ public class StreamlinePanelTests : IDisposable
         // The picks clear once the import has opened its drawing, a load after the group grew.
         await Until(() => scheme.Children.Count == before + 1 && panel.Picked.Count == 0);
 
-        var cog = Assert.IsType<ProjectDrawing>(scheme.Children[^1]);
+        var cog = Assert.IsType<ProjectDrawing>(scheme.Children.Single(child => child.Name == "cog"));
 
         Assert.Equal("cog", cog.Name);
         Assert.Equal("streamline:ico_a", cog.Source);
@@ -1926,7 +1935,7 @@ public class StreamlinePanelTests : IDisposable
 
         window.ShowImport = import =>
         {
-            Assert.Equal(new[] { "Bell", "Core Duo", "cog" }, scheme.Children.Select(node => node.Name));
+            Assert.Equal(new[] { "Bell", "cog", "Core Duo" }, scheme.Children.Select(node => node.Name));
             Assert.Equal(new[] { "gear" }, import.Rows.SelectMany(row => row.Icons).Select(icon => icon.Name));
 
             return Task.FromResult(true);
@@ -1935,7 +1944,7 @@ public class StreamlinePanelTests : IDisposable
         Drop(window, OnRow(window, "Scheme"), Carrying(panel, Parsed(Icon("ico_a", "cog", "sure-glyphs")), Parsed(Icon("ico_b", "gear", "line-glyphs"))));
         await Until(() => scheme.Children.Count == 4);
 
-        Assert.Equal(new[] { "Bell", "Core Duo", "cog", "gear" }, scheme.Children.Select(node => node.Name));
+        Assert.Equal(new[] { "Bell", "cog", "Core Duo", "gear" }, scheme.Children.Select(node => node.Name));
     }
 
     /// <summary>
@@ -1979,7 +1988,7 @@ public class StreamlinePanelTests : IDisposable
 
         Assert.True(shown!.Dropped);
         Assert.True(Assert.Single(shown.Rows).Sure);
-        Assert.Equal(imports ? new[] { "Bell", "Core Duo", "cog" } : new[] { "Bell", "Core Duo" }, scheme.Children.Select(node => node.Name));
+        Assert.Equal(imports ? new[] { "Bell", "cog", "Core Duo" } : new[] { "Bell", "Core Duo" }, scheme.Children.Select(node => node.Name));
         Assert.Equal(!imports, StudioSettings.DropAsks);
 
         if (!imports)
@@ -2057,7 +2066,7 @@ public class StreamlinePanelTests : IDisposable
         Drop(window, OnBoard(window, board, 110f, 12f), Carrying(window.Streamline, Parsed(Icon("ico_a", "cog"))));
         await Until(() => frame.Children.Count == 2);
 
-        var cog = frame.Children[^1];
+        var cog = frame.Children.Single(child => child.Name == "cog");
 
         Assert.Equal("cog", cog.Name);
         Assert.Equal(10f, cog.X);
@@ -2080,7 +2089,7 @@ public class StreamlinePanelTests : IDisposable
         Drop(window, OnBoard(window, board, 40f, 50f), Carrying(window.Streamline, Parsed(Icon("ico_a", "cog")), Parsed(Icon("ico_b", "gear"))));
         await Until(() => group.Children.Count == 4);
 
-        var (cog, gear) = (group.Children[2], group.Children[3]);
+        var (cog, gear) = (group.Children.Single(child => child.Name == "cog"), group.Children.Single(child => child.Name == "gear"));
 
         Assert.Equal(("cog", 40f, 50f), (cog.Name, cog.X!.Value, cog.Y!.Value));
 
@@ -2108,8 +2117,10 @@ public class StreamlinePanelTests : IDisposable
         await Until(() => frame.Children.Count == 3);
 
         Assert.Same(frame, Assert.Single(shown).Target);
-        Assert.Equal(("cog", 10f, 12f), (frame.Children[1].Name, frame.Children[1].X!.Value, frame.Children[1].Y!.Value));
-        Assert.Equal(("gear", 62.8f, 12f), (frame.Children[2].Name, frame.Children[2].X!.Value, frame.Children[2].Y!.Value));
+        var (cog, gear) = (frame.Children.Single(child => child.Name == "cog"), frame.Children.Single(child => child.Name == "gear"));
+
+        Assert.Equal((10f, 12f), (cog.X!.Value, cog.Y!.Value));
+        Assert.Equal((62.8f, 12f), (gear.X!.Value, gear.Y!.Value));
         Assert.Same(board, ((TabItem)tabs.SelectedItem!).Content);
     }
 
@@ -2137,9 +2148,10 @@ public class StreamlinePanelTests : IDisposable
         await panel.OpenImportAsync();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("bell", group.Children[^1].Name);
+        var bell = group.Children.Single(child => child.Name == "bell");
+
         Assert.Equal(before + (opens ? 1 : 0), tabs.Items.Count);
-        Assert.Equal(opens ? group.Children[^1] : board.Node, ((TabItem)tabs.SelectedItem!).Tag);
+        Assert.Equal(opens ? bell : board.Node, ((TabItem)tabs.SelectedItem!).Tag);
     }
 
     /// <summary>Near a line of the grid, the drop lands on it, as a tile carried there would.</summary>
@@ -2160,7 +2172,9 @@ public class StreamlinePanelTests : IDisposable
         Drop(window, OnBoard(window, board, 112f - (pull / 2f), 16f + (pull / 2f)), Carrying(window.Streamline, Parsed(Icon("ico_a", "cog"))));
         await Until(() => frame.Children.Count == 2);
 
-        Assert.Equal((12f, 16f), (frame.Children[1].X!.Value, frame.Children[1].Y!.Value));
+        var cog = frame.Children.Single(child => child.Name == "cog");
+
+        Assert.Equal((12f, 16f), (cog.X!.Value, cog.Y!.Value));
     }
 
     /// <summary>A place given there would be the first on its board and re-lay every row nobody touched.</summary>
@@ -2179,7 +2193,7 @@ public class StreamlinePanelTests : IDisposable
         Drop(window, canvas.TranslatePoint(new Point(canvas.Bounds.Width / 2d, canvas.Bounds.Height / 2d), window)!.Value, Carrying(window.Streamline, Parsed(Icon("ico_a", "cog"))));
         await Until(() => group.Children.Count == before + 1);
 
-        Assert.Equal("cog", group.Children[^1].Name);
+        Assert.Contains(group.Children, child => child.Name == "cog");
         Assert.All(group.Children, child => Assert.False(child.HasPosition));
     }
 

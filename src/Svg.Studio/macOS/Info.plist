@@ -29,6 +29,8 @@
       <string>Editor</string>
       <key>LSHandlerRank</key>
       <string>Owner</string>
+      <key>LSTypeIsPackage</key>
+      <true/>
       <key>CFBundleTypeIconFile</key>
       <string>Svg.Studio.icns</string>
       <key>LSItemContentTypes</key>
@@ -48,7 +50,8 @@
       <string>Svg.Studio.icns</string>
       <key>UTTypeConformsTo</key>
       <array>
-        <string>public.xml</string>
+        <string>com.apple.package</string>
+        <string>public.directory</string>
       </array>
       <key>UTTypeTagSpecification</key>
       <dict>

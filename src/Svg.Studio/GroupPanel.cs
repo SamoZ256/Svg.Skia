@@ -2375,7 +2375,7 @@ public sealed class GroupPanel : UserControl
             }
         }
 
-        await streamline.DropAsync(group, group.Children.Count, at, show: false).ConfigureAwait(true);
+        await streamline.DropAsync(group, at, show: false).ConfigureAwait(true);
     }
 
     /// <summary>Whether a press would take hold of something rather than reaching into it.</summary>
