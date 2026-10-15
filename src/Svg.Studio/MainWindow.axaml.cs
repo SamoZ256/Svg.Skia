@@ -4134,13 +4134,10 @@ public partial class MainWindow : Window
         };
 
         /// <remarks>
-        /// A project is a folder, which a panel offers as one document only where the system has
-        /// been told so by the app bundle. Everywhere else it is a folder to go into, so the
-        /// <c>studio.xml</c> inside is offered too, and picking it opens the project.
-        ///
-        /// No Apple type identifier: a build run from the repository declares none, and the
-        /// extension is what matches either way. The svgc project is here too, since Open takes
-        /// one by converting it.
+        /// For Windows and Linux, where a project is a folder to go into, so the <c>studio.xml</c>
+        /// inside is offered and picking it opens the project. macOS opens through
+        /// <see cref="MacOpenPanel"/>. The svgc project is here too, since Open takes one by
+        /// converting it.
         /// </remarks>
         private static readonly FilePickerFileType Projects = new("Svg Studio Projects")
         {
@@ -4171,6 +4168,14 @@ public partial class MainWindow : Window
             if (storage is null || !storage.CanOpen)
             {
                 return null;
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                // Avalonia's own picker drops a chosen package, being a folder to it.
+                return MacOpenPanel.Pick(
+                    "Open drawing or project",
+                    OpenableFileType.Patterns!.Select(pattern => Path.GetExtension(pattern).TrimStart('.')).Distinct());
             }
 
             var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions

@@ -72,8 +72,8 @@ A project opens as a workspace rather than as a document: the tree goes in a pan
 one you can fold, move or put behind another — and the project itself takes no tab, one project at a
 time, closed with `Project → Close`.
 
-On macOS a `.svgstudio` is one document in Finder, and double-clicking it opens it, once the app
-bundle has been opened: a publish for an `osx-*` runtime builds it only when asked —
+On macOS a `.svgstudio` is one document in Finder and in `File → Open`, and double-clicking it opens
+it, once the app bundle has been opened: a publish for an `osx-*` runtime builds it only when asked —
 `dotnet publish src/Svg.Studio -c Release -r osx-arm64 -p:StudioAppBundle=true` leaves
 `Svg.Studio.app` in the publish folder. Elsewhere it is an ordinary folder, which nothing can be told
 to open with Studio: open it from Studio, by picking the `studio.xml` inside it, dropping the folder
