@@ -73,6 +73,11 @@ public class SnapToGridTests : IDisposable
     {
         var path = Path.Combine(_directory, name);
 
+        if (name.EndsWith(".svgstudio", StringComparison.Ordinal))
+        {
+            return TestPackage.Write(path, text);
+        }
+
         File.WriteAllText(path, text);
 
         return path;
@@ -286,14 +291,14 @@ public class SnapToGridTests : IDisposable
         Drag(window, canvas, Edge(canvas, home), Edge(canvas, home, line - home.Left - (canvas.Grid.Pull / 2f)));
 
         var settled = Area(Drawn(panel)[0]);
-        var xml = window.Workspace!.Document.ToXml();
+        var xml = TestPackage.Dump(window.Workspace!.Document);
 
         Assert.Equal(line, settled.Left, 2);
 
         // And a nudge from there, small enough that the line takes it back.
         Drag(window, canvas, Edge(canvas, settled), Edge(canvas, settled, canvas.Grid.Pull / 2f));
 
-        Assert.Equal(xml, window.Workspace!.Document.ToXml());
+        Assert.Equal(xml, TestPackage.Dump(window.Workspace!.Document));
 
         window.Close();
     }

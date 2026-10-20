@@ -35,7 +35,7 @@ public static class RecentFiles
     /// Filtered by what is still there, so nothing offered can fail to open — a file moved or
     /// deleted between sessions is the ordinary case, not an error worth reporting.
     /// </remarks>
-    public static IReadOnlyList<string> Paths => Read().Where(File.Exists).ToList();
+    public static IReadOnlyList<string> Paths => Read().Where(path => File.Exists(path) || ProjectPackage.Exists(path)).ToList();
 
     /// <summary>Puts a path at the front, wherever in the list it was.</summary>
     public static void Add(string path)

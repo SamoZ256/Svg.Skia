@@ -92,7 +92,7 @@ public static class ProjectImport
 
         foreach (var desk in desks)
         {
-            var group = document.Root.AddGroup(desk.Name, document.Root.Children.Count);
+            var group = document.Root.AddGroup(desk.Name);
 
             // Continuing the project's, so renaming it moves every desk.
             group.Namespace = "." + desk.Name;
@@ -112,7 +112,7 @@ public static class ProjectImport
             {
                 // The document itself rather than the file the folder import writes, which is the
                 // same drawing indented by a writer on the way past.
-                var drawing = group.AddDrawing(canvas.Name, canvas.Document.Root!.ToString(), group.Children.Count);
+                var drawing = group.AddDrawing(canvas.Name, canvas.Document.Root!.ToString());
 
                 drawing.Class = canvas.Class;
                 drawing.Method = canvas.Method;
@@ -207,7 +207,7 @@ public static class ProjectImport
         {
             if (child is SvgcProjectGroup group)
             {
-                var into = target.AddGroup(Named(group), target.Children.Count);
+                var into = target.AddGroup(Named(group));
 
                 Carry(group, into);
                 Convert(group, into, notes);
@@ -227,8 +227,7 @@ public static class ProjectImport
 
             var added = target.AddDrawing(
                 Path.GetFileNameWithoutExtension(drawing.Input),
-                svg,
-                target.Children.Count);
+                svg);
 
             Carry(drawing, added);
         }
