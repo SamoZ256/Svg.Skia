@@ -369,14 +369,19 @@ thing here no amount of work on the converter can draw: a symbol naming a canvas
 or deleted upstream without its references being repointed.</li>
 </ul>
 <h2 id="how-it-is-verified">How it is verified</h2>
-<p>PaintCode generates drawing code as well as documents, so the same <code>.pcvd</code> can be drawn twice — once
-through this conversion, once through PaintCode's own generated output — and the two compared as
-pixels. <code>tests/Svg.PaintCode.UnitTests/Oracle</code> does that for every canvas, at every combination of
-the booleans PaintCode varies it on, and again with every colour it takes swapped for another.</p>
-<p>That comparison needs the document and the generated code, neither of which belongs in this
+<p>PaintCode generates drawing code as well as documents, so the same icons can be drawn twice — once
+from the Studio project the document was imported into, once through PaintCode's own generated
+output — and the two compared as pixels. <code>tests/Svg.PaintCode.UnitTests/Oracle</code> does that for every
+drawing, at every combination of the booleans PaintCode varies it on, and again with every colour it
+takes swapped for another.</p>
+<p>It reads the project rather than the document because the project is what gets edited after the
+import: a drawing corrected there to match what the app draws is measured as corrected, which an
+import of the unchanged document never could be. The project is flattened the way Studio's build
+flattens it, so each drawing carries the declarations its groups give it.</p>
+<p>That comparison needs the project, the generated code and its fonts, none of which belongs in this
 repository, so it runs only where they are:</p>
 <pre><code class="language-bash">PaintCodeResourcesDir=/path/to/generated \
-SVG_PAINTCODE_SAMPLE=/path/to/Icons.pcvd \
+SVG_PAINTCODE_PROJECT=/path/to/Icons.svgstudio \
 SVG_PAINTCODE_FONTS=/path/to/fonts \
   dotnet test tests/Svg.PaintCode.UnitTests/Svg.PaintCode.UnitTests.csproj -c Release
 </code></pre>
@@ -385,9 +390,9 @@ integration does — the suite builds and runs without it, and the drawings comm
 PaintCode produced for them are compared instead, on every platform.</p>
 <h2 id="pointing-it-at-another-document">Pointing it at another document</h2>
 <p>Nothing above names a particular PaintCode file. The three variables select one, and everything the
-suite knows about it lives in <code>TestAssets/Oracle/&lt;its styleKitName&gt;/</code> — what it holds, what the
-importer says about it, which canvases do not yet match and why, and the handful committed with their
-rasters. A second document is a second folder.</p>
+suite knows about it lives in <code>TestAssets/Oracle/&lt;the project folder's name&gt;/</code> — what it holds, what
+the importer says about it, which canvases do not yet match and why, and the handful committed with
+their rasters. A second document is a second folder.</p>
 <p>For one nobody has measured, those files do not exist yet, and the suite says so once rather than
 failing per canvas: the comparison stands aside and asks for the report. Run it —</p>
 <pre><code class="language-bash">SVG_PAINTCODE_ORACLE_REPORT=1 dotnet test … --filter PaintCodeOracleReport
@@ -408,14 +413,11 @@ colours is usually the same colour. The ones that cannot are listed in
 so a canvas cannot join the list by having a number written beside it, and one that starts meeting
 the bound has to be taken out rather than left sitting there. The counts per cause are asserted too,
 so a class cannot quietly grow.</p>
-<p><strong>The conversion is not at parity and the list says where it is not.</strong> Of 1014 canvases, 954 meet the
-bound, and <strong>every one of the 56 that do not names a reason</strong>. 16 draw text, which SVG anchors where
-PaintCode measures; 16 have a sweep an expression drives, which path data keeps literal; <strong>18 are the
-reference rather than the drawing</strong> — 9 where it is the rounded one, 5 where it is the older one, 3
-where it clips without antialiasing and 1 where its runtime cannot draw the two-circle gradient the
-document asks for; 4 want a whole gradient, a derived colour or a blend mode the format has no word
-for; 1 is the document pointing at a canvas it does not contain; and 1 is a gradient laid across the
-box rather than from the shape's middle.</p>
+<p><strong>The conversion is not at parity and the list says where it is not.</strong> Of 1014 drawings, 985 meet the
+bound, and <strong>every one of the 29 that do not names a reason</strong>. 16 draw text, which SVG anchors where
+PaintCode measures; <strong>13 are the reference rather than the drawing</strong> — 9 where it is the rounded one,
+3 where it clips without antialiasing and 1 where its runtime cannot draw the two-circle gradient the
+document asks for.</p>
 <p>One caution about the reference itself, and it is the largest single thing on the list. It is
 generated from the document and falls behind it: four canvases — including the two that measured
 furthest from PaintCode of all 1014 — draw shapes the archive plainly holds and PaintCode's own
