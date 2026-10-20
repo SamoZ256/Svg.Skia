@@ -55,6 +55,35 @@ internal sealed class Studio : IDisposable
         return path;
     }
 
+    /// <summary>Writes a project into <see cref="Data"/>: a folder with an empty <c>studio.xml</c> and one <c>.svg</c> per drawing.</summary>
+    /// <remarks>Written by hand rather than by Studio, which only saves a document it already holds.</remarks>
+    public string Package(string name, params (string Drawing, string Text)[] drawings)
+    {
+        var path = Path.Combine(Data, name);
+
+        Directory.CreateDirectory(path);
+        File.WriteAllText(Path.Combine(path, "studio.xml"), "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<studio>\n</studio>\n");
+
+        foreach (var (drawing, text) in drawings)
+        {
+            File.WriteAllText(Path.Combine(path, drawing + ".svg"), text);
+        }
+
+        return path;
+    }
+
+    /// <summary>Ends the process the way a crash does: nothing it would do on closing gets done.</summary>
+    public void Kill()
+    {
+        foreach (var process in Process.GetProcessesByName("Svg.Studio").Where(Ours))
+        {
+            process.Kill();
+            process.WaitForExit();
+        }
+
+        Quit();
+    }
+
     /// <summary>Starts Studio again on the same <see cref="Data"/>.</summary>
     public void Relaunch(params string[] arguments)
     {
@@ -86,13 +115,26 @@ internal sealed class Studio : IDisposable
         element.Click();
     }
 
+    /// <summary>The project tree's row for a drawing or group, rather than a board caption with the same name.</summary>
+    public IWebElement Row(string name)
+        => Until(() => Driver.FindElements(Chain($"**/XCUIElementTypeOutline[`identifier == 'ProjectTree'`]/**/XCUIElementTypeStaticText[`value == '{name}'`]")).FirstOrDefault(), $"the row '{name}'");
+
+    /// <summary>Clicks with ⌘ held, which selects a row without opening what it holds.</summary>
+    public void CommandClick(IWebElement element)
+    {
+        Front();
+        new OpenQA.Selenium.Interactions.Actions(Driver).KeyDown(Keys.Command).Click(element).KeyUp(Keys.Command).Perform();
+    }
+
     /// <summary>A button by what it says, for the ones built in code without a name.</summary>
     public IWebElement Button(string title)
         => Until(() => Driver.FindElements(Chain($"**/XCUIElementTypeButton[`title == '{title}'`]")).FirstOrDefault(), $"the button '{title}'");
 
     /// <summary>Anything that says <paramref name="text"/>, for Avalonia's popups, whose items macOS gives no settled type.</summary>
     public IWebElement Labelled(string text)
-        => Until(() => Driver.FindElements(new Locator("-ios predicate string", $"title == '{text}' OR label == '{text}' OR value == '{text}'")).FirstOrDefault(e => e.Displayed), $"'{text}'");
+        => Until(() => Driver.FindElements(Saying(text)).FirstOrDefault(e => e.Displayed), $"'{text}'");
+
+    public bool Says(string text) => Driver.FindElements(Saying(text)).Any(e => e.Displayed);
 
     /// <summary>Picks an item from the menu bar, which is where macOS puts Studio's NativeMenu.</summary>
     public void Menu(string menu, string item)
@@ -120,12 +162,12 @@ internal sealed class Studio : IDisposable
     }
 
     /// <summary>A key with ⌘, as the menu's key equivalents are pressed.</summary>
-    public void Command(string key)
+    public void Command(string key, bool shift = false)
     {
         Front();
         Driver.ExecuteScript("macos: keys", new Dictionary<string, object>
         {
-            ["keys"] = new object[] { new Dictionary<string, object> { ["key"] = key, ["modifierFlags"] = CommandKey } }
+            ["keys"] = new object[] { new Dictionary<string, object> { ["key"] = key, ["modifierFlags"] = CommandKey | (shift ? ShiftKey : 0) } }
         });
     }
 
@@ -220,7 +262,20 @@ internal sealed class Studio : IDisposable
         }
         catch (WebDriverException)
         {
-            // Already gone.
+            // Already gone, as after Kill.
+        }
+    }
+
+    /// <summary>The bundle these tests launched, rather than a Studio somebody is using.</summary>
+    private static bool Ours(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName.StartsWith(App!, StringComparison.Ordinal) == true;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return false;
         }
     }
 
@@ -242,9 +297,12 @@ internal sealed class Studio : IDisposable
         return folder;
     }
 
+    private static By Saying(string text) => new Locator("-ios predicate string", $"title == '{text}' OR label == '{text}' OR value == '{text}'");
+
     private static By Chain(string chain) => new Locator("-ios class chain", chain);
 
-    /// <summary>XCUIKeyModifierCommand, as <c>macos: keys</c> takes modifiers.</summary>
+    /// <summary>XCUIKeyModifierShift and XCUIKeyModifierCommand, as <c>macos: keys</c> takes modifiers.</summary>
+    private const int ShiftKey = 1 << 1;
     private const int CommandKey = 1 << 4;
 
     /// <summary>XCUIApplicationStateRunningForeground, as <c>macos: queryAppState</c> answers.</summary>
