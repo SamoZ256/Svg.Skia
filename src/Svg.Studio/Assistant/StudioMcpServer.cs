@@ -3,9 +3,11 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -18,6 +20,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -45,15 +48,33 @@ public sealed class StudioMcpServer : IAsyncDisposable
         "These tools read and edit what is open in Svg Studio, a desktop editor for SVG drawings that are built into C# (SkiaSharp) code.\n"
         + "- Call get_context before acting, to see the project, the tab in front and what is selected.\n"
         + "- read_doc with an empty id lists the documentation's sections; read one before answering how Studio works.\n"
+        + "- Every client connected to this Studio shares one undo: undo takes back the newest edit any of them made, so check the label it names.\n"
         + AssistantSession.Rules;
 
     private readonly AssistantTools _tools;
+
+    /// <summary>Whether the call in flight reported success, which every tool that changes something does and a refusal does not.</summary>
+    /// <remarks>
+    /// Flowing with the call rather than one field, because a client can make calls in parallel and
+    /// they interleave on the UI thread; Avalonia's dispatcher runs each under the context it was
+    /// invoked from.
+    /// </remarks>
+    private readonly AsyncLocal<StrongBox<bool>?> _reported = new();
+
+    private readonly SemaphoreSlim _applying = new(1, 1);
     private WebApplication? _app;
     private (int Port, string Token)? _serving;
 
     public StudioMcpServer(MainWindow window)
     {
         _tools = new AssistantTools(window) { Confirm = _ => Task.FromResult(true), Who = "Claude Code" };
+        _tools.Called += (_, _) =>
+        {
+            if (_reported.Value is { } reported)
+            {
+                reported.Value = true;
+            }
+        };
     }
 
     /// <summary>What the server is doing, or why it is not, for Settings to say; null while it is off.</summary>
@@ -95,67 +116,81 @@ public sealed class StudioMcpServer : IAsyncDisposable
         => $"claude mcp add --transport http {Name} http://127.0.0.1:{port}/mcp --header \"Authorization: Bearer {token}\"";
 
     /// <summary>Serves what Settings now says, starting, stopping or moving only when that changed.</summary>
+    /// <remarks>
+    /// One at a time: a second apply arriving while a first stopped the old port saw nothing serving,
+    /// and the first then started a server Settings had since switched off.
+    /// </remarks>
     public async Task ApplyAsync()
     {
-        (int Port, string Token)? wanted = null;
-
-        if (StudioSettings.McpEnabled)
-        {
-            try
-            {
-                wanted = Token(make: true) is { } token ? (StudioSettings.McpPort, token) : null;
-            }
-            catch (InvalidOperationException failure)
-            {
-                await StopAsync().ConfigureAwait(true);
-                Status = failure.Message;
-
-                return;
-            }
-
-            if (wanted is null)
-            {
-                await StopAsync().ConfigureAwait(true);
-                Status = "Studio knows of no keychain on this machine to keep the token in.";
-
-                return;
-            }
-        }
-
-        if (wanted == _serving && (wanted is null || _app is { }))
-        {
-            Status = wanted is null ? null : Status;
-
-            return;
-        }
-
-        await StopAsync().ConfigureAwait(true);
-
-        if (wanted is not { } serving)
-        {
-            Status = null;
-
-            return;
-        }
-
-        var app = Build(serving.Port, serving.Token);
+        await _applying.WaitAsync().ConfigureAwait(true);
 
         try
         {
-            await app.StartAsync().ConfigureAwait(true);
+            (int Port, string Token)? wanted = null;
+
+            if (StudioSettings.McpEnabled)
+            {
+                try
+                {
+                    // Off the UI thread: a locked keychain keeps waiting on its prompt.
+                    wanted = await Task.Run(() => Token(make: true)).ConfigureAwait(true) is { } token ? (StudioSettings.McpPort, token) : null;
+                }
+                catch (Exception failure) when (failure is InvalidOperationException or Win32Exception)
+                {
+                    await StopAsync().ConfigureAwait(true);
+                    Status = failure.Message;
+
+                    return;
+                }
+
+                if (wanted is null)
+                {
+                    await StopAsync().ConfigureAwait(true);
+                    Status = "Studio knows of no keychain on this machine to keep the token in.";
+
+                    return;
+                }
+            }
+
+            if (wanted == _serving && (wanted is null || _app is { }))
+            {
+                Status = wanted is null ? null : Status;
+
+                return;
+            }
+
+            await StopAsync().ConfigureAwait(true);
+
+            if (wanted is not { } serving)
+            {
+                Status = null;
+
+                return;
+            }
+
+            var app = Build(serving.Port, serving.Token);
+
+            try
+            {
+                await app.StartAsync().ConfigureAwait(true);
+            }
+            catch (IOException failure)
+            {
+                // Kestrel says "address already in use" as an IOException; another Studio is the usual one.
+                await app.DisposeAsync().ConfigureAwait(true);
+                Status = $"Port {serving.Port} could not be listened on, perhaps by another Studio: {failure.Message}";
+
+                return;
+            }
+
+            _app = app;
+            _serving = serving;
+            Status = $"Listening on 127.0.0.1:{serving.Port}.";
         }
-        catch (IOException failure)
+        finally
         {
-            // Kestrel says "address already in use" as an IOException; another Studio is the usual one.
-            await app.DisposeAsync().ConfigureAwait(true);
-            Status = $"Port {serving.Port} could not be listened on, perhaps by another Studio: {failure.Message}";
-
-            return;
+            _applying.Release();
         }
-
-        _app = app;
-        _serving = serving;
-        Status = $"Listening on 127.0.0.1:{serving.Port}.";
     }
 
     public async ValueTask DisposeAsync()
@@ -221,30 +256,54 @@ public sealed class StudioMcpServer : IAsyncDisposable
                 _tools.ContextAsync,
                 "get_context",
                 "What is open in Studio now: the project, the tab in front, the selected elements and any problems."))
-            .Select(function => McpServerTool.Create(new Plain(function), new McpServerToolCreateOptions
+            .Select(function => McpServerTool.Create(new Plain(function, _reported), new McpServerToolCreateOptions
             {
                 ReadOnly = AssistantTools.Reading.Contains(function.Name),
-                Destructive = AssistantTools.Confirming.Contains(function.Name)
+                Destructive = AssistantTools.Confirming.Contains(function.Name),
+                Idempotent = AssistantTools.Repeatable.Contains(function.Name),
+                OpenWorld = false
             }))
             .ToList();
 
-    /// <summary>A function whose string answer reaches the client as text, not as a JSON string in quotes.</summary>
+    /// <summary>A function whose string answer reaches the client as text, not as a JSON string in quotes, and a refusal as an error.</summary>
     /// <remarks>
     /// The factory's functions answer with the JSON of their result, and the server writes a JSON
-    /// string out as it is: every reply came quoted, with its newlines spelled <c>\n</c>.
+    /// string out as it is: every reply came quoted, with its newlines spelled <c>\n</c>. The SDK
+    /// passes on the message only of an <see cref="McpException"/>: a missing argument came back as
+    /// "An error occurred invoking 'set_node'." and nothing more.
     /// </remarks>
     private sealed class Plain : DelegatingAIFunction
     {
-        public Plain(AIFunction inner)
+        private readonly AsyncLocal<StrongBox<bool>?> _reported;
+
+        public Plain(AIFunction inner, AsyncLocal<StrongBox<bool>?> reported)
             : base(inner)
         {
+            _reported = reported;
         }
 
         protected override async ValueTask<object?> InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
         {
-            var result = await base.InvokeCoreAsync(arguments, cancellationToken).ConfigureAwait(false);
+            var reported = _reported.Value = new StrongBox<bool>();
+            object? result;
 
-            return result is JsonElement { ValueKind: JsonValueKind.String } text ? text.GetString() : result;
+            try
+            {
+                result = await base.InvokeCoreAsync(arguments, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException and not McpException)
+            {
+                throw new McpException(failure.Message, failure);
+            }
+
+            if (result is not JsonElement { ValueKind: JsonValueKind.String } json)
+            {
+                return result;
+            }
+
+            return reported.Value || AssistantTools.Reading.Contains(Name)
+                ? json.GetString()
+                : new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = json.GetString()! }] };
         }
     }
 

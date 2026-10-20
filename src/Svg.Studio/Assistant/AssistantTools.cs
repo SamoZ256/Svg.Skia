@@ -7,6 +7,8 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using Avalonia.Threading;
@@ -38,6 +40,9 @@ public sealed class AssistantTools
 {
     private const string Undoes = " It is one undo step.";
 
+    /// <summary>Refuses an argument no parameter takes: dropped, a misspelled node fell back to the drawing in front, which took the edit.</summary>
+    private static readonly JsonSerializerOptions s_arguments = new(AIJsonUtilities.DefaultOptions) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+
     private readonly MainWindow _window;
 
     /// <summary>How to take back each edit this made, newest last, so undo takes back this one's and not the tab's.</summary>
@@ -67,13 +72,20 @@ public sealed class AssistantTools
         "save", "remove", "git_commit"
     };
 
+    /// <summary>The tools that, called again with the same arguments, leave things as the first call did.</summary>
+    public static readonly IReadOnlySet<string> Repeatable = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing"
+    };
+
     /// <summary>Who the Edit menu says made an edit: "Undo Assistant: make it red".</summary>
     public string Who { get; init; } = "Assistant";
 
     /// <summary>Asks the person before something that cannot be taken back with ⌘Z.</summary>
     public Func<string, Task<bool>> Confirm { get; set; } = _ => Task.FromResult(false);
 
-    /// <summary>Raised on the UI thread after each call, with the line the panel shows for it.</summary>
+    /// <summary>Raised on the UI thread after each call that did what it was asked, with the line the panel shows for it.</summary>
+    /// <remarks>The MCP server takes a call that answers without it, other than a <see cref="Reading"/> one, for a refusal.</remarks>
     public event EventHandler<string>? Called;
 
     /// <summary>The functions for a model: all of them, or the few a small context has room for.</summary>
@@ -84,36 +96,38 @@ public sealed class AssistantTools
 
         if (docs)
         {
-            tools.Add(AIFunctionFactory.Create(ReadDoc, "read_doc", "Reads one section of the Svg Studio documentation by its id from the contents."));
+            Add(ReadDoc, "read_doc", "Reads one section of the Svg Studio documentation by its id from the contents.");
         }
 
-        tools.Add(AIFunctionFactory.Create(GetProject, "get_project", "Lists the open project's groups and drawings with their node paths, and which one is in front."));
-        tools.Add(AIFunctionFactory.Create(GetDrawing, "get_drawing", "Reads a drawing: its elements with their address keys, any problems, and its SVG source."));
-        tools.Add(AIFunctionFactory.Create(SetAttributes, "set_attributes", "Sets or removes attributes on one element of a drawing, as a single undo step."));
-        tools.Add(AIFunctionFactory.Create(Undo, "undo", "Takes back the last edit these tools made, whichever drawing or the project it went to, and says which; with none left, the person's last edit."));
+        Add(GetProject, "get_project", "Lists the open project's groups and drawings with their node paths, and which one is in front.");
+        Add(GetDrawing, "get_drawing", "Reads a drawing: its elements with their address keys, any problems, and its SVG source.");
+        Add(SetAttributes, "set_attributes", "Sets or removes attributes on one element of a drawing, as a single undo step.");
+        Add(Undo, "undo", "Takes back the last edit these tools made, whichever drawing or the project it went to, and says which; with none left, the person's last edit.");
 
         if (small)
         {
             return tools;
         }
 
-        tools.Add(AIFunctionFactory.Create(GetElement, "get_element", "Reads every attribute of one element of a drawing, as the file writes it."));
-        tools.Add(AIFunctionFactory.Create(GetProblems, "get_problems", "Lists every problem in the drawings under a group, or in the whole project: the one call that finds what is wrong."));
-        tools.Add(AIFunctionFactory.Create(SetText, "set_text", "Sets the text between an element's tags - a <text>'s words or an <e:let>'s expression - as a single undo step."));
-        tools.Add(AIFunctionFactory.Create(ReplaceDrawing, "replace_drawing", "Replaces a drawing's whole SVG source, as a single undo step. Prefer set_attributes for small changes."));
-        tools.Add(AIFunctionFactory.Create(Select, "select", "Selects elements of the drawing in front, by address key, so the person sees them."));
-        tools.Add(AIFunctionFactory.Create(Open, "open", "Opens a group or drawing of the project in its tab."));
-        tools.Add(AIFunctionFactory.Create(AddGroup, "add_group", "Adds an empty group inside a group, and opens it."));
-        tools.Add(AIFunctionFactory.Create(AddDrawing, "add_drawing", "Adds a drawing from SVG text inside a group, and opens it."));
-        tools.Add(AIFunctionFactory.Create(Move, "move", "Moves a group or drawing into another group."));
-        tools.Add(AIFunctionFactory.Create(GetDeclarations, "get_declarations", "Reads the declarations block a group, or the project, gives every drawing under it."));
-        tools.Add(AIFunctionFactory.Create(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step."));
-        tools.Add(AIFunctionFactory.Create(SetNode, "set_node", "Changes a group's or drawing's project setting: name, namespace, class, padding, width, height, scale, x, y, cache, helperScope or skiaSharp."));
-        tools.Add(AIFunctionFactory.Create(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Asks the person first."));
-        tools.Add(AIFunctionFactory.Create(Remove, "remove", "Removes a group or drawing from the project. Asks the person first."));
-        tools.Add(AIFunctionFactory.Create(GitCommit, "git_commit", "Saves and commits the project to its git repository. Asks the person first."));
+        Add(GetElement, "get_element", "Reads every attribute of one element of a drawing, as the file writes it.");
+        Add(GetProblems, "get_problems", "Lists every problem in the drawings under a group, or in the whole project: the one call that finds what is wrong.");
+        Add(SetText, "set_text", "Sets the text between an element's tags - a <text>'s words or an <e:let>'s expression - as a single undo step.");
+        Add(ReplaceDrawing, "replace_drawing", "Replaces a drawing's whole SVG source, as a single undo step. Prefer set_attributes for small changes.");
+        Add(Select, "select", "Selects elements of the drawing in front, by address key, so the person sees them.");
+        Add(Open, "open", "Opens a group or drawing of the project in its tab.");
+        Add(AddGroup, "add_group", "Adds an empty group inside a group, and opens it.");
+        Add(AddDrawing, "add_drawing", "Adds a drawing from SVG text inside a group, and opens it.");
+        Add(Move, "move", "Moves a group or drawing into another group.");
+        Add(GetDeclarations, "get_declarations", "Reads the declarations block a group, or the project, gives every drawing under it.");
+        Add(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step.");
+        Add(SetNode, "set_node", "Changes a group's or drawing's project setting: name, namespace, class, padding, width, height, scale, x, y, cache, helperScope or skiaSharp.");
+        Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own.");
+        Add(Remove, "remove", "Removes a group or drawing from the project.");
+        Add(GitCommit, "git_commit", "Saves and commits the project to its git repository.");
 
         return tools;
+
+        void Add(Delegate tool, string name, string description) => tools.Add(AIFunctionFactory.Create(tool, name, description, s_arguments));
     }
 
     /// <summary>What is open, in a few lines, for the start of every message the person sends.</summary>
@@ -444,7 +458,7 @@ public sealed class AssistantTools
             }
 
             return viewer.Elements.TrySelect(picked)
-                ? (keys.Length == 0 ? "Selection cleared." : "Selected.") + (missing.Count > 0 ? $" Not elements of this drawing: {string.Join(", ", missing)}." : string.Empty)
+                ? Report((keys.Length == 0 ? "Selection cleared." : "Selected.") + (missing.Count > 0 ? $" Not elements of this drawing: {string.Join(", ", missing)}." : string.Empty), "select")
                 : "Nothing changed.";
         });
 

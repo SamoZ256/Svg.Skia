@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -45,6 +47,13 @@ public class StudioMcpServerTests : IDisposable
     {
         foreach (var window in _windows)
         {
+            // Set only now: a yes during the test let a tool call that reached the prompt throw the
+            // edits away and pass, where the real modal holds the call until Call gives up on it.
+            if (window is MainWindow main)
+            {
+                main.ConfirmDiscard = _ => Task.FromResult(true);
+            }
+
             window.Close();
         }
 
@@ -72,8 +81,199 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.True(tools["save"].ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools["git_commit"].ProtocolTool.Annotations?.DestructiveHint);
+        Assert.True(tools["remove"].ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools["get_drawing"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.False(tools["set_attributes"].ProtocolTool.Annotations?.DestructiveHint);
+
+        // Over MCP nobody but the client asks: Studio answers its own question yes.
+        foreach (var name in new[] { "save", "remove", "git_commit" })
+        {
+            Assert.DoesNotContain("Asks the person", tools[name].Description, StringComparison.Ordinal);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Every_Tool_Stays_On_This_Machine_And_The_Repeatable_Ones_Say_So()
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port);
+
+        var tools = (await client.ListToolsAsync()).ToDictionary(tool => tool.Name);
+        var repeatable = new[] { "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing" };
+
+        Assert.All(tools.Values, tool => Assert.False(tool.ProtocolTool.Annotations?.OpenWorldHint, tool.Name));
+        Assert.All(repeatable, name => Assert.True(tools[name].ProtocolTool.Annotations?.IdempotentHint, name));
+        Assert.All(
+            new[] { "undo", "add_group", "add_drawing", "move", "remove", "git_commit" },
+            name => Assert.NotEqual(true, tools[name].ProtocolTool.Annotations?.IdempotentHint));
+    }
+
+    [AvaloniaFact]
+    public async Task Claude_Code_Is_Told_Every_Client_Shares_One_Undo()
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port);
+
+        Assert.Contains("shares one undo", client.ServerInstructions, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Refusal_Comes_Back_As_An_Error_And_A_Success_Does_Not()
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port);
+
+        var elsewhere = await Call(client, "set_attributes", new()
+        {
+            ["key"] = "0",
+            ["attributes"] = new[] { new { name = "fill", value = "red" } },
+            ["summary"] = "x",
+            ["node"] = "9"
+        });
+        var none = await Call(client, "undo", new());
+        var picked = await Call(client, "select", new() { ["keys"] = new[] { "0" } });
+
+        Assert.True(elsewhere.IsError);
+        Assert.Contains("is not a drawing", Text(elsewhere), StringComparison.Ordinal);
+        Assert.True(none.IsError);
+        Assert.Equal("There is nothing to take back.", Text(none));
+        Assert.NotEqual(true, picked.IsError);
+        Assert.Equal("Selected.", Text(picked));
+    }
+
+    [AvaloniaFact]
+    public async Task Calls_Made_At_Once_Are_Each_Judged_By_What_They_Did()
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        // The UI thread is held while both arrive, so the success runs after the refusal has begun
+        // and one box shared between calls has it mark the refusal's. Too short a pause, and they
+        // only fail to overlap.
+        var picked = Task.Run(() => client.CallToolAsync("select", new Dictionary<string, object?> { ["keys"] = new[] { "0" } }, cancellationToken: timeout.Token).AsTask());
+        Thread.Sleep(500);
+        var elsewhere = Task.Run(() => client.CallToolAsync(
+            "set_attributes",
+            new Dictionary<string, object?>
+            {
+                ["key"] = "0",
+                ["attributes"] = new[] { new { name = "fill", value = "red" } },
+                ["summary"] = "x",
+                ["node"] = "9"
+            },
+            cancellationToken: timeout.Token).AsTask());
+        Thread.Sleep(500);
+
+        var results = await Task.WhenAll(picked, elsewhere);
+
+        Assert.NotEqual(true, results[0].IsError);
+        Assert.Equal("Selected.", Text(results[0]));
+        Assert.True(results[1].IsError);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Call_That_Throws_Says_Why()
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port);
+
+        var result = await Call(client, "set_attributes", new());
+
+        Assert.True(result.IsError);
+        Assert.Contains("required parameter 'key'", Text(result), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Misspelled_Argument_Is_Refused_Rather_Than_Dropped()
+    {
+        var (window, port) = await Serving();
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        var before = viewer.Source;
+        await using var client = await Client(port);
+
+        // Dropped, the path fell back to the drawing in front, which then took the edit.
+        var result = await Call(client, "set_attributes", new()
+        {
+            ["key"] = "0",
+            ["attributes"] = new[] { new { name = "fill", value = "red" } },
+            ["summary"] = "red",
+            ["nodePath"] = "0/3"
+        });
+
+        Assert.True(result.IsError);
+        Assert.Contains("unexpected key 'nodePath'", Text(result), StringComparison.Ordinal);
+        Assert.Equal(before, viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task Overlapping_Applies_End_On_What_Settings_Last_Said()
+    {
+        StudioSettings.McpEnabled = false;
+
+        var window = await Open();
+        await using var server = new StudioMcpServer(window);
+
+        StudioSettings.McpEnabled = true;
+        StudioSettings.McpPort = FreePort();
+        await server.ApplyAsync();
+
+        var token = StudioMcpServer.Token(make: false);
+        var moved = StudioSettings.McpPort = FreePort();
+        var first = server.ApplyAsync();
+
+        // Part way through, or the apply below would not overlap it.
+        Assert.False(first.IsCompleted);
+
+        StudioSettings.McpEnabled = false;
+        await server.ApplyAsync();
+        await first;
+
+        Assert.Null(StudioMcpServer.Status);
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => Post(moved, token));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Keychain_That_Cannot_Be_Started_Is_Asked_Off_The_UI_Thread_And_Said()
+    {
+        StudioSettings.McpEnabled = false;
+
+        var window = await Open();
+        var keychain = new Unstartable();
+
+        Keychain.Current = keychain;
+        StudioSettings.McpEnabled = true;
+        StudioSettings.McpPort = FreePort();
+        await using var server = new StudioMcpServer(window);
+
+        await server.ApplyAsync();
+
+        Assert.False(keychain.AskedOnUiThread);
+        Assert.Equal(Unstartable.Said, StudioMcpServer.Status);
+    }
+
+    [AvaloniaFact]
+    public async Task A_New_Token_Is_Said_To_Work_Once_Settings_Closes()
+    {
+        var (_, port) = await Serving();
+
+        var settings = new SettingsWindow();
+        _windows.Add(settings);
+        settings.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal($"Listening on 127.0.0.1:{port}.", settings.McpStatus.Text);
+
+        // The server still holds the old token, which the person's terminal does not.
+        settings.NewMcpToken.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("once Settings closes", settings.McpStatus.Text, StringComparison.Ordinal);
+
+        settings.CopyMcpCommand.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => settings.McpStatus.Text?.StartsWith("Copied", StringComparison.Ordinal) == true);
+
+        Assert.Contains("once Settings closes", settings.McpStatus.Text, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -210,7 +410,8 @@ public class StudioMcpServerTests : IDisposable
 
         var window = await Open();
 
-        await Until(() => StudioMcpServer.Status?.StartsWith("Listening", StringComparison.Ordinal) == true);
+        // This port exactly: a window a test left holding edits is still listening on its own.
+        await Until(() => StudioMcpServer.Status == $"Listening on 127.0.0.1:{StudioSettings.McpPort}.");
 
         return (window, StudioSettings.McpPort);
     }
@@ -252,6 +453,17 @@ public class StudioMcpServerTests : IDisposable
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + StudioMcpServer.Token(make: false) }
         }));
 
+    /// <summary>Calls a tool, giving up after half a minute so a call that never returns fails rather than holds the run.</summary>
+    private static async Task<CallToolResult> Call(McpClient client, string name, Dictionary<string, object?> arguments)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        var result = await client.CallToolAsync(name, arguments, cancellationToken: timeout.Token);
+        Dispatcher.UIThread.RunJobs();
+
+        return result;
+    }
+
     private static async Task<HttpStatusCode> Post(int port, string? token, string? origin = null, string? host = null)
     {
         using var http = new HttpClient();
@@ -284,6 +496,25 @@ public class StudioMcpServerTests : IDisposable
 
     private static string Text(CallToolResult result)
         => string.Concat(result.Content.OfType<TextContentBlock>().Select(block => block.Text));
+
+    /// <summary>A keychain whose tool will not start, as when secret-tool has gone since Studio started.</summary>
+    private sealed class Unstartable : Keychain
+    {
+        public const string Said = "No such file or directory";
+
+        public bool? AskedOnUiThread { get; private set; }
+
+        public override string? Get(string service, string account)
+        {
+            AskedOnUiThread = Dispatcher.UIThread.CheckAccess();
+
+            throw new Win32Exception(2, Said);
+        }
+
+        public override void Set(string service, string account, string secret) => throw new Win32Exception(2, Said);
+
+        public override void Remove(string service, string account) => throw new Win32Exception(2, Said);
+    }
 
     private static int FreePort()
     {
