@@ -33,4 +33,4 @@ symbol-updates,OracleRounding,0.0323,the same rounded group scale; rounding ours
 symbol-variables,OracleRounding,0.0369,the same rounded group scale; rounding ours to 2dp leaves 0.0013
 thermostatdetailed-temperature-temperature2-level,TextMetrics,0.2418,the run is placed from the shape's box rather than measured the way PaintCode measures it.
 thermostatsquare-temperature-level,TextMetrics,0.1123,the run is placed from the shape's box rather than measured the way PaintCode measures it.
-valve-cold-state,MissingCanvas,0.1513,"the document has no canvas called 'cooling-state', so nothing is drawn where this symbol was placed."
+valve-cold-state,StaleOracle,0.1513,"the document places its valve-cold-level symbol at (-0.4756, 0.0202) where the export draws it at (0, -0.04); moving it there leaves 0.0193. The missing 'cooling-state' symbol is drawn by neither side"
