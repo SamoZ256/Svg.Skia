@@ -2,10 +2,11 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -168,7 +169,7 @@ public sealed class ChangesPanel : UserControl
     public async Task<bool> Track(string? path)
     {
         var tracking = ++_tracking;
-        var shown = path is { } && ProjectGit.Installed is { } && File.Exists(path) ? path : null;
+        var shown = path is { } && ProjectGit.Installed is { } && ProjectPackage.Exists(path) ? path : null;
         var git = shown is { } ? await ProjectGit.For(shown).ConfigureAwait(true) : null;
 
         // A later call has pointed the panel somewhere else while git was being asked.
@@ -213,7 +214,7 @@ public sealed class ChangesPanel : UserControl
             var hash = await git.Head().ConfigureAwait(true);
             var head = _head is { } known && known.Hash == hash
                 ? known
-                : (hash, hash is { } ? Parsed(await git.At("HEAD").ConfigureAwait(true), Path.Combine(git.Directory, git.Name)) : null);
+                : (hash, hash is { } ? Parsed(await git.Files("HEAD").ConfigureAwait(true), Path.Combine(git.Directory, git.Name)) : null);
             var merging = await git.InMerge().ConfigureAwait(true);
             var rebasing = await git.Rebasing().ConfigureAwait(true);
             var branches = await git.Branches().ConfigureAwait(true);
@@ -404,7 +405,7 @@ public sealed class ChangesPanel : UserControl
     /// <returns>Whether the file was in a merge, and has been dealt with or said about.</returns>
     public async Task<bool> Resolve(string path)
     {
-        if (await ProjectGit.For(path).ConfigureAwait(true) is not { } git)
+        if (await ProjectGit.For(ProjectPackage.Find(path) ?? path).ConfigureAwait(true) is not { } git)
         {
             return false;
         }
@@ -459,21 +460,25 @@ public sealed class ChangesPanel : UserControl
     }
 
     /// <summary>
-    /// Merges the three versions git holds of the file by node, asking about what both sides
-    /// changed, and writes the answer — or aborts the merge, or leaves it for later.
+    /// Settles each file of the project a merge left conflicted by keeping one side of it, asking
+    /// which — or aborts the merge, or leaves it for later.
     /// </summary>
-    /// <param name="opening">Whether the window is failing to open the file, which then cannot be left for later.</param>
+    /// <remarks>
+    /// By file, because git has already merged everything else: two drawings added, or two edited,
+    /// each on its own side, never reach here. What does is one file both sides changed.
+    /// </remarks>
+    /// <param name="opening">Whether the window is failing to open the project, which then cannot be left for later.</param>
     private async Task Resolve(ProjectGit git, bool opening)
     {
         var tracking = _tracking;
         var path = Path.Combine(git.Directory, git.Name);
         ProjectMerge merge;
 
-        // What the window holds is older than the file resolving writes, and a save would put it back.
+        // What the window holds is older than what resolving writes, and a save would put it back.
         if (Unsaved() && Holds(path))
         {
             await Announce("Discard before resolving", "The window holds changes that are not on disk, and resolving the "
-                                                        + "merge would write the file under them. Close the project unsaved, "
+                                                        + "merge would write the project under them. Close the project unsaved, "
                                                         + "and the merge is offered again when it opens.").ConfigureAwait(true);
             return;
         }
@@ -489,17 +494,21 @@ public sealed class ChangesPanel : UserControl
                 return;
             }
 
-            var (@base, ours, theirs) = await git.Stages().ConfigureAwait(true);
+            var conflicts = new List<ProjectConflict>();
 
-            if (ours is null || theirs is null)
+            foreach (var conflicted in await git.Conflicts().ConfigureAwait(true))
             {
-                throw new SvgcProjectException($"{git.Name} was deleted on one side of the merge.");
+                if (!ProjectPackage.Holds(conflicted))
+                {
+                    throw new SvgcProjectException($"{conflicted} is not a drawing or a group of the project.");
+                }
+
+                var (@base, ours, theirs) = await git.Sides(conflicted).ConfigureAwait(true);
+
+                conflicts.Add(new ProjectConflict(conflicted, ours, theirs, added: @base is null));
             }
 
-            merge = ProjectMerge.Of(
-                @base is { } ? ProjectDocument.Parse(@base, path) : null,
-                ProjectDocument.Parse(ours, path),
-                ProjectDocument.Parse(theirs, path));
+            merge = new ProjectMerge(conflicts);
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ProjectGitException)
         {
@@ -525,8 +534,19 @@ public sealed class ChangesPanel : UserControl
         {
             if (answer == true)
             {
-                // Through the document, which writes the text as Save always does.
-                ProjectDocument.Parse(merge.ToXml(), path).Save(path);
+                foreach (var conflict in merge.Conflicts)
+                {
+                    if (conflict.Choice == ProjectSide.Both && conflict.TheirsText is { } theirs)
+                    {
+                        File.WriteAllText(Beside(path, conflict.Path), theirs, new UTF8Encoding(false));
+                        await git.Take(conflict.Path, ProjectSide.Ours).ConfigureAwait(true);
+                    }
+                    else
+                    {
+                        await git.Take(conflict.Path, conflict.Choice).ConfigureAwait(true);
+                    }
+                }
+
                 await git.Stage().ConfigureAwait(true);
             }
             else
@@ -548,7 +568,26 @@ public sealed class ChangesPanel : UserControl
         await Reopened(path, tracking).ConfigureAwait(true);
     }
 
-    /// <summary>Whether the window's project is the file at <paramref name="path"/>.</summary>
+    /// <summary>
+    /// Where a drawing both sides added at <paramref name="conflicted"/> keeps their version: beside
+    /// ours, under the name it would be given were it added a second time.
+    /// </summary>
+    private static string Beside(string project, string conflicted)
+    {
+        var folder = Path.Combine(project, Path.GetDirectoryName(conflicted.Replace('/', Path.DirectorySeparatorChar)) ?? string.Empty);
+        var taken = ProjectPackage.Reserved();
+
+        foreach (var entry in Directory.EnumerateFileSystemEntries(folder))
+        {
+            taken.Add(Path.GetFileName(entry));
+        }
+
+        var leaf = conflicted.Substring(conflicted.LastIndexOf('/') + 1);
+
+        return Path.Combine(folder, ProjectPackage.Segment(ProjectPackage.Named(leaf, group: false), taken, group: false));
+    }
+
+    /// <summary>Whether the window's project is the one at <paramref name="path"/>.</summary>
     private bool Holds(string path) => string.Equals(Document()?.Path, path, StringComparison.Ordinal);
 
     /// <summary>
@@ -568,7 +607,7 @@ public sealed class ChangesPanel : UserControl
 
         if (Unsaved() && Holds(path))
         {
-            await Announce("The file changed under unsaved edits", $"Git rewrote {Path.GetFileName(path)} while the window held "
+            await Announce("The project changed under unsaved edits", $"Git rewrote {Path.GetFileName(path)} while the window held "
                                                                    + "changes that are not on disk. Saving them would write over what "
                                                                    + "git wrote: close the project unsaved and open it again.")
                 .ConfigureAwait(true);
@@ -578,11 +617,11 @@ public sealed class ChangesPanel : UserControl
         await Reopen(path).ConfigureAwait(true);
     }
 
-    private static ProjectDocument? Parsed(string? text, string path)
+    private static ProjectDocument? Parsed(IReadOnlyDictionary<string, string>? files, string path)
     {
         try
         {
-            return text is { } ? ProjectDocument.Parse(text, path) : null;
+            return files is { } ? ProjectDocument.Read(files, path) : null;
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
         {
@@ -774,8 +813,8 @@ public sealed class ChangesPanel : UserControl
     }
 
     /// <summary>
-    /// Runs a command that may rewrite the project file, refused while the window holds unsaved
-    /// work, and reopens the project when the bytes changed under it.
+    /// Runs a command that may rewrite the project, refused while the window holds unsaved work, and
+    /// reopens the project when its files changed under it.
     /// </summary>
     /// <param name="command">True when it stopped conflicted, which the refresh after it resolves.</param>
     private async Task Rewrite(string doing, string running, string failed, Func<ProjectGit, Task<bool>> command)
@@ -785,8 +824,8 @@ public sealed class ChangesPanel : UserControl
             return;
         }
 
-        // Refused rather than saved first: the file is about to be replaced, and what is typed into the
-        // window would be lost under it or written over what git brought.
+        // Refused rather than saved first: the files are about to be replaced, and what is typed into
+        // the window would be lost under them or written over what git brought.
         if (Unsaved())
         {
             await Announce($"Save before {doing}", "The window holds changes that are not on disk. "
@@ -801,13 +840,16 @@ public sealed class ChangesPanel : UserControl
 
         await Run(running, failed, async () => conflicted = await command(git).ConfigureAwait(true)).ConfigureAwait(true);
 
-        if (!conflicted && !Read(path).AsSpan().SequenceEqual(before))
+        var after = Read(path);
+
+        if (!conflicted && (after.Count != before.Count || after.Any(file => !before.TryGetValue(file.Key, out var was) || was != file.Value)))
         {
             await Reopened(path, tracking).ConfigureAwait(true);
         }
     }
 
-    private static byte[] Read(string path) => File.Exists(path) ? File.ReadAllBytes(path) : Array.Empty<byte>();
+    private static Dictionary<string, string> Read(string path)
+        => ProjectPackage.Exists(path) ? ProjectPackage.Read(path) : new Dictionary<string, string>();
 
     private Task Remote(string doing, string failed, Func<ProjectGit, Task> command)
         => _git is { } git ? Run(doing, failed, () => command(git)) : Task.CompletedTask;

@@ -1,4 +1,4 @@
-﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
+// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Xml.Linq;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
@@ -14,7 +15,7 @@ using Svg.SourceEditing;
 
 namespace Svg.Studio;
 
-/// <summary>One node of a project: the project itself, a <c>&lt;group&gt;</c> or a drawing.</summary>
+/// <summary>One node of a project: the project itself, a group or a drawing.</summary>
 /// <remarks>
 /// <para>
 /// Every setting is read and written straight through to <see cref="Element"/>, so a node has no
@@ -28,14 +29,25 @@ namespace Svg.Studio;
 /// </remarks>
 public abstract class ProjectNode
 {
+    private static long s_made;
+
     private protected ProjectNode(XElement element, ProjectGroup? parent, ProjectDocument owner)
     {
         Element = element;
         Parent = parent;
         Owner = owner;
+        Sequence = Interlocked.Increment(ref s_made);
+
+        // Whatever renames it — a setter, an undo writing the attributes back — moves it among its
+        // siblings, which are kept in name order.
+        Element.Changed += (_, _) => Parent?.Unsort();
     }
 
-    /// <summary>The XML this node reads and writes. Editing it edits the project.</summary>
+    /// <summary>The XML this node's settings are read from and written to.</summary>
+    /// <remarks>
+    /// A group's is the root of its <c>group.xml</c>, the project's of <c>studio.xml</c>. A drawing's
+    /// is held apart from the drawing, and written into its <c>&lt;metadata&gt;</c> as it is saved.
+    /// </remarks>
     public XElement Element { get; }
 
     /// <summary>The group holding this node, or null for the project itself.</summary>
@@ -48,6 +60,16 @@ public abstract class ProjectNode
 
     /// <summary>The document this belongs to.</summary>
     public ProjectDocument Owner { get; }
+
+    /// <summary>The file or folder name this node is saved under, once it has been read or saved.</summary>
+    /// <remarks>
+    /// Kept while it still fits the name, so saving does not rename what somebody else named, and
+    /// the <c>~2</c> that keeps two drawings of one name apart does not move between them.
+    /// </remarks>
+    internal string? Segment { get; set; }
+
+    /// <summary>When this node was made, which is what orders two rows nothing else tells apart.</summary>
+    internal long Sequence { get; }
 
     /// <summary>What this is called: the row in the tree, the tab, and the class it falls back on.</summary>
     /// <remarks>
@@ -264,22 +286,58 @@ public abstract class ProjectNode
     }
 }
 
-/// <summary>A <c>&lt;group&gt;</c>, and by inheritance the project itself.</summary>
+/// <summary>A group — a folder with a <c>group.xml</c> — and by inheritance the project itself.</summary>
 public class ProjectGroup : ProjectNode
 {
     private readonly List<ProjectNode> _children = new();
 
-    private protected ProjectGroup(XElement element, ProjectGroup? parent, ProjectDocument owner)
+    private bool _unsorted;
+
+    private protected ProjectGroup(XElement element, ProjectGroup? parent, ProjectDocument owner, SvgSourceDocument file)
         : base(element, parent, owner)
     {
+        File = file;
     }
 
-    internal static ProjectGroup Group(XElement element, ProjectGroup parent, ProjectDocument owner)
-        => new(element, parent, owner);
+    internal static ProjectGroup Group(SvgSourceDocument file, ProjectGroup parent, ProjectDocument owner)
+        => new(file.Document.Root!, parent, owner, file);
 
-    public IReadOnlyList<ProjectNode> Children => _children;
+    /// <summary>The group's own file, which is what writes its settings and its code back as they were found.</summary>
+    internal SvgSourceDocument File { get; }
 
-    internal void Add(ProjectNode child) => _children.Add(child);
+    /// <summary>What this group holds, by name.</summary>
+    /// <remarks>
+    /// The folder a group is keeps no order, and an order kept in a file of its own would be the one
+    /// line two people adding a drawing each both change. So the rows go by name, as the tree shows
+    /// them, and the board and the build follow the same order.
+    /// </remarks>
+    public IReadOnlyList<ProjectNode> Children
+    {
+        get
+        {
+            if (_unsorted)
+            {
+                _children.Sort(Order);
+                _unsorted = false;
+            }
+
+            return _children;
+        }
+    }
+
+    internal void Unsort() => _unsorted = true;
+
+    private static int Order(ProjectNode left, ProjectNode right)
+    {
+        var by = NaturalOrder.Instance.Compare(left.Name, right.Name);
+
+        if (by == 0)
+        {
+            by = string.CompareOrdinal(left.Segment, right.Segment);
+        }
+
+        return by != 0 ? by : left.Sequence.CompareTo(right.Sequence);
+    }
 
     /// <summary>What this group declares for everything under it, or null where it declares nothing.</summary>
     /// <remarks>
@@ -296,7 +354,7 @@ public class ProjectGroup : ProjectNode
     /// </remarks>
     public string CodeText
         => Code is { } code
-            ? Owner.Standalone(code)
+            ? Standalone(code)
             : $"<e:code xmlns:e=\"{SvgExpressionDeclarations.Namespace}\" />";
 
     /// <summary>Puts an edited block back, or answers why it could not be read.</summary>
@@ -374,7 +432,7 @@ public class ProjectGroup : ProjectNode
         }
     }
 
-    /// <summary>Puts an element in front of everything this group holds, on a line of its own.</summary>
+    /// <summary>Puts an element in front of everything this group's file holds, on a line of its own.</summary>
     private void PutFirst(XElement element)
     {
         if (Element.Elements().FirstOrDefault() is not { } first)
@@ -386,49 +444,126 @@ public class ProjectGroup : ProjectNode
 
         first.AddBeforeSelf(element);
 
-        // The break and indentation the displaced element was sitting on, given back to it — the
-        // same handover Attach makes, and for the same reason: inserting before an element lands
-        // after the whitespace in front of it, so without this the two share a line.
+        // The break and indentation the displaced element was sitting on, given back to it: inserting
+        // before an element lands after the whitespace in front of it, so without this the two share
+        // a line.
         if (element.PreviousNode is XText indent)
         {
             element.AddAfterSelf(new XText(indent.Value));
         }
     }
 
+    /// <summary>The first thing this group's file holds, so there is no sibling to take a line from.</summary>
+    private void AddFirst(XElement element)
+    {
+        var inner = new XText(Indentation(Element));
+
+        // Whatever closes the group already sits on the right line; the new element goes in front
+        // of it rather than after, which is where Add would put it.
+        if (Element.LastNode is XText closing && closing.Value.Trim().Length == 0)
+        {
+            closing.AddBeforeSelf(inner, element);
+            return;
+        }
+
+        Element.Add(inner, element, new XText(ProjectDocument.Closing(Element)));
+    }
+
+    /// <summary>The break and indentation the children of <paramref name="element"/> sit on.</summary>
+    /// <remarks>
+    /// The whitespace before a closing tag is no guide when an element holds nothing: it is the
+    /// element's own depth, and a child written on it would come out level with its parent.
+    /// </remarks>
+    internal string Indentation(XElement element)
+    {
+        var first = element.Elements().FirstOrDefault();
+
+        if (first is { } && first.PreviousNode is XText inner && inner.Value.Contains("\n"))
+        {
+            return inner.Value;
+        }
+
+        // The depth alone and not the whole break: an element written after a blank line would
+        // otherwise hand that blank line to its first child, inside the element rather than before it.
+        return "\n" + ProjectDocument.Depth(element) + File.IndentUnit;
+    }
+
+    /// <summary>One element of this group's file as the file writes it, readable on its own.</summary>
+    /// <remarks>
+    /// A prefix it uses may be bound further up — a file may bind the expression prefix once on its
+    /// root — and the text alone then does not read, so such a binding is written onto its opening tag.
+    /// </remarks>
+    internal string Standalone(XElement element)
+    {
+        var text = File.TextOf(element);
+        var used = element.DescendantsAndSelf()
+            .SelectMany(one => one.Attributes().Where(a => !a.IsNamespaceDeclaration).Select(a => a.Name.Namespace).Append(one.Name.Namespace))
+            .ToHashSet();
+        var bound = element.Attributes().Where(a => a.IsNamespaceDeclaration).Select(a => a.Name.LocalName).ToHashSet();
+        var bindings = new System.Text.StringBuilder();
+
+        // Nearest first, so a prefix bound twice takes the binding in scope.
+        foreach (var binding in element.Ancestors().SelectMany(one => one.Attributes()))
+        {
+            if (binding.Name.Namespace == XNamespace.Xmlns && bound.Add(binding.Name.LocalName) && used.Contains(XNamespace.Get(binding.Value)))
+            {
+                bindings.Append($" xmlns:{binding.Name.LocalName}=\"{System.Security.SecurityElement.Escape(binding.Value)}\"");
+            }
+        }
+
+        if (bindings.Length == 0)
+        {
+            return text;
+        }
+
+        var end = 1;
+
+        while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] is not ('/' or '>'))
+        {
+            end++;
+        }
+
+        return text.Insert(end, bindings.ToString());
+    }
+
     private static XNamespace Declarations => SvgExpressionDeclarations.Namespace;
 
     /// <summary>Adds an empty group, and hands it back to be filled in.</summary>
-    public ProjectGroup AddGroup(string name, int index)
+    public ProjectGroup AddGroup(string name)
     {
-        var group = Group(new XElement("group", new XAttribute("name", Named(name))), this, Owner);
+        var group = Group(ProjectDocument.ReadFile(ProjectDocument.BlankGroup, ProjectPackage.GroupFile), this, Owner);
 
-        Attach(index, group);
+        group.Name = Named(name);
+        Attach(group);
 
         return group;
     }
 
     /// <summary>Adds a drawing holding <paramref name="svgText"/>, which inherits everything else.</summary>
     /// <remarks>
-    /// The drawing arrives written for a file of its own, so this is where it is shifted to the
-    /// depth it now sits at. Once in, its whitespace is the project's own and is never touched
-    /// again: shifting it back out on the way to an editor and in again on the way back is not a
-    /// round trip, because a line that starts inside a text run is not indentation.
+    /// The text becomes the drawing's file as it stands, prologue and all, with its lines ended the
+    /// way git will check it out everywhere rather than the way the machine it was pasted on does.
     /// </remarks>
-    public ProjectDrawing AddDrawing(string name, string svgText, int index)
+    public ProjectDrawing AddDrawing(string name, string svgText)
     {
-        var drawing = new ProjectDrawing(
-            new XElement("drawing", new XAttribute("name", Named(name))),
-            this,
-            Owner);
-
-        Attach(index, drawing);
-
-        if (drawing.Inline(svgText, indent: true) is { } refusal)
+        if (svgText is null)
         {
-            Detach(drawing);
-
-            throw new SvgcProjectException(refusal);
+            throw new ArgumentNullException(nameof(svgText));
         }
+
+        var file = SvgSourceDocument.Read(svgText.Replace("\r\n", "\n"), out var refusal)
+                   ?? throw new SvgcProjectException(refusal ?? "That drawing could not be read.");
+
+        if (file.Document.Root is not { } root || root.Name.LocalName != "svg")
+        {
+            throw new SvgcProjectException("A drawing has to be an <svg> document.");
+        }
+
+        ProjectDrawing.Lift(root);
+
+        var drawing = new ProjectDrawing(new XElement("drawing", new XAttribute("name", Named(name))), this, Owner, file);
+
+        Attach(drawing);
 
         return drawing;
     }
@@ -439,35 +574,51 @@ public class ProjectGroup : ProjectNode
     /// <remarks>
     /// Read back through the text it was written as rather than cloned: the bytes each tag was read
     /// as are annotations on the element, and a clone carries none of them — so a copied drawing
-    /// would be the one thing in the file that had been reformatted.
+    /// would be the one file in the project that had been reformatted.
     /// </remarks>
-    public ProjectNode Copy(ProjectNode source, int index)
+    public ProjectNode Copy(ProjectNode source)
     {
         if (source is ProjectRoot)
         {
             throw new SvgcProjectException("The project itself cannot be copied.");
         }
 
-        // Read before attaching, for the reason Move reads before moving: the whitespace that says
-        // what depth it was written at travels with the element.
-        var was = ProjectDocument.Depth(source.Element);
+        var copy = Copied(source, this);
 
-        var element = Owner.Rooted(source.Owner.Standalone(source.Element));
-
-        var copy = element.Name.LocalName == "group"
-            ? Owner.ReadGroup(element, this)
-            : (ProjectNode)Owner.ReadDrawing(element, this);
-
-        Attach(index, copy);
-
-        // The place came across in the text and is about where the original sits. Two rows on one
-        // spot, one of them under the other, is worse than a row waiting beside the arrangement.
+        // The place came across with the settings and is about where the original sits. Two rows on
+        // one spot, one of them under the other, is worse than a row waiting beside the arrangement.
         copy.X = null;
         copy.Y = null;
 
-        Reindent(element, was, ProjectDocument.Depth(element));
-
         return copy;
+
+        static ProjectNode Copied(ProjectNode source, ProjectGroup into)
+        {
+            if (source is ProjectDrawing drawing)
+            {
+                var made = new ProjectDrawing(
+                    new XElement(drawing.Element),
+                    into,
+                    into.Owner,
+                    ProjectDocument.ReadFile(drawing.File.ToText(), drawing.Name));
+
+                into.Attach(made);
+
+                return made;
+            }
+
+            var group = (ProjectGroup)source;
+            var copy = Group(ProjectDocument.ReadFile(group.File.ToText(), group.Name), into, into.Owner);
+
+            into.Attach(copy);
+
+            foreach (var child in group.Children.ToList())
+            {
+                Copied(child, copy);
+            }
+
+            return copy;
+        }
     }
 
     /// <summary>
@@ -481,12 +632,6 @@ public class ProjectGroup : ProjectNode
     /// back.
     /// </para>
     /// <para>
-    /// The XML nodes and not the children: a group holds comments and the whitespace that lays it
-    /// out as well as rows, and an undo that put the rows back by index moved them across a comment
-    /// that had been sitting between two of them. What a file said is every node in the order it
-    /// said them.
-    /// </para>
-    /// <para>
     /// The very nodes, re-attached rather than re-read, so identity survives: every open tab holds
     /// its node by reference, and a row put back as a copy would leave the tab that was open on it
     /// editing something the document no longer contains.
@@ -494,23 +639,15 @@ public class ProjectGroup : ProjectNode
     /// </remarks>
     internal Action Contents()
     {
-        var nodes = Element.Nodes().ToList();
         var children = _children.ToList();
 
         return () =>
         {
-            Element.RemoveNodes();
-
-            foreach (var node in nodes)
+            // A row this takes out says it is nowhere, unless the group it went to has claimed it:
+            // a row undone away still pointing here would read as in the project.
+            foreach (var gone in _children.Except(children).Where(gone => ReferenceEquals(gone.Parent, this)))
             {
-                // A row dragged into another group is parented there, and adding a parented node
-                // copies it rather than moving it — which would put a stranger back in its place.
-                if (node.Parent is { })
-                {
-                    node.Remove();
-                }
-
-                Element.Add(node);
+                gone.Parent = null;
             }
 
             _children.Clear();
@@ -520,6 +657,8 @@ public class ProjectGroup : ProjectNode
             {
                 child.Parent = this;
             }
+
+            Unsort();
         };
     }
 
@@ -534,15 +673,8 @@ public class ProjectGroup : ProjectNode
         Detach(child);
     }
 
-    /// <summary>
-    /// Moves a node into this group, at <paramref name="index"/>.
-    /// </summary>
-    /// <remarks>
-    /// The index is read against the children as they are now, before the node has left wherever it
-    /// is — so a drop after the second row is index 2 whether or not the node being dropped is
-    /// already in this group.
-    /// </remarks>
-    public void Move(ProjectNode child, int index)
+    /// <summary>Moves a node into this group.</summary>
+    public void Move(ProjectNode child)
     {
         if (child is ProjectRoot || child.Parent is not { } parent)
         {
@@ -556,22 +688,15 @@ public class ProjectGroup : ProjectNode
             throw new SvgcProjectException("A group cannot be moved into itself.");
         }
 
-        if (ReferenceEquals(parent, this) && index > parent._children.IndexOf(child))
+        if (ReferenceEquals(parent, this))
         {
-            index--;
-        }
-        else if (!ReferenceEquals(parent, this))
-        {
-            Reboard(child, parent);
+            return;
         }
 
-        // Read before the move, since detaching takes the whitespace that says it away.
-        var was = ProjectDocument.Depth(child.Element);
+        Reboard(child, parent);
 
         parent.Detach(child);
-        Attach(index, child);
-
-        Reindent(child.Element, was, ProjectDocument.Depth(child.Element));
+        Attach(child);
     }
 
     /// <summary>Whether rows sit here and none names a place, so the board is the spread.</summary>
@@ -606,9 +731,9 @@ public class ProjectGroup : ProjectNode
         child.Y = null;
     }
 
-    /// <summary>Every drawing under this node, in document order.</summary>
+    /// <summary>Every drawing under this node, in the order <see cref="Children"/> gives.</summary>
     public IEnumerable<ProjectDrawing> Drawings
-        => _children.SelectMany(child => child switch
+        => Children.SelectMany(child => child switch
         {
             ProjectDrawing drawing => new[] { drawing },
             ProjectGroup group => group.Drawings,
@@ -622,15 +747,14 @@ public class ProjectGroup : ProjectNode
     /// Moves everything written inside <paramref name="element"/> from one depth to another.
     /// </summary>
     /// <remarks>
-    /// The whitespace between a group's children lives inside it, so a group carried to a new depth
-    /// arrives with its contents still indented for the old one. Only the lines that sat at the old
-    /// depth are shifted; what was deeper keeps the extra, which is what makes a whole branch move
+    /// The whitespace between an element's children lives inside it, so a block carried to a new
+    /// depth arrives with its contents still indented for the old one. Only the lines that sat at the
+    /// old depth are shifted; what was deeper keeps the extra, which is what makes a whole block move
     /// as one.
     ///
-    /// Whitespace that is a line of its own, and nothing else: a project holds whole drawings, so a
-    /// text run here can be the stylesheet in a <c>&lt;style&gt;</c> or the words in a
-    /// <c>&lt;text&gt;</c>, and shifting those would change what the drawing says rather than where
-    /// it sits.
+    /// Whitespace that is a line of its own, and nothing else: a text run can be the stylesheet in a
+    /// <c>&lt;style&gt;</c> or the words in a <c>&lt;text&gt;</c>, and shifting those would change
+    /// what a drawing says rather than where it sits.
     /// </remarks>
     internal static void Reindent(XElement element, string was, string now)
     {
@@ -674,108 +798,120 @@ public class ProjectGroup : ProjectNode
         return false;
     }
 
-    /// <summary>Puts a node into the children and into the XML, on a line of its own.</summary>
-    private void Attach(int index, ProjectNode child)
+    internal void Attach(ProjectNode child)
     {
-        index = Math.Max(0, Math.Min(index, _children.Count));
-
-        var element = child.Element;
-
-        if (_children.Count == 0)
-        {
-            AddFirst(element);
-        }
-        else if (index == _children.Count)
-        {
-            var last = _children[index - 1].Element;
-
-            last.AddAfterSelf(new XText(Owner.Indentation(Element)), element);
-        }
-        else
-        {
-            var next = _children[index].Element;
-
-            next.AddBeforeSelf(element);
-
-            // The break and indentation the displaced element was sitting on, given back to it.
-            // Whitespace is a node of its own once it is preserved, and inserting before an element
-            // lands after the whitespace in front of it — so without this the two share a line.
-            if (element.PreviousNode is XText indent)
-            {
-                element.AddAfterSelf(new XText(indent.Value));
-            }
-        }
-
-        _children.Insert(index, child);
+        _children.Add(child);
         child.Parent = this;
+        Unsort();
     }
 
-    /// <summary>The first thing this group has held, so there is no sibling to take a line from.</summary>
-    private void AddFirst(XElement element)
-    {
-        var inner = new XText(Owner.Indentation(Element));
-
-        // Whatever closes the group already sits on the right line; the new element goes in front
-        // of it rather than after, which is where Add would put it.
-        if (Element.LastNode is XText closing && closing.Value.Trim().Length == 0)
-        {
-            closing.AddBeforeSelf(inner, element);
-            return;
-        }
-
-        Element.Add(inner, element, new XText(ProjectDocument.Closing(Element)));
-    }
-
-    /// <summary>Takes a node out of the children and out of the XML, and the line with it.</summary>
     private void Detach(ProjectNode child)
     {
-        var element = child.Element;
-
-        // What goes with it is the separator, not simply the whitespace in front. In front of the
-        // first of several children is the group's own opening indentation, which has to stay — take
-        // that and the break behind the element is promoted to opening the group, blank line and
-        // all. In front of an only child it is the opening indentation again, but there the break
-        // behind is what closes the group, so this time the one in front is the one to go.
-        var separator = ReferenceEquals(element, Element.Elements().FirstOrDefault())
-                        && Element.Elements().Skip(1).Any()
-            ? element.NextNode as XText
-            : element.PreviousNode as XText;
-
-        // Left behind, it meets the whitespace on the other side and the pair reads as a blank line.
-        if (separator is { } text && text.Value.Trim().Length == 0)
-        {
-            text.Remove();
-        }
-
-        element.Remove();
-
         _children.Remove(child);
         child.Parent = null;
     }
-}
 
-/// <summary>One <c>&lt;drawing&gt;</c>: an SVG the project holds, and whatever it overrides.</summary>
-public sealed class ProjectDrawing : ProjectNode
-{
-    internal ProjectDrawing(XElement element, ProjectGroup parent, ProjectDocument owner)
-        : base(element, parent, owner)
+    /// <summary>The group's file as it is saved: without a name its folder already says.</summary>
+    internal string FileText()
     {
+        if (this is ProjectRoot
+            || Segment is not { } segment
+            || Element.Attribute("name") is not { } name
+            || name.Value != ProjectPackage.Named(segment, group: true))
+        {
+            return File.ToText();
+        }
+
+        var all = Element.Attributes().ToList();
+
+        name.Remove();
+
+        try
+        {
+            return File.ToText();
+        }
+        finally
+        {
+            Element.ReplaceAttributes(all.Select(attribute => new XAttribute(attribute)));
+        }
     }
 
-    /// <summary>The drawing itself: the one <c>&lt;svg&gt;</c> this holds.</summary>
-    public XElement Svg => Element.Elements().First();
+    /// <summary>Gives every row under this group the file or folder name it is saved under.</summary>
+    /// <remarks>
+    /// Kept names first, so a new row is the one that takes the <c>~2</c> and an old one is never
+    /// renamed to make room for it.
+    /// </remarks>
+    internal void Place()
+    {
+        var children = Children.ToList();
+        var taken = ProjectPackage.Reserved();
 
-    /// <summary>The drawing as text, written the way the project file writes it.</summary>
-    public string Text => Owner.Source.TextOf(Svg);
+        foreach (var child in children)
+        {
+            if (child.Segment is { } kept && !(ProjectPackage.Fits(kept, child.Name, child is ProjectGroup) && taken.Add(kept)))
+            {
+                child.Segment = null;
+            }
+        }
+
+        foreach (var child in children)
+        {
+            child.Segment ??= ProjectPackage.Segment(child.Name, taken, child is ProjectGroup);
+
+            if (child is ProjectGroup group)
+            {
+                group.Place();
+            }
+        }
+
+        Unsort();
+    }
+
+    /// <summary>Puts what this group holds into <paramref name="files"/>, under <paramref name="folder"/>.</summary>
+    internal void Write(IDictionary<string, string> files, string folder)
+    {
+        foreach (var child in Children)
+        {
+            if (child is ProjectDrawing drawing)
+            {
+                files[folder + drawing.Segment] = drawing.FileText();
+            }
+            else if (child is ProjectGroup group)
+            {
+                var inner = folder + group.Segment + "/";
+
+                files[inner + ProjectPackage.GroupFile] = group.FileText();
+                group.Write(files, inner);
+            }
+        }
+    }
+}
+
+/// <summary>One drawing: an <c>.svg</c> file of the project, and whatever it overrides.</summary>
+public sealed class ProjectDrawing : ProjectNode
+{
+    internal ProjectDrawing(XElement element, ProjectGroup parent, ProjectDocument owner, SvgSourceDocument file)
+        : base(element, parent, owner)
+    {
+        File = file;
+    }
+
+    /// <summary>The drawing's own file, which is what writes it back as it was found.</summary>
+    internal SvgSourceDocument File { get; }
+
+    /// <summary>The drawing itself: the file's <c>&lt;svg&gt;</c>.</summary>
+    public XElement Svg => File.Document.Root!;
+
+    /// <summary>The drawing as text, written the way its file writes it.</summary>
+    public string Text => File.TextOf(Svg);
+
+    /// <summary>The whitespace its settings were written after, so they go back exactly where they were found.</summary>
+    internal string? Lead { get; set; }
 
     /// <summary>
     /// Puts edited text back, or answers why it could not be read.
     /// </summary>
-    /// <remarks>
-    /// What comes in is what <see cref="Text"/> handed out, so it already carries the project's
-    /// indentation and is written back as it stands.
-    /// </remarks>
-    public string? SetText(string svgText) => Inline(svgText, indent: false);
+    public string? SetText(string svgText) => Inline(svgText);
 
     /// <summary>Its method on the project's API class, where not <c>draw</c> and its class name.</summary>
     public string? Method
@@ -798,15 +934,15 @@ public sealed class ProjectDrawing : ProjectNode
         set => Element.SetAttributeValue("source", Trimmed(value));
     }
 
-    internal string? Inline(string svgText, bool indent)
+    internal string? Inline(string svgText)
     {
         if (svgText is null)
         {
             throw new ArgumentNullException(nameof(svgText));
         }
 
-        // The project's own ending is put back when the file is written, so one drawing pasted from
-        // a machine that ends its lines differently cannot decide it for the whole file.
+        // The file's own ending is put back when it is written, so text pasted from a machine that
+        // ends its lines differently cannot decide it.
         var read = SvgSourceDocument.Read(svgText.Replace("\r\n", "\n"), out var refusal);
 
         if (read is null)
@@ -819,35 +955,108 @@ public sealed class ProjectDrawing : ProjectNode
             return "A drawing has to be an <svg> document.";
         }
 
+        Lift(root);
+
         // Detached first: adding a node that still has a parent copies it, and the bytes each tag
         // was read as are annotations, which a copy does not carry.
         root.Remove();
-
-        if (indent)
-        {
-            var indentation = Owner.Indentation(Element);
-
-            ProjectGroup.Reindent(root, string.Empty, indentation.Substring(indentation.LastIndexOf('\n') + 1));
-        }
-
-        if (Element.Elements().FirstOrDefault() is { } existing)
-        {
-            existing.ReplaceWith(root);
-        }
-        else
-        {
-            Element.Add(new XText(Owner.Indentation(Element)), root, new XText(ProjectDocument.Closing(Element)));
-        }
+        Svg.ReplaceWith(root);
 
         return null;
     }
+
+    /// <summary>The drawing's file as it is saved: its settings put into a <c>&lt;metadata&gt;</c> of its own.</summary>
+    /// <remarks>
+    /// A child at the end, after a blank line, rather than attributes on <c>&lt;svg&gt;</c>, whose
+    /// tag a resize rewrites and the first parameter declares a namespace on. Git takes changes to
+    /// neighbouring lines as one conflict, so a drawing moved on one branch and resized or drawn on
+    /// on another merges only with a line nobody edits between them. Nothing at all when there is
+    /// nothing to say, so a drawing imported and never touched is the file it was.
+    /// </remarks>
+    internal string FileText()
+    {
+        var stem = ProjectPackage.Named(Segment!, group: false);
+        var said = Element.Attributes()
+            .Where(attribute => !(attribute.Name == "name" && attribute.Value == stem))
+            .Select(attribute => new XAttribute(attribute.Name, attribute.Value))
+            .ToList();
+
+        if (said.Count == 0)
+        {
+            return File.ToText();
+        }
+
+        var settings = new XElement(
+            ProjectDocument.Studio + "drawing",
+            new XAttribute("xmlns", ProjectDocument.Studio.NamespaceName),
+            said);
+        var holder = new XElement(Svg.Name.Namespace + "metadata", settings);
+        var lead = new XText(Lead ?? "\n\n" + File.IndentUnit);
+
+        if (Svg.LastNode is XText closing && closing.Value.Trim().Length == 0)
+        {
+            closing.AddBeforeSelf(lead, holder);
+        }
+        else
+        {
+            Svg.Add(lead, holder);
+        }
+
+        try
+        {
+            return File.ToText();
+        }
+        finally
+        {
+            lead.Remove();
+            holder.Remove();
+        }
+    }
+
+    /// <summary>
+    /// Takes the settings Studio wrote into a drawing back out of it, and hands them over, or null.
+    /// </summary>
+    /// <remarks>
+    /// Out of the tree rather than read in place, so the drawing an editor sees, a build reads and
+    /// a parameter is declared into is the drawing alone.
+    /// </remarks>
+    internal static XElement? Lift(XElement svg) => Lift(svg, out _);
+
+    /// <inheritdoc cref="Lift(XElement)" />
+    internal static XElement? Lift(XElement svg, out string? lead)
+    {
+        lead = null;
+
+        var holder = svg.Elements().FirstOrDefault(element =>
+            element.Name.LocalName == "metadata"
+            && element.Elements().Count() == 1
+            && element.Elements().Single().Name == ProjectDocument.Studio + "drawing"
+            && element.Nodes().All(node => node is XElement || (node is XText text && text.Value.Trim().Length == 0)));
+
+        if (holder is null)
+        {
+            return null;
+        }
+
+        var settings = holder.Elements().Single();
+
+        if (holder.PreviousNode is XText before && before.Value.Trim().Length == 0)
+        {
+            lead = before.Value;
+            before.Remove();
+        }
+
+        holder.Remove();
+
+        return settings;
+    }
 }
 
-/// <summary>The <c>&lt;studio&gt;</c> root: a group that also carries the settings for the whole build.</summary>
+/// <summary>The project itself, <c>studio.xml</c>: a group that also carries the settings for the whole build.</summary>
 public sealed class ProjectRoot : ProjectGroup
 {
-    internal ProjectRoot(XElement element, ProjectDocument owner)
-        : base(element, null, owner)
+    internal ProjectRoot(SvgSourceDocument file, ProjectDocument owner)
+        : base(file.Document.Root!, null, owner, file)
     {
     }
 
@@ -926,7 +1135,7 @@ public sealed class ProjectRoot : ProjectGroup
     /// <summary>The block as text, and an empty one where there is none; see <see cref="ProjectGroup.CodeText"/>.</summary>
     public string TemplatesText
         => TemplatesBlock is { } block
-            ? Owner.Standalone(block)
+            ? Standalone(block)
             : $"<e:templates xmlns:e=\"{SvgExpressionDeclarations.Namespace}\" />";
 
     /// <summary>Each template's name and its text, ready for <c>SvgRecipe.Parse</c>.</summary>
@@ -936,7 +1145,7 @@ public sealed class ProjectRoot : ProjectGroup
     /// </remarks>
     public IReadOnlyList<(string Name, string Text)> Templates
         => TemplatesBlock?.Elements()
-               .Select(template => (ProjectDocument.Attribute(template, "name") ?? string.Empty, Owner.Standalone(template)))
+               .Select(template => (ProjectDocument.Attribute(template, "name") ?? string.Empty, Standalone(template)))
                .ToList()
            ?? new List<(string Name, string Text)>();
 
@@ -977,20 +1186,19 @@ public sealed class ProjectRoot : ProjectGroup
 }
 
 /// <summary>
-/// A Svg.Studio project: the drawings themselves and the build they describe, in one file.
+/// A Svg.Studio project: the drawings themselves and the build they describe, in one folder.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The format is <c>.svgstudio</c>: a <c>&lt;studio&gt;</c> holding <c>&lt;group&gt;</c>s and
-/// <c>&lt;drawing&gt;</c>s, each drawing holding the <c>&lt;svg&gt;</c> it draws. Settings are
-/// attributes wherever they appear, and a group hands its own down to everything under it.
+/// The format is <c>.svgstudio</c>, a folder: <c>studio.xml</c> for the project's own settings, an
+/// <c>.svg</c> per drawing, and a folder with a <c>group.xml</c> per group. Settings are attributes
+/// wherever they appear, and a group hands its own down to everything under it.
 /// </para>
 /// <para>
-/// Held as an <see cref="SvgSourceDocument"/> rather than as a plain tree, which is the whole reason
-/// this is not <c>SvgcProjectDocument</c> with different element names: that type re-serialises, and
-/// re-serialising somebody's drawing reformats it — measured over the two suites, writing a tree
-/// back the ordinary way returned 28 drawings of 2,988 unchanged. The settings and the structural
-/// editing below are that type's, rewritten around a holder that can keep a drawing's own bytes.
+/// Each file is held as an <see cref="SvgSourceDocument"/> rather than as a plain tree, which is the
+/// whole reason this is not <c>SvgcProjectDocument</c> with different element names: that type
+/// re-serialises, and re-serialising somebody's drawing reformats it — measured over the two suites,
+/// writing a tree back the ordinary way returned 28 drawings of 2,988 unchanged.
 /// </para>
 /// <para>
 /// <see cref="Flatten"/> is the same project as a <see cref="SvgcProject"/>, so a build here is the
@@ -999,18 +1207,18 @@ public sealed class ProjectRoot : ProjectGroup
 /// </remarks>
 public sealed class ProjectDocument
 {
+    /// <summary>Where a drawing's settings are written, inside its own <c>&lt;metadata&gt;</c>.</summary>
+    public static readonly XNamespace Studio = "https://svg.skia/studio/1.0";
+
+    internal const string BlankGroup = "<group />\n";
+
+    internal const string Blank = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<studio>\n</studio>\n";
+
     private static readonly string[] s_settings =
     {
         "namespace", "class", "cache", "helperScope", "skiaSharp",
         "width", "height", "scale", "padding", "api", "resizing", "context", "order", "body", "typeface"
     };
-
-    /// <summary>Attributes the format used to have, which a file written before this still carries.</summary>
-    /// <remarks>
-    /// Dropped as the file is read rather than refused, so a project written by an older Studio
-    /// opens — and written out again without them, since where output goes is now asked for.
-    /// </remarks>
-    private static readonly string[] s_retired = { "output", "singleFile" };
 
     /// <summary>The expression extension, as a namespace rather than as the string it is declared as.</summary>
     /// <remarks>
@@ -1019,8 +1227,8 @@ public sealed class ProjectDocument
     /// </remarks>
     private static XNamespace Declarations => SvgExpressionDeclarations.Namespace;
 
-    // One list for both: a drawing names what a group does, since what it draws is the element's
-    // and not an attribute's.
+    // One list for both: a drawing names what a group does, since what it draws is its file's and
+    // not an attribute's.
     private static readonly string[] s_nodeAttributes =
     {
         "name", "namespace", "class", "width", "height", "scale", "padding", "x", "y"
@@ -1030,82 +1238,115 @@ public sealed class ProjectDocument
     // has no text of its own to have come from anywhere.
     private static readonly string[] s_drawingAttributes = s_nodeAttributes.Concat(new[] { "source", "method", "parameters" }).ToArray();
 
-    private ProjectDocument(SvgSourceDocument source, string? path)
-    {
-        Source = source;
-        Path = path;
-        Root = new ProjectRoot(source.Document.Root!, this);
-    }
+    /// <summary>What the folder held as last read or written, so a save writes only what changed.</summary>
+    private Dictionary<string, string>? _disk;
 
-    /// <summary>The file as it was read, which is what writes it back unchanged.</summary>
-    public SvgSourceDocument Source { get; }
+    private ProjectDocument(SvgSourceDocument manifest, string? path)
+    {
+        Path = path;
+        Root = new ProjectRoot(manifest, this);
+    }
 
     public ProjectRoot Root { get; }
 
-    /// <summary>The file this project is, or null while it is not one yet.</summary>
+    /// <summary>The folder this project is, or null while it is not one yet.</summary>
     /// <remarks>
     /// Null is the ordinary state of a project nobody has saved: a conversion and a new project are
     /// both made in the window and are not named until somebody is asked where to put them.
     /// </remarks>
     public string? Path { get; private set; }
 
+    /// <summary>The project at <paramref name="path"/>: its folder, or anything inside it.</summary>
     public static ProjectDocument Load(string path)
     {
-        var full = System.IO.Path.GetFullPath(path);
+        var folder = ProjectPackage.Find(path)
+                     ?? throw new SvgcProjectException($"'{path}' is not a project. A project is a folder ending in {ProjectPackage.Extension}.");
 
-        // Decoded rather than read as text, which strips a byte order mark: the mark is a character
-        // of the document here, and the file would lose three bytes on the first save.
-        var text = new System.Text.UTF8Encoding(false).GetString(File.ReadAllBytes(full));
+        var files = ProjectPackage.Read(folder);
+        var document = Read(files, folder);
 
-        return Parse(text, full);
+        document._disk = files;
+
+        return document;
     }
 
-    public static ProjectDocument Parse(string xml) => Parse(xml, null);
-
-    /// <summary>A project holding nothing, not yet a file.</summary>
+    /// <summary>A project holding nothing, not yet a folder.</summary>
     /// <remarks>
     /// No namespace, because the build already defaults one and a guess written into the file would
     /// have to be found and corrected rather than simply typed.
     /// </remarks>
-    public static ProjectDocument Empty() => Parse(Blank);
+    public static ProjectDocument Empty()
+        => Read(new Dictionary<string, string> { [ProjectPackage.Manifest] = Blank }, null);
 
-    private const string Blank = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<studio>\n</studio>\n";
-
-    /// <summary>The project <paramref name="xml"/> holds, read as the file at <paramref name="path"/>.</summary>
+    /// <summary>The project <paramref name="files"/> hold, read as the folder at <paramref name="path"/>.</summary>
     /// <remarks>
-    /// For text that is a project's but is not the project's file — a copy of unsaved work, which is
-    /// restored as the project it is a copy of rather than as the file it was kept in.
+    /// For files that are a project's but are not the project's folder — a copy of unsaved work, a
+    /// commit — which is read as the project it is a copy of rather than as where it was kept.
     /// </remarks>
-    public static ProjectDocument Parse(string xml, string? path)
+    public static ProjectDocument Read(IReadOnlyDictionary<string, string> files, string? path)
     {
-        if (SvgSourceDocument.Read(xml, out var refusal) is not { } source)
+        if (!files.TryGetValue(ProjectPackage.Manifest, out var text))
         {
-            throw new SvgcProjectException(refusal ?? "The project could not be read.");
+            throw new SvgcProjectException($"This is not a project: it has no {ProjectPackage.Manifest}.");
         }
 
-        if (source.Document.Root is not { } element)
+        var manifest = ReadFile(text, ProjectPackage.Manifest);
+
+        if (manifest.Document.Root!.Name != "studio")
         {
-            throw new SvgcProjectException("The project is empty.");
+            throw new SvgcProjectException(
+                $"{ProjectPackage.Manifest}: the root must be <studio>, but was <{manifest.Document.Root.Name.LocalName}>.");
         }
 
-        if (element.Name != "studio")
+        var document = new ProjectDocument(manifest, path);
+
+        RequireKnownAttributes(document.Root.Element, s_settings, "studio", ProjectPackage.Manifest);
+        ReadBlocks(document.Root, ProjectPackage.Manifest);
+
+        var held = files.Keys.Where(relative => relative != ProjectPackage.Manifest && ProjectPackage.Holds(relative)).ToList();
+        var groups = new Dictionary<string, ProjectGroup>(StringComparer.Ordinal) { [string.Empty] = document.Root };
+
+        foreach (var folder in held.SelectMany(Folders).Distinct()
+                     .OrderBy(folder => folder.Count(character => character == '/'))
+                     .ThenBy(folder => folder, StringComparer.Ordinal))
         {
-            throw new SvgcProjectException($"The project root must be <studio>, but was <{element.Name.LocalName}>.");
+            var holder = groups[Above(folder)];
+            var relative = folder + "/" + ProjectPackage.GroupFile;
+
+            groups[folder] = document.ReadGroup(
+                relative,
+                files.TryGetValue(relative, out var settings) ? settings : BlankGroup,
+                Leaf(folder),
+                holder);
         }
 
-        var document = new ProjectDocument(source, path);
+        foreach (var relative in held
+                     .Where(one => one.EndsWith(ProjectPackage.DrawingExtension, StringComparison.OrdinalIgnoreCase))
+                     .OrderBy(one => one, StringComparer.Ordinal))
+        {
+            document.ReadDrawing(relative, files[relative], groups[Above(relative)]);
+        }
 
-        RequireKnownAttributes(element, s_settings, "studio");
-
-        document.ReadChildren(element, document.Root);
-
-        // Touched here so a bad value is a parse error rather than a surprise at build time.
+        // Touched here so a bad value is a read error rather than a surprise at build time.
         _ = document.Root.Cache;
         _ = document.Root.HelperScope;
         _ = document.Root.SkiaSharp;
         Validate(document.Root);
 
         return document;
+
+        static IEnumerable<string> Folders(string relative)
+        {
+            for (var end = relative.LastIndexOf('/'); end > 0; end = relative.LastIndexOf('/', end - 1))
+            {
+                yield return relative.Substring(0, end);
+            }
+        }
+
+        static string Above(string relative)
+            => relative.LastIndexOf('/') is var slash and > 0 ? relative.Substring(0, slash) : string.Empty;
+
+        static string Leaf(string relative) => relative.Substring(relative.LastIndexOf('/') + 1);
     }
 
     /// <summary>The same project as a build: the groups folded away, each drawing carrying itself.</summary>
@@ -1164,123 +1405,143 @@ public sealed class ProjectDocument
         };
     }
 
-    /// <summary>The document as text, as it would be written.</summary>
-    public string ToXml() => Source.ToText();
+    /// <summary>Every file of the project as it would be written, by <c>/</c>-separated path.</summary>
+    /// <remarks>Names whatever has no file yet, which is why a save and this agree on where things go.</remarks>
+    public IReadOnlyDictionary<string, string> Files()
+    {
+        Root.Place();
 
-    public void Save() => Save(Path ?? throw new InvalidOperationException("This project has no file to save to."));
+        var files = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [ProjectPackage.Manifest] = Root.FileText()
+        };
+
+        Root.Write(files, string.Empty);
+
+        return files;
+    }
+
+    public void Save() => Save(Path ?? throw new InvalidOperationException("This project has no folder to save to."));
 
     public void Save(string path)
     {
-        // Written without a mark of its own: ToText carries the file's own, where it had one.
-        File.WriteAllText(path, ToXml(), new System.Text.UTF8Encoding(false));
+        var full = System.IO.Path.GetFullPath(path).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
 
-        Path = System.IO.Path.GetFullPath(path);
+        // Not replaced, though a save panel asked: the likeliest file of that name is a project an
+        // older Studio wrote as one file, which this one cannot read, so it would be the only copy.
+        if (File.Exists(full))
+        {
+            throw new SvgcProjectException(
+                $"There is already a file called {System.IO.Path.GetFileName(full)} there, and a project is now a folder. "
+                + "Save under another name, or move that file somewhere else first.");
+        }
+
+        // A folder somebody keeps something else in is not written into: a save deletes what the
+        // project no longer holds, and in somebody's folder that could be anything.
+        if (Directory.Exists(full) && !ProjectPackage.Exists(full) && Directory.EnumerateFileSystemEntries(full).Any())
+        {
+            throw new SvgcProjectException($"'{full}' is a folder that is not a project, so the project is not saved into it.");
+        }
+
+        var disk = string.Equals(full, Path, StringComparison.Ordinal) && _disk is { } kept
+            ? kept
+            : Directory.Exists(full)
+                ? ProjectPackage.Read(full)
+                : new Dictionary<string, string>(StringComparer.Ordinal);
+
+        try
+        {
+            ProjectPackage.Write(full, Files(), disk);
+        }
+        finally
+        {
+            // How far it got, even when it stopped: the next save then writes only what is left.
+            _disk = disk;
+        }
+
+        Path = full;
     }
 
-    /// <summary>One element as the file writes it, readable on its own.</summary>
-    /// <remarks>
-    /// A prefix it uses may be bound further up — a project may bind the expression prefix once on its
-    /// root — and the text alone then does not read, so such a binding is written onto its opening tag.
-    /// </remarks>
-    internal string Standalone(XElement element)
+    internal static SvgSourceDocument ReadFile(string text, string relative)
+        => SvgSourceDocument.Read(text, out var refusal)
+           ?? throw new SvgcProjectException($"{relative}: {refusal ?? "it could not be read."}");
+
+    private ProjectGroup ReadGroup(string relative, string text, string segment, ProjectGroup parent)
     {
-        var text = Source.TextOf(element);
-        var used = element.DescendantsAndSelf()
-            .SelectMany(one => one.Attributes().Where(a => !a.IsNamespaceDeclaration).Select(a => a.Name.Namespace).Append(one.Name.Namespace))
-            .ToHashSet();
-        var bound = element.Attributes().Where(a => a.IsNamespaceDeclaration).Select(a => a.Name.LocalName).ToHashSet();
-        var bindings = new System.Text.StringBuilder();
+        var file = ReadFile(text, relative);
+        var element = file.Document.Root!;
 
-        // Nearest first, so a prefix bound twice takes the binding in scope.
-        foreach (var binding in element.Ancestors().SelectMany(one => one.Attributes()))
+        if (element.Name != "group")
         {
-            if (binding.Name.Namespace == XNamespace.Xmlns && bound.Add(binding.Name.LocalName) && used.Contains(XNamespace.Get(binding.Value)))
-            {
-                bindings.Append($" xmlns:{binding.Name.LocalName}=\"{System.Security.SecurityElement.Escape(binding.Value)}\"");
-            }
+            throw new SvgcProjectException($"{relative}: the root must be <group>, but was <{element.Name.LocalName}>.");
         }
 
-        if (bindings.Length == 0)
+        RequireKnownAttributes(element, s_nodeAttributes, "group", relative);
+
+        var group = ProjectGroup.Group(file, parent, this);
+
+        group.Segment = segment;
+
+        // What the folder says, where the file does not say otherwise; taken back out as it is saved.
+        if (Attribute(element, "name") is null)
         {
-            return text;
+            element.SetAttributeValue("name", ProjectPackage.Named(segment, group: true));
         }
-
-        var end = 1;
-
-        while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] is not ('/' or '>'))
-        {
-            end++;
-        }
-
-        return text.Insert(end, bindings.ToString());
-    }
-
-    /// <summary>The root of <paramref name="xml"/>, detached and ready to be put somewhere.</summary>
-    internal XElement Rooted(string xml)
-    {
-        if (SvgSourceDocument.Read(xml, out var refusal)?.Document.Root is not { } root)
-        {
-            throw new SvgcProjectException(refusal ?? "That is not well formed XML.");
-        }
-
-        root.Remove();
-
-        return root;
-    }
-
-    internal ProjectGroup ReadGroup(XElement element, ProjectGroup parent)
-    {
-        RequireKnownAttributes(element, s_nodeAttributes, "group");
-        RequireName(element, "group");
-
-        var group = ProjectGroup.Group(element, parent, this);
 
         Validate(group);
-        ReadChildren(element, group);
+        ReadBlocks(group, relative);
+        parent.Attach(group);
 
         return group;
     }
 
-    internal ProjectDrawing ReadDrawing(XElement element, ProjectGroup parent)
+    private void ReadDrawing(string relative, string text, ProjectGroup parent)
     {
-        RequireKnownAttributes(element, s_drawingAttributes, "drawing");
+        var file = ReadFile(text, relative);
 
-        var name = RequireName(element, "drawing");
-        var children = element.Elements().ToList();
-
-        // One drawing, and the drawing itself rather than a path to it: that is what the format is
-        // for. A <drawing> holding two would be a row that draws one of them and saves the other.
-        if (children.Count != 1 || children[0].Name.LocalName != "svg")
+        if (file.Document.Root!.Name.LocalName != "svg")
         {
-            throw new SvgcProjectException($"<drawing name=\"{name}\"> must hold one <svg> and nothing else.");
+            throw new SvgcProjectException($"{relative}: a drawing has to be an <svg> document.");
         }
 
-        var drawing = new ProjectDrawing(element, parent, this);
+        var settings = ProjectDrawing.Lift(file.Document.Root, out var lead);
+        var element = new XElement(
+            "drawing",
+            settings?.Attributes()
+                .Where(attribute => !attribute.IsNamespaceDeclaration)
+                .Select(attribute => new XAttribute(attribute.Name.LocalName, attribute.Value)));
+
+        RequireKnownAttributes(element, s_drawingAttributes, "drawing", relative);
+
+        var segment = relative.Substring(relative.LastIndexOf('/') + 1);
+
+        if (Attribute(element, "name") is null)
+        {
+            element.SetAttributeValue("name", ProjectPackage.Named(segment, group: false));
+        }
+
+        var drawing = new ProjectDrawing(element, parent, this, file) { Segment = segment, Lead = lead };
 
         Validate(drawing);
-
-        return drawing;
+        parent.Attach(drawing);
     }
 
-    private void ReadChildren(XElement element, ProjectGroup group)
+    private static void ReadBlocks(ProjectGroup group, string relative)
     {
         var blocks = 0;
         var templates = 0;
+        var element = group.Element;
 
         foreach (var child in element.Elements())
         {
-            var name = child.Name.LocalName;
-
-            // Not a row, so it is not added to the children: what the group declares is part of what
-            // the group is, like its attributes. Malformed declarations are deliberately not read
-            // here — SKSvg does not fail a load over a bad block either, and the panel is where one
-            // is reported.
+            // Not a row: what the group declares is part of what the group is, like its attributes.
+            // Malformed declarations are deliberately not read here — SKSvg does not fail a load
+            // over a bad block either, and the panel is where one is reported.
             if (child.Name == Declarations + "code")
             {
                 if (++blocks > 1)
                 {
-                    throw new SvgcProjectException(
-                        $"<{element.Name.LocalName} name=\"{group.Name}\"> holds more than one <e:code>. A group declares in one block.");
+                    throw new SvgcProjectException($"{relative} holds more than one <e:code>. A group declares in one block.");
                 }
 
                 continue;
@@ -1292,13 +1553,12 @@ public sealed class ProjectDocument
             {
                 if (group is not ProjectRoot)
                 {
-                    throw new SvgcProjectException(
-                        $"<{element.Name.LocalName} name=\"{group.Name}\"> holds an <e:templates>. Templates belong to the project, on <studio>.");
+                    throw new SvgcProjectException($"{relative} holds an <e:templates>. Templates belong to the project, in {ProjectPackage.Manifest}.");
                 }
 
                 if (++templates > 1)
                 {
-                    throw new SvgcProjectException("<studio> holds more than one <e:templates>. A project keeps its templates in one block.");
+                    throw new SvgcProjectException($"{relative} holds more than one <e:templates>. A project keeps its templates in one block.");
                 }
 
                 continue;
@@ -1306,22 +1566,15 @@ public sealed class ProjectDocument
 
             // Rejected rather than ignored: a mistyped name that bound nothing and still saved
             // would be a project quietly building something else.
-            group.Add(name switch
-            {
-                "drawing" => ReadDrawing(child, group),
-                "group" => ReadGroup(child, group),
-                _ => throw new SvgcProjectException(
-                    $"<{name}> is not allowed in <{element.Name.LocalName}>. Expected <drawing>, <group> or <e:code>"
-                    + (group is ProjectRoot ? ", or one <e:templates>." : "."))
-            });
+            throw new SvgcProjectException(
+                child.Name.LocalName is "drawing" or "group"
+                    ? $"{relative} holds a <{child.Name.LocalName}>. A drawing is an .svg file of its own, and a group a folder."
+                    : $"<{child.Name.LocalName}> is not allowed in {relative}. Expected <e:code>"
+                      + (group is ProjectRoot ? ", or one <e:templates>." : "."));
         }
     }
 
-    private static string RequireName(XElement element, string elementName)
-        => Attribute(element, "name")
-           ?? throw new SvgcProjectException($"<{elementName}> is missing a name.");
-
-    /// <summary>Touches every parsed setting, so a bad value is a parse error rather than a surprise later.</summary>
+    /// <summary>Touches every parsed setting, so a bad value is a read error rather than a surprise later.</summary>
     private static void Validate(ProjectNode node)
     {
         _ = node.Width;
@@ -1343,20 +1596,13 @@ public sealed class ProjectDocument
         }
     }
 
-    private static void RequireKnownAttributes(XElement element, string[] allowed, string elementName)
+    private static void RequireKnownAttributes(XElement element, string[] allowed, string elementName, string relative)
     {
-        // Before the check rather than beside it: taken off the element, a retired attribute is not
-        // read by anything and is not written back either.
-        foreach (var retired in s_retired)
-        {
-            element.Attribute(retired)?.Remove();
-        }
-
         foreach (var attribute in element.Attributes())
         {
             // A namespace declaration is not a setting. One binding the expression prefix is what a
-            // project holding an <e:code> anywhere may well carry on its root, and refusing it read
-            // as a complaint about a misspelled attribute.
+            // file holding an <e:code> may well carry on its root, and refusing it read as a
+            // complaint about a misspelled attribute.
             if (attribute.IsNamespaceDeclaration)
             {
                 continue;
@@ -1365,7 +1611,7 @@ public sealed class ProjectDocument
             if (Array.IndexOf(allowed, attribute.Name.LocalName) < 0)
             {
                 throw new SvgcProjectException(
-                    $"'{attribute.Name.LocalName}' is not a <{elementName}> attribute. Expected one of: {string.Join(", ", allowed)}.");
+                    $"{relative}: '{attribute.Name.LocalName}' is not a <{elementName}> setting. Expected one of: {string.Join(", ", allowed)}.");
             }
         }
     }
@@ -1375,25 +1621,6 @@ public sealed class ProjectDocument
         var value = ((string?)element.Attribute(name))?.Trim();
 
         return value is null || value.Length == 0 ? null : value;
-    }
-
-    /// <summary>The break and indentation the children of <paramref name="element"/> sit on.</summary>
-    /// <remarks>
-    /// The whitespace before a closing tag is no guide when an element holds nothing: it is the
-    /// element's own depth, and a child written on it would come out level with its parent.
-    /// </remarks>
-    internal string Indentation(XElement element)
-    {
-        var first = element.Elements().FirstOrDefault();
-
-        if (first is { } && first.PreviousNode is XText inner && inner.Value.Contains("\n"))
-        {
-            return inner.Value;
-        }
-
-        // The depth alone and not the whole break: an element written after a blank line would
-        // otherwise hand that blank line to its first child, inside the element rather than before it.
-        return "\n" + Depth(element) + Source.IndentUnit;
     }
 
     /// <summary>How far in <paramref name="element"/> itself is written, without the break.</summary>

@@ -501,7 +501,7 @@ public sealed class AssistantTools
             // in the window is one a client cannot close, and a call that opens one never returns.
             var notes = new List<string>();
 
-            if ((await _window.ImportAsync(group, group.Children.Count, new[] { new TemplateImport(name, svg) }, notes: notes).ConfigureAwait(true)).Count == 0)
+            if ((await _window.ImportAsync(group, new[] { new TemplateImport(name, svg) }, notes: notes).ConfigureAwait(true)).Count == 0)
             {
                 return notes.Count > 0 ? string.Join("\n", notes) : "That drawing couldn't be added.";
             }

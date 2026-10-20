@@ -80,30 +80,7 @@ public static class ProjectSnapshot
         return group.Contents();
     }
 
-    /// <summary>How far in <paramref name="node"/> is written, and everything under it with it.</summary>
-    /// <remarks>
-    /// A row dragged between groups is written at its new depth — that is what keeps the file laid
-    /// out rather than left ragged — and putting the row back does not put its indentation back,
-    /// because the whitespace was rewritten inside the element rather than around it.
-    ///
-    /// This has to be restored <em>before</em> the row is: the depth it is written at is read from
-    /// where it sits, so once it is home again there is nothing left to say it was ever elsewhere.
-    /// <see cref="All"/> runs its captures in order, and this goes first.
-    /// </remarks>
-    public static Action Indentation(ProjectNode node)
-    {
-        if (node is null)
-        {
-            throw new ArgumentNullException(nameof(node));
-        }
-
-        var element = node.Element;
-        var was = ProjectDocument.Depth(element);
-
-        return () => ProjectGroup.Reindent(element, ProjectDocument.Depth(element), was);
-    }
-
-    /// <summary>The drawing's own text, as the file holds it.</summary>
+    /// <summary>The drawing's own text, as its file holds it.</summary>
     public static Action Text(ProjectDrawing drawing)
     {
         if (drawing is null)

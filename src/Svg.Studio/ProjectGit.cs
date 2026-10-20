@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Formats.Tar;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -49,12 +50,13 @@ public sealed record ProjectGitCommit(string Hash, string Author, DateTimeOffset
 /// <param name="Remote">The remote-tracking branch, such as <c>origin/feature</c>, when there is no local branch yet.</param>
 public sealed record ProjectGitBranch(string Name, bool Current, string? Remote);
 
-/// <summary>The repository a project file sits in, driven through the <c>git</c> the user has installed.</summary>
+/// <summary>The repository a project sits in, driven through the <c>git</c> the user has installed.</summary>
 /// <remarks>
 /// The CLI rather than libgit2: LibGit2Sharp ships no SSH transport and ignores credential helpers,
 /// so a remote would have meant Studio asking for and keeping passwords itself. Every command runs
-/// in the project's directory with the file named by its bare name, so a pathspec is never built
-/// from a path git may have resolved through a symlink (<c>/tmp</c> is <c>/private/tmp</c> on macOS).
+/// in the folder holding the project with the project named by its bare name, so a pathspec is
+/// never built from a path git may have resolved through a symlink (<c>/tmp</c> is
+/// <c>/private/tmp</c> on macOS).
 /// </remarks>
 public sealed class ProjectGit
 {
@@ -69,8 +71,10 @@ public sealed class ProjectGit
 
     public string Directory { get; }
 
-    /// <summary>The project's file name, which is its pathspec from <see cref="Directory"/>.</summary>
+    /// <summary>The project's folder name, which is its pathspec from <see cref="Directory"/>.</summary>
     public string Name { get; }
+
+    private string? _prefix;
 
     /// <summary>How long a command that talks to a remote may take. Settable so a test need not wait.</summary>
     public static TimeSpan RemoteTimeout { get; set; } = TimeSpan.FromMinutes(5);
@@ -96,11 +100,8 @@ public sealed class ProjectGit
         return code == 0 && output.Trim() == "true" ? git : null;
     }
 
-    /// <summary>Makes a repository in the directory of <paramref name="path"/>, set up to diff projects by drawing.</summary>
-    /// <remarks>
-    /// Only a repository Studio creates is configured; an existing one's config is never touched,
-    /// which is why this refuses inside a work tree rather than configuring it.
-    /// </remarks>
+    /// <summary>Makes a repository in the folder holding the project at <paramref name="path"/>.</summary>
+    /// <remarks>Refused inside a work tree, where the project already has a repository.</remarks>
     public static async Task<ProjectGit> Init(string path)
     {
         if (Installed is not { } executable || Path.GetDirectoryName(Path.GetFullPath(path)) is not { } directory
@@ -118,23 +119,6 @@ public sealed class ProjectGit
 
         await git.Checked(new[] { "init" }).ConfigureAwait(false);
 
-        const string Attribute = "*.svgstudio diff=svgstudio";
-        var attributes = Path.Combine(directory, ".gitattributes");
-        var existing = File.Exists(attributes) ? await File.ReadAllTextAsync(attributes).ConfigureAwait(false) : "";
-
-        if (!existing.Split('\n').Any(line => line.Trim() == Attribute))
-        {
-            var separator = existing.Length == 0 || existing.EndsWith('\n') ? "" : "\n";
-            await File.AppendAllTextAsync(attributes, separator + Attribute + "\n").ConfigureAwait(false);
-        }
-
-        // Every hunk header then names the drawing or group the hunk is in.
-        await git.Checked(
-            new[] { "config", "diff.svgstudio.xfuncname", "^[ \t]*(<(drawing|group)[ \t].*)$" }).ConfigureAwait(false);
-
-        // Staged so the first commit carries it; Commit takes what is staged while there is no HEAD.
-        await git.Checked(new[] { "add", "--", ".gitattributes" }).ConfigureAwait(false);
-
         return git;
     }
 
@@ -147,27 +131,98 @@ public sealed class ProjectGit
         return code == 0 ? output.Trim() : null;
     }
 
-    /// <summary>The project file's text at <paramref name="revision"/>, or null when it is not there or the revision does not exist.</summary>
-    public Task<string?> At(string revision)
-        => Blob($"{revision}:./{Name}");
-
-    /// <summary>The common ancestor, our and their versions of a conflicted file; each is null when that side has none.</summary>
-    public async Task<(string? Base, string? Ours, string? Theirs)> Stages()
-        => (await Blob($":1:./{Name}").ConfigureAwait(false),
-            await Blob($":2:./{Name}").ConfigureAwait(false),
-            await Blob($":3:./{Name}").ConfigureAwait(false));
-
+    /// <summary>
+    /// The project's files at <paramref name="revision"/>, by path inside the project, or null when
+    /// it is not there or the revision does not exist.
+    /// </summary>
     /// <remarks>
-    /// <c>cat-file</c> rather than <c>show</c>, which may run a textconv filter over the blob, and with
-    /// <c>--filters</c> so it reads as checkout writes it: a bare blob has LF where autocrlf put CRLF on
-    /// disk, and every drawing would compare as changed.
+    /// <c>archive</c>, which writes each file as checkout would: a bare blob has LF where autocrlf put
+    /// CRLF on disk, and every drawing would compare as changed. One process for the lot, since a
+    /// project runs to a thousand files and a process each takes seconds. Not <c>cat-file --batch
+    /// --filters</c>, whose header gives the size before the filters ran, so its output cannot be
+    /// cut into files.
     /// </remarks>
+    public async Task<Dictionary<string, string>?> Files(string revision)
+    {
+        var (code, output, _) = await Run(new[] { "archive", "--format=tar", revision, "--", Name }, null).ConfigureAwait(false);
+
+        if (code != 0)
+        {
+            return null;
+        }
+
+        var files = new Dictionary<string, string>(StringComparer.Ordinal);
+        var decoder = new UTF8Encoding(false);
+        var root = Name + "/";
+
+        using var reader = new TarReader(new MemoryStream(output));
+
+        while (reader.GetNextEntry() is { } entry)
+        {
+            if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile)
+                || entry.DataStream is not { } data
+                || !entry.Name.StartsWith(root, StringComparison.Ordinal)
+                || !ProjectPackage.Holds(entry.Name[root.Length..]))
+            {
+                continue;
+            }
+
+            using var bytes = new MemoryStream();
+
+            data.CopyTo(bytes);
+            files[entry.Name[root.Length..]] = decoder.GetString(bytes.ToArray());
+        }
+
+        return files.Count > 0 ? files : null;
+    }
+
+    /// <summary>
+    /// The common ancestor, our and their versions of a conflicted file of the project, at
+    /// <paramref name="path"/> inside it; each is null when that side has none.
+    /// </summary>
+    public async Task<(string? Base, string? Ours, string? Theirs)> Sides(string path)
+        => (await Blob($":1:./{Name}/{path}").ConfigureAwait(false),
+            await Blob($":2:./{Name}/{path}").ConfigureAwait(false),
+            await Blob($":3:./{Name}/{path}").ConfigureAwait(false));
+
+    /// <inheritdoc cref="Files" />
     private async Task<string?> Blob(string name)
     {
         var (code, output, _) = await Run(new[] { "cat-file", "--filters", name }).ConfigureAwait(false);
 
         return code == 0 ? output : null;
     }
+
+    /// <summary>The paths inside the project that a merge left conflicted.</summary>
+    public async Task<IReadOnlyList<string>> Conflicts()
+    {
+        var root = await Prefix().ConfigureAwait(false) + Name + "/";
+
+        return Entries(await Checked(new[] { "status", "--porcelain=v2", "-z", "--", Name }).ConfigureAwait(false))
+            .Where(entry => entry.Kind == 'u' && entry.Path.StartsWith(root, StringComparison.Ordinal))
+            .Select(entry => entry.Path[root.Length..])
+            .ToList();
+    }
+
+    /// <summary>Settles a conflicted file by taking one side's version of it, which may be none.</summary>
+    public async Task Take(string path, ProjectSide side)
+    {
+        var name = Name + "/" + path;
+
+        if (await Blob($":{(side == ProjectSide.Theirs ? 3 : 2)}:./{name}").ConfigureAwait(false) is null)
+        {
+            await Checked(new[] { "rm", "-q", "--", name }).ConfigureAwait(false);
+            return;
+        }
+
+        await Checked(new[] { "checkout", side == ProjectSide.Theirs ? "--theirs" : "--ours", "--", name }).ConfigureAwait(false);
+        await Checked(new[] { "add", "--", name }).ConfigureAwait(false);
+    }
+
+    /// <summary>Where the folder holding the project sits in the repository, ending in a slash, or empty at its root.</summary>
+    /// <remarks>Paths git prints from the root, as status and ls-tree do, are made relative to the project with it.</remarks>
+    private async Task<string> Prefix()
+        => _prefix ??= (await Checked(new[] { "rev-parse", "--show-prefix" }).ConfigureAwait(false)).Trim();
 
     /// <summary>The local branches, and the remote-tracking ones no local branch of the same name has taken.</summary>
     public async Task<IReadOnlyList<ProjectGitBranch>> Branches()
@@ -286,21 +341,33 @@ public sealed class ProjectGit
     public Task AbortMerge()
         => Checked(new[] { "merge", "--abort" });
 
-    /// <summary>Marks the project file resolved, or stages it for the next commit.</summary>
+    /// <summary>Stages the project, drawings deleted and added included, for the next commit.</summary>
     public Task Stage()
         => Checked(new[] { "add", "--", Name });
 
+    /// <remarks>
+    /// The project's state is the worst of its files': one conflicted file makes it conflicted, and
+    /// one drawing added or changed makes it modified. Untracked and ignored say whether the project
+    /// itself is, which is its <c>studio.xml</c>.
+    /// </remarks>
     public async Task<ProjectGitStatus> Status()
     {
-        var output = await Checked(new[] { "status", "--porcelain=v2", "--branch", "--ignored=matching", "--", Name })
+        var output = await Checked(new[] { "status", "--porcelain=v2", "-z", "--branch", "--ignored=matching", "--", Name })
             .ConfigureAwait(false);
+        var manifest = await Prefix().ConfigureAwait(false) + Name + "/" + ProjectPackage.Manifest;
 
         string? branch = null, upstream = null;
         int ahead = 0, behind = 0;
-        var state = ProjectGitState.Committed;
+        var conflicted = false;
+        var modified = false;
+        var untracked = false;
+        var ignored = false;
 
-        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var (kind, line, path) in Entries(output))
         {
+            // The project's own folder, where git sums a folder nothing of is tracked up as one entry.
+            var whole = manifest.StartsWith(path, StringComparison.Ordinal) && path.EndsWith('/');
+
             if (line.StartsWith("# branch.head ", StringComparison.Ordinal))
             {
                 // "(detached)" is what a checked out commit reads as.
@@ -316,28 +383,85 @@ public sealed class ProjectGit
                 ahead = int.Parse(counts[0].TrimStart('+'), CultureInfo.InvariantCulture);
                 behind = int.Parse(counts[1].TrimStart('-'), CultureInfo.InvariantCulture);
             }
-            else if (line.StartsWith("u ", StringComparison.Ordinal))
+            else if (kind == 'u')
             {
-                state = ProjectGitState.Conflicted;
+                conflicted = true;
             }
-            else if (line.StartsWith("! ", StringComparison.Ordinal))
+            else if (kind == '!')
             {
-                state = ProjectGitState.Ignored;
+                ignored |= whole || path == manifest;
             }
-            else if (line.StartsWith("? ", StringComparison.Ordinal))
+            else if (kind == '?')
             {
-                state = ProjectGitState.Untracked;
+                untracked |= whole || path == manifest;
+                modified = true;
             }
-            else if (line.StartsWith("1 ", StringComparison.Ordinal) || line.StartsWith("2 ", StringComparison.Ordinal))
+            else if (kind is '1' or '2')
             {
-                state = ProjectGitState.Modified;
+                modified = true;
             }
         }
+
+        var state = conflicted ? ProjectGitState.Conflicted
+            : ignored ? ProjectGitState.Ignored
+            : untracked ? ProjectGitState.Untracked
+            : modified ? ProjectGitState.Modified
+            : ProjectGitState.Committed;
 
         return new ProjectGitStatus(branch, upstream, ahead, behind, state);
     }
 
-    /// <summary>The commits that touched the project file, newest first.</summary>
+    /// <summary>The entries of <c>status --porcelain=v2 -z</c>: what kind each is, its line, and its path.</summary>
+    /// <remarks>
+    /// <c>-z</c> so a path is written as it is rather than quoted, and a rename, which is the one
+    /// entry followed by a second path, has that second path skipped.
+    /// </remarks>
+    private static IEnumerable<(char Kind, string Line, string Path)> Entries(string output)
+    {
+        var fields = output.Split('\0');
+
+        for (var at = 0; at < fields.Length; at++)
+        {
+            var line = fields[at];
+
+            if (line.Length < 2)
+            {
+                continue;
+            }
+
+            var kind = line[0];
+            var path = kind switch
+            {
+                '?' or '!' => line[2..],
+                '1' => Field(line, 8),
+                '2' => Field(line, 9),
+                'u' => Field(line, 10),
+                _ => string.Empty
+            };
+
+            if (kind == '2')
+            {
+                at++;
+            }
+
+            yield return (kind, line, path);
+        }
+
+        // Everything after the space ending the first count fields, since a path may hold spaces.
+        static string Field(string line, int count)
+        {
+            var at = 0;
+
+            for (var field = 0; field < count && at >= 0; field++)
+            {
+                at = line.IndexOf(' ', at) + 1;
+            }
+
+            return at > 0 ? line[at..] : string.Empty;
+        }
+    }
+
+    /// <summary>The commits that touched the project, newest first.</summary>
     public async Task<IReadOnlyList<ProjectGitCommit>> History(int count)
     {
         // A repository with no commit yet has no HEAD for log to start from, which is not a failure.
@@ -361,12 +485,11 @@ public sealed class ProjectGit
             .ToList();
     }
 
-    /// <summary>Commits the project file as it is on disk, and nothing else.</summary>
+    /// <summary>Commits the project as it is on disk, and nothing else.</summary>
     /// <remarks>
     /// Named on the commit as well as the add, so whatever else somebody had staged in the same
     /// repository stays staged and out of this commit. Except during a merge, cherry-pick or revert,
-    /// which git refuses to commit partially, so that commit takes everything staged. The first commit also takes
-    /// the attributes <see cref="Init"/> staged beside the file.
+    /// which git refuses to commit partially, so that commit takes everything staged.
     /// </remarks>
     public async Task Commit(string message)
     {
@@ -379,13 +502,7 @@ public sealed class ProjectGit
             return;
         }
 
-        var first = await Head().ConfigureAwait(false) is null
-                    && (await Checked(new[] { "ls-files", "--", ".gitattributes" }).ConfigureAwait(false)).Length > 0;
-
-        await Checked(
-            first
-                ? new[] { "commit", "-m", message, "--", Name, ".gitattributes" }
-                : new[] { "commit", "-m", message, "--", Name }).ConfigureAwait(false);
+        await Checked(new[] { "commit", "-m", message, "--", Name }).ConfigureAwait(false);
     }
 
     public Task Fetch()
@@ -393,8 +510,8 @@ public sealed class ProjectGit
 
     /// <summary>Brings the branch up to its upstream, refusing rather than merging when the two have diverged.</summary>
     /// <remarks>
-    /// Fast-forward only because a merge would write conflict markers into the project, which the
-    /// window cannot then open.
+    /// Fast-forward only because a merge may write conflict markers into a drawing, which the window
+    /// cannot then open until it is resolved.
     /// </remarks>
     public Task Pull()
         => Checked(new[] { "pull", "--ff-only" }, remote: true);
@@ -442,6 +559,16 @@ public sealed class ProjectGit
     /// <param name="remote">Whether it talks to a remote, which gets a time limit and an ssh that cannot prompt.</param>
     private async Task<(int Code, string Output, string Error)> Run(IEnumerable<string> arguments, bool remote = false)
     {
+        var (code, output, error) = await Run(arguments, null, remote).ConfigureAwait(false);
+
+        // Decoded from the bytes rather than read as text, which strips a byte order mark from a
+        // blob that has one; ProjectPackage.Read keeps it for the same reason.
+        return (code, new UTF8Encoding(false).GetString(output), error);
+    }
+
+    /// <param name="input">What to write to its standard input, or null for nothing.</param>
+    private async Task<(int Code, byte[] Output, string Error)> Run(IEnumerable<string> arguments, string? input, bool remote = false)
+    {
         var start = new ProcessStartInfo(Executable)
         {
             WorkingDirectory = Directory,
@@ -482,13 +609,19 @@ public sealed class ProjectGit
         using var process = Process.Start(start)
                             ?? throw new ProjectGitException($"{Executable} could not be started.");
 
-        process.StandardInput.Close();
-
-        // Decoded from the bytes rather than read as text, which strips a byte order mark from a
-        // blob that has one; ProjectDocument.Load keeps it for the same reason.
         using var bytes = new MemoryStream();
         var output = process.StandardOutput.BaseStream.CopyToAsync(bytes, limit.Token);
         var error = process.StandardError.ReadToEndAsync(limit.Token);
+
+        // Written while the output is already being read, so neither side fills its pipe waiting on the other.
+        if (input is { })
+        {
+            var written = new UTF8Encoding(false).GetBytes(input);
+
+            await process.StandardInput.BaseStream.WriteAsync(written, limit.Token).ConfigureAwait(false);
+        }
+
+        process.StandardInput.Close();
 
         try
         {
@@ -503,7 +636,7 @@ public sealed class ProjectGit
 
         await output.ConfigureAwait(false);
 
-        return (process.ExitCode, new UTF8Encoding(false).GetString(bytes.ToArray()), await error.ConfigureAwait(false));
+        return (process.ExitCode, bytes.ToArray(), await error.ConfigureAwait(false));
     }
 
     /// <summary>The first real <c>git</c> in the usual places and then on PATH.</summary>

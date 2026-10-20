@@ -76,7 +76,7 @@ public class GroupRenameTests
 
     private static (ProjectWorkspace Workspace, ProjectGroup Group) Open(string xml = Project)
     {
-        var workspace = new ProjectWorkspace(ProjectDocument.Parse(xml));
+        var workspace = new ProjectWorkspace(TestPackage.Parse(xml));
 
         return (workspace, workspace.Document.Root.Children.OfType<ProjectGroup>().Single());
     }
@@ -176,14 +176,14 @@ public class GroupRenameTests
     {
         var (workspace, group) = Open();
 
-        var before = workspace.Document.ToXml();
+        var before = TestPackage.Dump(workspace.Document);
 
         Assert.Null(Rename(workspace, group, "shade"));
         Assert.True(workspace.CanUndo);
 
         Assert.True(workspace.Undo());
 
-        Assert.Equal(before, workspace.Document.ToXml());
+        Assert.Equal(before, TestPackage.Dump(workspace.Document));
     }
 
     [Fact]
@@ -193,12 +193,12 @@ public class GroupRenameTests
 
         Assert.Null(Rename(workspace, group, "shade"));
 
-        var renamed = workspace.Document.ToXml();
+        var renamed = TestPackage.Dump(workspace.Document);
 
         Assert.True(workspace.Undo());
         Assert.True(workspace.Redo());
 
-        Assert.Equal(renamed, workspace.Document.ToXml());
+        Assert.Equal(renamed, TestPackage.Dump(workspace.Document));
     }
 
     // ---- refused whole, or not at all ----

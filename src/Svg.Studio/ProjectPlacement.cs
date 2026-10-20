@@ -234,7 +234,7 @@ public static class ProjectPlacement
     private static string Rendered(XElement block, ProjectGroup group)
     {
         // The block's own depth, which is one in from the group that holds it.
-        var unit = group.Owner.Source.IndentUnit;
+        var unit = group.File.IndentUnit;
         var depth = ProjectDocument.Depth(group.Element) + unit;
 
         var lines = block.ToString().Split('\n');

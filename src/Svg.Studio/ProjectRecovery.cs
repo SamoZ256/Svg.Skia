@@ -2,7 +2,10 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Avalonia.Threading;
@@ -14,17 +17,17 @@ namespace Svg.Studio;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Never the project's own file: the whole of this change is that the file is the author's to write.
+/// Never the project's own files: the whole of this change is that they are the author's to write.
 /// What is kept is a copy under application data, offered back when the project is opened again and
 /// thrown away the moment the project is saved — so a copy exists exactly when Studio did not leave
 /// cleanly with that project open.
 /// </para>
 /// <para>
-/// The copy is a project file, byte for byte what a save would write. Nothing is stored inside it —
-/// a <c>&lt;studio&gt;</c> refuses attributes it does not know, and a wrapper element would throw
-/// away the byte-exact round trip the format is held in. The project's own path is the key instead,
-/// so the copy is found by computing a name rather than by reading an index — and a project with no
-/// file yet has nothing to be looked up under, so it is covered only from its first save.
+/// The copy is one zip of the project's files, each byte for byte what a save would write: one file,
+/// so it is written whole and moved into place rather than a thousand drawings at a time. The
+/// project's own path is the key, so the copy is found by computing a name rather than by reading
+/// an index — and a project with no folder yet has nothing to be looked up under, so it is covered
+/// only from its first save.
 /// </para>
 /// <para>
 /// What it holds is the project. Text typed into a drawing's editor is that tab's buffer and does
@@ -99,7 +102,7 @@ public sealed class ProjectRecovery
 
         // Hashed rather than hashed by the runtime: String.GetHashCode is salted per process, so
         // every copy would be looked for under a name nothing had written.
-        return System.IO.Path.Combine(Store, $"{System.IO.Path.GetFileNameWithoutExtension(full)}-{key}.svgstudio");
+        return System.IO.Path.Combine(Store, $"{System.IO.Path.GetFileNameWithoutExtension(full.TrimEnd(System.IO.Path.DirectorySeparatorChar))}-{key}.zip");
     }
 
     /// <summary>The copy waiting for a project, or null where none is or it says the same thing.</summary>
@@ -109,7 +112,7 @@ public sealed class ProjectRecovery
     /// delete failed is identical and worth nobody's question — so the text answers both, and the
     /// dates are left to say when.
     /// </remarks>
-    public static string? Waiting(string path, string text)
+    public static string? Waiting(string path, IReadOnlyDictionary<string, string> files)
     {
         var recovery = For(path);
 
@@ -118,7 +121,7 @@ public sealed class ProjectRecovery
             return null;
         }
 
-        if (string.Equals(kept, text, StringComparison.Ordinal))
+        if (kept.Count == files.Count && kept.All(file => files.TryGetValue(file.Key, out var text) && text == file.Value))
         {
             Delete(recovery);
 
@@ -128,18 +131,34 @@ public sealed class ProjectRecovery
         return recovery;
     }
 
-    /// <summary>A copy as text, or null where there is none to read.</summary>
-    public static string? Read(string recovery)
+    /// <summary>The files a copy holds, by path inside the project, or null where there is none to read.</summary>
+    public static IReadOnlyDictionary<string, string>? Read(string recovery)
     {
         try
         {
-            // Decoded rather than read as text, which strips a byte order mark: the mark is a
-            // character of the project, the same as it is when one is opened.
-            return File.Exists(recovery)
-                ? new UTF8Encoding(false).GetString(File.ReadAllBytes(recovery))
-                : null;
+            if (!File.Exists(recovery))
+            {
+                return null;
+            }
+
+            using var zip = ZipFile.OpenRead(recovery);
+            var files = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            foreach (var entry in zip.Entries)
+            {
+                using var stream = entry.Open();
+                using var bytes = new MemoryStream();
+
+                stream.CopyTo(bytes);
+
+                // Decoded rather than read as text, which strips a byte order mark: the mark is a
+                // character of the project, the same as it is when one is opened.
+                files[entry.FullName] = new UTF8Encoding(false).GetString(bytes.ToArray());
+            }
+
+            return files;
         }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             return null;
         }
@@ -277,7 +296,16 @@ public sealed class ProjectRecovery
 
             // Written beside and moved over: a copy caught half written is the one thing worse than
             // no copy, since it would be offered back as if it were the work.
-            File.WriteAllText(temporary, _workspace.Document.ToXml(), new UTF8Encoding(false));
+            using (var zip = ZipFile.Open(temporary, ZipArchiveMode.Create))
+            {
+                foreach (var (path, text) in _workspace.Document.Files())
+                {
+                    using var stream = zip.CreateEntry(path, CompressionLevel.NoCompression).Open();
+
+                    stream.Write(new UTF8Encoding(false).GetBytes(text));
+                }
+            }
+
             File.Move(temporary, Path, overwrite: true);
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)

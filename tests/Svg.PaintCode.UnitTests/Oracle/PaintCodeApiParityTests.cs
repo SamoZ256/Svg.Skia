@@ -8,12 +8,13 @@ using System.Text.RegularExpressions;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Skia;
+using Svg.Studio;
 using Xunit;
 
 namespace Svg.PaintCode.UnitTests.Oracle;
 
 /// <summary>
-/// The API class an import of the sample generates, against the class PaintCode generated from it:
+/// The API class the Studio project generates, against the class PaintCode generated for it:
 /// every overload PaintCode has, with the same name, types and argument names in the same order.
 /// </summary>
 /// <remarks>
@@ -29,19 +30,14 @@ public class PaintCodeApiParityTests
     /// </summary>
     private static readonly string[] s_unmatched = { "drawMessage", "drawQuestionmark", "drawVentilation" };
 
-    [SampleFact]
+    [OracleFact]
     public void Every_PaintCode_Overload_Has_One_Of_The_Same_Signature()
     {
-        var document = PaintCodeDocument.Load(SampleFactAttribute.Path!);
+        var project = ProjectDocument.Load(OracleFactAttribute.Path!);
         var settings = new SvgcBuildSettings { TextLayout = SvgTextLayout.Relaxed };
         var loader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
 
-        var drawings = PaintCodeImport
-            .Desks(document, new PaintCodeImportOptions(Path.GetTempPath()) { IncludeSymbolOnlyCanvases = true }, new List<PaintCodeImportNote>())
-            .SelectMany(desk => desk.Drawings.Select(drawing => new SvgcProjectItem(drawing.Name, null, "Sample." + desk.Name, drawing.Class, null, source: drawing.Document.Root!.ToString())
-            {
-                Method = drawing.Method
-            }))
+        var drawings = project.Flatten().Items
             .Select(item => SvgcProjectBuild.Build(item, settings, loader)!)
             .ToList();
 
@@ -50,7 +46,7 @@ public class PaintCodeApiParityTests
             Api = "PaintCodeResources.Api",
             Resizing = "PaintCode.ResizingBehavior",
             Context = "PaintCode.Context",
-            Order = PaintCodeImport.ParameterOrder(document)
+            Order = SvgcProject.ParseNames(project.Root.Order) ?? Array.Empty<string>()
         });
 
         var ours = Regex.Matches(code, @"public static void (draw\w+)\(([^)]*)\)")
