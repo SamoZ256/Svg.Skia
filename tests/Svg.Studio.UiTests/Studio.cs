@@ -90,6 +90,10 @@ internal sealed class Studio : IDisposable
     public IWebElement Button(string title)
         => Until(() => Driver.FindElements(Chain($"**/XCUIElementTypeButton[`title == '{title}'`]")).FirstOrDefault(), $"the button '{title}'");
 
+    /// <summary>Anything that says <paramref name="text"/>, for Avalonia's popups, whose items macOS gives no settled type.</summary>
+    public IWebElement Labelled(string text)
+        => Until(() => Driver.FindElements(new Locator("-ios predicate string", $"title == '{text}' OR label == '{text}' OR value == '{text}'")).FirstOrDefault(e => e.Displayed), $"'{text}'");
+
     /// <summary>Picks an item from the menu bar, which is where macOS puts Studio's NativeMenu.</summary>
     public void Menu(string menu, string item)
     {
@@ -238,7 +242,7 @@ internal sealed class Studio : IDisposable
         return folder;
     }
 
-    private static By Chain(string chain) => new ByClassChain(chain);
+    private static By Chain(string chain) => new Locator("-ios class chain", chain);
 
     /// <summary>XCUIKeyModifierCommand, as <c>macos: keys</c> takes modifiers.</summary>
     private const int CommandKey = 1 << 4;
@@ -246,11 +250,11 @@ internal sealed class Studio : IDisposable
     /// <summary>XCUIApplicationStateRunningForeground, as <c>macos: queryAppState</c> answers.</summary>
     private const long RunningForeground = 4;
 
-    /// <summary>The mac2 driver's class chain, which the client offers only under its iOS name.</summary>
-    private sealed class ByClassChain : By
+    /// <summary>The mac2 driver's class chain and predicate string, which the client offers only under their iOS names.</summary>
+    private sealed class Locator : By
     {
-        public ByClassChain(string chain)
-            : base("-ios class chain", chain)
+        public Locator(string mechanism, string criteria)
+            : base(mechanism, criteria)
         {
         }
     }
