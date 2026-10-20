@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -187,9 +188,11 @@ internal sealed class Studio : IDisposable
     private void Front()
         => Until(() =>
         {
-            Driver.ExecuteScript("macos: activateApp", new Dictionary<string, object> { ["bundleId"] = BundleId });
+            var app = new Dictionary<string, object> { ["bundleId"] = BundleId };
 
-            return (Driver.ExecuteScript("macos: activeAppInfo") as IDictionary<string, object>)?["bundleId"] as string == BundleId;
+            Driver.ExecuteScript("macos: activateApp", app);
+
+            return Convert.ToInt64(Driver.ExecuteScript("macos: queryAppState", app), CultureInfo.InvariantCulture) == RunningForeground;
         }, "Studio in front", 10d);
 
     private MacDriver Start(string[] arguments)
@@ -239,6 +242,9 @@ internal sealed class Studio : IDisposable
 
     /// <summary>XCUIKeyModifierCommand, as <c>macos: keys</c> takes modifiers.</summary>
     private const int CommandKey = 1 << 4;
+
+    /// <summary>XCUIApplicationStateRunningForeground, as <c>macos: queryAppState</c> answers.</summary>
+    private const long RunningForeground = 4;
 
     /// <summary>The mac2 driver's class chain, which the client offers only under its iOS name.</summary>
     private sealed class ByClassChain : By
