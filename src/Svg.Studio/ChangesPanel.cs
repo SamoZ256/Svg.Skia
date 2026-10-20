@@ -2,9 +2,9 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -137,8 +137,8 @@ public sealed class ChangesPanel : UserControl
     /// <summary>Raised when <see cref="Changes"/> has been worked out again, and after every refresh of what git says.</summary>
     public event EventHandler? Compared;
 
-    /// <summary>Writes the project so what is committed is what the window shows; false is a refusal already said.</summary>
-    public Func<Task<bool>> Saving { get; set; } = () => Task.FromResult(true);
+    /// <summary>Writes the project so what is committed is what the window shows; false is a refusal already said, into the notes when given them.</summary>
+    public Func<List<string>?, Task<bool>> Saving { get; set; } = _ => Task.FromResult(true);
 
     /// <summary>Whether the window holds anything not on disk, which a pull would be written under.</summary>
     public Func<bool> Unsaved { get; set; } = () => false;
@@ -329,19 +329,41 @@ public sealed class ChangesPanel : UserControl
     }
 
     /// <summary>Saves the project and commits it with <paramref name="message"/>.</summary>
-    public async Task Commit(string message)
+    /// <param name="notes">Where what went wrong goes, for a caller with nowhere to show a dialog; null announces it.</param>
+    /// <returns>Whether it was committed.</returns>
+    public async Task<bool> Commit(string message, List<string>? notes = null)
     {
-        if (_git is not { } git || string.IsNullOrWhiteSpace(message) || !await Saving().ConfigureAwait(true))
+        if (_git is not { } git)
         {
-            return;
+            return false;
         }
 
-        await Run("Committing…", "The commit failed", () => git.Commit(message.Trim())).ConfigureAwait(true);
+        // Here as well as on the button, which a tool does not press. Mid-merge the add would mark
+        // the conflict markers resolved and the commit conclude the merge with them.
+        var refusal = string.IsNullOrWhiteSpace(message) ? "A commit needs a message."
+            : _busy ? "Git is still running another command; try again when it has finished."
+            : await Conflicted().ConfigureAwait(true) ? $"{git.Name} is in conflict, part way through a merge or a rebase; finish it, or abort it, before committing."
+            : null;
+
+        if (refusal is { })
+        {
+            await Say(Announce, "Nothing was committed", refusal, notes).ConfigureAwait(true);
+            return false;
+        }
+
+        if (!await Saving(notes).ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        var committed = await Run("Committing…", "The commit failed", () => git.Commit(message.Trim()), notes).ConfigureAwait(true);
 
         if (_status is { State: ProjectGitState.Committed } && !_merging)
         {
             _message.Text = null;
         }
+
+        return committed;
     }
 
     public Task Pull() => Rewrite("pulling", "Pulling…", "The pull failed", async git =>
@@ -812,7 +834,8 @@ public sealed class ChangesPanel : UserControl
     private Task Remote(string doing, string failed, Func<ProjectGit, Task> command)
         => _git is { } git ? Run(doing, failed, () => command(git)) : Task.CompletedTask;
 
-    private async Task Run(string doing, string failed, Func<Task> command)
+    /// <returns>Whether the command succeeded; a failure is said under <paramref name="failed"/>.</returns>
+    private async Task<bool> Run(string doing, string failed, Func<Task> command, List<string>? notes = null)
     {
         _busy = true;
         _state.Text = doing;
@@ -837,8 +860,23 @@ public sealed class ChangesPanel : UserControl
 
         if (refusal is { })
         {
-            await Announce(failed, refusal.Message).ConfigureAwait(true);
+            await Say(Announce, failed, refusal.Message, notes).ConfigureAwait(true);
         }
+
+        return refusal is null;
+    }
+
+    /// <summary>Announces through <paramref name="announce"/>, or adds to <paramref name="notes"/> for a caller with nowhere to show a dialog.</summary>
+    internal static Task Say(Func<string, string, Task> announce, string title, string message, List<string>? notes)
+    {
+        if (notes is null)
+        {
+            return announce(title, message);
+        }
+
+        notes.Add($"{title}: {message}");
+
+        return Task.CompletedTask;
     }
 
     private static TextBlock Heading(string text) => new()

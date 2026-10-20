@@ -580,15 +580,29 @@ public sealed class AssistantTools
 
     private Task<string> Save() => UiAsync(async () =>
     {
-        // A save that would have to ask where opens a picker, which a client cannot answer.
-        if (_window.Workspace is { Document.Path: null })
+        if (_window.Workspace is null && _window.FrontViewer is null)
+        {
+            return "Nothing is open.";
+        }
+
+        // A save that would have to ask where opens a picker, which a client cannot answer. A tab of
+        // no project's saves to its own file, whether or not the project has one.
+        if (_window.FrontNode is null && _window.FrontViewer is { } alone)
+        {
+            if (alone.DocumentPath is null)
+            {
+                return "The drawing in front has no file; save it once in Studio, which asks where.";
+            }
+        }
+        else if (_window.Workspace is { Document.Path: null })
         {
             return "The project has never been saved, so there is nowhere to write it; save it once in Studio, which asks where.";
         }
-
-        if (_window.Workspace is null && _window.FrontViewer is { DocumentPath: null })
+        else if (await _window.Changes.Conflicted().ConfigureAwait(true))
         {
-            return "The drawing in front has no file; save it once in Studio, which asks where.";
+            // WriteAsync asks too, but an unedited project never reaches it and would answer "Saved."
+            // over a file holding the conflict markers.
+            return "The project is in conflict, part way through a merge or a rebase; finish it, or abort it, before saving.";
         }
 
         if (!await Confirm("Save the project?").ConfigureAwait(true))
@@ -596,9 +610,11 @@ public sealed class AssistantTools
             return "The person said no; nothing was saved.";
         }
 
-        await _window.SaveAsync().ConfigureAwait(true);
+        var notes = new List<string>();
 
-        return Report("Saved.", "save");
+        return await _window.SaveAsync(notes).ConfigureAwait(true)
+            ? Report("Saved.", "save")
+            : string.Join("\n", notes.DefaultIfEmpty("Nothing was saved."));
     });
 
     private Task<string> Remove([Description("The node path of the group or drawing to remove.")] string node) => UiAsync(async () =>
@@ -637,9 +653,11 @@ public sealed class AssistantTools
             return "The person said no; nothing was committed.";
         }
 
-        await _window.Changes.Commit(message).ConfigureAwait(true);
+        var notes = new List<string>();
 
-        return Report("Committed.", "commit");
+        return await _window.Changes.Commit(message, notes).ConfigureAwait(true)
+            ? Report("Committed.", "commit")
+            : string.Join("\n", notes.DefaultIfEmpty("Nothing was committed."));
     });
 
     private Task<string> GetDeclarations(

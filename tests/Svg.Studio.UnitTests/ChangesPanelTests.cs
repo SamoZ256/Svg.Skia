@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Microsoft.Extensions.AI;
+using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 using static Svg.Studio.UnitTests.ProjectGitTests;
 
@@ -269,6 +271,93 @@ public class ChangesPanelTests : IDisposable
         Assert.False(await window.Changes.Git!.InMerge());
         Assert.Contains("#ff0000", window.Workspace!.Document.Root.Drawings.Single().Text, StringComparison.Ordinal);
         Assert.Equal(2, _announced.Count);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tool_Neither_Saves_Nor_Commits_Mid_Merge()
+    {
+        Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
+
+        var window = await Host();
+
+        // Where the panel does not see it, so only git asked now knows.
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+
+        var committing = await Call(window, "git_commit", new() { ["message"] = "Merge other" });
+
+        Assert.Contains("in conflict", committing, StringComparison.Ordinal);
+        Assert.DoesNotContain("<<<<<<<", Git(Work, "show", "HEAD:icons.svgstudio"), StringComparison.Ordinal);
+        Assert.True(await window.Changes.Git!.InMerge());
+
+        // Unedited, so nothing would be written, and the window is still not what the file holds.
+        var saving = await Call(window, "save", new());
+
+        Assert.Contains("in conflict", saving, StringComparison.Ordinal);
+        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(File), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Commit_From_The_Panel_Announces_Why_It_Was_Not_Made()
+    {
+        Committed();
+
+        var window = await Host();
+
+        // Git's refusal, here of nothing to commit, and then the project's, of a drawing it will not take.
+        Assert.False(await window.Changes.Commit("Again"));
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<SvgViewer>().First().SetSource("<div/>");
+
+        Assert.False(await window.Changes.Commit("Broken"));
+        Assert.Equal(new[] { "The commit failed", "The drawing couldn't be saved" }, _announced);
+        Assert.Equal("1", Git(Work, "rev-list", "--count", "HEAD").Trim());
+
+        window.ConfirmDiscard = _ => Task.FromResult(true);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tool_Commit_Is_Refused_Without_A_Message_Or_While_Git_Is_Running()
+    {
+        Committed();
+
+        // Fetching for ever, until the time limit stops it: the # makes a comment of the arguments.
+        Git(Work, "config", "core.sshCommand", "sleep 60 #");
+        Git(Work, "remote", "add", "origin", "ssh://example.invalid/icons.git");
+        Git(Work, "config", "branch.main.remote", "origin");
+        Git(Work, "config", "branch.main.merge", "refs/heads/main");
+
+        var window = await Host();
+        var blank = await Call(window, "git_commit", new() { ["message"] = "  " });
+        var timeout = ProjectGit.RemoteTimeout;
+
+        ProjectGit.RemoteTimeout = TimeSpan.FromSeconds(2);
+
+        try
+        {
+            // Busy from the call itself, before anything is awaited.
+            var pulling = window.Changes.Pull();
+            var running = await Call(window, "git_commit", new() { ["message"] = "During the pull" });
+
+            Assert.Contains("still running", running, StringComparison.Ordinal);
+            Assert.Empty(_announced);
+
+            await pulling;
+        }
+        finally
+        {
+            ProjectGit.RemoteTimeout = timeout;
+        }
+
+        Assert.Contains("needs a message", blank, StringComparison.Ordinal);
+        Assert.Equal("1", Git(Work, "rev-list", "--count", "HEAD").Trim());
 
         window.Close();
     }
@@ -557,6 +646,17 @@ public class ChangesPanelTests : IDisposable
         process.WaitForExit();
 
         return output;
+    }
+
+    /// <summary>A tool called as a client calls it: no button is pressed, and Studio answers its own question yes.</summary>
+    private static async Task<string> Call(MainWindow window, string tool, AIFunctionArguments arguments)
+    {
+        var function = new AssistantTools(window) { Confirm = _ => Task.FromResult(true) }
+            .For(small: false, docs: false)
+            .OfType<AIFunction>()
+            .Single(one => one.Name == tool);
+
+        return (await function.InvokeAsync(arguments).AsTask().WaitAsync(TimeSpan.FromSeconds(30)))?.ToString() ?? string.Empty;
     }
 
     private MainWindow Empty()

@@ -818,14 +818,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Writes what the window holds of the project, so a commit is of what is on screen.</summary>
-    private async Task<bool> SaveForCommitAsync()
+    private async Task<bool> SaveForCommitAsync(List<string>? notes)
     {
-        if (_workspace is not { } workspace || !await CommitAsync("The drawing couldn't be saved").ConfigureAwait(true))
+        if (_workspace is not { } workspace || !await CommitAsync("The drawing couldn't be saved", notes).ConfigureAwait(true))
         {
             return false;
         }
 
-        return !workspace.IsEdited || await WriteAsync(workspace).ConfigureAwait(true);
+        return !workspace.IsEdited || await WriteAsync(workspace, notes).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -4282,25 +4282,40 @@ public partial class MainWindow : Window
     ///
     /// Public for the reason <see cref="ExportAsync"/> is: a way in without the keyboard.
     /// </remarks>
-    public async Task SaveAsync()
+    /// <param name="notes">Where what went wrong goes, for a caller with nowhere to show a dialog; null announces it.</param>
+    /// <returns>Whether everything that needed writing was written.</returns>
+    public async Task<bool> SaveAsync(List<string>? notes = null)
     {
         var selected = _tabs.SelectedItem as TabItem;
 
         // A drawing with a file of its own: the viewer writes it, and no project is involved.
         var elsewhere = selected is { Tag: not ProjectNode, Content: SvgViewer };
+        var saved = true;
 
         if (selected is { Tag: not ProjectNode, Content: SvgViewer alone })
         {
-            await alone.SaveSourceAsync().ConfigureAwait(true);
+            // The viewer says a failed write over the drawing, where a caller with notes is not looking.
+            EventHandler<string> said = (_, message) => notes?.Add($"The drawing couldn't be saved: {message}");
+
+            alone.ErrorRaised += said;
+
+            try
+            {
+                saved = await alone.SaveSourceAsync().ConfigureAwait(true);
+            }
+            finally
+            {
+                alone.ErrorRaised -= said;
+            }
         }
-        else if (!await CommitAsync("The drawing couldn't be saved").ConfigureAwait(true))
+        else if (!await CommitAsync("The drawing couldn't be saved", notes).ConfigureAwait(true))
         {
-            return;
+            return false;
         }
 
         if (_workspace is not { } workspace)
         {
-            return;
+            return saved;
         }
 
         // A project that is a file is written when it is holding something, since a save that
@@ -4310,12 +4325,12 @@ public partial class MainWindow : Window
         // drawing with a panel about the project.
         if (workspace.Document.Path is { } ? !workspace.IsEdited : elsewhere)
         {
-            return;
+            return saved;
         }
 
-        if (!await WriteAsync(workspace).ConfigureAwait(true))
+        if (!await WriteAsync(workspace, notes).ConfigureAwait(true))
         {
-            return;
+            return false;
         }
 
         // The bytes are the project's now, so the tab is told rather than asked to write them:
@@ -4324,6 +4339,8 @@ public partial class MainWindow : Window
         {
             held.MarkSaved();
         }
+
+        return saved;
     }
 
     /// <summary>
@@ -4335,8 +4352,8 @@ public partial class MainWindow : Window
     /// rather than what it last wrote.
     /// </remarks>
     /// <param name="title">What a drawing the project will not take is reported under.</param>
-    /// <returns>Whether the tab could be committed; false is a refusal already announced.</returns>
-    private async Task<bool> CommitAsync(string title)
+    /// <returns>Whether the tab could be committed; false is a refusal already said.</returns>
+    private async Task<bool> CommitAsync(string title, List<string>? notes = null)
     {
         var selected = _tabs.SelectedItem as TabItem;
 
@@ -4360,7 +4377,7 @@ public partial class MainWindow : Window
 
                 if (refusal is { })
                 {
-                    await Announce(title, refusal).ConfigureAwait(true);
+                    await ChangesPanel.Say(Announce, title, refusal, notes).ConfigureAwait(true);
 
                     return false;
                 }
@@ -4378,14 +4395,14 @@ public partial class MainWindow : Window
     /// save was reached — a tab or the menu.
     /// </remarks>
     /// <returns>Whether it was written.</returns>
-    private async Task<bool> WriteAsync(ProjectWorkspace workspace)
+    private async Task<bool> WriteAsync(ProjectWorkspace workspace, List<string>? notes = null)
     {
         // A save would write over the conflict unnoticed, and the merge would then commit whatever
         // the window happened to hold.
         if (workspace.Document.Path is { } && await _changes.Conflicted().ConfigureAwait(true))
         {
-            await Announce("Resolve the merge first", $"{workspace.Name} is part way through a merge. Resolve it, "
-                                                     + "or abort it, from the Changes panel before saving.").ConfigureAwait(true);
+            await ChangesPanel.Say(Announce, "Resolve the merge first", $"{workspace.Name} is part way through a merge. Resolve it, "
+                                                                       + "or abort it, from the Changes panel before saving.", notes).ConfigureAwait(true);
 
             return false;
         }
@@ -4416,7 +4433,7 @@ public partial class MainWindow : Window
         catch (Exception failure)
             when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            await Announce("The project couldn't be saved", failure.Message).ConfigureAwait(true);
+            await ChangesPanel.Say(Announce, "The project couldn't be saved", failure.Message, notes).ConfigureAwait(true);
 
             return false;
         }

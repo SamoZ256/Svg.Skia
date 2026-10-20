@@ -562,6 +562,147 @@ public class AssistantTests : IDisposable
         Assert.Null(untitled.Workspace?.Document.Path);
     }
 
+    [AvaloniaFact]
+    public async Task A_Failed_Save_Is_Said_Back_And_Opens_Nothing()
+    {
+        var gone = Directory.CreateDirectory(Path.Combine(_directory, "gone")).FullName;
+        var path = Path.Combine(gone, "icons.svgstudio");
+
+        File.WriteAllText(path, Project);
+
+        var window = await Host(path);
+        var announced = Unanswered(window);
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Viewer(window).SetSource("<div/>");
+
+        var refused = new ScriptedChat(Call("save", new()), Say("Not saved."));
+
+        await Send(window, refused, "save", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Contains("has to be an <svg>", refused.Results[0], StringComparison.Ordinal);
+        Assert.Equal(Project, File.ReadAllText(path));
+
+        Viewer(window).SetSource(Drawing.Replace("#00ff00", "#123456", StringComparison.Ordinal));
+        Directory.Delete(gone, recursive: true);
+
+        var failed = new ScriptedChat(Call("save", new()), Say("Not saved."));
+
+        await Send(window, failed, "save", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Contains("The project couldn't be saved", failed.Results[0], StringComparison.Ordinal);
+        Assert.Empty(announced);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Save_That_Wrote_Nothing_Says_So()
+    {
+        var gone = Directory.CreateDirectory(Path.Combine(_directory, "gone")).FullName;
+        var path = Path.Combine(gone, "drawing.svg");
+
+        File.WriteAllText(path, Drawing);
+
+        var window = await Host(path);
+        var announced = Unanswered(window);
+
+        Viewer(window).SetSource(Drawing.Replace("#00ff00", "#123456", StringComparison.Ordinal));
+        Directory.Delete(gone, recursive: true);
+
+        // Said over the drawing rather than in a dialog, so only the answer carries it to a client.
+        var failed = new ScriptedChat(Call("save", new()), Say("Not saved."));
+
+        await Send(window, failed, "save", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Contains("The drawing couldn't be saved", failed.Results[0], StringComparison.Ordinal);
+        Assert.Empty(announced);
+
+        // One save writes both the drawing in front and an edited project, and the project's write hides nothing.
+        var lost = Directory.CreateDirectory(Path.Combine(_directory, "lost")).FullName;
+        var alone = Path.Combine(lost, "drawing.svg");
+
+        File.WriteAllText(alone, Drawing);
+
+        var project = await Host(Write("icons.svgstudio", Project));
+        var held = Unanswered(project);
+
+        project.Workspace!.Edit();
+        await project.OpenAsync(new[] { alone });
+        Dispatcher.UIThread.RunJobs();
+        Viewer(project).SetSource(Drawing.Replace("#00ff00", "#123456", StringComparison.Ordinal));
+        Directory.Delete(lost, recursive: true);
+
+        var both = new ScriptedChat(Call("save", new()), Say("Not saved."));
+
+        await Send(project, both, "save", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Contains("The drawing couldn't be saved", both.Results[0], StringComparison.Ordinal);
+        Assert.False(project.Workspace!.IsEdited);
+        Assert.Empty(held);
+
+        var empty = new MainWindow();
+        var asked = Unanswered(empty);
+
+        empty.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var nothing = new ScriptedChat(Call("save", new()), Say("Nothing."));
+
+        await Send(empty, nothing, "save", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal("Nothing is open.", nothing.Results[0]);
+        Assert.Empty(asked);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Save_Goes_By_The_Tab_In_Front_And_Never_Asks_Where()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var announced = Unanswered(window);
+
+        // The project in front with nothing to write is up to date, not a failure.
+        var current = new ScriptedChat(Call("save", new()), Say("Saved."));
+
+        await Send(window, current, "save", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal("Saved.", current.Results[0]);
+
+        // A tab belonging to no project, as a Streamline icon opened before any project was.
+        await window.OpenTextAsync(Drawing, "Icon");
+        Dispatcher.UIThread.RunJobs();
+
+        var picker = new Picker();
+        Viewer(window).FileDialogService = picker;
+
+        var untitled = new ScriptedChat(Call("save", new()), Say("Not saved."));
+
+        await Send(window, untitled, "save", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(0, picker.Asked);
+        Assert.Contains("has no file", untitled.Results[0], StringComparison.Ordinal);
+        Assert.Empty(announced);
+
+        // A drawing with a file of its own saves to it, whether or not the project has one.
+        var path = Write("drawing.svg", Drawing);
+        var unsaved = new MainWindow();
+        var asked = Unanswered(unsaved);
+
+        unsaved.Show();
+        Dispatcher.UIThread.RunJobs();
+        await unsaved.NewProjectAsync();
+        await unsaved.OpenAsync(new[] { path });
+        Dispatcher.UIThread.RunJobs();
+        Viewer(unsaved).SetSource(Drawing.Replace("#00ff00", "#123456", StringComparison.Ordinal));
+
+        var drawing = new ScriptedChat(Call("save", new()), Say("Saved."));
+
+        await Send(unsaved, drawing, "save", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal("Saved.", drawing.Results[0]);
+        Assert.Contains("#123456", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Empty(asked);
+    }
+
     [Fact]
     public void Claude_Needs_A_Key()
     {
@@ -615,6 +756,20 @@ public class AssistantTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         return window;
+    }
+
+    /// <summary>Records the window's dialogs and never closes them, as nobody closes one for a client.</summary>
+    private static List<string> Unanswered(MainWindow window)
+    {
+        var titles = new List<string>();
+
+        window.Announce = (title, _) =>
+        {
+            titles.Add(title);
+            return new TaskCompletionSource().Task;
+        };
+
+        return titles;
     }
 
     private static async Task<string> Send(MainWindow window, ScriptedChat chat, string text, bool allow = false)
@@ -672,6 +827,19 @@ public class AssistantTests : IDisposable
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class Picker : ISvgViewerFileDialogService
+    {
+        public int Asked { get; private set; }
+
+        public Task<string?> OpenSvgAsync(TopLevel? owner) => Task.FromResult<string?>(null);
+
+        public Task<string?> SaveSvgAsync(TopLevel? owner, string? suggested)
+        {
+            Asked++;
+            return Task.FromResult<string?>(null);
         }
     }
 

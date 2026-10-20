@@ -17,6 +17,7 @@ using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
+using static Svg.Studio.UnitTests.ProjectGitTests;
 
 namespace Svg.Studio.UnitTests;
 
@@ -34,12 +35,23 @@ public class StudioMcpServerTests : IDisposable
         </svg>
         """;
 
+    private const string Project = """
+        <studio namespace="Demo.Icons">
+          <drawing name="home">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" fill="#00ff00" />
+            </svg>
+          </drawing>
+        </studio>
+        """;
+
     private readonly Keychain? _was = Keychain.Current;
     private readonly MemoryKeychain _keychain = new();
     private readonly bool _enabled = StudioSettings.McpEnabled;
     private readonly int _port = StudioSettings.McpPort;
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
     private readonly List<Window> _windows = new();
+    private readonly List<string> _announced = new();
 
     public StudioMcpServerTests() => Keychain.Current = _keychain;
 
@@ -170,6 +182,72 @@ public class StudioMcpServerTests : IDisposable
         Assert.NotEqual(true, results[0].IsError);
         Assert.Equal("Selected.", Text(results[0]));
         Assert.True(results[1].IsError);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Failed_Commit_Is_Said_Back_And_Opens_Nothing()
+    {
+        var work = Path.Combine(_directory, "work");
+        var path = Path.Combine(work, "icons.svgstudio");
+
+        Directory.CreateDirectory(work);
+        Git(work, "init", "-b", "main");
+        Configure(work);
+        File.WriteAllText(path, Project);
+        Git(work, "add", "icons.svgstudio");
+        Git(work, "commit", "-m", "Add the icons");
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var again = await Call(client, "git_commit", new() { ["message"] = "Again" });
+
+        Assert.True(again.IsError);
+        Assert.Contains("nothing to commit", Text(again), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+        Assert.Equal("1", Git(work, "rev-list", "--count", "HEAD").Trim());
+
+        await Call(client, "set_attributes", new()
+        {
+            ["node"] = "0",
+            ["key"] = "0",
+            ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } },
+            ["summary"] = "red"
+        });
+
+        // Refused in the save before git is asked, which is where the commit writes the project.
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+
+        CallToolResult unwritable;
+
+        try
+        {
+            unwritable = await Call(client, "git_commit", new() { ["message"] = "Redden" });
+        }
+        finally
+        {
+            File.SetAttributes(path, FileAttributes.Normal);
+        }
+
+        Assert.True(unwritable.IsError);
+        Assert.Contains("The project couldn't be saved", Text(unwritable), StringComparison.Ordinal);
+
+        var committed = await Call(client, "git_commit", new() { ["message"] = "Redden" });
+
+        Assert.NotEqual(true, committed.IsError);
+        Assert.Equal("Committed.", Text(committed));
+        Assert.Equal("2", Git(work, "rev-list", "--count", "HEAD").Trim());
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        window.GetVisualDescendants().OfType<SvgViewer>().First().SetSource("<div/>");
+
+        var refused = await Call(client, "git_commit", new() { ["message"] = "Break it" });
+
+        Assert.True(refused.IsError);
+        Assert.Contains("has to be an <svg>", Text(refused), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+        Assert.Equal("2", Git(work, "rev-list", "--count", "HEAD").Trim());
     }
 
     [AvaloniaFact]
@@ -402,13 +480,13 @@ public class StudioMcpServerTests : IDisposable
         Assert.Null(settings.McpCommand);
     }
 
-    /// <summary>A window with a drawing open and the server listening on a port of its own.</summary>
-    private async Task<(MainWindow Window, int Port)> Serving()
+    /// <summary>A window with <paramref name="path"/>, or a drawing, open and the server listening on a port of its own.</summary>
+    private async Task<(MainWindow Window, int Port)> Serving(string? path = null)
     {
         StudioSettings.McpEnabled = true;
         StudioSettings.McpPort = FreePort();
 
-        var window = await Open();
+        var window = await Open(path);
 
         // This port exactly: a window a test left holding edits is still listening on its own.
         await Until(() => StudioMcpServer.Status == $"Listening on 127.0.0.1:{StudioSettings.McpPort}.");
@@ -416,13 +494,23 @@ public class StudioMcpServerTests : IDisposable
         return (window, StudioSettings.McpPort);
     }
 
-    private async Task<MainWindow> Open()
+    private async Task<MainWindow> Open(string? path = null)
     {
-        var path = Path.Combine(_directory, "drawing.svg");
+        if (path is null)
+        {
+            path = Path.Combine(_directory, "drawing.svg");
+            File.WriteAllText(path, Drawing);
+        }
 
-        File.WriteAllText(path, Drawing);
-
-        var window = new MainWindow { Announce = (_, _) => Task.CompletedTask };
+        // Never closed, as nobody closes one for a client: a call that opens a dialog hangs until Call gives up.
+        var window = new MainWindow
+        {
+            Announce = (title, _) =>
+            {
+                _announced.Add(title);
+                return new TaskCompletionSource().Task;
+            }
+        };
 
         _windows.Add(window);
         window.Show();
