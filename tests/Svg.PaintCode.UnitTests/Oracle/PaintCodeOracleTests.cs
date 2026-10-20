@@ -14,8 +14,8 @@ using Xunit.Abstractions;
 namespace Svg.PaintCode.UnitTests.Oracle;
 
 /// <summary>
-/// Draws every imported canvas beside the one PaintCode's own generated code draws, at every
-/// setting of the booleans PaintCode varies it on.
+/// Draws every drawing of the Studio project beside the one PaintCode's own generated code draws, at
+/// every setting of the booleans PaintCode varies it on.
 /// </summary>
 /// <remarks>
 /// Everything else about the import is checked structurally — the archive reads, the markup is
@@ -23,13 +23,10 @@ namespace Svg.PaintCode.UnitTests.Oracle;
 /// fault this conversion has had (a whole oval drawing nothing, a star exploding, a symbol at the
 /// anchor rather than the box corner, a nested group's anchor dropped) passed all of it.
 ///
-/// **This does not assert parity, and the conversion does not have it.** Measured over the sample
-/// document, 698 of 997 comparable canvases draw differently from PaintCode by more than antialiasing
-/// accounts for — 498 of them only once a parameter leaves its default, which is why a defaults-only
-/// check never saw it. So each canvas is pinned at what it currently measures, from
-/// <c>TestAssets/Oracle/parity.csv</c>: the suite fails when a canvas gets worse, and the file is the
-/// list of work outstanding. Closing a gap means re-running <see cref="PaintCodeOracleReport"/> and
-/// committing the smaller numbers, which is the only way an entry ever shrinks.
+/// Every canvas is held to <see cref="PaintCodeOracleBaseline.Bound"/> at every combination, not only
+/// at its defaults, where most faults have hidden. The few that cannot meet it are listed in
+/// <c>exceptions.csv</c>, each with a cause and what was found: a listed canvas fails if it gets worse
+/// than its recorded number, and again once it meets the bound and its line should go.
 /// </remarks>
 [Collection(PaintCodeOracleCollection.Name)]
 public class PaintCodeOracleTests
@@ -57,7 +54,7 @@ public class PaintCodeOracleTests
     public static IEnumerable<object[]> Rows()
         => PaintCodeOracleSuite.Instance.Drawings.Select(drawing => new object[] { drawing.Slug });
 
-    [SampleFact]
+    [OracleFact]
     public void Every_Canvas_Draws_Through_A_Method_Of_Its_Own()
     {
         var suite = PaintCodeOracleSuite.Instance;
@@ -81,7 +78,7 @@ public class PaintCodeOracleTests
     /// differ for a reason nobody has found yet, which is the one cause that is a confession rather
     /// than a decision.
     /// </remarks>
-    [SampleFact]
+    [OracleFact]
     public void The_Exceptions_Are_The_Ones_There_Is_A_Reason_For()
     {
         var suite = PaintCodeOracleSuite.Instance;
@@ -117,7 +114,7 @@ public class PaintCodeOracleTests
     /// family the system happens to list first — without failing. Excluded by name and counted, so
     /// the exclusion is visible rather than a gap in the rows.
     /// </remarks>
-    [SampleFact]
+    [OracleFact]
     public void The_Canvases_That_Draw_Words_Are_Named()
     {
         var text = PaintCodeOracleSuite.Instance.Drawings.Where(d => d.HasText).Select(d => d.Slug).ToArray();
@@ -132,7 +129,7 @@ public class PaintCodeOracleTests
         Assert.Equal(17, text.Length);
     }
 
-    [SampleTheory]
+    [OracleTheory]
     [MemberData(nameof(Rows))]
     public void Draws_No_Worse_Than_It_Did(string slug)
     {

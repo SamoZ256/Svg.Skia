@@ -190,7 +190,11 @@ public static class PaintCodeImport
             Indent = true,
             IndentChars = "  ",
             OmitXmlDeclaration = true,
-            Encoding = new UTF8Encoding(false)
+            Encoding = new UTF8Encoding(false),
+            // LF on every system, as Studio writes: the files are committed, and an import run on
+            // Windows would otherwise rewrite every line of them.
+            NewLineChars = "\n",
+            NewLineHandling = NewLineHandling.Replace
         };
 
         // Scoped so the handle is closed, not merely flushed, before the append: Windows refuses the
@@ -201,7 +205,7 @@ public static class PaintCodeImport
             document.Save(writer);
         }
 
-        File.AppendAllText(path, Environment.NewLine);
+        File.AppendAllText(path, "\n");
     }
 
     private static SvgcProjectGroup Group(SvgcProjectDocument project, string name)

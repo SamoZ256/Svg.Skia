@@ -22,7 +22,7 @@ public class ProjectImportTests : IDisposable
 {
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => Scratch.Delete(_directory);
 
     private string Write(string name, string text)
     {
@@ -294,6 +294,52 @@ public class ProjectImportTests : IDisposable
         Assert.Equal("LevelRect", name);
         Assert.Equal((2f, 6f, 28f, 24f), (rect.Left, rect.Top, rect.Right, rect.Bottom));
     }
+
+    /// <summary>
+    /// An import is the same bytes every time, and opening and saving it unchanged leaves git
+    /// nothing to commit, so a reviewer of a project in a repository sees only real changes.
+    /// </summary>
+    [Fact]
+    public void A_PaintCode_Import_Is_Written_Alike_Twice_And_Saves_Back_Unchanged()
+        => ImportsStably(Path.Combine(AppContext.BaseDirectory, "TestAssets", "sample.pcvd"));
+
+    [SampleFact]
+    public void The_Sample_Document_Is_Written_Alike_Twice_And_Saves_Back_Unchanged()
+        => ImportsStably(SampleFactAttribute.Path!);
+
+    private void ImportsStably(string source)
+    {
+        var work = Path.Combine(_directory, "work");
+        var project = Path.Combine(work, "icons.svgstudio");
+        var again = Path.Combine(_directory, "again.svgstudio");
+
+        Directory.CreateDirectory(work);
+        Imported(source).Save(project);
+        Imported(source).Save(again);
+
+        var files = Files(project);
+
+        Assert.Equal(files, Files(again));
+        Assert.All(files, file => Assert.Equal(File.ReadAllBytes(Path.Combine(project, file)), File.ReadAllBytes(Path.Combine(again, file))));
+
+        ProjectGitTests.Git(work, "init", "-b", "main");
+        ProjectGitTests.Configure(work);
+        ProjectGitTests.Git(work, "add", ".");
+        ProjectGitTests.Git(work, "commit", "-m", "Import");
+
+        ProjectDocument.Load(project).Save(project);
+
+        Assert.Equal(string.Empty, ProjectGitTests.Git(work, "status", "--porcelain"));
+    }
+
+    private ProjectDocument Imported(string source)
+        => ProjectImport.FromPaintCode(PaintCodeDocument.Load(source), new PaintCodeImportOptions(_directory), new List<PaintCodeImportNote>());
+
+    private static string[] Files(string folder)
+        => Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)
+            .Select(file => Path.GetRelativePath(folder, file))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
 
     /// <summary>The two desks of <see cref="DeskDocument"/>, imported.</summary>
     private ProjectDocument Placed()

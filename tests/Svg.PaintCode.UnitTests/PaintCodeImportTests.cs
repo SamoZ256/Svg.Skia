@@ -38,13 +38,14 @@ public class PaintCodeImportTests
         });
 
     [Fact]
-    public void A_Drawing_Is_Written_Without_A_Declaration_And_With_A_Trailing_Break()
+    public void A_Drawing_Is_Written_Without_A_Declaration_And_With_Lf_Breaks_On_Every_System()
         => Imported((result, _) =>
         {
             var text = File.ReadAllText(result.Files[0]);
 
             Assert.StartsWith("<svg", text);
-            Assert.EndsWith("\n", text.Replace("\r\n", "\n"));
+            Assert.DoesNotContain("\r", text);
+            Assert.EndsWith(">\n", text);
         });
 
     [Fact]
