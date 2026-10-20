@@ -22,7 +22,7 @@ public class ProjectImportTests : IDisposable
 {
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose() => Scratch.Delete(_directory);
 
     private string Write(string name, string text)
     {
