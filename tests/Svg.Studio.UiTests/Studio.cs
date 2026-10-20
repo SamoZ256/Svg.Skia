@@ -120,10 +120,19 @@ internal sealed class Studio : IDisposable
         => Until(() => Driver.FindElements(Chain($"**/XCUIElementTypeOutline[`identifier == 'ProjectTree'`]/**/XCUIElementTypeStaticText[`value == '{name}'`]")).FirstOrDefault(), $"the row '{name}'");
 
     /// <summary>Clicks with ⌘ held, which selects a row without opening what it holds.</summary>
+    /// <remarks>
+    /// By mac2's own click at the element's middle: WebDriverAgentMac refuses the W3C chain of a key
+    /// held over a click, which opens with a pause before any pointer move.
+    /// </remarks>
     public void CommandClick(IWebElement element)
     {
         Front();
-        new OpenQA.Selenium.Interactions.Actions(Driver).KeyDown(Keys.Command).Click(element).KeyUp(Keys.Command).Perform();
+        Driver.ExecuteScript("macos: click", new Dictionary<string, object>
+        {
+            ["x"] = element.Location.X + (element.Size.Width / 2),
+            ["y"] = element.Location.Y + (element.Size.Height / 2),
+            ["keyModifierFlags"] = CommandKey
+        });
     }
 
     /// <summary>A button by what it says, for the ones built in code without a name.</summary>

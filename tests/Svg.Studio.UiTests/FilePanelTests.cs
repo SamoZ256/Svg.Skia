@@ -25,9 +25,9 @@ public class FilePanelTests
 
         studio.Command("g", shift: true);
         studio.Press(path);
+        // Return goes to the file and selects it; a second Return did not open it on macos-26.
         studio.Press(Keys.Return);
-        // The first Return finishes the path, the second opens what it selected.
-        studio.Press(Keys.Return);
+        studio.Click("OKButton");
 
         studio.Until(() => studio.Title == "square.svg — SVG Studio", "the picked drawing's title");
     }
