@@ -55,6 +55,10 @@ public sealed class AssistantTools
     /// </remarks>
     private readonly Stack<Func<string?>> _undos = new();
 
+    /// <summary>Whether <see cref="For"/> last handed out the small set, which has no open or save to act on what a tab holds.</summary>
+    /// <remarks><see cref="Context"/> is told instead: a session asks for it before the tools, so after a change of model this is still the last one's.</remarks>
+    private bool _small;
+
     public AssistantTools(MainWindow window)
     {
         _window = window ?? throw new ArgumentNullException(nameof(window));
@@ -93,6 +97,8 @@ public sealed class AssistantTools
     public IList<AITool> For(bool small, bool docs)
     {
         var tools = new List<AITool>();
+
+        _small = small;
 
         if (docs)
         {
@@ -151,11 +157,16 @@ public sealed class AssistantTools
 
         if (front is { })
         {
-            text.Append("In front: ").Append(Describe(front)).Append('\n');
+            text.Append("In front: ").Append(Describe(front, small)).Append('\n');
         }
         else if (_window.FrontViewer is { } viewer)
         {
             text.Append("In front: the drawing ").Append(viewer.DocumentPath ?? "Untitled").Append(", not part of a project\n");
+        }
+
+        if (!small && _window.HoldingEdits() is { Count: > 0 } held)
+        {
+            text.Append("Tabs holding edits not yet in the project: ").Append(string.Join(", ", held.Select(Named))).Append("; a save writes only the one in front.\n");
         }
 
         if (_window.FrontViewer is { } shown)
@@ -209,10 +220,12 @@ public sealed class AssistantTools
         }
 
         var text = new StringBuilder();
+        var held = _window.HoldingEdits();
 
         text.Append("Project ").Append(workspace.Name)
             .Append(workspace.Document.Path is { } path ? $" at {path}" : " (never saved)")
             .Append(workspace.IsEdited ? ", with unsaved changes" : string.Empty)
+            .Append(held.Contains(workspace.Document.Root) ? ", with edits held in its tab" : string.Empty)
             .Append('\n');
 
         if (_window.FrontNode is { } front)
@@ -241,7 +254,7 @@ public sealed class AssistantTools
 
                 if (_window.TabOf(child) is { })
                 {
-                    text.Append(" (open)");
+                    text.Append(held.Contains(child) ? " (open, holding unsaved edits)" : " (open)");
                 }
 
                 if (child is ProjectGroup holder && Declares(holder) is { } names)
@@ -572,6 +585,11 @@ public sealed class AssistantTools
                 return refusal.Message;
             }
 
+            if (_window.Pending(found) is { } holder)
+            {
+                return $"{Named(found)} has settings typed in the tab of {Named(holder)}, not yet in the project, that saving would write over this; open that tab and save first.";
+            }
+
             workspace.Do(Label($"change {setting}"), () => ProjectSnapshot.Attributes(found), () => GroupPanel.Write(found, setting, text));
             Undoable();
 
@@ -612,9 +630,16 @@ public sealed class AssistantTools
 
         var notes = new List<string>();
 
-        return await _window.SaveAsync(notes).ConfigureAwait(true)
-            ? Report("Saved.", "save")
-            : string.Join("\n", notes.DefaultIfEmpty("Nothing was saved."));
+        if (!await _window.SaveAsync(notes).ConfigureAwait(true))
+        {
+            return string.Join("\n", notes.DefaultIfEmpty("Nothing was saved."));
+        }
+
+        return Report(
+            _window.HoldingEdits() is { Count: > 0 } held
+                ? $"Saved, except {string.Join(", ", held.Select(Named))}: a save takes only the front tab's edits, so open each and save again."
+                : "Saved.",
+            "save");
     });
 
     private Task<string> Remove([Description("The node path of the group or drawing to remove.")] string node) => UiAsync(async () =>
@@ -626,9 +651,9 @@ public sealed class AssistantTools
 
         // Removing closes the tabs under the node, and a tab holding edits would ask whether to
         // keep them, which a client cannot answer.
-        if (Edited(found) is { } holding)
+        if (_window.HoldingEdits(found) is { } holding)
         {
-            return $"{ProjectWorkspace.Label(holding)} has edits in its tab not yet saved into the project; save or undo them first.";
+            return $"{Named(holding)} has edits in its tab not yet saved into the project; open it and save them first.";
         }
 
         if (!await Confirm($"Remove {ProjectWorkspace.Label(found)} from the project?").ConfigureAwait(true))
@@ -646,6 +671,12 @@ public sealed class AssistantTools
         if (_window.Changes.Git is null)
         {
             return "The project is not in a git repository.";
+        }
+
+        // The commit saves the front tab's edits first, and no other tab's.
+        if (_window.HoldingEdits().Where(held => !ReferenceEquals(held, _window.FrontNode)).ToList() is { Count: > 0 } behind)
+        {
+            return $"Nothing was committed: the tabs of {string.Join(", ", behind.Select(Named))} hold edits a commit would leave out; open each and save, then commit.";
         }
 
         if (!await Confirm($"Save and commit the project as \"{message}\"?").ConfigureAwait(true))
@@ -702,7 +733,7 @@ public sealed class AssistantTools
             Undoable();
 
             var under = Under(group).ToList();
-            var wrong = under.SelectMany(drawing => Problems(drawing, Text(drawing)).Select(problem => $"- {Path(drawing)} {ProjectWorkspace.Label(drawing)}: {problem}")).ToList();
+            var wrong = under.SelectMany(drawing => Problems(drawing, Text(drawing)).Select(problem => $"- {Named(drawing)}: {problem}")).ToList();
 
             return Report(
                 "Done." + Undoes + (wrong.Count == 0
@@ -734,7 +765,7 @@ public sealed class AssistantTools
                     continue;
                 }
 
-                text.Append(Path(drawing)).Append(' ').Append(ProjectWorkspace.Label(drawing)).Append(":\n");
+                text.Append(Named(drawing)).Append(":\n");
 
                 foreach (var problem in problems)
                 {
@@ -746,14 +777,6 @@ public sealed class AssistantTools
 
             return text.ToString();
         });
-
-    /// <summary>The first node at or under <paramref name="node"/> whose tab holds edits not yet in the project, or null.</summary>
-    private ProjectNode? Edited(ProjectNode node)
-    {
-        var nodes = node is ProjectGroup group ? new[] { node }.Concat(Under(group)) : new[] { node };
-
-        return nodes.FirstOrDefault(one => _window.TabOf(one)?.Content is SvgViewer { IsSourceModified: true } or GroupPanel { IsModified: true });
-    }
 
     /// <summary>The drawing as it stands: the buffer of a tab holding it, or the project's text.</summary>
     private string Text(ProjectDrawing drawing) => _window.DrawingOf(drawing)?.Text ?? drawing.Text;
@@ -844,7 +867,7 @@ public sealed class AssistantTools
         {
             if (_window.FrontViewer is { } viewer)
             {
-                about = _window.FrontNode is { } front ? $"Drawing {Describe(front)}" : $"Drawing {viewer.DocumentPath ?? "Untitled"}";
+                about = _window.FrontNode is { } front ? $"Drawing {Describe(front, _small)}" : $"Drawing {viewer.DocumentPath ?? "Untitled"}";
 
                 return viewer;
             }
@@ -861,7 +884,7 @@ public sealed class AssistantTools
             return null;
         }
 
-        about = $"Drawing {Describe(drawing)}";
+        about = $"Drawing {Describe(drawing, _small)}";
 
         return _window.DrawingOf(drawing) ?? new DrawingTarget(workspace, drawing);
     }
@@ -875,7 +898,8 @@ public sealed class AssistantTools
 
         ProjectNode at = workspace.Document.Root;
 
-        foreach (var segment in (path ?? string.Empty).Split('/', StringSplitOptions.RemoveEmptyEntries))
+        // The root as Path spells it, which the tools' answers name it by.
+        foreach (var segment in (path?.Trim() == "(project)" ? string.Empty : path ?? string.Empty).Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
             if (at is not ProjectGroup group
                 || !int.TryParse(segment, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
@@ -913,9 +937,14 @@ public sealed class AssistantTools
         return segments.Count == 0 ? "(project)" : string.Join("/", segments);
     }
 
-    private string Describe(ProjectNode node)
+    /// <param name="small">Whether the model has no save, and so is told nothing of what saving would write.</param>
+    private string Describe(ProjectNode node, bool small)
         => $"{Path(node)} {(node is ProjectGroup ? "group" : "drawing")} {ProjectWorkspace.Label(node)}"
-           + (_window.TabOf(node) is { } tab && tab.Content is SvgViewer { IsSourceModified: true } ? ", with edits held in its tab that saving writes into the project" : string.Empty);
+           + (small || !_window.HoldingEdits().Contains(node) ? string.Empty
+               : ReferenceEquals(node, _window.FrontNode) ? ", with edits held in its tab that saving writes into the project"
+               : ", with edits held in its tab; open it and save to write them into the project");
+
+    private static string Named(ProjectNode node) => $"{Path(node)} {ProjectWorkspace.Label(node)}";
 
     private static string NoNode(string? path) => $"There is no node {path}. get_project lists the paths.";
 

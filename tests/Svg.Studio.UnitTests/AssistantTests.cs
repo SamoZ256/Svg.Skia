@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Headless.XUnit;
@@ -84,6 +85,33 @@ public class AssistantTests : IDisposable
         </studio>
         """;
 
+    /// <summary>A group inside a group: 0 = home, 1 = Badges, 1/0 = Filled, 1/1 = Round, 1/1/0 = Dot.</summary>
+    private const string Nested = """
+        <studio namespace="Demo.Icons">
+          <drawing name="home">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" fill="#00ff00" />
+            </svg>
+          </drawing>
+
+          <group name="Badges">
+            <drawing name="Filled">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <rect width="24" height="24" />
+              </svg>
+            </drawing>
+
+            <group name="Round">
+              <drawing name="Dot">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="6" />
+                </svg>
+              </drawing>
+            </group>
+          </group>
+        </studio>
+        """;
+
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
 
     public void Dispose() => Scratch.Delete(_directory);
@@ -151,6 +179,25 @@ public class AssistantTests : IDisposable
         Assert.True(window.Workspace!.IsEdited);
         Assert.Contains("unsaved changes", new AssistantTools(window).Context(small: false), StringComparison.Ordinal);
         Assert.DoesNotContain("unsaved", new AssistantTools(window).Context(small: true), StringComparison.Ordinal);
+
+        // Nor of the tabs holding its edits, in front or behind, which it has no open or save to act on.
+        var root = window.Workspace.Document.Root;
+
+        await window.ShowAsync(root.Children[0]);
+        await window.ShowAsync(((ProjectGroup)root.Children[1]).Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken" }),
+            Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "stroke", value = "black" } }, ["summary"] = "outline" }),
+            Call("get_drawing", new() { ["node"] = "0" }),
+            Say("Done."));
+
+        await Send(window, chat, "darken and outline", small: true);
+
+        Assert.Contains("Tabs holding edits not yet in the project: 0 home, 1/0 Filled", new AssistantTools(window).Context(small: false), StringComparison.Ordinal);
+        Assert.DoesNotContain("sav", new AssistantTools(window).Context(small: true), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sav", chat.Results[2], StringComparison.OrdinalIgnoreCase);
     }
 
     [AvaloniaFact]
@@ -703,6 +750,204 @@ public class AssistantTests : IDisposable
         Assert.Empty(asked);
     }
 
+    [AvaloniaFact]
+    public async Task A_Node_Whose_Tabs_Hold_Typed_Settings_Is_Not_Removed_And_Nothing_Asks()
+    {
+        var window = await Host(Write("nested.svgstudio", Nested));
+        var announced = Unanswered(window);
+        var asked = 0;
+
+        window.ConfirmDiscard = _ =>
+        {
+            asked++;
+            return Task.FromResult(false);
+        };
+
+        // A width typed into a drawing's Project pane, which is beside the tab's content and leaves its source alone.
+        var root = window.Workspace!.Document.Root;
+
+        await window.ShowAsync(root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(((GroupPanel)Viewer(window).SidePanels.Single().Content).Edit("width", "40"));
+
+        // And one typed into the tab of a group inside the group being removed.
+        var round = ((ProjectGroup)root.Children[1]).Children[1];
+
+        await window.ShowAsync(round);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.GetVisualDescendants().OfType<GroupPanel>().Single(panel => ReferenceEquals(panel.Node, round)).Edit("width", "5"));
+
+        // And one typed for Filled on Badges' board: with Filled gone the board falls back to Badges, and its next save writes the width there.
+        var badges = (ProjectGroup)root.Children[1];
+
+        Assert.True((await Pick(window, badges, badges.Children[0])).Edit("width", "100"));
+
+        var chat = new ScriptedChat(
+            Call("remove", new() { ["node"] = "0" }),
+            Call("remove", new() { ["node"] = "1" }),
+            Call("remove", new() { ["node"] = "1/0" }),
+            Say("Kept."));
+
+        await Send(window, chat, "remove home, Badges and Filled", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(0, asked);
+        Assert.Empty(announced);
+        Assert.StartsWith("0 home has edits in its tab", chat.Results[0], StringComparison.Ordinal);
+        Assert.StartsWith("1/1 Round has edits in its tab", chat.Results[1], StringComparison.Ordinal);
+        Assert.StartsWith("1 Badges has edits in its tab", chat.Results[2], StringComparison.Ordinal);
+        Assert.Equal(2, root.Children.Count);
+        Assert.Equal(2, ((ProjectGroup)root.Children[1]).Children.Count);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Setting_Is_Not_Written_Under_One_Typed_For_The_Same_Node()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = window.Workspace!.Document.Root;
+        var badges = (ProjectGroup)root.Children[1];
+        var filled = badges.Children[0];
+
+        // A width typed for Filled on Badges' board, where Filled has no tab of its own.
+        Assert.True((await Pick(window, badges, filled)).Edit("width", "100"));
+
+        // And one typed into a drawing's own Project pane, whose source edits are no reason to refuse.
+        await window.ShowAsync(root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
+
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1/0", ["setting"] = "width", ["value"] = "200" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "width", ["value"] = "200" }),
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" }),
+            Say("Done."));
+
+        await Send(window, chat, "widen them", allow: true);
+
+        Assert.StartsWith("1/0 Filled has settings typed in the tab of 1 Badges", chat.Results[0], StringComparison.Ordinal);
+        Assert.Null(filled.Width);
+        Assert.Equal(200f, badges.Width);
+        Assert.Equal("Home", root.Children[0].Class);
+
+        Assert.True(((GroupPanel)Viewer(window).SidePanels.Single().Content).Edit("width", "40"));
+
+        var typed = new ScriptedChat(Call("set_node", new() { ["node"] = "0", ["setting"] = "width", ["value"] = "50" }), Say("Refused."));
+
+        await Send(window, typed, "widen home", allow: true);
+
+        Assert.StartsWith("0 home has settings typed in the tab of 0 home", typed.Results[0], StringComparison.Ordinal);
+        Assert.Null(root.Children[0].Width);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Save_Names_The_Tabs_Whose_Edits_It_Left_Behind()
+    {
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+        var announced = Unanswered(window);
+        var root = window.Workspace!.Document.Root;
+
+        // Both drawings open, Filled in front, so home's edits sit in a tab a save does not hand over.
+        await window.ShowAsync(root.Children[0]);
+        await window.ShowAsync(((ProjectGroup)root.Children[1]).Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken" }),
+            Call("set_attributes", new() { ["node"] = "1/0", ["key"] = "0", ["attributes"] = new[] { new { name = "stroke", value = "black" } }, ["summary"] = "outline" }),
+            Call("get_project", new()),
+            Call("get_drawing", new() { ["node"] = "0" }),
+            Call("get_drawing", new() { ["node"] = "1/0" }),
+            Call("save", new()),
+            Say("Saved most of it."));
+
+        await Send(window, chat, "darken, outline and save", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Contains("0 drawing home (open, holding unsaved edits)", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains("1/0 drawing Filled (open, holding unsaved edits)", chat.Results[2], StringComparison.Ordinal);
+        Assert.DoesNotContain("that saving writes", chat.Results[3], StringComparison.Ordinal);
+        Assert.Contains("open it and save", chat.Results[3], StringComparison.Ordinal);
+        Assert.Contains("that saving writes into the project", chat.Results[4], StringComparison.Ordinal);
+        Assert.StartsWith("Saved, except 0 home", chat.Results[5], StringComparison.Ordinal);
+        Assert.DoesNotContain("#123456", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("stroke=\"black\"", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.Contains("Tabs holding edits not yet in the project: 0 home", new AssistantTools(window).Context(), StringComparison.Ordinal);
+
+        // Each open and save writes one more tab's, so it ends.
+        var rest = new ScriptedChat(Call("open", new() { ["node"] = "0" }), Call("save", new()), Say("Saved."));
+
+        await Send(window, rest, "save home", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal("Saved.", rest.Results[1]);
+        Assert.Contains("#123456", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.DoesNotContain("Tabs holding edits", new AssistantTools(window).Context(), StringComparison.Ordinal);
+        Assert.Empty(announced);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Projects_Own_Tab_Holding_Edits_Is_Named_As_Open_Takes_It()
+    {
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+        var announced = Unanswered(window);
+
+        // A namespace typed into the project's tab, which then goes behind home's.
+        Assert.True(window.GetVisualDescendants().OfType<GroupPanel>().Single(panel => panel.Node is ProjectRoot).Edit("namespace", "Demo.Other"));
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(
+            Call("get_project", new()),
+            Call("save", new()),
+            Call("open", new() { ["node"] = "(project)" }),
+            Call("save", new()),
+            Call("get_project", new()),
+            Say("Saved."));
+
+        await Send(window, chat, "save it all", allow: true).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.EndsWith(", with edits held in its tab", chat.Results[0].Split('\n')[0], StringComparison.Ordinal);
+        Assert.StartsWith("Saved, except (project) Project", chat.Results[1], StringComparison.Ordinal);
+        Assert.Equal("Opened (project).", chat.Results[2]);
+        Assert.Equal("Saved.", chat.Results[3]);
+        Assert.Contains("namespace=\"Demo.Other\"", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.DoesNotContain("held", chat.Results[4].Split('\n')[0], StringComparison.Ordinal);
+        Assert.Empty(announced);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Commit_Leaving_A_Tab_Behind_Is_Refused_Before_The_Person_Is_Asked()
+    {
+        var work = Path.Combine(_directory, "work");
+        var path = Path.Combine(work, "icons.svgstudio");
+
+        Directory.CreateDirectory(work);
+        ProjectGitTests.Git(work, "init", "-b", "main");
+        ProjectGitTests.Configure(work);
+        File.WriteAllText(path, Project);
+        ProjectGitTests.Git(work, "add", "icons.svgstudio");
+        ProjectGitTests.Git(work, "commit", "-m", "Add the icons");
+
+        var window = await Host(path);
+        var root = window.Workspace!.Document.Root;
+
+        await window.ShowAsync(root.Children[0]);
+        await window.ShowAsync(root);
+        Dispatcher.UIThread.RunJobs();
+
+        var asked = new List<string>();
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken" }),
+            Call("git_commit", new() { ["message"] = "Darken" }),
+            Say("Not committed."));
+
+        await Send(window, chat, "darken and commit", allow: true, asked: asked).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.StartsWith("Nothing was committed: the tabs of 0 home", chat.Results[1], StringComparison.Ordinal);
+        Assert.Empty(asked);
+        Assert.Equal("1", ProjectGitTests.Git(work, "rev-list", "--count", "HEAD").Trim());
+    }
+
     [Fact]
     public void Claude_Needs_A_Key()
     {
@@ -744,6 +989,29 @@ public class AssistantTests : IDisposable
 
     private static SvgViewer Viewer(Window window) => window.GetVisualDescendants().OfType<SvgViewer>().First();
 
+    /// <summary>Opens <paramref name="group"/> and clicks <paramref name="node"/> on its board, which its panel then describes.</summary>
+    private static async Task<GroupPanel> Pick(MainWindow window, ProjectGroup group, ProjectNode node)
+    {
+        await window.ShowAsync(group);
+        Dispatcher.UIThread.RunJobs();
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
+        var board = window.GetVisualDescendants().OfType<GroupPanel>().Single(panel => ReferenceEquals(panel.Node, group));
+        var canvas = Gestures.Canvas(board);
+        var placement = canvas.Placements[board.Board.ToList().IndexOf((ProjectDrawing)node)];
+        var cull = placement.Svg.Picture!.CullRect;
+        var middle = Gestures.Over(canvas, placement.At.X + cull.MidX, placement.At.Y + cull.MidY);
+
+        Gestures.Press(window, canvas, middle);
+        Gestures.Release(window, canvas, middle);
+
+        Assert.Same(node, board.Described);
+
+        return board;
+    }
+
     private static async Task<MainWindow> Host(string path)
     {
         var window = new MainWindow { Announce = (_, _) => Task.CompletedTask };
@@ -772,12 +1040,21 @@ public class AssistantTests : IDisposable
         return titles;
     }
 
-    private static async Task<string> Send(MainWindow window, ScriptedChat chat, string text, bool allow = false)
+    /// <param name="asked">Where each question the tools put to the person goes.</param>
+    /// <param name="small">Whether the model is one with a context too small for the docs, and so the core tools only.</param>
+    private static async Task<string> Send(MainWindow window, ScriptedChat chat, string text, bool allow = false, List<string>? asked = null, bool small = false)
     {
-        var tools = new AssistantTools(window) { Confirm = _ => Task.FromResult(allow) };
+        var tools = new AssistantTools(window)
+        {
+            Confirm = question =>
+            {
+                asked?.Add(question);
+                return Task.FromResult(allow);
+            }
+        };
         var session = new AssistantSession(tools);
 
-        session.Use(new ScriptedProvider(chat), new AssistantModel("scripted", "Scripted", 1_000_000));
+        session.Use(new ScriptedProvider(chat), new AssistantModel("scripted", "Scripted", small ? 4096 : 1_000_000));
 
         var reply = string.Empty;
 

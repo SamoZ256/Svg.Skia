@@ -820,12 +820,14 @@ public partial class MainWindow : Window
     /// <summary>Writes what the window holds of the project, so a commit is of what is on screen.</summary>
     private async Task<bool> SaveForCommitAsync(List<string>? notes)
     {
+        var selected = _tabs.SelectedItem as TabItem;
+
         if (_workspace is not { } workspace || !await CommitAsync("The drawing couldn't be saved", notes).ConfigureAwait(true))
         {
             return false;
         }
 
-        return !workspace.IsEdited || await WriteAsync(workspace, notes).ConfigureAwait(true);
+        return !workspace.IsEdited || await WriteAsync(workspace, selected, notes).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -3774,6 +3776,29 @@ public partial class MainWindow : Window
         _ => null
     };
 
+    /// <summary>The project's nodes whose tab holds edits not yet in the project, in tab order.</summary>
+    /// <remarks>A save hands over only the front tab's, so each of the others is still only in its tab afterwards.</remarks>
+    internal IReadOnlyList<ProjectNode> HoldingEdits()
+        => _tabs.Items.OfType<TabItem>().Where(item => Unsaved(item) is { }).Select(item => item.Tag).OfType<ProjectNode>().ToList();
+
+    /// <summary>
+    /// The first node whose tab holds edits that removing <paramref name="node"/> would lose: one at or
+    /// under it, which <see cref="RemoveAsync(ProjectNode)"/> closes and so asks about, or a group whose
+    /// board has picked one, whose typed settings would fall to the group once it is gone.
+    /// </summary>
+    internal ProjectNode? HoldingEdits(ProjectNode node)
+        => HoldingEdits().FirstOrDefault(held => held.DescendsFrom(node) || Tab(held)?.Content is GroupPanel panel && panel.Described.DescendsFrom(node));
+
+    /// <summary>The node of the tab whose settings pane holds values typed for <paramref name="node"/>, which its next commit writes over the project's.</summary>
+    /// <remarks>By what the pane describes rather than by tab: a group's board picks drawings that have no tab of their own.</remarks>
+    internal ProjectNode? Pending(ProjectNode node)
+        => HoldingEdits().FirstOrDefault(held => Tab(held)?.Content switch
+        {
+            GroupPanel panel => panel,
+            SvgViewer viewer => Settings(viewer),
+            _ => null
+        } is { IsModified: true } typed && ReferenceEquals(typed.Described, node));
+
     /// <summary>The project's say over the drawing a viewer is showing, when it came from a project.</summary>
     private static GroupPanel? Settings(SvgViewer viewer)
         => viewer.SidePanels.Select(pane => pane.Content).OfType<GroupPanel>().FirstOrDefault();
@@ -4328,19 +4353,7 @@ public partial class MainWindow : Window
             return saved;
         }
 
-        if (!await WriteAsync(workspace, notes).ConfigureAwait(true))
-        {
-            return false;
-        }
-
-        // The bytes are the project's now, so the tab is told rather than asked to write them:
-        // SaveSourceAsync would go looking for a file this drawing has not got.
-        if (selected is { Tag: ProjectDrawing, Content: SvgViewer held })
-        {
-            held.MarkSaved();
-        }
-
-        return saved;
+        return await WriteAsync(workspace, selected, notes).ConfigureAwait(true) && saved;
     }
 
     /// <summary>
@@ -4394,8 +4407,9 @@ public partial class MainWindow : Window
     /// The one place a project is written, so the panel in front of it is asked once however the
     /// save was reached — a tab or the menu.
     /// </remarks>
+    /// <param name="committed">The tab the caller committed, told once this has written its work that it holds none.</param>
     /// <returns>Whether it was written.</returns>
-    private async Task<bool> WriteAsync(ProjectWorkspace workspace, List<string>? notes = null)
+    private async Task<bool> WriteAsync(ProjectWorkspace workspace, TabItem? committed, List<string>? notes = null)
     {
         // A save would write over the conflict unnoticed, and the merge would then commit whatever
         // the window happened to hold.
@@ -4436,6 +4450,13 @@ public partial class MainWindow : Window
             await ChangesPanel.Say(Announce, "The project couldn't be saved", failure.Message, notes).ConfigureAwait(true);
 
             return false;
+        }
+
+        // The bytes are the project's now, so the tab is told rather than asked to write them:
+        // SaveSourceAsync would go looking for a file this drawing has not got.
+        if (committed is { Tag: ProjectDrawing, Content: SvgViewer held })
+        {
+            held.MarkSaved();
         }
 
         // Awaited, not left running: on Windows a git still starting in the project's directory

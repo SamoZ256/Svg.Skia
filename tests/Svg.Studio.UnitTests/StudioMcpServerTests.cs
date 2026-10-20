@@ -45,6 +45,26 @@ public class StudioMcpServerTests : IDisposable
         </studio>
         """;
 
+    /// <summary>0 = home, 1 = Badges, 1/0 = Round, a group inside it, 1/0/0 = Dot.</summary>
+    private const string Nested = """
+        <studio namespace="Demo.Icons">
+          <drawing name="home">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" fill="#00ff00" />
+            </svg>
+          </drawing>
+          <group name="Badges">
+            <group name="Round">
+              <drawing name="Dot">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="6" />
+                </svg>
+              </drawing>
+            </group>
+          </group>
+        </studio>
+        """;
+
     private readonly Keychain? _was = Keychain.Current;
     private readonly MemoryKeychain _keychain = new();
     private readonly bool _enabled = StudioSettings.McpEnabled;
@@ -248,6 +268,97 @@ public class StudioMcpServerTests : IDisposable
         Assert.Contains("has to be an <svg>", Text(refused), StringComparison.Ordinal);
         Assert.Empty(_announced);
         Assert.Equal("2", Git(work, "rev-list", "--count", "HEAD").Trim());
+    }
+
+    [AvaloniaFact]
+    public async Task A_Commit_Is_Refused_While_A_Tab_Behind_Holds_Edits_It_Would_Leave_Out()
+    {
+        var work = Path.Combine(_directory, "work");
+        var path = Path.Combine(work, "icons.svgstudio");
+
+        Directory.CreateDirectory(work);
+        Git(work, "init", "-b", "main");
+        Configure(work);
+        File.WriteAllText(path, Project);
+        Git(work, "add", "icons.svgstudio");
+        Git(work, "commit", "-m", "Add the icons");
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var root = window.Workspace!.Document.Root;
+
+        // home's tab behind the project's, so its edit is in a tab a save does not hand over; and
+        // the project edited too, so the commit has something of its own to write.
+        await window.ShowAsync(root.Children[0]);
+        await window.ShowAsync(root);
+        Dispatcher.UIThread.RunJobs();
+
+        await Call(client, "set_attributes", new()
+        {
+            ["node"] = "0",
+            ["key"] = "0",
+            ["attributes"] = new[] { new { name = "fill", value = "#123456" } },
+            ["summary"] = "darken"
+        });
+        await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" });
+
+        var refused = await Call(client, "git_commit", new() { ["message"] = "Darken" });
+
+        Assert.True(refused.IsError);
+        Assert.Contains("0 home", Text(refused), StringComparison.Ordinal);
+        Assert.Equal("1", Git(work, "rev-list", "--count", "HEAD").Trim());
+
+        // The save writes what it can and says what it left, without calling that a failure.
+        var saved = await Call(client, "save", new());
+
+        Assert.NotEqual(true, saved.IsError);
+        Assert.StartsWith("Saved, except 0 home", Text(saved), StringComparison.Ordinal);
+        Assert.DoesNotContain("#123456", File.ReadAllText(path), StringComparison.Ordinal);
+
+        await Call(client, "open", new() { ["node"] = "0" });
+
+        var committed = await Call(client, "git_commit", new() { ["message"] = "Darken" });
+
+        Assert.Equal("Committed.", Text(committed));
+        Assert.Contains("#123456", Git(work, "show", "HEAD:icons.svgstudio"), StringComparison.Ordinal);
+
+        // And the tab the commit wrote is no longer said to hold what is now in HEAD.
+        Assert.DoesNotContain("Tabs holding edits", Text(await Call(client, "get_context", new())), StringComparison.Ordinal);
+        Assert.Contains("0 drawing home (open)\n", Text(await Call(client, "get_project", new())), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Node_Whose_Tabs_Hold_Typed_Settings_Is_Refused_Rather_Than_Asked_About()
+    {
+        var path = Path.Combine(_directory, "nested.svgstudio");
+
+        File.WriteAllText(path, Nested);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var root = window.Workspace!.Document.Root;
+
+        // Typed into a drawing's Project pane, and into the tab of a group inside the one removed.
+        await window.ShowAsync(root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(((GroupPanel)window.GetVisualDescendants().OfType<SvgViewer>().First().SidePanels.Single().Content).Edit("width", "40"));
+
+        var round = ((ProjectGroup)root.Children[1]).Children[0];
+
+        await window.ShowAsync(round);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.GetVisualDescendants().OfType<GroupPanel>().Single(panel => ReferenceEquals(panel.Node, round)).Edit("width", "5"));
+
+        var pane = await Call(client, "remove", new() { ["node"] = "0" });
+        var nested = await Call(client, "remove", new() { ["node"] = "1" });
+
+        Assert.True(pane.IsError);
+        Assert.StartsWith("0 home has edits in its tab", Text(pane), StringComparison.Ordinal);
+        Assert.True(nested.IsError);
+        Assert.StartsWith("1/0 Round has edits in its tab", Text(nested), StringComparison.Ordinal);
+        Assert.Equal(2, root.Children.Count);
+        Assert.Empty(_announced);
     }
 
     [AvaloniaFact]
