@@ -14,8 +14,8 @@ using Xunit.Abstractions;
 namespace Svg.PaintCode.UnitTests.Oracle;
 
 /// <summary>
-/// Draws every imported canvas beside the one PaintCode's own generated code draws, at every
-/// setting of the booleans PaintCode varies it on.
+/// Draws every drawing of the Studio project beside the one PaintCode's own generated code draws, at
+/// every setting of the booleans PaintCode varies it on.
 /// </summary>
 /// <remarks>
 /// Everything else about the import is checked structurally — the archive reads, the markup is
@@ -54,7 +54,7 @@ public class PaintCodeOracleTests
     public static IEnumerable<object[]> Rows()
         => PaintCodeOracleSuite.Instance.Drawings.Select(drawing => new object[] { drawing.Slug });
 
-    [SampleFact]
+    [OracleFact]
     public void Every_Canvas_Draws_Through_A_Method_Of_Its_Own()
     {
         var suite = PaintCodeOracleSuite.Instance;
@@ -78,7 +78,7 @@ public class PaintCodeOracleTests
     /// differ for a reason nobody has found yet, which is the one cause that is a confession rather
     /// than a decision.
     /// </remarks>
-    [SampleFact]
+    [OracleFact]
     public void The_Exceptions_Are_The_Ones_There_Is_A_Reason_For()
     {
         var suite = PaintCodeOracleSuite.Instance;
@@ -114,7 +114,7 @@ public class PaintCodeOracleTests
     /// family the system happens to list first — without failing. Excluded by name and counted, so
     /// the exclusion is visible rather than a gap in the rows.
     /// </remarks>
-    [SampleFact]
+    [OracleFact]
     public void The_Canvases_That_Draw_Words_Are_Named()
     {
         var text = PaintCodeOracleSuite.Instance.Drawings.Where(d => d.HasText).Select(d => d.Slug).ToArray();
@@ -129,7 +129,7 @@ public class PaintCodeOracleTests
         Assert.Equal(17, text.Length);
     }
 
-    [SampleTheory]
+    [OracleTheory]
     [MemberData(nameof(Rows))]
     public void Draws_No_Worse_Than_It_Did(string slug)
     {

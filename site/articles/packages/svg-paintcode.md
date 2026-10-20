@@ -163,17 +163,23 @@ renders wrong, and what was lost is a list rather than a surprise.
 
 ## How it is verified
 
-PaintCode generates drawing code as well as documents, so the same `.pcvd` can be drawn twice — once
-through this conversion, once through PaintCode's own generated output — and the two compared as
-pixels. `tests/Svg.PaintCode.UnitTests/Oracle` does that for every canvas, at every combination of
-the booleans PaintCode varies it on, and again with every colour it takes swapped for another.
+PaintCode generates drawing code as well as documents, so the same icons can be drawn twice — once
+from the Studio project the document was imported into, once through PaintCode's own generated
+output — and the two compared as pixels. `tests/Svg.PaintCode.UnitTests/Oracle` does that for every
+drawing, at every combination of the booleans PaintCode varies it on, and again with every colour it
+takes swapped for another.
 
-That comparison needs the document and the generated code, neither of which belongs in this
+It reads the project rather than the document because the project is what gets edited after the
+import: a drawing corrected there to match what the app draws is measured as corrected, which an
+import of the unchanged document never could be. The project is flattened the way Studio's build
+flattens it, so each drawing carries the declarations its groups give it.
+
+That comparison needs the project, the generated code and its fonts, none of which belongs in this
 repository, so it runs only where they are:
 
 ```bash
 PaintCodeResourcesDir=/path/to/generated \
-SVG_PAINTCODE_SAMPLE=/path/to/Icons.pcvd \
+SVG_PAINTCODE_PROJECT=/path/to/Icons.svgstudio \
 SVG_PAINTCODE_FONTS=/path/to/fonts \
   dotnet test tests/Svg.PaintCode.UnitTests/Svg.PaintCode.UnitTests.csproj -c Release
 ```
@@ -185,9 +191,9 @@ PaintCode produced for them are compared instead, on every platform.
 ## Pointing it at another document
 
 Nothing above names a particular PaintCode file. The three variables select one, and everything the
-suite knows about it lives in `TestAssets/Oracle/<its styleKitName>/` — what it holds, what the
-importer says about it, which canvases do not yet match and why, and the handful committed with their
-rasters. A second document is a second folder.
+suite knows about it lives in `TestAssets/Oracle/<the project folder's name>/` — what it holds, what
+the importer says about it, which canvases do not yet match and why, and the handful committed with
+their rasters. A second document is a second folder.
 
 For one nobody has measured, those files do not exist yet, and the suite says so once rather than
 failing per canvas: the comparison stands aside and asks for the report. Run it —
@@ -215,14 +221,11 @@ so a canvas cannot join the list by having a number written beside it, and one t
 the bound has to be taken out rather than left sitting there. The counts per cause are asserted too,
 so a class cannot quietly grow.
 
-**The conversion is not at parity and the list says where it is not.** Of 1014 canvases, 954 meet the
-bound, and **every one of the 56 that do not names a reason**. 16 draw text, which SVG anchors where
-PaintCode measures; 16 have a sweep an expression drives, which path data keeps literal; **18 are the
-reference rather than the drawing** — 9 where it is the rounded one, 5 where it is the older one, 3
-where it clips without antialiasing and 1 where its runtime cannot draw the two-circle gradient the
-document asks for; 4 want a whole gradient, a derived colour or a blend mode the format has no word
-for; 1 is the document pointing at a canvas it does not contain; and 1 is a gradient laid across the
-box rather than from the shape's middle.
+**The conversion is not at parity and the list says where it is not.** Of 1014 drawings, 985 meet the
+bound, and **every one of the 29 that do not names a reason**. 16 draw text, which SVG anchors where
+PaintCode measures; **13 are the reference rather than the drawing** — 9 where it is the rounded one,
+3 where it clips without antialiasing and 1 where its runtime cannot draw the two-circle gradient the
+document asks for.
 
 One caution about the reference itself, and it is the largest single thing on the list. It is
 generated from the document and falls behind it: four canvases — including the two that measured

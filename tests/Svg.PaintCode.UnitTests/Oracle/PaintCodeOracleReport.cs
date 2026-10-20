@@ -29,7 +29,7 @@ public class PaintCodeOracleReport
 
     private static bool Wanted => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SVG_PAINTCODE_ORACLE_REPORT"));
 
-    [SampleFact]
+    [OracleFact]
     public void Measure()
     {
         if (!Wanted)
@@ -39,13 +39,13 @@ public class PaintCodeOracleReport
         }
 
         var suite = PaintCodeOracleSuite.Instance;
-        var rows = new List<(string Slug, bool Noted, bool Text, double Worst, double Defaults, string Where)>();
+        var rows = new List<(string Slug, bool Text, double Worst, double Defaults, string Where)>();
 
         foreach (var drawing in suite.Drawings)
         {
             if (drawing.HasText && PaintCodeOracle.Fonts is null)
             {
-                rows.Add((drawing.Slug, drawing.Noted, drawing.HasText, double.NaN, double.NaN, "no faces to compare in"));
+                rows.Add((drawing.Slug, drawing.HasText, double.NaN, double.NaN, "no faces to compare in"));
                 continue;
             }
 
@@ -57,7 +57,7 @@ public class PaintCodeOracleReport
             }
             catch (Exception e)
             {
-                rows.Add((drawing.Slug, drawing.Noted, drawing.HasText, double.PositiveInfinity, double.PositiveInfinity, e.Message.Replace(",", ";")));
+                rows.Add((drawing.Slug, drawing.HasText, double.PositiveInfinity, double.PositiveInfinity, e.Message.Replace(",", ";")));
                 continue;
             }
 
@@ -100,21 +100,20 @@ public class PaintCodeOracleReport
                 }
             }
 
-            rows.Add((drawing.Slug, drawing.Noted, drawing.HasText, worst, first, where));
+            rows.Add((drawing.Slug, drawing.HasText, worst, first, where));
         }
 
         var directory = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "Tests"));
 
         Directory.CreateDirectory(directory);
 
-        var csv = new StringBuilder("slug,noted,text,worst,defaults,where").AppendLine();
+        var csv = new StringBuilder("slug,text,worst,defaults,where").AppendLine();
 
         foreach (var row in rows.OrderByDescending(r => r.Worst))
         {
             csv.AppendLine(string.Join(
                 ",",
                 row.Slug,
-                row.Noted,
                 row.Text,
                 row.Worst.ToString("F6", CultureInfo.InvariantCulture),
                 row.Defaults.ToString("F6", CultureInfo.InvariantCulture),
@@ -136,9 +135,8 @@ public class PaintCodeOracleReport
         foreach (var row in rows.Where(r => r.Worst > PaintCodeOracleBaseline.Bound).OrderBy(r => r.Slug, StringComparer.Ordinal))
         {
             var known = PaintCodeOracleBaseline.Excepted?.TryGetValue(row.Slug, out var already) == true ? already : null;
-            var drawing = PaintCodeOracleSuite.Instance.Drawings.First(d => d.Slug == row.Slug);
-            var cause = known?.Cause ?? (row.Text ? "TextMetrics" : drawing.Cause ?? "Unexplained");
-            var why = known?.Why ?? drawing.Why ?? "not looked at yet";
+            var cause = known?.Cause ?? (row.Text ? "TextMetrics" : "Unexplained");
+            var why = known?.Why ?? "not looked at yet";
 
             exceptions.Append(row.Slug).Append(',').Append(cause).Append(',')
                 .Append((Math.Ceiling(row.Worst * 10000) / 10000).ToString("F4", CultureInfo.InvariantCulture)).Append(',')
@@ -147,9 +145,9 @@ public class PaintCodeOracleReport
 
         File.WriteAllText(Path.Combine(directory, "paintcode-exceptions (Actual).csv"), exceptions.ToString());
 
-        var clean = rows.Where(r => !r.Noted && !r.Text).ToArray();
+        var clean = rows.Where(r => !r.Text).ToArray();
 
-        _output.WriteLine($"{rows.Count} canvases: {clean.Length} clean, {rows.Count(r => r.Noted)} noted, {rows.Count(r => r.Text)} text");
+        _output.WriteLine($"{rows.Count} canvases: {clean.Length} without text, {rows.Count(r => r.Text)} with");
         _output.WriteLine($"clean worst      : {clean.Max(r => r.Worst):F6}");
         _output.WriteLine($"clean identical  : {clean.Count(r => r.Worst == 0d)}");
 
@@ -163,7 +161,7 @@ public class PaintCodeOracleReport
 
         foreach (var row in rows.OrderByDescending(r => r.Worst).Take(30))
         {
-            _output.WriteLine($"{row.Worst:F6}  defaults={row.Defaults:F6}  noted={row.Noted,-5} text={row.Text,-5} {row.Slug}  [{row.Where}]");
+            _output.WriteLine($"{row.Worst:F6}  defaults={row.Defaults:F6}  text={row.Text,-5} {row.Slug}  [{row.Where}]");
         }
     }
 }
