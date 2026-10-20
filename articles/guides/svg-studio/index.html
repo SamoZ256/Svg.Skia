@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Svg Studio | Svg.Skia">
-<meta name="twitter:description" content="Svg Studio src/Svg.Studio is the editor for a set of drawings: the icons of one product, built at the sizes and under the names the code that draws them wants. It opens one .svgstudio project at a time, and that project is one file — the settings, the tree and the drawings themselves. The format &lt;!-- icons.svgstudio --> &lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?> &lt;studio namespace=&quot;Demo.Icons&quot;> &lt;drawing name=&quot;badge&quot; class=&quot;Badge&quot;> &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0...">
+<meta name="twitter:description" content="Svg Studio src/Svg.Studio is the editor for a set of drawings: the icons of one product, built at the sizes and under the names the code that draws them wants. It opens one .svgstudio project at a time, and that project is a folder — the settings in one file, each drawing in a file of its own, and a folder for each group. The format icons.svgstudio/ studio.xml the project's...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Svg Studio | Svg.Skia">
 <meta property="og:title" content="Svg Studio | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Svg Studio src/Svg.Studio is the editor for a set of drawings: the icons of one product, built at the sizes and under the names the code that draws them wants. It opens one .svgstudio project at a time, and that project is one file — the settings, the tree and the drawings themselves. The format &lt;!-- icons.svgstudio --> &lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?> &lt;studio namespace=&quot;Demo.Icons&quot;> &lt;drawing name=&quot;badge&quot; class=&quot;Badge&quot;> &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0...">
+<meta property="og:description" content="Svg Studio src/Svg.Studio is the editor for a set of drawings: the icons of one product, built at the sizes and under the names the code that draws them wants. It opens one .svgstudio project at a time, and that project is a folder — the settings in one file, each drawing in a file of its own, and a folder for each group. The format icons.svgstudio/ studio.xml the project's...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Svg Studio | Svg.Skia">
   </head>
@@ -146,32 +146,42 @@
 <h1 id="svg-studio">Svg Studio</h1>
 <p><code>src/Svg.Studio</code> is the editor for a set of drawings: the icons of one product, built at the sizes
 and under the names the code that draws them wants. It opens one <code>.svgstudio</code> project at a time, and
-that project is one file — the settings, the tree and the drawings themselves.</p>
+that project is a folder — the settings in one file, each drawing in a file of its own, and a folder
+for each group.</p>
 <h2 id="the-format">The format</h2>
-<pre><code class="language-xml">&lt;!-- icons.svgstudio --&gt;
+<pre><code>icons.svgstudio/
+  studio.xml          the project's own settings, its templates and what it declares
+  badge.svg           a drawing: a standalone SVG file, which anything can open
+  Large/              a group
+    group.xml         the group's settings and what it declares
+    badge-large.svg
+</code></pre>
+<pre><code class="language-xml">&lt;!-- studio.xml --&gt;
 &lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;
 &lt;studio namespace=&quot;Demo.Icons&quot;&gt;
-
-  &lt;drawing name=&quot;badge&quot; class=&quot;Badge&quot;&gt;
-    &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 24 24&quot; width=&quot;24&quot; height=&quot;24&quot;&gt;
-      &lt;circle cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;10&quot; fill=&quot;#3b82f6&quot; /&gt;
-    &lt;/svg&gt;
-  &lt;/drawing&gt;
-
-  &lt;group name=&quot;Large&quot; namespace=&quot;.Large&quot; scale=&quot;2&quot;&gt;
-    &lt;drawing name=&quot;badge-large&quot; class=&quot;BadgeLarge&quot;&gt;
-      &lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 24 24&quot; width=&quot;24&quot; height=&quot;24&quot;&gt;…&lt;/svg&gt;
-    &lt;/drawing&gt;
-  &lt;/group&gt;
-
 &lt;/studio&gt;
+
+&lt;!-- Large/group.xml --&gt;
+&lt;group namespace=&quot;.Large&quot; scale=&quot;2&quot; /&gt;
+
+&lt;!-- Large/badge-large.svg --&gt;
+&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 24 24&quot; width=&quot;24&quot; height=&quot;24&quot;&gt;
+  &lt;circle cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;10&quot; fill=&quot;#3b82f6&quot; /&gt;
+
+  &lt;metadata&gt;&lt;drawing xmlns=&quot;https://svg.skia/studio/1.0&quot; class=&quot;BadgeLarge&quot; /&gt;&lt;/metadata&gt;
+&lt;/svg&gt;
 </code></pre>
 <ul>
-<li>A <code>&lt;drawing&gt;</code> holds the <code>&lt;svg&gt;</code> it draws and nothing else. The project is what you move, diff or
-hand to somebody: there is no second half of it to lose.</li>
+<li>A drawing is its own <code>.svg</code>. What Studio keeps about it — its class, its place on the board, where
+it was imported from — goes in a <code>&lt;metadata&gt;</code> at the end, and is left out when there is nothing to
+say, so a drawing nobody has touched is the file it was.</li>
 <li><code>name</code> is what every row calls itself — the tree, the tab, and the class a drawing falls back on.
 It is a label rather than an identifier, so a drawing copied three times is three rows reading the
-same thing until one of them is renamed.</li>
+same thing until one of them is renamed. The file is named after it: <code>badge.svg</code>, then
+<code>badge~2.svg</code> for the next of that name, with anything a file system cannot hold replaced. Where
+the file name cannot say the name, the name is written beside the drawing as well.</li>
+<li>Rows go by name, in the tree and everywhere else: a folder keeps no order, so the board lays them
+out and the build generates them in that order too.</li>
 <li>Settings are attributes wherever they appear, and a group hands its own down to everything under
 it: <code>namespace</code>, <code>class</code>, <code>padding</code> and the <code>width</code>/<code>height</code>/<code>scale</code> trio, which moves as one. A
 namespace that starts with a dot continues the one above it: <code>.Large</code> under <code>Demo.Icons</code> is
@@ -181,14 +191,17 @@ written in full, having nothing above it to continue. The project also carries <
 <code>typeface</code>, and an API class (<code>api</code>, <code>resizing</code>, <code>context</code>, <code>order</code>), with <code>method</code> and
 <code>parameters</code> on a drawing (see <a href="/Svg.Skia/articles/packages/svg-codegen-skia#shaping-the-generated-file">shaping the generated file</a>).
 Where the C# goes is not among them:
-an export asks, so nothing in the file can come to disagree with the answer. A project written
-before that carries <code>output</code> or <code>singleFile</code>; they are dropped as it is read.</li>
+an export asks, so nothing in the project can come to disagree with the answer.</li>
 <li><code>x</code> and <code>y</code> say where a row sits on the board of the group holding it — both or neither, and
 relative to that board, so a group carries what it holds. They are the one pair that is inherited
 by nobody, and the build never sees them: a group is still folded into its drawings rather than
 composed out of them.</li>
-<li>The file is written back as it was found — comments, attribute order, indentation and the
-drawings' own bytes. Editing one attribute rewrites that attribute.</li>
+<li>Every file is written back as it was found — comments, attribute order, indentation and the
+drawings' own bytes — and a save writes only the files that changed.</li>
+<li><strong>In git</strong> the folder merges file by file, with nothing of Studio's in it: two people adding a
+drawing each add a file each, and only a drawing both of them changed is a conflict. The
+<strong>Changes</strong> panel settles one of those by keeping a side — or both, when both added a drawing of
+one name.</li>
 </ul>
 <p><code>File → Export…</code> writes the project through the build <code>svgc</code> runs, so the two cannot come to
 disagree about what the project says. The settings only an export reads (<code>cache</code>, <code>helperScope</code>,
@@ -198,11 +211,12 @@ disagree about what the project says. The settings only an export reads (<code>c
 A project opens as a workspace rather than as a document: the tree goes in a panel beside the tabs —
 one you can fold, move or put behind another — and the project itself takes no tab, one project at a
 time, closed with <code>Project → Close</code>.</p>
-<p>Double-clicking a <code>.svgstudio</code> opens it too. On Windows and Linux a release build registers the
-extension for the current user each time it starts, so it points at the copy that ran last. On macOS
-the association comes from the app bundle, which a publish for an <code>osx-*</code> runtime builds only when
-asked: <code>dotnet publish src/Svg.Studio -c Release -r osx-arm64 -p:StudioAppBundle=true</code> leaves
-<code>Svg.Studio.app</code> in the publish folder. Finder notices it once the app has been opened.</p>
+<p>On macOS a <code>.svgstudio</code> is one document in Finder and in <code>File → Open</code>, and double-clicking it opens
+it, once the app bundle has been opened: a publish for an <code>osx-*</code> runtime builds it only when asked —
+<code>dotnet publish src/Svg.Studio -c Release -r osx-arm64 -p:StudioAppBundle=true</code> leaves
+<code>Svg.Studio.app</code> in the publish folder. Elsewhere it is an ordinary folder, which nothing can be told
+to open with Studio: open it from Studio, by picking the <code>studio.xml</code> inside it, dropping the folder
+on the window or naming it on the command line.</p>
 <p>Two other things open as a project, by being converted into one:</p>
 <ul>
 <li>An <strong>svgc project</strong> (<code>.svgcproj</code>) is read with its drawings and opened as a project. It is one
@@ -227,7 +241,7 @@ it lands beside it, and in the middle it goes inside. A drag held near the top o
 other pane scrolls it, faster the nearer the edge, so a row out of sight can still be reached; a tab
 held at either end of a strip with more tabs than fit scrolls the strip the same way. Adding
 an <code>.svg</code> file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
-clipboard. Adding, removing and moving edit the project; nothing reaches the file until you save it.</p>
+clipboard. Adding, removing and moving edit the project; nothing reaches the folder until you save it.</p>
 <p>Five panels sit round the tabs: the <strong>Project</strong> tree, the <strong>Properties</strong> of whatever is in front, the
 <strong>Variables</strong> it declares, the <strong>Attributes</strong> of the element picked in it, and the <strong>Elements</strong> those
 come from. They
@@ -270,7 +284,7 @@ dropped into one that doubles its drawings doubles where it stands. Two boards c
 is, and there it waits in the grid with the rest: one that is still a grid itself, where the arriving
 row would be the first placed one and would push everything nobody touched out to the right of it,
 and one with a group between them that names no place of its own.</p>
-<p>A drag writes the file as it is made, like every other arrangement edit, and like those it cannot be
+<p>A drag writes the project as it is made, like every other arrangement edit, and like those it cannot be
 undone.</p>
 <p><strong>Captions</strong> writes each drawing's name inside its own top corner, where a group's name sits in its
 frame, and a board comes up with them. The name is shrunk until it fits the drawing — across it and
@@ -300,7 +314,7 @@ last set to.</p>
 so a set seeded at different colours is still one family. The bounds are in: two parameters you would
 be given different sliders for are not the one parameter, however alike their names.</p>
 <h2 id="where-an-edit-lands">Where an edit lands</h2>
-<p>Nothing reaches the <code>.svgstudio</code> file except through <code>File → Save</code>. Between the two there is the
+<p>Nothing reaches the <code>.svgstudio</code> folder except through <code>File → Save</code>. Between the two there is the
 project itself, held in the window, which is what every view of it reads.</p>
 <ul>
 <li>A node's <strong>settings</strong> are held on the tab they were typed in until it is committed. A tab hands
@@ -314,8 +328,8 @@ says so.</li>
 project's own edit. No tab wears a mark for it, because closing a tab would not lose it; the
 window title does, and closing the project asks about it by name.</li>
 </ul>
-<p><code>File → Save</code> hands the selected tab's work to the project and writes the project — one file, so one
-write, whatever was typed where. <code>File → Export…</code> asks for one <code>.cs</code> and writes the whole project
+<p><code>File → Save</code> hands the selected tab's work to the project and writes the project — the files that
+changed, whatever was typed where. <code>File → Export…</code> asks for one <code>.cs</code> and writes the whole project
 into it, whatever tab is in front: a project is one build, so there is nothing to pick. It takes the
 tab's own work with it, the same as a save does, and leaves the project where it was. With no project
 open it is the drawing being looked at that goes — as <code>.svg</code> at the size it is being drawn at, or as
@@ -335,11 +349,11 @@ relax the layout, or keep the default text. Nothing is asked for a project with 
 it, which is most of them.</p>
 <h2 id="the-recovery-copy">The recovery copy</h2>
 <p>Studio keeps a copy of the project under your application data while it has work that is not on disk
-— sooner as more piles up behind it, and never the project's own file. Saving throws the copy away,
+— sooner as more piles up behind it, and never the project's own files. Saving throws the copy away,
 and so does closing the window, so a copy waiting when you open a project again is one Studio never
 got to throw away. It offers it back, and restoring puts the work in the window without touching the
-file.</p>
-<p>The copy is keyed by the project's own file, so a project that has never been saved has nothing to
+project.</p>
+<p>The copy is keyed by the project's own folder, so a project that has never been saved has nothing to
 look one up under again and is not covered until you name it. Switch the copies off in
 <strong>Settings</strong> — the application menu on macOS, <code>File → Settings…</code> elsewhere.</p>
 <h2 id="the-attributes-tab">The Attributes tab</h2>
