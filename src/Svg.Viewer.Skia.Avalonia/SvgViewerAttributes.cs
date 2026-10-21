@@ -141,7 +141,7 @@ internal static class SvgViewerAttributes
             ("font-weight", "Font weight", Plain, "normal|bold|lighter|bolder|100|200|300|400|500|600|700|800|900", Texts),
             ("font-style", "Font style", Plain, "normal|italic|oblique", Texts),
             ("text-anchor", "Alignment", Plain, "start|middle|end", Texts),
-            ("dominant-baseline", "Baseline", Plain, "auto|middle|central|hanging|alphabetic|ideographic|mathematical|text-before-edge|text-after-edge", Texts),
+            ("dominant-baseline", "Baseline", Plain, "auto|middle|central|hanging|alphabetic|ideographic|mathematical|text-before-edge|text-after-edge|cap-middle", Texts),
             ("letter-spacing", "Letter spacing", Number, "", Texts),
             ("word-spacing", "Word spacing", Number, "", Texts),
             ("text-decoration", "Decoration", Plain, "none|underline|overline|line-through", Texts),

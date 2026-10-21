@@ -335,7 +335,8 @@ public partial class SkiaSvgAssetLoader : Model.ISvgAssetLoader, Model.ISvgImage
             StrikeoutPosition = skMetrics.StrikeoutPosition,
             StrikeoutThickness = skMetrics.StrikeoutThickness,
             UnderlinePosition = skMetrics.UnderlinePosition,
-            UnderlineThickness = skMetrics.UnderlineThickness
+            UnderlineThickness = skMetrics.UnderlineThickness,
+            CapHeight = skMetrics.CapHeight > 0 ? skMetrics.CapHeight : null
         };
     }
 

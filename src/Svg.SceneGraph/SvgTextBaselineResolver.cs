@@ -54,6 +54,8 @@ internal static class SvgTextBaselineResolver
             SvgDominantBaseline.Hanging => metrics.Ascent * 0.8f,
             SvgDominantBaseline.Mathematical or SvgDominantBaseline.Middle => (metrics.Ascent + metrics.Descent) * 0.5f,
             SvgDominantBaseline.Central => (metrics.Top + metrics.Bottom) * 0.5f,
+            // A loader that cannot say how tall capitals are gets central, the nearest standard keyword.
+            SvgDominantBaseline.CapMiddle => metrics.CapHeight is { } cap ? -cap * 0.5f : (metrics.Top + metrics.Bottom) * 0.5f,
             SvgDominantBaseline.TextAfterEdge or SvgDominantBaseline.TextBottom => metrics.Bottom,
             SvgDominantBaseline.TextBeforeEdge or SvgDominantBaseline.TextTop => metrics.Top,
             _ => 0f
