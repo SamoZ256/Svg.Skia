@@ -147,6 +147,66 @@ public class StudioMcpServerTests : IDisposable
         await using var client = await Client(port);
 
         Assert.Contains("shares one undo", client.ServerInstructions, StringComparison.Ordinal);
+        Assert.Contains("Paths are positions", client.ServerInstructions, StringComparison.Ordinal);
+    }
+
+    /// <remarks>
+    /// The second leaves things as asked, which is what a tool marked idempotent promises: an error
+    /// for it made a retry look as if the first had failed.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Edit_Asked_For_Twice_Changes_Nothing_The_Second_Time_And_Is_No_Error()
+    {
+        var (window, port) = await Serving();
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        await using var client = await Client(port);
+        var redden = new Dictionary<string, object?>
+        {
+            ["key"] = "0",
+            ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } },
+            ["summary"] = "red"
+        };
+
+        var first = await Call(client, "set_attributes", redden);
+        var again = await Call(client, "set_attributes", redden);
+        var picked = await Call(client, "select", new() { ["keys"] = new[] { "0" } });
+        var still = await Call(client, "select", new() { ["keys"] = new[] { "0" } });
+
+        Assert.All(new[] { first, again, picked, still }, result => Assert.NotEqual(true, result.IsError));
+        Assert.StartsWith("Nothing changed", Text(again), StringComparison.Ordinal);
+        Assert.Equal("Selected.", Text(still));
+
+        var undone = await Call(client, "undo", new());
+
+        Assert.Equal("Took back \"Claude Code: red\".", Text(undone));
+        Assert.False(viewer.CanUndo);
+    }
+
+    /// <remarks>As for an element's attributes, though each of these says so on its own path rather than the one set_attributes takes.</remarks>
+    [AvaloniaFact]
+    public async Task A_Setting_Or_A_Block_Asked_For_Twice_Changes_Nothing_The_Second_Time_And_Is_No_Error()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, Project);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+        var rename = new Dictionary<string, object?> { ["node"] = "0", ["setting"] = "name", ["value"] = "house" };
+        var declare = new Dictionary<string, object?>
+        {
+            ["code"] = "<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:param name=\"tint\" type=\"color\" default=\"#ff0000\" /></e:code>",
+            ["summary"] = "tint"
+        };
+
+        var renamed = await Call(client, "set_node", rename);
+        var named = await Call(client, "set_node", rename);
+        var declared = await Call(client, "set_declarations", declare);
+        var same = await Call(client, "set_declarations", declare);
+
+        Assert.All(new[] { renamed, named, declared, same }, result => Assert.NotEqual(true, result.IsError));
+        Assert.StartsWith("Nothing changed", Text(named), StringComparison.Ordinal);
+        Assert.StartsWith("Nothing changed", Text(same), StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -166,7 +226,7 @@ public class StudioMcpServerTests : IDisposable
         var picked = await Call(client, "select", new() { ["keys"] = new[] { "0" } });
 
         Assert.True(elsewhere.IsError);
-        Assert.Contains("is not a drawing", Text(elsewhere), StringComparison.Ordinal);
+        Assert.Equal("No project is open.", Text(elsewhere));
         Assert.True(none.IsError);
         Assert.Equal("There is nothing to take back.", Text(none));
         Assert.NotEqual(true, picked.IsError);
@@ -591,7 +651,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.NotEqual(true, undone.IsError);
         Assert.Equal("Took back \"Claude Code: move home\".", Text(undone));
         Assert.Equal(new[] { "home", "Badges" }, root.Children.Select(child => child.Name));
-        Assert.True(same.IsError);
+        Assert.NotEqual(true, same.IsError);
         Assert.StartsWith("Nothing changed", Text(same), StringComparison.Ordinal);
         Assert.Empty(_announced);
     }
@@ -611,6 +671,9 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.Contains("In front: the drawing", context, StringComparison.Ordinal);
         Assert.Contains("svg-studio#connecting-claude-code", contents, StringComparison.Ordinal);
+
+        // It counts the drawing in front's problems, not the project's.
+        Assert.DoesNotContain("any problems", (await client.ListToolsAsync()).Single(tool => tool.Name == "get_context").Description, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]

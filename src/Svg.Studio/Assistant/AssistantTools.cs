@@ -40,6 +40,16 @@ public sealed class AssistantTools
 {
     private const string Undoes = " It is one undo step.";
 
+    private const string Warning = "Warning: ";
+
+    private const string Gone = "(no longer in the project)";
+
+    /// <summary>How long get_drawing's answer can grow before it leaves the source out, well under the 100,000 characters Claude Code cuts a tool's answer at.</summary>
+    private const int Answer = 40_000;
+
+    /// <summary>How many problems an answer lists before it says how many more.</summary>
+    private const int Most = 50;
+
     /// <summary>Refuses an argument no parameter takes: dropped, a misspelled node fell back to the drawing in front, which took the edit.</summary>
     private static readonly JsonSerializerOptions s_arguments = new(AIJsonUtilities.DefaultOptions) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
 
@@ -92,8 +102,11 @@ public sealed class AssistantTools
     public Func<string, Task<bool>> Confirm { get; set; } = _ => Task.FromResult(false);
 
     /// <summary>Raised on the UI thread after each call that did what it was asked, with the line the panel shows for it.</summary>
-    /// <remarks>The MCP server takes a call that answers without it, other than a <see cref="Reading"/> one, for a refusal.</remarks>
-    public event EventHandler<string>? Called;
+    /// <remarks>
+    /// The MCP server takes a call that answers without it, other than a <see cref="Reading"/> one,
+    /// for a refusal. Null where what was asked held already, which is no refusal and no step either.
+    /// </remarks>
+    public event EventHandler<string?>? Called;
 
     /// <summary>The functions for a model: all of them, or the few a small context has room for.</summary>
     /// <param name="docs">Whether the model reads the docs a section at a time, rather than being given them whole.</param>
@@ -118,8 +131,8 @@ public sealed class AssistantTools
             return tools;
         }
 
-        Add(GetElement, "get_element", "Reads every attribute of one element of a drawing, as the file writes it.");
-        Add(GetProblems, "get_problems", "Lists every problem in the drawings under a group, or in the whole project: the one call that finds what is wrong.");
+        Add(GetElement, "get_element", "Reads every attribute of one element of a drawing, and the text set_text changes, as the file writes them.");
+        Add(GetProblems, "get_problems", "Lists every problem in a drawing, in the drawings under a group, or in the whole project: the one call that finds what is wrong.");
         Add(SetText, "set_text", "Sets the text between an element's tags - a <text>'s words or an <e:let>'s expression - as a single undo step.");
         Add(ReplaceDrawing, "replace_drawing", "Replaces a drawing's whole SVG source, as a single undo step. Prefer set_attributes for small changes.");
         Add(Select, "select", "Selects elements of the drawing in front, by address key, so the person sees them.");
@@ -161,6 +174,13 @@ public sealed class AssistantTools
         if (front is { })
         {
             text.Append("In front: ").Append(Describe(front, small)).Append('\n');
+
+            // A group's tab is its board, with no drawing in front for a tool to take without a path;
+            // a pick an undo has taken out the board still describes, and it has none to give.
+            if (_window.TabOf(front)?.Content is GroupPanel board && !ReferenceEquals(board.Described, front) && Path(board.Described) is not Gone)
+            {
+                text.Append("Picked on the board: ").Append(Describe(board.Described, small)).Append("; name it by that path.\n");
+            }
         }
         else if (_window.FrontViewer is { } viewer)
         {
@@ -187,11 +207,19 @@ public sealed class AssistantTools
 
             if (Problems(front as ProjectDrawing, shown.Source) is { Count: > 0 } problems)
             {
-                text.Append("The drawing has ").Append(problems.Count).Append(" problem(s); get_drawing lists them, get_problems the whole project's.\n");
+                // Apart, as the viewer counts them: a warning is something the drawing opens in spite of.
+                var warnings = problems.Count(problem => problem.StartsWith(Warning, StringComparison.Ordinal));
+                var errors = problems.Count - warnings;
+
+                text.Append("The drawing has ")
+                    .Append(errors > 0 ? $"{errors} error(s)" : null)
+                    .Append(errors > 0 && warnings > 0 ? " and " : null)
+                    .Append(warnings > 0 ? $"{warnings} warning(s)" : null)
+                    .Append(_window.Workspace is { } && !small ? "; get_drawing lists them, get_problems the whole project's.\n" : "; get_drawing lists them.\n");
             }
         }
 
-        if (_window.Workspace is { } && _window.FrontViewer is null)
+        if (_window.Workspace is { } && _window.FrontViewer is null && !small)
         {
             text.Append("get_problems lists what is wrong in the project's drawings.\n");
         }
@@ -288,9 +316,11 @@ public sealed class AssistantTools
             var text = new StringBuilder(about).Append('\n');
             var source = target.Text;
 
-            if (SvgSourceDocument.Read(source, out var unreadable) is { } read && read.Document.Root is { } root)
+            var root = SvgSourceDocument.Read(source, out var unreadable)?.Document.Root;
+
+            if (root is { })
             {
-                text.Append("Elements (address key, element, id):\n");
+                text.Append("Elements (address key, element, id or name):\n");
                 Outline(root, string.Empty, 0);
             }
             else
@@ -305,23 +335,39 @@ public sealed class AssistantTools
                 text.Append("Inherited from ").Append(Path(holder)).Append(": ").Append(string.Join(", ", Names(holder))).Append('\n');
             }
 
-            foreach (var problem in Problems(drawing, source))
+            if (Problems(drawing, source) is { Count: > 0 } problems)
             {
-                text.Append("Problem: ").Append(problem).Append('\n');
+                text.Append(Cut(problems.Select(problem => "Problem: " + problem).ToList(), null)).Append('\n');
             }
 
-            text.Append("Source:\n").Append(source);
+            // Whole or not at all: replace_drawing takes the source back whole, and one cut short
+            // and sent back would write the cut into the drawing.
+            if (text.Length + source.Length > Answer)
+            {
+                text.Append("The source, ").Append(source.Length).Append(" characters, is too long for this answer and is left out. ").Append(root is { }
+                    ? "get_element reads one element's attributes and text, and set_attributes and set_text change them; replace_drawing needs the whole source, so it cannot be used from this answer."
+                    : "Until it reads, no tool can change it, replace_drawing included; the reason is above.");
+            }
+            else
+            {
+                text.Append("Source:\n").Append(source);
+            }
 
             return text.ToString();
 
             void Outline(XElement element, string key, int depth)
             {
                 text.Append(new string(' ', depth * 2)).Append(key.Length == 0 ? "(root)" : key).Append(' ')
-                    .Append(element.Name.LocalName);
+                    .Append(SvgAttributeEditor.ElementName(element));
 
                 if (element.Attribute("id")?.Value is { } id)
                 {
                     text.Append(" #").Append(id);
+                }
+                else if (element.Attribute("name")?.Value is { } name)
+                {
+                    // Not "#", which is an id's here: no url(#…) finds a declaration by its name.
+                    text.Append(" name=").Append(name);
                 }
 
                 text.Append('\n');
@@ -362,7 +408,21 @@ public sealed class AssistantTools
 
             foreach (var attribute in SvgAttributeEditor.Attributes(source, key))
             {
-                text.Append(attribute.Name).Append('=').Append(attribute.Value).Append('\n');
+                var value = attribute.Value;
+
+                // An embedded image is its base64, which no answer has room for; marked so that, copied back, it is plainly no URI.
+                if (value.Length > 1_000 && value.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = $"(left out: {value[..Math.Max(value.IndexOfAny(new[] { ';', ',' }), 5)]}, {value.Length} characters)";
+                }
+
+                text.Append(attribute.Name).Append('=').Append(value).Append('\n');
+            }
+
+            // What set_text changes, which get_drawing does not show where it leaves the source out.
+            if (SvgAttributeEditor.Content(source, key, out _) is { } words)
+            {
+                text.Append("Text: ").Append(words).Append('\n');
             }
 
             return text.ToString();
@@ -549,7 +609,7 @@ public sealed class AssistantTools
     {
         if (Resolve(parent) is not ProjectGroup group)
         {
-            return $"{parent} is not a group.";
+            return NotA("group", parent);
         }
 
         var label = Label("add group");
@@ -568,7 +628,7 @@ public sealed class AssistantTools
         {
             if (Resolve(parent) is not ProjectGroup group)
             {
-                return $"{parent} is not a group.";
+                return NotA("group", parent);
             }
 
             // Through the import every other drawing arrives by, with its notes said here: a dialog
@@ -605,7 +665,7 @@ public sealed class AssistantTools
 
             if (Resolve(into) is not ProjectGroup group)
             {
-                return $"{into} is not a group.";
+                return NotA("group", into);
             }
 
             var label = Label($"move {ProjectWorkspace.Label(moving)}");
@@ -656,7 +716,7 @@ public sealed class AssistantTools
             // As the node's own panel tells a value typed back to what the file says.
             if (text == GroupPanel.Value(found, setting))
             {
-                return "Nothing changed; it already says that.";
+                return Report("Nothing changed; it already says that.", null);
             }
 
             var label = Label($"change {setting}");
@@ -722,9 +782,14 @@ public sealed class AssistantTools
 
     private Task<string> Remove([Description("The node path of the group or drawing to remove.")] string node) => UiAsync(async () =>
     {
-        if (Resolve(node) is not { Parent: { } } found)
+        if (Resolve(node) is not { } found)
         {
             return NoNode(node);
+        }
+
+        if (found is ProjectRoot)
+        {
+            return "The project itself cannot be removed.";
         }
 
         // Removing closes the tabs under the node, and a tab holding edits would ask whether to
@@ -778,7 +843,7 @@ public sealed class AssistantTools
 
     private Task<string> GetDeclarations(
         [Description("The group's node path from get_project; empty for the project itself.")] string? node = null)
-        => Ui(() => Resolve(node) is ProjectGroup group ? group.CodeText : $"{node} is not a group. get_project lists the paths.");
+        => Ui(() => Resolve(node) is ProjectGroup group ? group.CodeText : NotA("group", node));
 
     private Task<string> SetDeclarations(
         [Description("The complete new <e:code> block, as get_declarations gives it: params and lets, with xmlns:e declared.")] string code,
@@ -788,7 +853,7 @@ public sealed class AssistantTools
         {
             if (Resolve(node) is not ProjectGroup group || _window.Workspace is not { } workspace)
             {
-                return $"{node} is not a group. get_project lists the paths.";
+                return NotA("group", node);
             }
 
             var was = group.CodeText;
@@ -820,56 +885,58 @@ public sealed class AssistantTools
 
             if (string.Equals(group.CodeText, was, StringComparison.Ordinal))
             {
-                return "Nothing changed; the block already says that.";
+                return Report("Nothing changed; the block already says that.", null);
             }
 
             Undoable(label);
 
             var under = Under(group).ToList();
-            var wrong = under.SelectMany(drawing => Problems(drawing, Text(drawing)).Select(problem => $"- {Named(drawing)}: {problem}")).ToList();
+            var wrong = Listed(under, "get_problems lists them", out var clean, 5);
 
             return Report(
-                "Done." + Undoes + (wrong.Count == 0
+                "Done." + Undoes + (clean == under.Count
                     ? $" No problems in the {under.Count} drawing(s) under it."
-                    : $"\nProblems under it now:\n{string.Join("\n", wrong.Take(5))}" + (wrong.Count > 5 ? $"\n… and {wrong.Count - 5} more; get_problems lists them." : string.Empty)),
+                    : $"\nProblems under it now:\n{wrong}"),
                 summary);
         });
 
     private Task<string> GetProblems(
-        [Description("The group's node path from get_project; empty for the whole project.")] string? node = null)
+        [Description("A group's or drawing's node path from get_project; empty for the whole project.")] string? node = null)
         => Ui(() =>
         {
-            if (Resolve(node) is not ProjectGroup group)
+            var found = Resolve(node);
+            IReadOnlyCollection<ProjectDrawing>? drawings = found switch
             {
-                return $"{node} is not a group. get_project lists the paths.";
+                ProjectGroup group => Under(group).ToList(),
+                ProjectDrawing drawing => new[] { drawing },
+                _ => null
+            };
+
+            if (drawings is null)
+            {
+                return NoNode(node);
             }
 
-            var text = new StringBuilder();
-            var clean = 0;
+            var wrong = Listed(drawings, found is ProjectGroup ? "name a group or a drawing to narrow it" : null, out var clean);
 
-            foreach (var drawing in Under(group))
-            {
-                var problems = Problems(drawing, Text(drawing));
-
-                if (problems.Count == 0)
-                {
-                    clean++;
-
-                    continue;
-                }
-
-                text.Append(Named(drawing)).Append(":\n");
-
-                foreach (var problem in problems)
-                {
-                    text.Append("  ").Append(problem).Append('\n');
-                }
-            }
-
-            text.Append(clean).Append(" drawing(s) with no problems.");
-
-            return text.ToString();
+            return (wrong.Length > 0 ? wrong + "\n" : string.Empty) + $"{clean} drawing(s) with no problems.";
         });
+
+    /// <summary>A line for each problem in <paramref name="drawings"/>, cut as <see cref="Cut"/> cuts them, and how many drawings have none.</summary>
+    private string Listed(IReadOnlyCollection<ProjectDrawing> drawings, string? narrower, out int clean, int most = Most)
+    {
+        var checks = drawings.Select(drawing => (Drawing: drawing, Problems: Problems(drawing, Text(drawing)))).ToList();
+
+        clean = checks.Count(check => check.Problems.Count == 0);
+
+        return Cut(checks.SelectMany(check => check.Problems.Select(problem => $"- {Named(check.Drawing)}: {problem}")).ToList(), narrower, most);
+    }
+
+    /// <summary>The first <paramref name="most"/> of <paramref name="lines"/>, and how many more, with what to call to narrow them where anything can.</summary>
+    /// <remarks>Cut, because a broken group block is a problem again in every drawing under it, and a lost name once for every use.</remarks>
+    private static string Cut(IReadOnlyCollection<string> lines, string? narrower, int most = Most)
+        => string.Join("\n", lines.Take(most))
+           + (lines.Count > most ? $"\n… and {lines.Count - most} more{(narrower is null ? null : "; " + narrower)}." : string.Empty);
 
     /// <summary>The drawing as it stands: the buffer of a tab holding it, or the project's text.</summary>
     private string Text(ProjectDrawing drawing) => _window.DrawingOf(drawing)?.Text ?? drawing.Text;
@@ -888,7 +955,7 @@ public sealed class AssistantTools
     {
         if (string.Equals(target.Text, before, StringComparison.Ordinal))
         {
-            return "Nothing changed; it already says that.";
+            return Report("Nothing changed; it already says that.", null);
         }
 
         var label = Label(summary);
@@ -905,7 +972,7 @@ public sealed class AssistantTools
         var problems = Problems(Drawing(node), target.Text);
 
         return Report(
-            "Done." + Undoes + (problems.Count == 0 ? " No problems." : $"\nProblems now:\n{string.Join("\n", problems.Select(problem => "- " + problem))}"),
+            "Done." + Undoes + (problems.Count == 0 ? " No problems." : $"\nProblems now:\n{Cut(problems.Select(problem => "- " + problem).ToList(), null)}"),
             summary);
     }
 
@@ -933,7 +1000,9 @@ public sealed class AssistantTools
         // scope" list is then the names the drawing could have used.
         var built = drawing is { } ? ProjectDeclarations.Built(drawing, text, narrow: false) : text;
 
-        return SvgSourceDiagnostics.Analyse(built).Select(problem => $"{problem.Message} (at: {Tag(built, problem.Start)})").ToList();
+        return SvgSourceDiagnostics.Analyse(built)
+            .Select(problem => $"{(problem.Severity == SvgSourceSeverity.Warning ? Warning : null)}{problem.Message} (at: {Tag(built, problem.Start)})")
+            .ToList();
     }
 
     /// <summary>The tag the offset falls in, which is what names an element: a whole line of built text would carry the spliced blocks too.</summary>
@@ -989,7 +1058,7 @@ public sealed class AssistantTools
 
         if (Resolve(node) is not ProjectDrawing drawing || _window.Workspace is not { } workspace)
         {
-            about = $"{node} is not a drawing. get_project lists the paths.";
+            about = NotA("drawing", node);
 
             return null;
         }
@@ -1036,7 +1105,7 @@ public sealed class AssistantTools
             // A node an undo has taken out keeps its Parent and is in nobody's Children.
             if (index < 0)
             {
-                return "(no longer in the project)";
+                return Gone;
             }
 
             segments.Add(index.ToString(CultureInfo.InvariantCulture));
@@ -1056,11 +1125,17 @@ public sealed class AssistantTools
 
     private static string Named(ProjectNode node) => $"{Path(node)} {ProjectWorkspace.Label(node)}";
 
-    private static string NoNode(string? path) => $"There is no node {path}. get_project lists the paths.";
+    /// <summary>Why a path finds nothing, which with no project open is never the path.</summary>
+    private string NoNode(string? path)
+        => _window.Workspace is null ? "No project is open." : $"There is no node '{path}'. get_project lists the paths.";
+
+    /// <inheritdoc cref="NoNode"/>
+    private string NotA(string kind, string? path)
+        => _window.Workspace is null ? "No project is open." : $"'{path}' is not a {kind}. get_project lists the paths.";
 
     private string Label(string summary) => $"{Who}: {summary.Trim()}";
 
-    private string Report(string result, string summary)
+    private string Report(string result, string? summary)
     {
         Called?.Invoke(this, summary);
 

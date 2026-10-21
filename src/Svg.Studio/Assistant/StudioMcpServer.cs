@@ -53,7 +53,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
 
     private readonly AssistantTools _tools;
 
-    /// <summary>Whether the call in flight reported success, which every tool that changes something does and a refusal does not.</summary>
+    /// <summary>Whether the call in flight reported success, which every tool that did what it was asked does and a refusal does not.</summary>
     /// <remarks>
     /// Flowing with the call rather than one field, because a client can make calls in parallel and
     /// they interleave on the UI thread; Avalonia's dispatcher runs each under the context it was
@@ -255,7 +255,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
             .Append(AIFunctionFactory.Create(
                 _tools.ContextAsync,
                 "get_context",
-                "What is open in Studio now: the project, the tab in front, the selected elements and any problems."))
+                "What is open in Studio now: the project, the tab in front, what is selected in it or picked on its board, and how many errors and warnings the drawing in front has; get_problems lists a project's."))
             .Select(function => McpServerTool.Create(new Plain(function, _reported), new McpServerToolCreateOptions
             {
                 ReadOnly = AssistantTools.Reading.Contains(function.Name),

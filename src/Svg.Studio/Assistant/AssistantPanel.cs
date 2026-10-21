@@ -60,7 +60,13 @@ public sealed class AssistantPanel : UserControl
         _session = new AssistantSession(tools);
 
         _tools.Confirm = Ask;
-        _tools.Called += (_, summary) => Line("· " + summary, "tool");
+        _tools.Called += (_, summary) =>
+        {
+            if (summary is { })
+            {
+                Line("· " + summary, "tool");
+            }
+        };
 
         _providers.ItemsSource = AssistantProviders.All.Select(provider => provider.Name).ToList();
         _providers.SelectionChanged += async (_, _) => await ChooseProvider().ConfigureAwait(true);

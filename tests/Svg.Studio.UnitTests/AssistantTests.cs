@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -113,6 +114,32 @@ public class AssistantTests : IDisposable
         </studio>
         """;
 
+    /// <summary>A group's <c>tint</c>, and under it a drawing with a block of its own in front of two gradients.</summary>
+    /// <remarks>Built, the group's block goes in front of the drawing's, so g1 is 0/1 in the file and 0/2 in the tree.</remarks>
+    private const string Owned = """
+        <studio namespace="Demo.Icons">
+          <group name="Badges">
+            <e:code xmlns:e="https://svg.skia/expr/1.0">
+              <e:param name="tint" type="color" default="#ff0000" />
+            </e:code>
+
+            <drawing name="Graded">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                <defs>
+                  <e:code>
+                    <e:param name="a" type="number" default="1" />
+                    <e:param name="b" type="number" default="2" />
+                  </e:code>
+                  <linearGradient id="g1" />
+                  <linearGradient id="g2" />
+                </defs>
+                <rect width="24" height="24" fill="{{ tint }}" />
+              </svg>
+            </drawing>
+          </group>
+        </studio>
+        """;
+
     /// <summary>A drawing that declares entities of its own, which Studio draws and has no source to edit for.</summary>
     internal const string Entities = """
         <?xml version="1.0"?>
@@ -139,6 +166,13 @@ public class AssistantTests : IDisposable
         Assert.Equal(AssistantDocs.Sections.Count, AssistantDocs.Sections.Select(section => section.Id).Distinct().Count());
         Assert.All(AssistantDocs.Sections, section => Assert.Equal(section.Text, AssistantDocs.Read(section.Id)));
         Assert.Contains(AssistantDocs.Sections, section => section.Id == "svg-studio#the-attributes-tab");
+
+        // A board drag and an edit to a drawing in no tab are steps on the project's history. Read
+        // across line breaks, which a plain search for the first of these missed.
+        var flat = Regex.Replace(whole, @"\s+", " ");
+
+        Assert.DoesNotContain("cannot be undone", flat, StringComparison.Ordinal);
+        Assert.DoesNotContain("nothing to undo", flat, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -177,6 +211,9 @@ public class AssistantTests : IDisposable
         // on-device model asked to save after every edit.
         Assert.DoesNotContain("Saving", AssistantSession.SystemPrompt(small: true), StringComparison.Ordinal);
         Assert.Contains("Saving, removing and committing ask the person first", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
+
+        // A path is a position: removing 0 and then 1 by one read of the project removed what was 2.
+        Assert.Contains("Paths are positions", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -189,6 +226,9 @@ public class AssistantTests : IDisposable
         Assert.True(window.Workspace!.IsEdited);
         Assert.Contains("unsaved changes", new AssistantTools(window).Context(small: false), StringComparison.Ordinal);
         Assert.DoesNotContain("unsaved", new AssistantTools(window).Context(small: true), StringComparison.Ordinal);
+
+        // Nor pointed at a tool it does not have.
+        Assert.DoesNotContain("get_problems", new AssistantTools(window).Context(small: true), StringComparison.Ordinal);
 
         // Nor of the tabs holding its edits, in front or behind, which it has no open or save to act on.
         var root = window.Workspace.Document.Root;
@@ -554,7 +594,10 @@ public class AssistantTests : IDisposable
     public async Task The_Panel_Shows_Who_Said_What_In_Bubbles()
     {
         var window = await Host(Write("drawing.svg", Drawing));
+
+        // The second changes nothing, so it has no line: the panel lists what was done.
         var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "make it red" }),
             Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "make it red" }),
             Say("It is **red** now."));
         var providers = AssistantProviders.All;
@@ -611,6 +654,10 @@ public class AssistantTests : IDisposable
         Assert.Contains("Inherited from (project): angle", chat.Results[1], StringComparison.Ordinal);
         Assert.Contains("'angle' is declared more than once", chat.Results[1], StringComparison.Ordinal);
 
+        // Spelt as get_element and set_text spell it, and told apart from another let by its name.
+        Assert.Contains("  0/0 e:code\n", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("  0/0/0 e:let name=angle\n", chat.Results[1], StringComparison.Ordinal);
+
         Assert.Contains("(project) namespace=\"Demo.Icons\" — declares: angle", chat.Results[2], StringComparison.Ordinal);
         Assert.Contains("1 group Badges — declares: tint", chat.Results[2], StringComparison.Ordinal);
     }
@@ -623,7 +670,191 @@ public class AssistantTests : IDisposable
         await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("1 problem(s)", new AssistantTools(window).Context(), StringComparison.Ordinal);
+        Assert.Contains("The drawing has 1 error(s);", new AssistantTools(window).Context(), StringComparison.Ordinal);
+    }
+
+    /// <remarks>
+    /// A reused id still opens, so the viewer counts it as a warning; the tools called it a problem
+    /// like any other, and told a client with no project to ask get_problems, which then refused.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Warnings_Are_Said_To_Be_Warnings_And_Counted_Apart_From_Errors()
+    {
+        var window = await Host(Write("faults.svg", """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+              <rect id="a" width="24" height="24" fill="{{ nope }}" />
+              <circle id="a" r="6" />
+            </svg>
+            """));
+        var context = new AssistantTools(window).Context();
+
+        Assert.Contains("The drawing has 1 error(s) and 1 warning(s); get_drawing lists them.", context, StringComparison.Ordinal);
+        Assert.DoesNotContain("get_problems", context, StringComparison.Ordinal);
+
+        var chat = new ScriptedChat(Call("get_drawing", new()), Say("Read."));
+
+        await Send(window, chat, "what is wrong");
+
+        Assert.Contains("Problem: Warning: The id 'a' is already used", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("Problem: Unknown name 'nope'", chat.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Pick_Is_Named_By_The_Files_Key_Where_A_Drawing_Has_A_Block_Before_The_Groups()
+    {
+        var window = await Host(Write("owned.svgstudio", Owned));
+
+        await window.ShowAsync(((ProjectGroup)window.Workspace!.Document.Root.Children[0]).Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        // g1 as the tree has it, behind the block the group's declarations put in front.
+        Assert.True(viewer.Elements.TrySelect(new[] { "0/2" }));
+        Assert.Contains("Selected elements: 0/1", new AssistantTools(window).Context().Split('\n'));
+
+        var chat = new ScriptedChat(
+            Call("get_element", new() { ["key"] = "0/1" }),
+            Call("select", new() { ["keys"] = new[] { "0/0" } }),
+            Say("Selected."));
+
+        await Send(window, chat, "pick the drawing's own declarations");
+
+        Assert.Contains("id=g1", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal("0/1", viewer.Elements.SelectedAddresses.Single());
+    }
+
+    [AvaloniaFact]
+    public async Task What_Is_Picked_On_A_Groups_Board_Is_Said_In_The_Context()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+
+        Assert.DoesNotContain("Picked", new AssistantTools(window).Context(), StringComparison.Ordinal);
+
+        await Pick(window, badges, badges.Children[0]);
+
+        Assert.Contains("Picked on the board: 1/0 drawing Filled", new AssistantTools(window).Context(), StringComparison.Ordinal);
+
+        // An undo takes the add out of Children and leaves it its Parent, and the pick then gave a
+        // path of "(no longer in the project)" to name it by.
+        await Send(window, new ScriptedChat(Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Added", ["svg"] = Drawing }), Say("Added.")), "add one");
+
+        var added = badges.Children[1];
+        var board = await Pick(window, badges, added);
+
+        Assert.Contains("Picked on the board: 1/1 drawing Added", new AssistantTools(window).Context(), StringComparison.Ordinal);
+        Assert.True(window.Workspace.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        // Still the board's, keeping what was typed for it for a redo, but not one to name.
+        Assert.Same(added, board.Described);
+        Assert.DoesNotContain("Picked", new AssistantTools(window).Context(), StringComparison.Ordinal);
+    }
+
+    /// <remarks>Each answer under the bound a client cuts a tool's output at, and the base64 an image holds nowhere in either.</remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Too_Long_To_Read_Whole_Leaves_Its_Source_And_Its_Data_Out_And_Says_So()
+    {
+        var window = await Host(Write("photo.svg", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+              <text y="20">Caption</text>
+              <image width="24" height="24" href="data:image/png;base64,
+            """.TrimEnd() + new string('A', 200_000) + "\" />\n</svg>"));
+        var chat = new ScriptedChat(
+            Call("get_drawing", new()),
+            Call("get_element", new() { ["key"] = "1" }),
+            Call("get_element", new() { ["key"] = "0" }),
+            Say("Read."));
+
+        await Send(window, chat, "what is in it");
+
+        Assert.All(chat.Results, result => Assert.True(result.Length < 40_000, $"{result.Length} characters"));
+        Assert.Contains("1 image", chat.Results[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("Source:", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("get_element", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("replace_drawing", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("href=(left out: data:image/png, 200022 characters)\n", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("width=24\n", chat.Results[1], StringComparison.Ordinal);
+
+        // What set_text would change, which with the source left out nothing else showed.
+        Assert.Contains("Text: Caption\n", chat.Results[2], StringComparison.Ordinal);
+
+        // Drawn but unreadable, every tool refuses it, replace_drawing too, so none is offered.
+        var circles = string.Concat(Enumerable.Repeat("<circle r=\"1\" fill=\"&green;\" />\n", 2_000));
+        var entities = await Host(Write("entities.svg", Entities.Replace("<rect", circles + "<rect", StringComparison.Ordinal)));
+        var unreadable = new ScriptedChat(Call("get_drawing", new()), Say("Read."));
+
+        await Send(entities, unreadable, "what is in it");
+
+        Assert.True(unreadable.Results[0].Length < 40_000, $"{unreadable.Results[0].Length} characters");
+        Assert.Contains("declares entities", unreadable.Results[0], StringComparison.Ordinal);
+        Assert.Contains("no tool can change it", unreadable.Results[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("get_element", unreadable.Results[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("Source:", unreadable.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Long_List_Of_Problems_Is_Cut_And_Says_How_Many_More()
+    {
+        var rects = string.Concat(Enumerable.Range(0, 60).Select(_ => "<rect width=\"1\" height=\"1\" opacity=\"{{ nothing }}\" />"));
+        var window = await Host(Write("broken.svgstudio", "<studio namespace=\"Demo.Icons\"><drawing name=\"Broken\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" + rects + "</svg></drawing></studio>"));
+        var chat = new ScriptedChat(
+            Call("get_problems", new()),
+            Call("get_problems", new() { ["node"] = "0" }),
+            Call("get_drawing", new() { ["node"] = "0" }),
+            Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "width", value = "2" } }, ["summary"] = "widen" }),
+            Say("Read."));
+
+        await Send(window, chat, "what is wrong");
+
+        Assert.Equal(50, chat.Results[0].Split('\n').Count(line => line.StartsWith("- 0 Broken: Unknown name 'nothing'", StringComparison.Ordinal)));
+        Assert.Contains("… and 10 more; name a group or a drawing to narrow it.", chat.Results[0], StringComparison.Ordinal);
+        Assert.EndsWith("0 drawing(s) with no problems.", chat.Results[0], StringComparison.Ordinal);
+
+        // A drawing is as narrow as a path goes, and get_drawing and an edit's answer cut the list too.
+        Assert.Contains("… and 10 more.\n", chat.Results[1], StringComparison.Ordinal);
+        Assert.Equal(50, chat.Results[2].Split('\n').Count(line => line.StartsWith("Problem: Unknown name 'nothing'", StringComparison.Ordinal)));
+        Assert.Contains("… and 10 more.\n", chat.Results[2], StringComparison.Ordinal);
+        Assert.Equal(50, chat.Results[3].Split('\n').Count(line => line.StartsWith("- Unknown name 'nothing'", StringComparison.Ordinal)));
+        Assert.EndsWith("… and 10 more.", chat.Results[3], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Path_Is_Quoted_When_It_Names_Nothing_And_Without_A_Project_None_Is_Asked_For()
+    {
+        var lone = await Host(Write("drawing.svg", Drawing));
+        var none = new ScriptedChat(
+            Call("get_problems", new()),
+            Call("get_declarations", new()),
+            Call("add_group", new() { ["parent"] = "" }),
+            Call("add_drawing", new() { ["parent"] = "", ["name"] = "Added", ["svg"] = Drawing }),
+            Call("set_declarations", new() { ["code"] = "<e:code xmlns:e=\"https://svg.skia/expr/1.0\" />", ["summary"] = "clear" }),
+            Call("remove", new() { ["node"] = "0" }),
+            Call("get_drawing", new() { ["node"] = "0" }),
+            Say("No project."));
+
+        await Send(lone, none, "what is wrong", allow: true);
+
+        Assert.All(none.Results, result => Assert.Equal("No project is open.", result));
+
+        var window = await Host(Write("icons.svgstudio", Project));
+        var named = new ScriptedChat(
+            Call("remove", new() { ["node"] = "" }),
+            Call("remove", new() { ["node"] = "(project)" }),
+            Call("get_problems", new() { ["node"] = "9" }),
+            Call("add_group", new() { ["parent"] = "0" }),
+            Call("move", new() { ["node"] = "1", ["into"] = "0" }),
+            Say("Refused."));
+
+        await Send(window, named, "remove everything", allow: true);
+
+        Assert.Equal("The project itself cannot be removed.", named.Results[0]);
+        Assert.Equal("The project itself cannot be removed.", named.Results[1]);
+        Assert.Equal("There is no node '9'. get_project lists the paths.", named.Results[2]);
+        Assert.Equal("'0' is not a group. get_project lists the paths.", named.Results[3]);
+        Assert.Equal(named.Results[3], named.Results[4]);
+        Assert.Equal(2, window.Workspace!.Document.Root.Children.Count);
     }
 
     [AvaloniaFact]
@@ -1135,6 +1366,7 @@ public class AssistantTests : IDisposable
         var chat = new ScriptedChat(
             Call("get_problems", new()),
             Call("get_element", new() { ["node"] = "1/0", ["key"] = "(root)" }),
+            Call("get_problems", new() { ["node"] = "0" }),
             Say("Read."));
 
         await Send(window, chat, "what is wrong");
@@ -1144,6 +1376,10 @@ public class AssistantTests : IDisposable
         Assert.Contains("(at: <e:let name=\"angle\">)", chat.Results[0], StringComparison.Ordinal);
         Assert.Contains("1 drawing(s) with no problems", chat.Results[0], StringComparison.Ordinal);
         Assert.StartsWith("<svg> at (root)", chat.Results[1], StringComparison.Ordinal);
+
+        // A drawing's path is taken as well as a group's.
+        Assert.Contains("0 Dial: 'angle' is declared more than once", chat.Results[2], StringComparison.Ordinal);
+        Assert.EndsWith("0 drawing(s) with no problems.", chat.Results[2], StringComparison.Ordinal);
     }
 
     [AvaloniaFact]

@@ -271,6 +271,59 @@ public class SvgSourceElementsTests
         Assert.False(paired.ContainsKey("0"));
     }
 
+    /// <remarks>
+    /// A drawing with a block of its own, given its group's in front of it. Paired from the front,
+    /// the group's block took the drawing's: here a declaration was left over, every address fell
+    /// back to the file's, and the first gradient was named as the second.
+    /// </remarks>
+    [Fact]
+    public void A_Block_Put_In_Front_Of_The_Drawings_Own_Leaves_What_Follows_Named_As_The_File_Has_It()
+    {
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="a" /><e:param name="b" /></e:code><linearGradient id="g1" /><linearGradient id="g2" /></defs>
+              <rect fill="{{ tint }}" />
+            </svg>
+            """;
+
+        const string built = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="tint" /></e:code><e:code><e:param name="a" /><e:param name="b" /></e:code><linearGradient id="g1" /><linearGradient id="g2" /></defs>
+              <rect fill="{{ tint }}" />
+            </svg>
+            """;
+
+        var paired = SvgSourceElements.Addresses(source, built);
+
+        Assert.Equal("0/1", paired["0/2"]);
+        Assert.Equal("0/2", paired["0/3"]);
+        Assert.Equal("""<linearGradient id="g1" />""", Written(source, SvgSourceElements.Map(source, built)["0/2"]));
+        Assert.False(paired.ContainsKey("0/0"));
+    }
+
+    /// <remarks>Where nothing is left over the front-first walk succeeded, and paired the group's block with the drawing's.</remarks>
+    [Fact]
+    public void The_Drawings_Own_Block_Is_Paired_With_Itself_And_Not_The_One_In_Front_Of_It()
+    {
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="a" /></e:code></defs>
+            </svg>
+            """;
+
+        const string built = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="tint" /></e:code><e:code><e:param name="a" /></e:code></defs>
+            </svg>
+            """;
+
+        var paired = SvgSourceElements.Addresses(source, built);
+
+        Assert.Equal("0/0", paired["0/1"]);
+        Assert.Equal("0/0/0", paired["0/1/0"]);
+        Assert.False(paired.ContainsKey("0/0"));
+    }
+
     [Fact]
     public void Without_A_Rewrite_Every_Address_Is_Its_Own()
     {

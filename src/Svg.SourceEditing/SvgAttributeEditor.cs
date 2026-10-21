@@ -59,9 +59,16 @@ public static class SvgAttributeEditor
             throw new ArgumentNullException(nameof(addressKey));
         }
 
-        if (Resolve(source.Document, addressKey) is not { } element)
+        return Resolve(source.Document, addressKey) is { } element ? ElementName(element) : null;
+    }
+
+    /// <summary>The name of <paramref name="element"/>, spelt as <see cref="ElementName(SvgSourceDocument, string)"/> spells it.</summary>
+    /// <remarks>For a walk holding each element already, which resolving every key again from the root made quadratic in its siblings.</remarks>
+    public static string ElementName(XElement element)
+    {
+        if (element is null)
         {
-            return null;
+            throw new ArgumentNullException(nameof(element));
         }
 
         if (element.Name.Namespace == SvgNamespace || element.Name.Namespace == XNamespace.None)

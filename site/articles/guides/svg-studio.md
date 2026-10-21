@@ -141,8 +141,8 @@ is, and there it waits in the grid with the rest: one that is still a grid itsel
 row would be the first placed one and would push everything nobody touched out to the right of it,
 and one with a group between them that names no place of its own.
 
-A drag writes the file as it is made, like every other arrangement edit, and like those it cannot be
-undone.
+A drag writes the file as it is made, and like every other arrangement edit it is one step on the
+project's history, *move …* in the Edit menu, so ⌘Z takes it back.
 
 **Captions** writes each drawing's name inside its own top corner, where a group's name sits in its
 frame, and a board comes up with them. The name is shrunk until it fits the drawing — across it and
@@ -186,12 +186,14 @@ project itself, held in the window, which is what every view of it reads.
   over what was typed in it and nothing else.
 - A drawing **open in a tab** is edited through that tab's buffer, so the edit can be taken back
   with ⌘Z.
-- A drawing **open in no tab** — one edited from a group's canvas — goes straight into the project.
-  There is no buffer to hold it, so there is nothing to undo; it is still unsaved, and the window
-  says so.
+- A drawing **open in no tab** — one edited from a group's canvas — goes straight into the project,
+  as a step on the project's history that ⌘Z takes back. It is still unsaved, and the window says
+  so.
 - **Arranging** — a row added, removed or dragged in the tree, a drawing dragged on a board — is the
   project's own edit. No tab wears a mark for it, because closing a tab would not lose it; the
   window title does, and closing the project asks about it by name.
+
+⌘Z takes back the front tab's own edits first, and the project's once that tab has none left.
 
 `File → Save` hands the selected tab's work to the project and writes the project — one file, so one
 write, whatever was typed where. `File → Export…` asks for one `.cs` and writes the whole project
@@ -333,8 +335,11 @@ group's declarations, adds, moves and renames nodes, and saves or commits.
 3. In Claude Code, `/mcp` lists `svg-studio` as connected while Studio is open.
 
 Each edit Claude Code makes is one step on the same history as yours, named in the Edit menu as
-*Undo Claude Code: …*, so ⌘Z takes it back. Saving, removing a node and committing are marked as
-destructive, so Claude Code asks you before it does them; Studio does not ask again.
+*Undo Claude Code: …*, so ⌘Z takes it back. Its `undo` tool takes back only its own steps, newest
+first, and names each one. While an edit of yours sits on top of its step it takes nothing back, and
+names your edit instead; only once it has none of its own left does it take back your last, and says
+so. Saving, removing a node and committing are marked as destructive, so Claude Code asks you before
+it does them; Studio does not ask again.
 
 Only one Studio can hold a port. A second one open at the same time says in Settings that the port is
 taken; give it another and copy its command separately.

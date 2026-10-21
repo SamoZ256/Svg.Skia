@@ -596,7 +596,10 @@ public sealed class GroupPanel : UserControl
     /// Whose properties the pane shows: what the board has picked, as the other panes follow it, or
     /// the tab's own node while nothing is.
     /// </summary>
-    /// <remarks>A node taken out of the project since it was picked has nothing left to show, and gives way to the tab's.</remarks>
+    /// <remarks>
+    /// A node removed since it was picked gives way to the tab's. One an undo has taken out keeps its
+    /// Parent and stays, so what was typed for it waits for a redo rather than falling to the tab's node.
+    /// </remarks>
     public ProjectNode Described => _described is { Parent: null } and not ProjectRoot ? Node : _described ?? Node;
 
     /// <summary>Whether anything typed here has not been written to the project.</summary>
