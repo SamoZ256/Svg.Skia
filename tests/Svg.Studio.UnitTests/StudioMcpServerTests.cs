@@ -327,8 +327,63 @@ public class StudioMcpServerTests : IDisposable
 
         // And the tab the commit wrote is no longer said to hold what is now in HEAD.
         Assert.DoesNotContain("Tabs holding edits", Text(await Call(client, "get_context", new())), StringComparison.Ordinal);
-        Assert.Contains("0 drawing home (open)\n", Text(await Call(client, "get_project", new())), StringComparison.Ordinal);
+        Assert.Contains("0 drawing home class=\"Home\" (open)\n", Text(await Call(client, "get_project", new())), StringComparison.Ordinal);
         Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Setting_A_Node_Cannot_Hold_Is_An_Error_That_Says_Which_It_Takes()
+    {
+        var path = Path.Combine(_directory, "nested.svgstudio");
+
+        File.WriteAllText(path, Nested);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var workspace = window.Workspace!;
+
+        var schema = (await client.ListToolsAsync()).Single(tool => tool.Name == "set_node").ProtocolTool.InputSchema;
+
+        Assert.DoesNotContain("value", schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
+
+        var unknown = await Call(client, "set_node", new() { ["node"] = "1", ["setting"] = "colour", ["value"] = "red" });
+        var projects = await Call(client, "set_node", new() { ["node"] = "1", ["setting"] = "cache", ["value"] = "lastValue" });
+        var named = await Call(client, "set_node", new() { ["node"] = "", ["setting"] = "name", ["value"] = "Icons" });
+        var nothing = await Call(client, "set_node", new() { ["node"] = "1", ["setting"] = "scale", ["value"] = "0" });
+
+        Assert.All(new[] { unknown, projects, named, nothing }, result => Assert.True(result.IsError, Text(result)));
+        Assert.StartsWith("1 has no setting colour;", Text(unknown), StringComparison.Ordinal);
+        Assert.StartsWith("1 has no setting cache;", Text(projects), StringComparison.Ordinal);
+        Assert.StartsWith("(project) has no setting name;", Text(named), StringComparison.Ordinal);
+        Assert.Contains("has to be a positive number", Text(nothing), StringComparison.Ordinal);
+        Assert.False(workspace.CanUndo);
+        Assert.False(workspace.IsEdited);
+
+        var cleared = await Call(client, "set_node", new() { ["node"] = "", ["setting"] = "namespace" });
+
+        Assert.NotEqual(true, cleared.IsError);
+        Assert.Null(workspace.Document.Root.Namespace);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Replacement_The_Tab_Cannot_Take_Is_An_Error_That_Says_Why()
+    {
+        var path = Path.Combine(_directory, "entities.svg");
+
+        File.WriteAllText(path, AssistantTests.Entities);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        var before = viewer.Source;
+
+        var refused = await Call(client, "replace_drawing", new() { ["svg"] = Drawing, ["summary"] = "replace it" });
+
+        Assert.True(refused.IsError);
+        Assert.Contains("declares entities", Text(refused), StringComparison.Ordinal);
+        Assert.Equal(before, viewer.Source);
+        Assert.False(viewer.CanUndo);
     }
 
     [AvaloniaFact]

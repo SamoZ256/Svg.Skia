@@ -14,6 +14,7 @@ using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Microsoft.Extensions.AI;
+using Svg.CodeGen.Skia;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -110,6 +111,15 @@ public class AssistantTests : IDisposable
             </group>
           </group>
         </studio>
+        """;
+
+    /// <summary>A drawing that declares entities of its own, which Studio draws and has no source to edit for.</summary>
+    internal const string Entities = """
+        <?xml version="1.0"?>
+        <!DOCTYPE svg [ <!ENTITY green "#00ff00"> ]>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <rect width="24" height="24" fill="&green;" />
+        </svg>
         """;
 
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
@@ -347,6 +357,200 @@ public class AssistantTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_Setting_The_Node_Does_Not_Take_Is_Refused_With_The_Ones_It_Does()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var root = workspace.Document.Root;
+        var badges = root.Children[1];
+
+        // Unknown, misspelt by case, and the project's own: once an empty step, a rename that was not, and a cast that threw.
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "colour", ["value"] = "red" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "Name", ["value"] = "Tags" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "cache", ["value"] = "lastValue" }),
+            Say("Refused."));
+
+        await Send(window, chat, "set what Badges does not take");
+
+        Assert.Equal(3, chat.Results.Count);
+        Assert.StartsWith("1 has no setting colour;", chat.Results[0], StringComparison.Ordinal);
+        Assert.StartsWith("1 has no setting Name;", chat.Results[1], StringComparison.Ordinal);
+        Assert.StartsWith("1 has no setting cache;", chat.Results[2], StringComparison.Ordinal);
+        Assert.All(chat.Results, result => Assert.Contains("name, namespace, class", result, StringComparison.Ordinal));
+        Assert.Equal("Badges", badges.Name);
+        Assert.Null(badges.Element.Attribute("cache"));
+        Assert.False(workspace.CanUndo);
+        Assert.False(workspace.IsEdited);
+
+        // Which the project itself still takes.
+        var own = new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "cache", ["value"] = "lastValue" }), Say("Set."));
+
+        await Send(window, own, "cache the project");
+
+        Assert.Contains("one undo step", own.Results[0], StringComparison.Ordinal);
+        Assert.Equal(SvgPictureCache.LastValue, root.Cache);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Project_Takes_No_Name_Or_Place_So_It_Still_Opens_Once_Saved()
+    {
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+        var workspace = window.Workspace!;
+
+        var refused = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "", ["setting"] = "name", ["value"] = "Icons" }),
+            Call("set_node", new() { ["node"] = "", ["setting"] = "x", ["value"] = "5" }),
+            Say("Refused."));
+
+        await Send(window, refused, "name and place the project");
+
+        Assert.All(refused.Results, result => Assert.StartsWith("(project) has no setting", result, StringComparison.Ordinal));
+        Assert.Contains("helperScope", refused.Results[0], StringComparison.Ordinal);
+        Assert.False(workspace.CanUndo);
+        Assert.False(workspace.IsEdited);
+
+        var saved = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "", ["setting"] = "class", ["value"] = "Icons" }),
+            Call("save", new()),
+            Say("Saved."));
+
+        await Send(window, saved, "name the class and save", allow: true);
+
+        Assert.Equal("Saved.", saved.Results[1]);
+
+        var reopened = ProjectDocument.Load(path);
+
+        Assert.Equal("Icons", reopened.Root.Class);
+        Assert.Null(reopened.Root.Element.Attribute("name"));
+        Assert.Null(reopened.Root.Element.Attribute("x"));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Size_The_Build_Would_Refuse_Is_Refused_And_A_Scale_And_A_Width_Take_Each_Others_Place()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var root = workspace.Document.Root;
+        var home = root.Children[0];
+        var badges = root.Children[1];
+
+        // In a tab, whose size is worked out again from the project after every edit to it.
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+
+        var refused = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "scale", ["value"] = "0" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "width", ["value"] = "-1" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "height", ["value"] = "NaN" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "x", ["value"] = "Infinity" }),
+            Say("Refused."));
+
+        await Send(window, refused, "size Badges as nothing can be");
+
+        Assert.Equal(4, refused.Results.Count);
+        Assert.All(refused.Results.Take(3), result => Assert.Contains("has to be a positive number", result, StringComparison.Ordinal));
+        Assert.Contains("finite", refused.Results[3], StringComparison.Ordinal);
+        Assert.False(badges.HasSize);
+        Assert.Null(badges.Element.Attribute("x"));
+        Assert.False(workspace.CanUndo);
+        Assert.False(workspace.IsEdited);
+
+        // A scale beside a width or a height is a size the build refuses, so the one written takes the other's place, and says so.
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "width", ["value"] = "48" }),
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "height", ["value"] = "32" }),
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "scale", ["value"] = "2" }),
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "width", ["value"] = "48" }),
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "scale", ["value"] = "2" }),
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "height", ["value"] = "32" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "class", ["value"] = "Badge" }),
+            Say("Done."));
+
+        await Send(window, chat, "size home every way, then name Badges' class");
+
+        Assert.All(chat.Results, result => Assert.Contains("one undo step", result, StringComparison.Ordinal));
+        Assert.Equal("Set height on 0. It is one undo step.", chat.Results[1]);
+        Assert.Contains("It also cleared width and height.", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains("It also cleared scale.", chat.Results[3], StringComparison.Ordinal);
+        Assert.Contains("It also cleared width.", chat.Results[4], StringComparison.Ordinal);
+        Assert.Contains("It also cleared scale.", chat.Results[5], StringComparison.Ordinal);
+        Assert.Null(home.Width);
+        Assert.Equal(32f, home.Height);
+        Assert.Null(home.Scale);
+        Assert.Equal("Badge", badges.Class);
+    }
+
+    [AvaloniaFact]
+    public async Task Clearing_Part_Of_A_Size_A_File_Gave_Twice_Leaves_The_Rest()
+    {
+        // A scale beside a width, which only a file written by hand gives and the reader still takes; clearing one mends it.
+        var window = await Host(Write("icons.svgstudio", Project
+            .Replace("<drawing name=\"home\">", "<drawing name=\"home\" width=\"16\" scale=\"4\">", StringComparison.Ordinal)
+            .Replace("<group name=\"Badges\">", "<group name=\"Badges\" width=\"48\" scale=\"2\">", StringComparison.Ordinal)
+            .Replace("<drawing name=\"Filled\">", "<drawing name=\"Filled\" height=\"32\" scale=\"3\">", StringComparison.Ordinal)));
+        var root = window.Workspace!.Document.Root;
+        var home = root.Children[0];
+        var badges = (ProjectGroup)root.Children[1];
+        var filled = badges.Children[0];
+
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "width" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "scale" }),
+            Call("set_node", new() { ["node"] = "1/0", ["setting"] = "height" }),
+            Say("Mended."));
+
+        await Send(window, chat, "mend the sizes");
+
+        Assert.All(chat.Results, result => Assert.EndsWith("It is one undo step.", result, StringComparison.Ordinal));
+        Assert.All(chat.Results, result => Assert.DoesNotContain("cleared", result, StringComparison.Ordinal));
+        Assert.Null(home.Width);
+        Assert.Equal(4f, home.Scale);
+        Assert.Null(badges.Scale);
+        Assert.Equal(48f, badges.Width);
+        Assert.Null(filled.Height);
+        Assert.Equal(3f, filled.Scale);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Setting_Is_Cleared_By_Leaving_Its_Value_Out()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = window.Workspace!.Document.Root;
+        var tool = new AssistantTools(window).For(small: false, docs: false).OfType<AIFunction>().Single(tool => tool.Name == "set_node");
+        var required = tool.JsonSchema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
+
+        Assert.DoesNotContain("value", required);
+        Assert.Contains("cache, helperScope and skiaSharp", tool.Description, StringComparison.Ordinal);
+
+        var chat = new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "namespace" }), Say("Cleared."));
+
+        await Send(window, chat, "clear the namespace");
+
+        Assert.Contains("one undo step", chat.Results[0], StringComparison.Ordinal);
+        Assert.Null(root.Namespace);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Project_Lists_The_Settings_Each_Node_Gives_Itself()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "scale", ["value"] = "2" }),
+            Call("get_project", new()),
+            Say("Read."));
+
+        await Send(window, chat, "scale Badges and read the project");
+
+        var lines = chat.Results[1].Split('\n');
+
+        Assert.Contains("(project) namespace=\"Demo.Icons\"", lines);
+        Assert.Contains("1 group Badges scale=\"2\" — declares: tint", lines);
+        Assert.Contains("  1/0 drawing Filled", lines);
+    }
+
+    [AvaloniaFact]
     public async Task The_Panel_Shows_Who_Said_What_In_Bubbles()
     {
         var window = await Host(Write("drawing.svg", Drawing));
@@ -407,7 +611,7 @@ public class AssistantTests : IDisposable
         Assert.Contains("Inherited from (project): angle", chat.Results[1], StringComparison.Ordinal);
         Assert.Contains("'angle' is declared more than once", chat.Results[1], StringComparison.Ordinal);
 
-        Assert.Contains("(project) — declares: angle", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains("(project) namespace=\"Demo.Icons\" — declares: angle", chat.Results[2], StringComparison.Ordinal);
         Assert.Contains("1 group Badges — declares: tint", chat.Results[2], StringComparison.Ordinal);
     }
 
@@ -800,6 +1004,44 @@ public class AssistantTests : IDisposable
         Assert.Equal(before, home.Text);
         Assert.False(workspace.CanUndo);
         Assert.False(workspace.IsEdited);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Replacement_The_Tab_Cannot_Take_Says_Why()
+    {
+        // Drawn, but with no source to edit: what the entities stand for cannot be written back.
+        var window = await Host(Write("entities.svg", Entities));
+        var viewer = Viewer(window);
+        var before = viewer.Source;
+
+        var chat = new ScriptedChat(
+            Call("replace_drawing", new() { ["svg"] = Drawing, ["summary"] = "replace it" }),
+            Say("Refused."));
+
+        await Send(window, chat, "replace the drawing");
+
+        Assert.Contains("declares entities", chat.Results[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("Nothing changed", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal(before, viewer.Source);
+        Assert.False(viewer.CanUndo);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Replacement_A_Tab_Already_Holds_Is_Nothing_Changed()
+    {
+        // SetSource's other false, for which the viewer raises no error.
+        var window = await Host(Write("home.svg", Drawing));
+        var viewer = Viewer(window);
+
+        var chat = new ScriptedChat(
+            Call("replace_drawing", new() { ["svg"] = viewer.Source, ["summary"] = "replace it" }),
+            Say("Unchanged."));
+
+        await Send(window, chat, "replace the drawing with itself");
+
+        Assert.StartsWith("Nothing changed", chat.Results[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("one undo step", chat.Results[0], StringComparison.Ordinal);
+        Assert.False(viewer.CanUndo);
     }
 
     [AvaloniaFact]

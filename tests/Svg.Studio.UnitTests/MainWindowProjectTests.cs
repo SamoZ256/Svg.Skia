@@ -6099,7 +6099,7 @@ public class MainWindowProjectTests : IDisposable
 
         var tab = Tabs(window).Items.OfType<TabItem>().Single(item => item.Tag is ProjectDrawing);
 
-        ((GroupPanel)Assert.Single(((SvgViewer)tab.Content!).SidePanels).Content).Edit("output", "Home.cs");
+        Assert.True(((GroupPanel)Assert.Single(((SvgViewer)tab.Content!).SidePanels).Content).Edit("class", "House"));
         Dispatcher.UIThread.RunJobs();
 
         // The drawing's text is untouched; what is unsaved is the project's say over it, and the
@@ -6113,6 +6113,37 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Contains("home has changes that have not been saved.", asked);
         Assert.Contains(tab, Tabs(window).Items);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Width_Typed_For_A_Scaled_Group_Takes_The_Scales_Place()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var large = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+
+        // A drawing under it in a tab, whose size is worked out again from the group after every edit.
+        await window.ShowAsync(large.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = await Group(window, 1);
+
+        Assert.True(panel.Edit("width", "48"));
+        panel.Commit();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(48f, large.Width);
+        Assert.Null(large.Scale);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Setting_No_Node_Takes_Is_Thrown_Back_Rather_Than_Held_As_An_Edit()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var panel = await Group(window, 1);
+
+        // Retired from the format, so only a caller that has not caught up asks for it.
+        Assert.Throws<ArgumentOutOfRangeException>(() => panel.Edit("output", "Large.cs"));
+        Assert.False(panel.IsModified);
     }
 
     private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];

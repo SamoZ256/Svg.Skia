@@ -969,6 +969,9 @@ public sealed class ProjectDocument
     // has no text of its own to have come from anywhere.
     private static readonly string[] s_drawingAttributes = s_nodeAttributes.Append("source").ToArray();
 
+    /// <summary>The settings <paramref name="node"/> can carry, which are what the reader takes back.</summary>
+    internal static IReadOnlyList<string> Settings(ProjectNode node) => node is ProjectRoot ? s_settings : s_nodeAttributes;
+
     private ProjectDocument(SvgSourceDocument source, string? path)
     {
         Source = source;

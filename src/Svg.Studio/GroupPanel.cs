@@ -3899,14 +3899,32 @@ public sealed class GroupPanel : UserControl
                 node.Y = SvgcProject.ParseLength(value, "position");
                 node.X = node.Y is { } ? node.X ?? 0f : null;
                 break;
+            // A scale beside a width or a height is a size the build refuses, so the one written takes
+            // the other's place. Only a value does: clearing one leaves the rest as they were.
             case "width":
                 node.Width = SvgcProject.ParseLength(value, "width");
+                if (value is { })
+                {
+                    node.Scale = null;
+                }
+
                 break;
             case "height":
                 node.Height = SvgcProject.ParseLength(value, "height");
+                if (value is { })
+                {
+                    node.Scale = null;
+                }
+
                 break;
             case "scale":
                 node.Scale = SvgcProject.ParseScale(value);
+                if (value is { })
+                {
+                    node.Width = null;
+                    node.Height = null;
+                }
+
                 break;
             // Nothing is the attribute taken away. The parsers read an empty value as the default, which
             // wrote the default out instead.
@@ -4075,18 +4093,33 @@ public sealed class GroupPanel : UserControl
             // tell from the one beside it.
             case "name" when string.IsNullOrWhiteSpace(value):
                 throw new SvgcProjectException("A drawing or group needs a name.");
-            case "width":
-                SvgcProject.ParseLength(value, "width");
+            case "name" or "namespace" or "class":
                 break;
-            case "height":
-                SvgcProject.ParseLength(value, "height");
+            // Asked as the build asks: the parser takes nought, less, NaN and infinity, which the build refuses.
+            case "width" or "height" or "scale":
+                var size = name == "scale" ? SvgcProject.ParseScale(value) : SvgcProject.ParseLength(value, name);
+
+                try
+                {
+                    _ = name switch
+                    {
+                        "width" => new SvgSizeRequest(size, null, null),
+                        "height" => new SvgSizeRequest(null, size, null),
+                        _ => new SvgSizeRequest(null, null, size)
+                    };
+                }
+                catch (ArgumentException refused)
+                {
+                    throw new SvgcProjectException(refused.Message);
+                }
+
                 break;
-            case "scale":
-                SvgcProject.ParseScale(value);
-                break;
-            case "x":
-            case "y":
-                SvgcProject.ParseLength(value, "position");
+            case "x" or "y":
+                if (SvgcProject.ParseLength(value, "position") is { } at && !float.IsFinite(at))
+                {
+                    throw new SvgcProjectException($"A position has to be a finite number, but was {value}.");
+                }
+
                 break;
             case "cache":
                 SvgcProject.ParseCache(value);
@@ -4108,6 +4141,11 @@ public sealed class GroupPanel : UserControl
                 }
 
                 break;
+            case "padding":
+                break;
+            // Every caller asks for a setting the node's form or ProjectDocument.Settings offers, so anything else is its mistake.
+            default:
+                throw new ArgumentOutOfRangeException(nameof(name), name, "There is no such setting.");
         }
     }
 

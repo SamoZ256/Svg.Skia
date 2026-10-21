@@ -129,7 +129,7 @@ public sealed class AssistantTools
         Add(Move, "move", "Moves a group or drawing into another group.");
         Add(GetDeclarations, "get_declarations", "Reads the declarations block a group, or the project, gives every drawing under it.");
         Add(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step.");
-        Add(SetNode, "set_node", "Changes a group's or drawing's project setting: name, namespace, class, padding, width, height, scale, x, y, cache, helperScope or skiaSharp.");
+        Add(SetNode, "set_node", "Changes one setting of a group, a drawing or the project, as a single undo step. cache, helperScope and skiaSharp are the project's alone, and name, x and y a group's or drawing's; a width or height clears a scale, and a scale both.");
         Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own.");
         Add(Remove, "remove", "Removes a group or drawing from the project.");
         Add(GitCommit, "git_commit", "Saves and commits the project to its git repository.");
@@ -236,12 +236,12 @@ public sealed class AssistantTools
             text.Append("In front: ").Append(Path(front)).Append('\n');
         }
 
-        if (Declares(workspace.Document.Root) is { } declared)
+        if (OwnSettings(workspace.Document.Root) + Declares(workspace.Document.Root) is { Length: > 0 } project)
         {
-            text.Append("(project)").Append(declared).Append('\n');
+            text.Append("(project)").Append(project).Append('\n');
         }
 
-        text.Append("Nodes (path, kind, name; what a group declares, every drawing under it inherits):\n");
+        text.Append("Nodes (path, kind, name, the settings it gives itself; a drawing takes each setting but x and y from the nearest of itself and the nodes above it to give one, the nearest giving any of width, height or scale decides all three, and every drawing under a group inherits what it declares):\n");
 
         Walk(workspace.Document.Root, 0);
 
@@ -253,7 +253,8 @@ public sealed class AssistantTools
             {
                 text.Append(new string(' ', depth * 2)).Append(Path(child)).Append(' ')
                     .Append(child is ProjectGroup ? "group" : "drawing").Append(' ')
-                    .Append(ProjectWorkspace.Label(child));
+                    .Append(ProjectWorkspace.Label(child))
+                    .Append(OwnSettings(child));
 
                 if (_window.TabOf(child) is { })
                 {
@@ -440,7 +441,23 @@ public sealed class AssistantTools
             // plain newlines, and the drawing's text ends its lines as the project file does.
             if (target is SvgViewer viewer)
             {
-                viewer.SetSource(svg, Label(summary));
+                // False is a refusal, which the viewer says through ErrorRaised, or text already there, which it does not.
+                string? refused = null;
+                EventHandler<string> said = (_, message) => refused = message;
+
+                viewer.ErrorRaised += said;
+
+                try
+                {
+                    if (!viewer.SetSource(svg, Label(summary)) && refused is { })
+                    {
+                        return refused;
+                    }
+                }
+                finally
+                {
+                    viewer.ErrorRaised -= said;
+                }
             }
             else if (Resolve(node) is ProjectDrawing drawing && _window.Workspace is { } workspace
                 && read.TextOf(read.Document.Root!) != before.Replace("\r\n", "\n", StringComparison.Ordinal))
@@ -604,14 +621,20 @@ public sealed class AssistantTools
         });
 
     private Task<string> SetNode(
-        [Description("The node path of the group or drawing.")] string node,
-        [Description("The setting: name, namespace, class, padding, width, height, scale, x, y, cache, helperScope or skiaSharp.")] string setting,
-        [Description("The new value, or empty to clear it so it is inherited again.")] string? value)
+        [Description("The node path of the group or drawing; empty for the project itself.")] string node,
+        [Description("A group or drawing takes name, namespace, class, padding, width, height, scale, x and y; the project takes namespace, class, padding, width, height, scale, cache, helperScope and skiaSharp.")] string setting,
+        [Description("The new value; left out or empty, the setting is cleared and inherited again.")] string? value = null)
         => Ui(() =>
         {
             if (Resolve(node) is not { } found || _window.Workspace is not { } workspace)
             {
                 return NoNode(node);
+            }
+
+            // Only what the reader takes back, since Validate never sees the node a value is for.
+            if (!ProjectDocument.Settings(found).Contains(setting, StringComparer.Ordinal))
+            {
+                return $"{Path(found)} has no setting {setting}; {(found is ProjectRoot ? "the project" : "a group or drawing")} takes {string.Join(", ", ProjectDocument.Settings(found))}.";
             }
 
             var text = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -638,10 +661,17 @@ public sealed class AssistantTools
 
             var label = Label($"change {setting}");
 
+            // Write can take a size's or a place's partners with it, which a client that reads nothing again would not know.
+            var given = ProjectDocument.Settings(found).Where(name => name != setting && found.Setting(name) is { }).ToList();
+
             workspace.Do(label, () => ProjectSnapshot.Attributes(found), () => GroupPanel.Write(found, setting, text));
             Undoable(label);
 
-            return Report($"Set {setting} on {Path(found)}." + Undoes, $"change {setting}");
+            var cleared = given.Where(name => found.Setting(name) is null).ToList();
+
+            return Report(
+                $"Set {setting} on {Path(found)}." + (cleared.Count > 0 ? $" It also cleared {string.Join(" and ", cleared)}." : null) + Undoes,
+                $"change {setting}");
         });
 
     private Task<string> Save() => UiAsync(async () =>
@@ -931,6 +961,10 @@ public sealed class AssistantTools
 
     private static string? Declares(ProjectGroup group)
         => group.Code is { } ? " — declares: " + (string.Join(", ", Names(group)) is { Length: > 0 } names ? names : "nothing") : null;
+
+    /// <summary>What the node sets itself, as the file spells it and set_node takes it back; its name is the row's already.</summary>
+    private static string OwnSettings(ProjectNode node)
+        => string.Concat(ProjectDocument.Settings(node).Where(name => name != "name").Select(name => node.Setting(name) is { } value ? $" {name}=\"{value}\"" : null));
 
     /// <summary>The project's drawing a node path names, or the one in front for none.</summary>
     private ProjectDrawing? Drawing(string? node)
