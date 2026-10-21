@@ -95,5 +95,5 @@ A clean checkout builds clean and the suite is fully green — anything failing 
 or something that drifted, so investigate rather than assume it was already broken. The 48 `CS0618`
 warnings are `Svg.Custom` deprecating its own paint-server API, and are expected. W3C text rows use
 per-fixture thresholds calibrated against a particular native Skia: a hairline failure after a
-SkiaSharp bump usually wants a threshold nudge and almost never a re-captured baseline.
-`Svg.Studio.UnitTests` builds its own `Application`, so nothing in `App.axaml` is covered by a test.
+SkiaSharp bump usually wants a threshold nudge and almost never a re-captured baseline. Only
+`Svg.Studio.UiTests` cover `App.axaml`; they take the real pointer, so run only in `studio-ui.yml`.

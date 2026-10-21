@@ -93,10 +93,7 @@ public sealed class TemplateLibrary
     /// Where the choices somebody made are kept, as <c>family|style|colours=template</c> lines.
     /// </summary>
     /// <remarks>Settable so a test drives a file of its own instead of the one on this machine.</remarks>
-    public static string ChoicesStore { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Svg.Studio",
-        "templates-choices");
+    public static string ChoicesStore { get; set; } = Path.Combine(StudioSettings.Folder, "templates-choices");
 
     /// <summary>The project's templates in file order, those that did not parse among them, then <see cref="KeepColoursName"/>.</summary>
     public IReadOnlyList<TemplateEntry> Templates { get; }
