@@ -2069,6 +2069,33 @@ public class SvgRetainedSceneGraphTests : SvgUnitTest
     }
 
     [Fact]
+    public void RetainedSceneGraph_DominantBaselineCapMiddle_CentresTheFontsCapHeight()
+    {
+        const string baselineSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="180" height="100" viewBox="0 0 180 100">
+              <text id="alphabetic" x="10" y="50" font-size="24">A</text>
+              <text id="cap" x="60" y="50" font-size="24" dominant-baseline="cap-middle">A</text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.FromSvg(baselineSvg);
+
+        var retainedModel = svg.CreateRetainedSceneGraphModel();
+        Assert.NotNull(retainedModel);
+
+        var alphabetic = Assert.Single(retainedModel!.FindCommandsBySourceElementId<DrawTextCanvasCommand>("alphabetic"));
+        var cap = Assert.Single(retainedModel.FindCommandsBySourceElementId<DrawTextCanvasCommand>("cap"));
+        // Measured the way the compiler measures: a text paint without antialias, which DirectWrite
+        // hints, so on Windows the cap height comes back whole (17 where the drawn paint says 16.8).
+        var measured = new SKPaint { Typeface = cap.Paint!.Typeface, TextSize = cap.Paint.TextSize, LcdRenderText = true, SubpixelText = true };
+        var capHeight = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())).GetFontMetrics(measured).CapHeight;
+
+        Assert.NotNull(capHeight);
+        Assert.Equal(alphabetic.Y + capHeight!.Value / 2f, cap.Y, 3);
+    }
+
+    [Fact]
     public void RetainedSceneGraph_DominantBaselineFromStylesheet_AdjustsTextBaseline()
     {
         const string baselineSvg = """

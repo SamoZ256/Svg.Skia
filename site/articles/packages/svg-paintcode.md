@@ -62,6 +62,7 @@ PaintCode's class can keep calling. See [a PaintCode-style API](svg-codegen-skia
 | A variable derived from others | `<e:let>` |
 | `fill`, `strokeColor`, `fontColor` | `fill`, `stroke`, and the text's own `fill` |
 | `alpha`, `visibilityMode` | `opacity`, `display` |
+| A text run | `<text>` placed as PaintCode's runtime places it: `dominant-baseline="cap-middle"` centres the font's cap height in the box, the run aligns along the box's width cut to a whole unit, and `font-kerning="none"` |
 | The display position, rotation and scale | One argument each of `transform` |
 | A gradient chosen by an expression | One `<linearGradient>`, with the expression on every `stop-color` |
 | A gradient laid by dragging its two ends | The same two points, in `userSpaceOnUse` |
