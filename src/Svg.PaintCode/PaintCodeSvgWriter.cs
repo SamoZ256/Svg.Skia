@@ -257,9 +257,9 @@ internal sealed class PaintCodeSvgWriter
     /// The shape and the text it carries, or the text alone where the shape paints nothing.
     /// </summary>
     /// <remarks>
-    /// PaintCode lays text out itself, measuring the run and centring it in the shape's box; SVG
-    /// places it from one point and an anchor. The two agree on where the box is and not on where
-    /// the glyphs sit inside it, so every one of these is reported.
+    /// Placed by PaintCode's own rules: the cap height centred in the box, the run aligned along
+    /// the box's width cut to a whole unit, and nothing kerned. It still fills the glyphs' outlines
+    /// and clips to the box where we draw text, so every one of these is reported.
     /// </remarks>
     private XElement WithText(XElement element, PaintCodeShape shape, PaintCodeText text)
     {
@@ -272,10 +272,14 @@ internal sealed class PaintCodeSvgWriter
             _ => "start"
         };
 
+        // PaintCode aligns along (int)rect.Width. Cut at the precision written, or a box 24 wide that
+        // the frame's arithmetic left at 23.99999 is cut to 23.
+        var width = Math.Truncate(PaintCodePathData.Rounded(box.Width));
+
         run.SetAttributeValue("x", Number(anchor switch
         {
-            "middle" => box.X + box.Width / 2,
-            "end" => box.X + box.Width - text.InsetHorizontal,
+            "middle" => box.X + width / 2,
+            "end" => box.X + width - text.InsetHorizontal,
             _ => box.X + text.InsetHorizontal
         }));
 
@@ -298,7 +302,8 @@ internal sealed class PaintCodeSvgWriter
             run.SetAttributeValue("text-anchor", anchor);
         }
 
-        run.SetAttributeValue("dominant-baseline", "central");
+        run.SetAttributeValue("dominant-baseline", "cap-middle");
+        run.SetAttributeValue("font-kerning", "none");
 
         if (text.Color is { } color)
         {
@@ -337,7 +342,7 @@ internal sealed class PaintCodeSvgWriter
             run.Add(text.Value);
         }
 
-        Note(PaintCodeImportSeverity.Approximated, shape.Name, "text", "the run is placed from the shape's box rather than measured the way PaintCode measures it.");
+        Note(PaintCodeImportSeverity.Approximated, shape.Name, "text", "the run is placed as PaintCode places it, but drawn as text where PaintCode fills the glyphs' outlines, and not clipped to its box.");
 
         // A marked box stays, being what the mark measures.
         if (element.Attribute("fill")?.Value == "none" && element.Attribute("stroke") is null &&
