@@ -5,17 +5,22 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.Linq;
 using Avalonia.Threading;
 using Microsoft.Extensions.AI;
+using SkiaSharp;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
+using Svg.Expressions.Recipes;
 using Svg.Highlighting;
+using Svg.Skia;
 using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
 
@@ -52,8 +57,11 @@ public sealed class AssistantTools
     /// <summary>How many problems an answer lists before it says how many more.</summary>
     private const int Most = 50;
 
+    /// <summary>How far apart a render's images are on its sheet, and from the sheet's edges.</summary>
+    private const int Gap = 8;
+
     /// <summary>Refuses an argument no parameter takes: dropped, a misspelled node fell back to the drawing in front, which took the edit.</summary>
-    private static readonly JsonSerializerOptions s_arguments = new(AIJsonUtilities.DefaultOptions) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+    internal static readonly JsonSerializerOptions s_arguments = new(AIJsonUtilities.DefaultOptions) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
 
     private readonly MainWindow _window;
 
@@ -86,10 +94,19 @@ public sealed class AssistantTools
         _window = window ?? throw new ArgumentNullException(nameof(window));
     }
 
+    /// <summary>What a render draws on.</summary>
+    internal enum Ground
+    {
+        Transparent,
+        Light,
+        Dark,
+        Both
+    }
+
     /// <summary>The tools that read and change nothing, for a client to call without asking.</summary>
     public static readonly IReadOnlySet<string> Reading = new HashSet<string>(StringComparer.Ordinal)
     {
-        "read_doc", "get_project", "get_drawing", "get_element", "get_node", "get_context", "get_declarations", "get_problems"
+        "read_doc", "get_project", "get_drawing", "get_element", "get_node", "get_context", "get_declarations", "get_problems", "get_code", "render"
     };
 
     /// <summary>The tools that write past the history - to disk, to git, or a node away - which a client should ask about.</summary>
@@ -101,7 +118,7 @@ public sealed class AssistantTools
     /// <summary>The tools that, called again with the same arguments, leave things as the first call did.</summary>
     public static readonly IReadOnlySet<string> Repeatable = new HashSet<string>(StringComparer.Ordinal)
     {
-        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing"
+        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "render"
     };
 
     /// <summary>Who the Edit menu says made an edit: "Undo Assistant: make it red".</summary>
@@ -144,6 +161,7 @@ public sealed class AssistantTools
         Add(GetElement, "get_element", "Reads every attribute of one element of a drawing, and the text set_text changes, as the file writes them.");
         Add(GetNode, "get_node", "Reads the settings of a group, a drawing or the project: each one it gives itself, or the value it inherits and the path of the node giving it, the size it is built at, and what it declares and inherits.");
         Add(GetProblems, "get_problems", "Lists every problem in a drawing, in the drawings under a group, or in the whole project: the one call that finds what is wrong.");
+        Add(GetCode, "get_code", "Generates the C# a drawing is built into, as svgc writes it for that drawing alone, from the text in its tab where one holds it; or says why it cannot be generated, which get_problems does not find.");
         Add(SetText, "set_text", "Sets the text between an element's tags - a <text>'s words or an <e:let>'s expression - as a single undo step.");
         Add(ReplaceDrawing, "replace_drawing", "Replaces a drawing's whole SVG source, as a single undo step. Prefer set_attributes for small changes.");
         Add(InsertElement, "insert_element", "Adds an element, written as SVG markup, inside or beside another element of a drawing, as a single undo step, and says the key it lands at.");
@@ -509,6 +527,284 @@ public sealed class AssistantTools
                 var own = SvgExpressionDeclarations.Parse(Text(drawing), out _);
 
                 return own.Parameters.Select(parameter => parameter.Name).Concat(own.Lets.Select(let => let.Name));
+            }
+        });
+
+    /// <remarks>
+    /// Not in the small set: the code of one icon runs to thousands of characters, more than a small
+    /// model's whole context. Read only: Export first writes the front tab's edits into the project,
+    /// and this builds from them where they are.
+    /// </remarks>
+    private Task<string> GetCode(
+        [Description("The drawing's node path from get_project; empty for the drawing in front.")] string? node = null,
+        [Description("Which part to read of code too long for one answer, from 1; the first part says how many there are.")] int part = 1)
+        => UiAsync(async () =>
+        {
+            if (Target(node, out var about) is not { } target)
+            {
+                return about;
+            }
+
+            var log = new List<string>();
+            Func<string?> generate;
+            string what;
+
+            // Everything read here, on the UI thread, and built from off it as Export builds.
+            if (Drawing(node) is { } drawing && _window.Workspace is { } workspace)
+            {
+                var project = workspace.Document.Flatten((drawing, target.Text));
+                var item = project.Items.Single();
+                var settings = SvgcBuildSettings.For(project);
+                var loader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
+
+                // Export's answer where the person gave one; asked, it is baked unless they choose
+                // otherwise, and a text it freezes is among the warnings.
+                settings.TextLayout = StudioSettings.RelaxedText == RelaxedTextAnswer.Always ? SvgTextLayout.Relaxed : SvgTextLayout.Baked;
+                generate = () => SvgcProjectBuild.Generate(item, settings, loader, log.Add);
+                what = $"the C# svgc writes for it alone, class {item.Namespace ?? settings.Namespace}.{item.Class}"
+                       + (string.Equals(target.Text, drawing.Text, StringComparison.Ordinal) ? null : ", built from the text in its tab")
+                       + " (Export writes every drawing into one file, with the helpers where helperScope puts them)";
+            }
+            else if (target is SvgViewer { Document: { } document } viewer)
+            {
+                var (text, name) = (viewer.Source, viewer.ClassName?.Invoke() ?? SvgExport.ClassName(viewer.DocumentPath ?? "drawing"));
+
+                generate = () => SvgExport.Generate(document, text, name);
+                what = $"the C# Export writes for it when no project is open, class {SvgExport.Namespace}.{name}";
+            }
+            else
+            {
+                return $"{about} has not loaded, so there is nothing to generate from.";
+            }
+
+            string? code;
+
+            try
+            {
+                code = await Task.Run(generate).ConfigureAwait(true);
+            }
+            // ArgumentException for an emptied tab, which the parser takes for no text, and for clamp.
+            catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException or InvalidOperationException or XmlException or ArgumentException)
+            {
+                return $"{about} cannot be generated: {failure.Message}";
+            }
+
+            if (code is null)
+            {
+                return $"{about} compiled to nothing to generate from.";
+            }
+
+            var warnings = Cut(log.Where(line => line.StartsWith("warning:", StringComparison.Ordinal)).ToList(), null);
+
+            // Room left for the header, the warnings, and "; part 10 of 10, get_code with part 11 reads on".
+            var parts = Parts(code, Math.Max(Answer - about.Length - what.Length - warnings.Length - 100, Answer / 2));
+
+            if (part < 1 || part > parts.Count)
+            {
+                return $"The code comes in {parts.Count} part{(parts.Count == 1 ? null : "s")}; ask for 1 to {parts.Count}.";
+            }
+
+            return $"{about}: {what}"
+                   + (parts.Count == 1 ? null : $"; part {part} of {parts.Count}" + (part < parts.Count ? $", get_code with part {part + 1} reads on" : null))
+                   + ".\n"
+                   + (part == 1 && warnings.Length > 0 ? warnings + "\n" : null)
+                   + "\n"
+                   + parts[part - 1];
+
+            // At the last line end that fits, or mid-line where one line is longer than a part.
+            static List<string> Parts(string text, int most)
+            {
+                var parts = new List<string>();
+
+                for (var at = 0; at < text.Length;)
+                {
+                    var end = text.Length - at <= most ? text.Length : text.LastIndexOf('\n', at + most - 1, most) + 1;
+
+                    end = end > at ? end : at + most;
+                    parts.Add(text[at..end]);
+                    at = end;
+                }
+
+                return parts;
+            }
+        });
+
+    /// <summary>A PNG of a drawing, or a sheet of it at several sizes and on light and dark, and what it shows; or no PNG, and why not.</summary>
+    /// <remarks>
+    /// The MCP server's alone, as only it answers with an image. Loaded as the board loads a drawing,
+    /// so it is drawn with the values its panel opens with, not ones the person has set in its tab.
+    /// </remarks>
+    internal Task<(byte[]? Png, string Text)> Render(string? node, int[]? size, Ground background, IReadOnlyDictionary<string, JsonElement>? values, string? svg)
+        => Ui<(byte[]?, string)>(() =>
+        {
+            // A group draws only an svg given, as add_drawing would add it there.
+            var into = string.IsNullOrEmpty(node) ? null : Resolve(node) as ProjectGroup;
+            ISvgViewerDeclarationTarget? target = null;
+            string about;
+
+            if (into is { })
+            {
+                if (svg is null)
+                {
+                    return (null, $"{Named(into)} is {(into is ProjectRoot ? "the project" : "a group")}, and render draws one drawing; name one of the drawings under it, or give svg to see one before add_drawing adds it there.");
+                }
+
+                about = $"A drawing added to {(into is ProjectRoot ? "the project" : "group " + Named(into))}";
+            }
+            else if ((target = Target(node, out about)) is null)
+            {
+                return (null, about);
+            }
+
+            if (size is { Length: > 8 })
+            {
+                return (null, $"{size.Length} sizes are more than the 8 a sheet holds.");
+            }
+
+            if (size?.Where(px => px is < 1 or > 1024).ToList() is { Count: > 0 } wrong)
+            {
+                return (null, $"A size is the pixels on the drawing's longer side, from 1 to 1024, which {string.Join(", ", wrong)} {(wrong.Count == 1 ? "is" : "are")} not.");
+            }
+
+            if (svg is { } && ProjectDrawing.Read(svg, out var unreadable) is null)
+            {
+                return (null, unreadable ?? "That SVG cannot be read.");
+            }
+
+            var at = into ?? (ProjectNode?)Drawing(node);
+            var text = svg ?? target!.Text;
+            SvgViewerDocument document;
+
+            try
+            {
+                document = GroupPanel.Load(text, at, at is null ? (target as SvgViewer)?.DocumentPath : null);
+            }
+            catch (Exception failure)
+            {
+                // Anything, as on the board: this is user data reaching a parser.
+                return (null, $"{about} cannot be drawn: {failure.Message}");
+            }
+
+            using (document)
+            {
+                var declared = document.Declarations.Parameters;
+                var declares = declared.Count == 0
+                    ? "no parameters"
+                    : string.Join(", ", declared.Select(parameter => $"{parameter.Name} ({ExprFunctions.Describe(parameter.Type)})"));
+
+                if (values is { Count: > 0 })
+                {
+                    var bound = GroupPanel.Seeded(document);
+
+                    try
+                    {
+                        foreach (var (name, value) in values)
+                        {
+                            if (declared.FirstOrDefault(parameter => parameter.Name == name) is not { } parameter)
+                            {
+                                return (null, $"{about} has no parameter {name}; it declares {declares}.");
+                            }
+
+                            // Written as a default is, so a colour is #ff0000 and a string 'quoted'.
+                            bound[name] = ExprEvaluator.Create(SvgExpressionDeclarations.Empty).EvaluateTo(
+                                value.ValueKind == JsonValueKind.String ? value.GetString()! : value.GetRawText(),
+                                parameter.Type,
+                                $"The value for '{name}'");
+                        }
+
+                        document.Svg.SetExpressionValues(bound);
+                    }
+                    catch (Exception failure) when (failure is ExprException or ArgumentException)
+                    {
+                        return (null, $"{failure.Message} {about} declares {declares}.");
+                    }
+                }
+
+                if (document.Svg.Picture is not { CullRect: { Width: > 0f, Height: > 0f } cull })
+                {
+                    return (null, $"{about} has nothing to draw: it comes to no width or no height.");
+                }
+
+                // Save truncates the size it is scaled to, and 24 × 16/24 can come to 15.99; a float
+                // up lands on the size asked for.
+                var longest = Math.Max(cull.Width, cull.Height);
+                var scales = size is { Length: > 0 }
+                    ? size.Select(px => (int)(longest * (px / longest)) < px ? MathF.BitIncrement(px / longest) : px / longest).ToList()
+                    : new List<float> { 1f };
+                var cells = scales.Select(scale => (Width: (int)(cull.Width * scale), Height: (int)(cull.Height * scale))).ToList();
+                var (grounds, on) = background switch
+                {
+                    Ground.Light => (new[] { StreamlineImportWindow.s_lightPlate }, "on light"),
+                    Ground.Dark => (new[] { StreamlineImportWindow.s_darkPlate }, "on dark"),
+                    Ground.Both => (new[] { StreamlineImportWindow.s_lightPlate, StreamlineImportWindow.s_darkPlate }, "in a row on light above one on dark"),
+                    _ => (new[] { SKColors.Transparent }, "on transparent")
+                };
+                var one = cells.Count == 1 && grounds.Length == 1;
+                var gap = one ? 0 : Gap;
+                var width = gap + cells.Sum(cell => cell.Width + gap);
+                var row = cells.Max(cell => cell.Height) + 2 * gap;
+
+                if (width > 4096 || row * grounds.Length > 4096)
+                {
+                    return (null, $"That would be {width}×{row * grounds.Length} px, more than 4096 on a side; ask for fewer or smaller sizes.");
+                }
+
+                using var sheet = new SKBitmap(width, row * grounds.Length);
+
+                using (var canvas = new SKCanvas(sheet))
+                {
+                    canvas.Clear(SKColors.Transparent);
+
+                    for (var y = 0; y < grounds.Length; y++)
+                    {
+                        using var plate = new SKPaint { Color = grounds[y] };
+
+                        canvas.DrawRect(SKRect.Create(0, y * row, width, row), plate);
+
+                        for (int x = gap, column = 0; column < cells.Count; x += cells[column].Width + gap, column++)
+                        {
+                            // Each through Save, so a sheet draws what one image does: Save draws a
+                            // non-scaling stroke at the size asked for, and a small size from a larger one.
+                            using var stream = new MemoryStream();
+
+                            if (!document.Svg.Save(stream, grounds[y], SKEncodedImageFormat.Png, 100, scales[column], scales[column]))
+                            {
+                                return (null, $"{about} comes to nothing at {Math.Max(cells[column].Width, cells[column].Height)} px.");
+                            }
+
+                            using var image = SKImage.FromEncodedData(stream.ToArray());
+
+                            canvas.DrawImage(image, x, (y + 1) * row - gap - cells[column].Height, new SKSamplingOptions(SKFilterMode.Nearest));
+                        }
+                    }
+                }
+
+                using var png = sheet.Encode(SKEncodedImageFormat.Png, 100);
+                var problems = Problems(at, text);
+                var said = new StringBuilder()
+                    .Append(about).Append(", drawn at ").Append(string.Join(", ", cells.Select(cell => Math.Max(cell.Width, cell.Height))))
+                    .Append(" px on its longer side").Append(size is { Length: > 0 } ? null : ", the size it is built at").Append(".\n")
+                    .Append(one
+                        ? $"One image, {width}×{row} px, {on}.\n"
+                        : $"One sheet, {width}×{row * grounds.Length} px: a column for each size in the order asked, standing on one line, {on}, {Gap} px apart.\n");
+
+                if (declared.Count > 0)
+                {
+                    said.Append(document.Svg.ExpressionValues is { } given
+                        ? $"Values: {string.Join(", ", given.Select(pair => $"{pair.Key}={SvgViewerParameterFactory.Describe(pair.Value)}"))}.\n"
+                        : "Its values would not bind, so it is drawn with its placeholders.\n");
+                }
+
+                if (svg is { })
+                {
+                    said.Append(into is { }
+                        ? "A dry run of the svg given, through what a drawing added there inherits and at the size it would be built at: nothing was changed, and add_drawing adds it.\n"
+                        : "A dry run of the svg given, through the drawing's declarations and at its size: nothing was changed, and replace_drawing writes it.\n");
+                }
+
+                said.Append(problems.Count == 0 ? "No problems." : $"Problems:\n{Cut(problems.Select(problem => "- " + problem).ToList(), null)}");
+
+                return (png.ToArray(), said.ToString());
             }
         });
 
@@ -1197,11 +1493,17 @@ public sealed class AssistantTools
     /// every name it inherits came back undeclared. Each problem is given with the line it is on,
     /// since an offset into the built text is nowhere in the drawing's own.
     /// </remarks>
-    private static List<string> Problems(ProjectDrawing? drawing, string text)
+    /// <param name="node">The drawing, or the group a drawing not yet added would go into.</param>
+    private static List<string> Problems(ProjectNode? node, string text)
     {
         // Every inherited name, not only the ones the drawing reaches: an unknown name's "in
         // scope" list is then the names the drawing could have used.
-        var built = drawing is { } ? ProjectDeclarations.Built(drawing, text, narrow: false) : text;
+        var built = node switch
+        {
+            ProjectDrawing drawing => ProjectDeclarations.Built(drawing, text, narrow: false),
+            ProjectGroup group => ProjectDeclarations.Built(group, text, narrow: false),
+            _ => text
+        };
 
         return SvgSourceDiagnostics.Analyse(built)
             .Select(problem => $"{(problem.Severity == SvgSourceSeverity.Warning ? Warning : null)}{problem.Message} (at: {Tag(built, problem.Start)})")
@@ -1350,7 +1652,7 @@ public sealed class AssistantTools
     }
 
     /// <summary>Runs on the UI thread, where a function is called from whichever thread the model's reply arrived on.</summary>
-    private static Task<string> Ui(Func<string> call)
+    private static Task<T> Ui<T>(Func<T> call)
         => Dispatcher.UIThread.CheckAccess() ? Task.FromResult(call()) : Dispatcher.UIThread.InvokeAsync(call).GetTask();
 
     private static Task<string> UiAsync(Func<Task<string>> call)

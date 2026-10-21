@@ -324,9 +324,12 @@ or `mask #sweep`. The filter finds it by that.
 ## Connecting Claude Code
 
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
-project, its drawings and each node's own and inherited settings, lists every problem in them, sets
-attributes and text, adds, removes, moves and copies elements, reads and changes a group's
-declarations, adds, moves and renames nodes, and saves or commits.
+project, its drawings and each node's own and inherited settings, lists every problem in them, reads
+the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
+reads and changes a group's declarations, adds, moves and renames nodes, and saves or commits. It can
+also see a drawing, which the panel cannot: `render` draws one as an image, at several sizes side by
+side and on light and dark, with parameter values of its own, or as a replacement or a new drawing
+would look before either is applied.
 
 1. In **Settings**, on the **Accounts** tab, turn on **Let Claude Code connect to this Studio**. Studio then listens on
    `127.0.0.1` only, on port 7337 unless you choose another.

@@ -1426,6 +1426,39 @@ public sealed class GroupPanel : UserControl
         return values;
     }
 
+    /// <summary>A drawing loaded as the board draws it, bound to what <see cref="Seeded"/> gives it.</summary>
+    /// <param name="node">
+    /// The project's drawing it is, or the group it would be added to, read through the blocks above
+    /// it at the size it is built at there; null for a drawing of no project's.
+    /// </param>
+    /// <param name="path">Where a drawing of no project's is, which what it references resolves against.</param>
+    /// <exception cref="InvalidOperationException">The text is not readable as SVG.</exception>
+    internal static SvgViewerDocument Load(string text, ProjectNode? node, string? path = null)
+    {
+        var document = SvgViewerDocument.LoadFromSvg(
+            text,
+            path,
+            node is { } ? ProjectWorkspace.SizeOf(node) : SvgSizeRequest.None,
+            node switch
+            {
+                ProjectDrawing drawing => own => ProjectDeclarations.Built(drawing, own),
+                ProjectGroup group => own => ProjectDeclarations.Built(group, own),
+                _ => null
+            });
+
+        // Whatever binding throws, clamp's ArgumentException too, leaves it on its placeholders, as
+        // the drawing's own tab does; let out, it would leak the document.
+        try
+        {
+            document.Svg.SetExpressionValues(Seeded(document));
+        }
+        catch (Exception)
+        {
+        }
+
+        return document;
+    }
+
     /// <summary>The values the panel is showing, as the drawing takes them.</summary>
     private Dictionary<string, ExprValue> Values()
     {
@@ -3403,25 +3436,7 @@ public sealed class GroupPanel : UserControl
 
         try
         {
-            // Through the blocks the groups above it declare, which is what the build and the
-            // drawing's own tab read it through too.
-            var document = SvgViewerDocument.LoadFromSvg(
-                text,
-                null,
-                ProjectWorkspace.SizeOf(drawing),
-                own => ProjectDeclarations.Built(drawing, own));
-
-            // What the panel would show for this drawing on opening it, which is what a viewer
-            // binds and so what the drawing's own tab renders.
-            try
-            {
-                document.Svg.SetExpressionValues(Seeded(document));
-            }
-            catch (ExprException)
-            {
-            }
-
-            return new Drawn(drawing, text, declared, sizing, document, null);
+            return new Drawn(drawing, text, declared, sizing, Load(text, drawing), null);
         }
         catch (Exception failure)
         {

@@ -15,6 +15,9 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
+using SkiaSharp;
+using Svg.CodeGen.Skia.Projects;
+using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 using static Svg.Studio.UnitTests.ProjectGitTests;
@@ -65,10 +68,31 @@ public class StudioMcpServerTests : IDisposable
         </studio>
         """;
 
+    /// <summary>0 = Badges, declaring tint, 0/0 = Filled, drawn in it.</summary>
+    private const string Tinted = """
+        <studio namespace="Demo.Icons">
+          <group name="Badges">
+            <e:code xmlns:e="https://svg.skia/expr/1.0">
+              <e:param name="tint" type="color" default="#ff0000" />
+            </e:code>
+            <drawing name="Filled">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                <rect width="24" height="24" fill="{{ tint }}" />
+              </svg>
+            </drawing>
+          </group>
+        </studio>
+        """;
+
+    private static readonly SKColor s_green = new(0x00, 0xFF, 0x00);
+    private static readonly SKColor s_light = new(0xF2, 0xF2, 0xF4);
+    private static readonly SKColor s_dark = new(0x2E, 0x2E, 0x34);
+
     private readonly Keychain? _was = Keychain.Current;
     private readonly MemoryKeychain _keychain = new();
     private readonly bool _enabled = StudioSettings.McpEnabled;
     private readonly int _port = StudioSettings.McpPort;
+    private readonly RelaxedTextAnswer _relaxed = StudioSettings.RelaxedText;
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
     private readonly List<Window> _windows = new();
     private readonly List<string> _announced = new();
@@ -91,6 +115,7 @@ public class StudioMcpServerTests : IDisposable
 
         StudioSettings.McpEnabled = _enabled;
         StudioSettings.McpPort = _port;
+        StudioSettings.RelaxedText = _relaxed;
         Keychain.Current = _was;
         Scratch.Delete(_directory);
     }
@@ -116,7 +141,13 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(tools["remove"].ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools["get_drawing"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.True(tools["get_node"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.True(tools["get_code"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.False(tools["set_attributes"].ProtocolTool.Annotations?.DestructiveHint);
+
+        // Over MCP alone, since its answer is an image, and asked for again it draws the same.
+        Assert.True(tools["render"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.True(tools["render"].ProtocolTool.Annotations?.IdempotentHint);
+        Assert.False(tools["render"].ProtocolTool.Annotations?.OpenWorldHint);
 
         // One step on the history each, as set_attributes is.
         Assert.All(
@@ -734,6 +765,380 @@ public class StudioMcpServerTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_Drawing_Is_Rendered_At_The_Size_It_Is_Built_At_Or_As_A_Sheet_Of_Sizes_On_Light_And_Dark()
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port);
+
+        var alone = await Call(client, "render", new());
+        var sheet = await Call(client, "render", new() { ["size"] = new[] { 16, 48 }, ["background"] = "both" });
+
+        Assert.NotEqual(true, alone.IsError);
+        Assert.NotEqual(true, sheet.IsError);
+
+        using (var image = Png(alone))
+        {
+            Assert.Equal((24, 24), (image.Width, image.Height));
+            Assert.Equal(s_green, image.GetPixel(12, 12));
+        }
+
+        // A column per size standing on one line, a row per background, 8 px around and between.
+        using var drawn = Png(sheet);
+
+        Assert.Equal((88, 128), (drawn.Width, drawn.Height));
+        Assert.Equal(s_green, drawn.GetPixel(16, 48));
+        Assert.Equal(s_light, drawn.GetPixel(16, 20));
+        Assert.Equal(s_green, drawn.GetPixel(56, 32));
+        Assert.Equal(s_green, drawn.GetPixel(16, 112));
+        Assert.Equal(s_dark, drawn.GetPixel(16, 84));
+        Assert.Contains("16, 48 px", Text(sheet), StringComparison.Ordinal);
+        Assert.Contains("88×128", Text(sheet), StringComparison.Ordinal);
+        Assert.Contains("24 px", Text(alone), StringComparison.Ordinal);
+        Assert.Contains("No problems.", Text(alone), StringComparison.Ordinal);
+    }
+
+    /// <remarks>23 × (7 / 23) is 6.9999995 as a float, which an image's size truncates to 6.</remarks>
+    [AvaloniaFact]
+    public async Task A_Size_A_Float_Would_Cut_Short_Is_Drawn_At_The_Size_Asked()
+    {
+        var path = Path.Combine(_directory, "odd.svg");
+
+        File.WriteAllText(path, """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23" width="23" height="23"><rect width="23" height="23" fill="#00ff00" /></svg>""");
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var seven = await Call(client, "render", new() { ["size"] = new[] { 7 } });
+
+        using var image = Png(seven);
+
+        Assert.Equal((7, 7), (image.Width, image.Height));
+        Assert.Contains("drawn at 7 px", Text(seven), StringComparison.Ordinal);
+    }
+
+    /// <remarks>clamp throws ArgumentException for a range the wrong way round, which is not the language's own exception.</remarks>
+    [AvaloniaFact]
+    public async Task A_Seed_The_Drawing_Will_Not_Take_Leaves_It_On_Its_Placeholders_As_Its_Tab_Does()
+    {
+        var path = Path.Combine(_directory, "clamped.svg");
+
+        File.WriteAllText(path, """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="low" type="number" default="3" /></e:code></defs>
+              <rect width="24" height="24" fill="#00ff00" fill-opacity="{{ clamp(0.5, low, 1) }}" />
+            </svg>
+            """);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var drawn = await Call(client, "render", new());
+
+        Assert.NotEqual(true, drawn.IsError);
+        Assert.Single(drawn.Content.OfType<ImageContentBlock>());
+        Assert.Contains("Its values would not bind, so it is drawn with its placeholders.", Text(drawn), StringComparison.Ordinal);
+    }
+
+    /// <remarks>An image beside the drawing's file, so it is drawn only if what it references resolves against where the drawing is.</remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Of_No_Project_Draws_What_It_References_Beside_Its_File()
+    {
+        var path = Path.Combine(_directory, "framed.svg");
+
+        using (var blue = new SKBitmap(24, 24))
+        {
+            blue.Erase(new SKColor(0x00, 0x00, 0xFF));
+
+            using var encoded = blue.Encode(SKEncodedImageFormat.Png, 100);
+
+            File.WriteAllBytes(Path.Combine(_directory, "dot.png"), encoded.ToArray());
+        }
+
+        File.WriteAllText(path, """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><image href="dot.png" width="24" height="24" /></svg>""");
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        using var image = Png(await Call(client, "render", new()));
+
+        Assert.Equal(new SKColor(0x00, 0x00, 0xFF), image.GetPixel(12, 12));
+    }
+
+    /// <remarks>Edge has no default, so the one left out is drawn only if it takes what its panel opens with.</remarks>
+    [AvaloniaFact]
+    public async Task Values_Given_Are_What_Is_Drawn_And_One_The_Drawing_Does_Not_Take_Is_An_Error()
+    {
+        const string edged = """
+            <studio namespace="Demo.Icons">
+              <group name="Badges">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="tint" type="color" default="#ff0000" />
+                  <e:param name="edge" type="color" />
+                </e:code>
+                <drawing name="Filled">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <rect width="12" height="24" fill="{{ tint }}" />
+                    <rect x="12" width="12" height="24" fill="{{ edge }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+            """;
+        var path = Path.Combine(_directory, "edged.svgstudio");
+
+        File.WriteAllText(path, edged);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var seeded = await Call(client, "render", new() { ["node"] = "0/0" });
+        var blue = await Call(client, "render", new() { ["node"] = "0/0", ["values"] = new Dictionary<string, object?> { ["tint"] = "#0000ff" } });
+        var unknown = await Call(client, "render", new() { ["node"] = "0/0", ["values"] = new Dictionary<string, object?> { ["tone"] = "#0000ff" } });
+        var wrong = await Call(client, "render", new() { ["node"] = "0/0", ["values"] = new Dictionary<string, object?> { ["tint"] = 3 } });
+
+        Assert.NotEqual(true, blue.IsError);
+
+        using (var red = Png(seeded))
+        using (var given = Png(blue))
+        {
+            Assert.Equal(new SKColor(0xFF, 0x00, 0x00), red.GetPixel(6, 12));
+            Assert.Equal(new SKColor(0x00, 0x00, 0xFF), given.GetPixel(6, 12));
+            Assert.Equal(new SKColor(0x80, 0x80, 0x80), red.GetPixel(18, 12));
+            Assert.Equal(new SKColor(0x80, 0x80, 0x80), given.GetPixel(18, 12));
+        }
+
+        Assert.Contains("Values: tint=#0000ff, edge=#808080.", Text(blue), StringComparison.Ordinal);
+        Assert.All(new[] { unknown, wrong }, result => Assert.True(result.IsError, Text(result)));
+        Assert.All(new[] { unknown, wrong }, result => Assert.Empty(result.Content.OfType<ImageContentBlock>()));
+        Assert.Contains("declares tint (colour), edge (colour).", Text(unknown), StringComparison.Ordinal);
+        Assert.Contains("declares tint (colour), edge (colour).", Text(wrong), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Candidate_Is_Drawn_Through_The_Drawings_Declarations_And_Changes_Nothing()
+    {
+        var path = Path.Combine(_directory, "tinted.svgstudio");
+
+        File.WriteAllText(path, Tinted);
+
+        var (window, port) = await Serving(path);
+        var workspace = window.Workspace!;
+        var drawing = workspace.Document.Root.Drawings.Single();
+
+        await window.ShowAsync(drawing);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        var before = viewer.Source;
+        await using var client = await Client(port);
+
+        const string circle = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="6" fill="{{ tint }}" /></svg>""";
+        var dot = await Call(client, "render", new() { ["svg"] = circle });
+        var light = await Call(client, "render", new() { ["svg"] = circle, ["background"] = "light" });
+        var dark = await Call(client, "render", new() { ["svg"] = circle, ["background"] = "dark" });
+
+        Assert.NotEqual(true, dot.IsError);
+
+        using (var image = Png(dot))
+        using (var onLight = Png(light))
+        using (var onDark = Png(dark))
+        {
+            Assert.Equal(new SKColor(0xFF, 0x00, 0x00), image.GetPixel(12, 12));
+            Assert.Equal(0, image.GetPixel(1, 1).Alpha);
+            Assert.Equal((24, 24), (onLight.Width, onLight.Height));
+            Assert.Equal(s_light, onLight.GetPixel(1, 1));
+            Assert.Equal(new SKColor(0xFF, 0x00, 0x00), onLight.GetPixel(12, 12));
+            Assert.Equal(s_dark, onDark.GetPixel(1, 1));
+        }
+
+        Assert.Contains("dry run", Text(dot), StringComparison.Ordinal);
+        Assert.Contains("replace_drawing", Text(dot), StringComparison.Ordinal);
+        Assert.Contains("on light.", Text(light), StringComparison.Ordinal);
+        Assert.Contains("on dark.", Text(dark), StringComparison.Ordinal);
+        Assert.Equal(before, viewer.Source);
+        Assert.False(viewer.CanUndo);
+        Assert.False(workspace.CanUndo);
+        Assert.False(workspace.IsEdited);
+    }
+
+    /// <remarks>Tint and the size are the group's, so the candidate is drawn red at 48 and checked clean only through what a drawing added there inherits.</remarks>
+    [AvaloniaFact]
+    public async Task A_Candidate_For_A_Group_Is_Drawn_As_Add_Drawing_Would_Add_It_There()
+    {
+        var path = Path.Combine(_directory, "tinted.svgstudio");
+
+        File.WriteAllText(path, Tinted.Replace("<group name=\"Badges\">", "<group name=\"Badges\" width=\"48\" height=\"48\">", StringComparison.Ordinal));
+
+        var (window, port) = await Serving(path);
+        var workspace = window.Workspace!;
+        await using var client = await Client(port);
+
+        var dot = await Call(client, "render", new()
+        {
+            ["node"] = "0",
+            ["svg"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="6" fill="{{ tint }}" /></svg>"""
+        });
+        var misnamed = await Call(client, "render", new()
+        {
+            ["node"] = "0",
+            ["svg"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="6" fill="{{ tone }}" /></svg>"""
+        });
+
+        Assert.NotEqual(true, dot.IsError);
+
+        using (var image = Png(dot))
+        {
+            Assert.Equal((48, 48), (image.Width, image.Height));
+            Assert.Equal(new SKColor(0xFF, 0x00, 0x00), image.GetPixel(24, 24));
+        }
+
+        Assert.StartsWith("A drawing added to group 0 Badges, drawn at 48 px", Text(dot), StringComparison.Ordinal);
+        Assert.Contains("add_drawing", Text(dot), StringComparison.Ordinal);
+        Assert.EndsWith("No problems.", Text(dot), StringComparison.Ordinal);
+        Assert.NotEqual(true, misnamed.IsError);
+        Assert.Matches(@"\nProblems:\n- [^\n]*tone", Text(misnamed));
+        Assert.Single(workspace.Document.Root.Drawings);
+        Assert.False(workspace.CanUndo);
+    }
+
+    [AvaloniaFact]
+    public async Task What_Render_Cannot_Draw_Is_An_Error_That_Says_Why()
+    {
+        var path = Path.Combine(_directory, "tinted.svgstudio");
+
+        File.WriteAllText(path, Tinted);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var group = await Call(client, "render", new() { ["node"] = "0" });
+        var project = await Call(client, "render", new() { ["node"] = "(project)" });
+        var missing = await Call(client, "render", new() { ["node"] = "9" });
+        var none = await Call(client, "render", new() { ["node"] = "0/0", ["size"] = new[] { 0 } });
+        var huge = await Call(client, "render", new() { ["node"] = "0/0", ["size"] = new[] { 5000 } });
+        var many = await Call(client, "render", new() { ["node"] = "0/0", ["size"] = Enumerable.Range(1, 9).ToArray() });
+        var wide = await Call(client, "render", new() { ["node"] = "0/0", ["size"] = new[] { 1024, 1024, 1024, 1024 } });
+        var unreadable = await Call(client, "render", new() { ["node"] = "0/0", ["svg"] = "<oops" });
+        var misspelled = await Call(client, "render", new() { ["nodes"] = "0/0" });
+        var purple = await Call(client, "render", new() { ["node"] = "0/0", ["background"] = "purple" });
+        var flat = await Call(client, "render", new() { ["node"] = "0/0", ["svg"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="0" height="24"><rect width="24" height="24" /></svg>""" });
+
+        // Emptied as a tab is whose drawing would not load, so what it holds is no SVG at all.
+        await window.ShowAsync(window.Workspace!.Document.Root.Drawings.Single());
+        Dispatcher.UIThread.RunJobs();
+        window.GetVisualDescendants().OfType<SvgViewer>().First().Close();
+
+        var empty = await Call(client, "render", new() { ["node"] = "0/0" });
+        var refusals = new[] { group, project, missing, none, huge, many, wide, unreadable, misspelled, purple, flat, empty };
+
+        Assert.All(refusals, result => Assert.True(result.IsError, Text(result)));
+        Assert.All(refusals, result => Assert.Empty(result.Content.OfType<ImageContentBlock>()));
+        Assert.Contains("one drawing", Text(group), StringComparison.Ordinal);
+        Assert.Contains("one drawing", Text(project), StringComparison.Ordinal);
+        Assert.Contains("1 to 1024", Text(none), StringComparison.Ordinal);
+        Assert.Contains("1 to 1024", Text(huge), StringComparison.Ordinal);
+        Assert.Contains("8", Text(many), StringComparison.Ordinal);
+        Assert.Contains("4096", Text(wide), StringComparison.Ordinal);
+        Assert.Contains("'nodes'", Text(misspelled), StringComparison.Ordinal);
+        Assert.Equal("Drawing 0/0 drawing Filled has nothing to draw: it comes to no width or no height.", Text(flat));
+        Assert.StartsWith("Drawing 0/0 drawing Filled cannot be drawn: ", Text(empty), StringComparison.Ordinal);
+    }
+
+    /// <remarks>Equal to what svgc writes for the drawing's item.</remarks>
+    [AvaloniaFact]
+    public async Task Get_Code_Answers_What_Svgc_Writes_For_The_Drawing_And_A_Refusal_As_Plain_Text()
+    {
+        var path = Path.Combine(_directory, "tinted.svgstudio");
+
+        File.WriteAllText(path, Tinted);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var code = await Call(client, "get_code", new() { ["node"] = "0/0" });
+        var group = await Call(client, "get_code", new() { ["node"] = "0" });
+
+        var flat = window.Workspace!.Document.Flatten();
+        var item = flat.Items.Single();
+        var settings = SvgcBuildSettings.For(flat);
+        var written = Path.Combine(_directory, "Filled.cs");
+
+        settings.TextLayout = SvgTextLayout.Baked;
+        SvgcProjectBuild.Write(
+            new SvgcProjectItem(item.Input, written, item.Namespace, item.Class, item.Recipe, item.Width, item.Height, item.Scale, item.Padding, item.Source),
+            settings,
+            new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())));
+
+        Assert.NotEqual(true, code.IsError);
+        Assert.EndsWith("\n\n" + File.ReadAllText(written), Text(code), StringComparison.Ordinal);
+        Assert.Contains("Demo.Icons.Filled", Text(code), StringComparison.Ordinal);
+        Assert.Contains("tint", File.ReadAllText(written), StringComparison.Ordinal);
+
+        // A read tool's answer is never an error, whatever it says: what it read is no refusal.
+        Assert.NotEqual(true, group.IsError);
+        Assert.Equal("'0' is not a drawing. get_project lists the paths.", Text(group));
+    }
+
+    /// <remarks>
+    /// The words are placed by a span of their own, so baked freezes them at their default and
+    /// relaxed carries them; Export would ask which, and get_code takes the answer on file.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Get_Code_Lays_Text_Out_As_The_Person_Answered_Export_And_Says_What_That_Did()
+    {
+        const string badge = """
+            <studio namespace="Demo.Icons">
+              <drawing name="Badge">
+                <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 64 24" width="64" height="24">
+                  <defs><e:code><e:param name="step" type="string" default="'1'" /></e:code></defs>
+                  <text x="32" y="18" font-family="Arial" font-size="12" fill="#111827"><tspan x="4" y="18">{{ step }}</tspan></text>
+                </svg>
+              </drawing>
+            </studio>
+            """;
+        var path = Path.Combine(_directory, "badge.svgstudio");
+
+        File.WriteAllText(path, badge);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        StudioSettings.RelaxedText = RelaxedTextAnswer.Never;
+        var baked = Text(await Call(client, "get_code", new() { ["node"] = "0" }));
+
+        StudioSettings.RelaxedText = RelaxedTextAnswer.Always;
+        var relaxed = Text(await Call(client, "get_code", new() { ["node"] = "0" }));
+
+        var flat = window.Workspace!.Document.Flatten();
+
+        string Svgc(SvgTextLayout layout)
+        {
+            var settings = SvgcBuildSettings.For(flat);
+
+            settings.TextLayout = layout;
+
+            return SvgcProjectBuild.Generate(flat.Items.Single(), settings, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())))!;
+        }
+
+        // The header, a line for each warning, and a blank line before the code.
+        static string[] Head(string answer) => answer[..answer.IndexOf("\n\n", StringComparison.Ordinal)].Split('\n');
+
+        Assert.NotEqual(Svgc(SvgTextLayout.Baked), Svgc(SvgTextLayout.Relaxed));
+        Assert.EndsWith("\n\n" + Svgc(SvgTextLayout.Baked), baked, StringComparison.Ordinal);
+        Assert.EndsWith("\n\n" + Svgc(SvgTextLayout.Relaxed), relaxed, StringComparison.Ordinal);
+
+        foreach (var (answer, said) in new[] { (baked, "is frozen at its default"), (relaxed, "relaxed text layout") })
+        {
+            var head = Head(answer);
+
+            Assert.StartsWith("Drawing 0 drawing Badge: ", head[0], StringComparison.Ordinal);
+            Assert.NotEmpty(head[1..]);
+            Assert.All(head[1..], line => Assert.StartsWith("warning: ", line, StringComparison.Ordinal));
+            Assert.Contains(head[1..], line => line.Contains(said, StringComparison.Ordinal));
+        }
+    }
+
+    [AvaloniaFact]
     public async Task Context_And_The_Docs_Contents_Are_Tools()
     {
         var (_, port) = await Serving();
@@ -940,6 +1345,18 @@ public class StudioMcpServerTests : IDisposable
 
     private static string Text(CallToolResult result)
         => string.Concat(result.Content.OfType<TextContentBlock>().Select(block => block.Text));
+
+    /// <summary>The one image an answer holds, checked to be a PNG.</summary>
+    private static SKBitmap Png(CallToolResult result)
+    {
+        var image = Assert.Single(result.Content.OfType<ImageContentBlock>());
+        var bytes = image.DecodedData.ToArray();
+
+        Assert.Equal("image/png", image.MimeType);
+        Assert.Equal(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, bytes[..8]);
+
+        return SKBitmap.Decode(bytes);
+    }
 
     /// <summary>A keychain whose tool will not start, as when secret-tool has gone since Studio started.</summary>
     private sealed class Unstartable : Keychain

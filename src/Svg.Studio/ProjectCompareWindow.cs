@@ -9,8 +9,6 @@ using Avalonia.Controls;
 using Avalonia.Controls.Skia;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Svg.Expressions;
-using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
 
@@ -89,21 +87,9 @@ public sealed class ProjectCompareWindow : Window
 
         try
         {
-            var document = SvgViewerDocument.LoadFromSvg(
-                drawing.Text,
-                null,
-                ProjectWorkspace.SizeOf(drawing),
-                own => ProjectDeclarations.Built(drawing, own));
+            var document = GroupPanel.Load(drawing.Text, drawing);
 
             owned.Add(document);
-
-            try
-            {
-                document.Svg.SetExpressionValues(GroupPanel.Seeded(document));
-            }
-            catch (ExprException)
-            {
-            }
 
             return new SKPictureControl { Picture = document.Svg.Picture, Stretch = Stretch.Uniform };
         }

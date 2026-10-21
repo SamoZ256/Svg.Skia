@@ -238,6 +238,7 @@ public class AssistantTests : IDisposable
         Assert.Equal(new[] { "read_doc", "get_project", "get_drawing", "set_attributes", "undo" }, small);
         Assert.DoesNotContain("read_doc", large);
         Assert.Contains("save", large);
+        Assert.Contains("get_code", large);
         Assert.True(large.Count > small.Count);
 
         session.Use(new ScriptedProvider(chat), new AssistantModel("large", "Large", 1_000_000));
@@ -1485,6 +1486,106 @@ public class AssistantTests : IDisposable
         await Send(await Host(Write("icons.svgstudio", Project)), unsized, "and home?");
 
         Assert.Contains("Built at the size its svg gives: neither it nor a node above it gives width, height or scale.", unsized.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Code_Is_Generated_From_What_A_Tab_Holds_And_Says_So_Without_Writing_It_Into_The_Project()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(
+            Call("get_code", new() { ["node"] = "0" }),
+            Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken" }),
+            Call("get_code", new() { ["node"] = "0" }),
+            Say("Here."));
+
+        await Send(window, chat, "darken it and show me the code");
+
+        var (before, after) = (chat.Results[0], chat.Results[2]);
+
+        Assert.StartsWith("Drawing 0 drawing home", before, StringComparison.Ordinal);
+        Assert.Contains("Demo.Icons.home", before, StringComparison.Ordinal);
+        Assert.Contains("public static", before, StringComparison.Ordinal);
+        Assert.DoesNotContain("tab", before[..before.IndexOf("\n\n", StringComparison.Ordinal)], StringComparison.Ordinal);
+        Assert.Contains("built from the text in its tab", after, StringComparison.Ordinal);
+        Assert.NotEqual(before[before.IndexOf("\n\n", StringComparison.Ordinal)..], after[after.IndexOf("\n\n", StringComparison.Ordinal)..]);
+        Assert.Contains("#00ff00", home.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_That_Cannot_Be_Generated_Says_Why_And_A_Group_Is_Not_A_Drawing()
+    {
+        const string boxed = """
+            <studio namespace="Demo.Icons">
+              <drawing name="Boxed">
+                <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+                  <rect x="2" y="2" width="20" height="20" e:bounds="Draw" />
+                </svg>
+              </drawing>
+            </studio>
+            """;
+
+        var refused = new ScriptedChat(Call("get_code", new() { ["node"] = "0" }), Say("It cannot."));
+        var group = new ScriptedChat(Call("get_code", new() { ["node"] = "1" }), Call("get_code", new() { ["node"] = "9" }), Say("Neither."));
+        var emptied = new ScriptedChat(Call("get_code", new() { ["node"] = "0" }), Say("It cannot."));
+        var icons = await Host(Write("icons.svgstudio", Project));
+
+        await Send(await Host(Write("boxed.svgstudio", boxed)), refused, "show me the code");
+        await Send(icons, group, "show me the code");
+
+        // Emptied as a tab is whose drawing would not load: what it holds is no SVG at all.
+        await icons.ShowAsync(icons.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Viewer(icons).Close();
+        await Send(icons, emptied, "show me the code");
+
+        Assert.StartsWith("Drawing 0 drawing Boxed cannot be generated: ", refused.Results[0], StringComparison.Ordinal);
+        Assert.Contains("'Draw'", refused.Results[0], StringComparison.Ordinal);
+        Assert.Equal("'1' is not a drawing. get_project lists the paths.", group.Results[0]);
+        Assert.Equal("'9' is not a drawing. get_project lists the paths.", group.Results[1]);
+        Assert.StartsWith("Drawing 0 drawing home cannot be generated: ", emptied.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Code_Is_Of_The_Drawing_Named_And_Not_Of_The_First_In_The_Project()
+    {
+        var chat = new ScriptedChat(Call("get_code", new() { ["node"] = "1/0" }), Say("Here."));
+
+        await Send(await Host(Write("icons.svgstudio", Project)), chat, "show me the badge's code");
+
+        var code = chat.Results[0];
+
+        Assert.StartsWith("Drawing 1/0 drawing Filled: ", code, StringComparison.Ordinal);
+        Assert.Contains("class Demo.Icons.Filled", code, StringComparison.Ordinal);
+        Assert.Contains("tint", code[code.IndexOf("\n\n", StringComparison.Ordinal)..], StringComparison.Ordinal);
+        Assert.DoesNotContain("home", code, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Code_Too_Long_For_One_Answer_Comes_In_Parts_Cut_Between_Lines()
+    {
+        var squares = string.Concat(Enumerable.Range(0, 576).Select(i => $"<rect x=\"{i % 24}\" y=\"{i / 24}\" width=\"1\" height=\"1\" fill=\"#{i * 29:x6}\" />\n"));
+        var window = await Host(Write("many.svg", $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\">\n{squares}</svg>\n"));
+        var viewer = Viewer(window);
+        var whole = SvgExport.Generate(viewer.Document!, viewer.Source, "many");
+
+        var chat = new ScriptedChat(Enumerable.Range(1, 12).Select(part => Call("get_code", new() { ["part"] = part })).Append(Say("Read.")).ToArray());
+
+        await Send(window, chat, "show me the code");
+
+        var count = int.Parse(Regex.Match(chat.Results[0], @"part 1 of (\d+)").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        var parts = chat.Results.Take(count).ToList();
+
+        Assert.InRange(count, 2, 11);
+        Assert.Contains("get_code with part 2", chat.Results[0], StringComparison.Ordinal);
+        Assert.All(parts, part => Assert.True(part.Length <= 40_000, $"{part.Length} characters"));
+        Assert.All(parts.Take(count - 1), part => Assert.EndsWith("\n", part, StringComparison.Ordinal));
+        Assert.Equal(whole, string.Concat(parts.Select(part => part[(part.IndexOf("\n\n", StringComparison.Ordinal) + 2)..])));
+        Assert.Contains($"{count} parts", chat.Results[count], StringComparison.Ordinal);
     }
 
     [AvaloniaFact]

@@ -248,7 +248,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
         return app;
     }
 
-    /// <summary>The panel's tools and <c>get_context</c>, told which only read and which a client should ask about.</summary>
+    /// <summary>The panel's tools, and <c>get_context</c> and <c>render</c>, told which only read and which a client should ask about.</summary>
     private IEnumerable<McpServerTool> Tools()
         => _tools.For(small: false, docs: true)
             .OfType<AIFunction>()
@@ -256,6 +256,15 @@ public sealed class StudioMcpServer : IAsyncDisposable
                 _tools.ContextAsync,
                 "get_context",
                 "What is open in Studio now: the project, the tab in front, what is selected in it or picked on its board, and how many errors and warnings the drawing in front has; get_problems lists a project's."))
+            .Append(AIFunctionFactory.Create(Render, new AIFunctionFactoryOptions
+            {
+                Name = "render",
+                Description = "Draws a drawing as a PNG, to see what it looks like: at the size it is built at, or at several sizes side by side on one sheet, on transparent, light or dark, or a row on each. Values try parameters out and svg tries a whole replacement, changing nothing.",
+                SerializerOptions = AssistantTools.s_arguments,
+
+                // As it is, which the server sends on unchanged: the JSON of one would arrive as text.
+                MarshalResult = (result, _, _) => new ValueTask<object?>(result)
+            }))
             .Select(function => McpServerTool.Create(new Plain(function, _reported), new McpServerToolCreateOptions
             {
                 ReadOnly = AssistantTools.Reading.Contains(function.Name),
@@ -264,6 +273,27 @@ public sealed class StudioMcpServer : IAsyncDisposable
                 OpenWorld = false
             }))
             .ToList();
+
+    /// <summary>A drawing as an image, beside what it is of; MCP's alone, since the panel's models take no image back.</summary>
+    /// <remarks>
+    /// Through <see cref="Plain"/> as every tool is, for the reason a binding fails with, which the
+    /// SDK's own delegate tools leave out. Plain passes a result that is no string on as it is, so
+    /// a refusal is marked an error here.
+    /// </remarks>
+    private async Task<CallToolResult> Render(
+        [Description("The drawing's node path from get_project; empty for the drawing in front; a group's, with svg, for a drawing before add_drawing adds it there.")] string? node = null,
+        [Description("Pixels on the drawing's longer side, such as [16, 24, 48]: up to 8 sizes from 1 to 1024, side by side; left out, the size it is built at.")] int[]? size = null,
+        [Description("What it is drawn on: transparent, the default; light; dark; or both, a row on light above one on dark.")] AssistantTools.Ground background = AssistantTools.Ground.Transparent,
+        [Description("Values for the parameters it declares, by name, each written as a default is: #ff0000, true, 3, 'quoted text'. A parameter left out takes what its panel opens with.")] Dictionary<string, JsonElement>? values = null,
+        [Description("A complete SVG source to draw in its place, through its declarations and at its size, without applying it: a look before replace_drawing, or before add_drawing where node is a group.")] string? svg = null)
+    {
+        var rendered = await _tools.Render(node, size, background, values, svg).ConfigureAwait(false);
+        var said = new TextContentBlock { Text = rendered.Text };
+
+        return rendered.Png is { } png
+            ? new CallToolResult { Content = [ImageContentBlock.FromBytes(png, "image/png"), said] }
+            : new CallToolResult { IsError = true, Content = [said] };
+    }
 
     /// <summary>A function whose string answer reaches the client as text, not as a JSON string in quotes, and a refusal as an error.</summary>
     /// <remarks>

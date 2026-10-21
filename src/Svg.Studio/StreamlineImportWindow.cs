@@ -47,9 +47,9 @@ public sealed class StreamlineImportWindow : Window
     private static readonly Geometry s_more = Geometry.Parse("M2 8a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0zm4.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0zm4.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0z");
 
     // Each drawing goes on whichever of its theme's light plate and the dark one its ink stands out on more.
-    private static readonly SKColor s_lightPlate = new(0xF2, 0xF2, 0xF4);
+    internal static readonly SKColor s_lightPlate = new(0xF2, 0xF2, 0xF4);
     private static readonly SKColor s_lightPlateInDark = new(0xC8, 0xC8, 0xCE);
-    private static readonly SKColor s_darkPlate = new(0x2E, 0x2E, 0x34);
+    internal static readonly SKColor s_darkPlate = new(0x2E, 0x2E, 0x34);
 
     private readonly StreamlineImport _import;
     private readonly MainWindow _window;
