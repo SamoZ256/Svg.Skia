@@ -140,6 +140,43 @@ public class AssistantTests : IDisposable
         </studio>
         """;
 
+    /// <summary>A group sizing and classing what is under it: 0/0 = Filled, with a class, a let and an import of its own, and 0/1 = Wide, with a width.</summary>
+    private const string Sized = """
+        <studio namespace="Demo.Icons">
+          <group name="Badges" class="Badge" width="24" height="24" padding="2">
+            <e:code xmlns:e="https://svg.skia/expr/1.0">
+              <e:param name="tint" type="color" default="#ff0000" />
+            </e:code>
+
+            <drawing name="Filled" class="FilledBadge" source="streamline:abc">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                <defs><e:code><e:let name="half">12</e:let></e:code></defs>
+                <rect width="24" height="24" fill="{{ tint }}" />
+              </svg>
+            </drawing>
+
+            <drawing name="Wide" width="40">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <rect width="24" height="24" />
+              </svg>
+            </drawing>
+          </group>
+        </studio>
+        """;
+
+    /// <summary>0 = defs, 0/0 = the gradient #shade, 1 = the group #body, 1/0 = its rect #box, 2 = the circle #dot.</summary>
+    private const string Parts = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs>
+            <linearGradient id="shade" />
+          </defs>
+          <g id="body">
+            <rect id="box" width="24" height="24" />
+          </g>
+          <circle id="dot" cx="12" cy="12" r="4" />
+        </svg>
+        """;
+
     /// <summary>A drawing that declares entities of its own, which Studio draws and has no source to edit for.</summary>
     internal const string Entities = """
         <?xml version="1.0"?>
@@ -1147,6 +1184,437 @@ public class AssistantTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_Redo_Puts_Back_What_The_Undo_Took_By_Name_Until_A_New_Edit()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var badges = workspace.Document.Root.Children[1];
+
+        await window.ShowAsync(workspace.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        // One step in the front tab and one on the project, taken back and put back newest first.
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#111111" } }, ["summary"] = "darken" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }),
+            Call("undo", new()),
+            Call("undo", new()),
+            Call("redo", new()),
+            Call("redo", new()),
+            Call("undo", new()),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "class", ["value"] = "Tag" }),
+            Call("redo", new()),
+            Say("Done."));
+
+        await Send(window, chat, "darken and rename, take both back, put both back, then rename it otherwise");
+
+        Assert.Equal("Put back \"Assistant: darken\".", chat.Results[4]);
+        Assert.Equal("Put back \"Assistant: change name\".", chat.Results[5]);
+        Assert.Equal("Took back \"Assistant: change name\".", chat.Results[6]);
+
+        // The new edit ended what the undo had taken back, as it does in any editor.
+        Assert.Equal("There is nothing to put back.", chat.Results[8]);
+        Assert.Contains("#111111", viewer.Source, StringComparison.Ordinal);
+        Assert.Equal("Badges", badges.Name);
+        Assert.Equal("Tag", badges.Class);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Redo_Behind_A_Step_The_Person_Took_Back_Since_Puts_Nothing_Back_And_Names_It()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var badges = workspace.Document.Root.Children[1];
+        var tools = new AssistantTools(window);
+
+        workspace.Edit("mine");
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Call("undo", new()), Say("Undone.")), "rename Badges, then undo", tools: tools);
+
+        // The person takes back their own edit, which is now in front of the rename.
+        Assert.True(workspace.Undo());
+
+        var chat = new ScriptedChat(Call("redo", new()), Call("redo", new()), Say("Not put back."));
+
+        await Send(window, chat, "redo", tools: tools);
+
+        Assert.All(chat.Results, result => Assert.StartsWith("Nothing was put back", result, StringComparison.Ordinal));
+        Assert.Contains("\"mine\"", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal("Badges", badges.Name);
+        Assert.Equal("mine", workspace.RedoLabel);
+
+        // Kept for later: once the person puts their edit back, the rename is next again.
+        Assert.True(workspace.Redo());
+
+        var again = new ScriptedChat(Call("redo", new()), Say("Put back."));
+
+        await Send(window, again, "redo", tools: tools);
+
+        Assert.Equal("Put back \"Assistant: change name\".", again.Results[0]);
+        Assert.Equal("Tags", badges.Name);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Redo_The_Person_Built_Over_Puts_Nothing_Back_And_Then_The_Persons_Is_Next()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var badges = workspace.Document.Root.Children[1];
+        var tools = new AssistantTools(window);
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Call("undo", new()), Say("Undone.")), "rename Badges, then undo", tools: tools);
+
+        // A new edit of the person's drops the rename from the history.
+        workspace.Edit("mine");
+
+        var chat = new ScriptedChat(Call("redo", new()), Say("Nothing."));
+
+        await Send(window, chat, "redo", tools: tools);
+
+        Assert.StartsWith("Nothing was put back", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal("mine", workspace.UndoLabel);
+        Assert.Equal("Badges", badges.Name);
+
+        // With nothing of its own left to put back, a redo is the person's, and says which.
+        Assert.True(workspace.Undo());
+
+        var again = new ScriptedChat(Call("redo", new()), Say("Put back."));
+
+        await Send(window, again, "redo", tools: tools);
+
+        Assert.Equal("Put back \"mine\".", again.Results[0]);
+        Assert.Equal("mine", workspace.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Redo_Puts_Back_The_Persons_Step_That_An_Undo_With_None_Of_Its_Own_Took()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var badges = workspace.Document.Root.Children[1];
+
+        workspace.Edit("mine");
+
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }),
+            Call("undo", new()),
+            Call("undo", new()),
+            Call("redo", new()),
+            Call("redo", new()),
+            Say("As it was."));
+
+        await Send(window, chat, "rename, undo twice, then redo twice");
+
+        // Left behind, the rename refused the first redo for "mine" being in front of it.
+        Assert.Equal("Took back \"mine\".", chat.Results[2]);
+        Assert.Equal("Put back \"mine\".", chat.Results[3]);
+        Assert.Equal("Put back \"Assistant: change name\".", chat.Results[4]);
+        Assert.Equal("Tags", badges.Name);
+        Assert.Equal("Assistant: change name", workspace.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task What_A_Redo_Put_Back_For_The_Person_The_Next_Undo_Takes_Back()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var tools = new AssistantTools(window);
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Say("Renamed.")), "rename Badges", tools: tools);
+
+        // The person edits over the rename and takes their edit back.
+        workspace.Edit("mine");
+        Assert.True(workspace.Undo());
+
+        var chat = new ScriptedChat(Call("redo", new()), Call("undo", new()), Call("undo", new()), Say("As it was."));
+
+        await Send(window, chat, "redo, then undo twice", tools: tools);
+
+        // Not refused for "mine" being on top of the rename: this put it there.
+        Assert.Equal(new[] { "Put back \"mine\".", "Took back \"mine\".", "Took back \"Assistant: change name\"." }, chat.Results);
+        Assert.Equal("Badges", workspace.Document.Root.Children[1].Name);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Redo_Never_Reaches_Into_A_Project_Since_Reopened()
+    {
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+        var tools = new AssistantTools(window);
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Call("undo", new()), Say("Undone.")), "rename Badges, then undo", tools: tools);
+
+        var closed = window.Workspace!;
+
+        // Reopened, as a pull does.
+        window.ConfirmDiscard = _ => Task.FromResult(true);
+        await window.OpenAsync(new[] { path });
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(Call("redo", new()), Say("Nothing."));
+
+        await Send(window, chat, "redo", tools: tools);
+
+        Assert.StartsWith("Nothing was put back", chat.Results[0], StringComparison.Ordinal);
+        Assert.False(closed.CanUndo);
+        Assert.Equal("Badges", window.Workspace!.Document.Root.Children[1].Name);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Redo_That_Would_Close_A_Tab_Holding_Edits_Puts_Nothing_Back_And_Names_It()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+        var filled = badges.Children[0];
+        var tools = new AssistantTools(window);
+
+        await Send(
+            window,
+            new ScriptedChat(Call("remove", new() { ["node"] = "1/0" }), Call("undo", new()), Call("open", new() { ["node"] = "1/0" }), Say("Back.")),
+            "remove Filled, take it back and open it",
+            allow: true,
+            tools: tools);
+
+        var viewer = Viewer(window);
+
+        // Put back, the remove closes the tab without asking, and what is typed there goes with it.
+        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "mine");
+
+        // The second once an edit of the assistant's own has ended its redo, so the window's is next.
+        var chat = new ScriptedChat(
+            Call("redo", new()),
+            Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#111111" } }, ["summary"] = "darken" }),
+            Call("redo", new()),
+            Say("Not put back."));
+
+        await Send(window, chat, "put the remove back", tools: tools);
+
+        Assert.All(
+            new[] { chat.Results[0], chat.Results[2] },
+            result => Assert.StartsWith("Nothing was put back: 1/0 Filled has edits in its tab", result, StringComparison.Ordinal));
+        Assert.Contains("\"Assistant: remove Filled\"", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains(filled, badges.Children);
+        Assert.Contains(viewer, window.GetVisualDescendants().OfType<SvgViewer>());
+        Assert.Contains("stroke=\"black\"", viewer.Source, StringComparison.Ordinal);
+        Assert.Contains("#111111", viewer.Source, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Undo_That_Would_Close_A_Tab_Holding_Edits_Takes_Nothing_Until_They_Are_Gone()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = window.Workspace!.Document.Root;
+        var tools = new AssistantTools(window);
+
+        await Send(window, new ScriptedChat(Call("add_drawing", new() { ["parent"] = "", ["name"] = "Star", ["svg"] = Drawing }), Say("Added.")), "add a star", tools: tools);
+
+        // It opens on the drawing it added, and the person types there.
+        var viewer = Viewer(window);
+
+        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "mine");
+
+        var chat = new ScriptedChat(Call("undo", new()), Say("Not undone."));
+
+        await Send(window, chat, "undo", tools: tools);
+
+        Assert.StartsWith("Nothing was taken back: 2 Star has edits in its tab", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal(new[] { "home", "Badges", "Star" }, root.Children.Select(child => child.Name));
+        Assert.Contains("stroke=\"black\"", viewer.Source, StringComparison.Ordinal);
+
+        // Kept: once the person takes their typing back, the add is next.
+        Assert.True(viewer.Undo());
+
+        var again = new ScriptedChat(Call("undo", new()), Say("Undone."));
+
+        await Send(window, again, "undo", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: add Star\".", again.Results[0]);
+        Assert.Equal(new[] { "home", "Badges" }, root.Children.Select(child => child.Name));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Nodes_Own_Settings_Are_Told_From_What_It_Inherits_And_From_Where()
+    {
+        var window = await Host(Write("sized.svgstudio", Sized));
+
+        var chat = new ScriptedChat(
+            Call("get_node", new() { ["node"] = "(project)" }),
+            Call("get_node", new() { ["node"] = "0" }),
+            Call("get_node", new() { ["node"] = "0/0" }),
+            Call("get_node", new() { ["node"] = "0/1" }),
+            Call("get_node", new() { ["node"] = "3" }),
+            Say("Read."));
+
+        await Send(window, chat, "what are these built at?");
+
+        var (project, group, filled, wide) = (chat.Results[0], chat.Results[1], chat.Results[2], chat.Results[3]);
+
+        Assert.StartsWith("(project) sized.svgstudio\n", project, StringComparison.Ordinal);
+        Assert.Contains("\nnamespace=\"Demo.Icons\"\n", project, StringComparison.Ordinal);
+        Assert.Contains("\nUnset: class, cache, helperScope, skiaSharp, width, height, scale, padding\n", project, StringComparison.Ordinal);
+        Assert.Contains("Hands down no size", project, StringComparison.Ordinal);
+
+        Assert.StartsWith("0 group Badges\n", group, StringComparison.Ordinal);
+        Assert.Contains("\nnamespace=\"Demo.Icons\" from (project)\n", group, StringComparison.Ordinal);
+        Assert.Contains("\nwidth=\"24\"\n", group, StringComparison.Ordinal);
+        Assert.Contains("Hands down width=24 height=24, given by itself.", group, StringComparison.Ordinal);
+        Assert.Contains("Declares: tint", group, StringComparison.Ordinal);
+
+        Assert.StartsWith("0/0 drawing Filled\n", filled, StringComparison.Ordinal);
+        Assert.Contains("\nclass=\"FilledBadge\"\n", filled, StringComparison.Ordinal);
+        Assert.Contains("\nwidth=\"24\" from 0\n", filled, StringComparison.Ordinal);
+        Assert.Contains("\npadding=\"2\" from 0\n", filled, StringComparison.Ordinal);
+        Assert.Contains("\nUnset: scale, x, y\n", filled, StringComparison.Ordinal);
+        Assert.Contains("Built at width=24 height=24, given by 0.", filled, StringComparison.Ordinal);
+        Assert.Contains("Imported from streamline:abc", filled, StringComparison.Ordinal);
+        Assert.Contains("Declares: half", filled, StringComparison.Ordinal);
+        Assert.Contains("Inherited from 0: tint", filled, StringComparison.Ordinal);
+
+        // Its own width decides all three, so the group's height is not one it takes.
+        Assert.Contains("\nclass=\"Badge\" from 0\n", wide, StringComparison.Ordinal);
+        Assert.Contains("\nwidth=\"40\"\n", wide, StringComparison.Ordinal);
+        Assert.Contains("\nUnset: height, scale, x, y\n", wide, StringComparison.Ordinal);
+        Assert.Contains("Built at width=40, given by itself.", wide, StringComparison.Ordinal);
+
+        Assert.Equal("There is no node '3'. get_project lists the paths.", chat.Results[4]);
+
+        var unsized = new ScriptedChat(Call("get_node", new() { ["node"] = "0" }), Say("Read."));
+
+        await Send(await Host(Write("icons.svgstudio", Project)), unsized, "and home?");
+
+        Assert.Contains("Built at the size its svg gives: neither it nor a node above it gives width, height or scale.", unsized.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Elements_Are_Added_Copied_Moved_And_Removed_Each_As_One_Step_Named_By_The_Key_It_Lands_At()
+    {
+        var window = await Host(Write("parts.svg", Parts));
+        var viewer = Viewer(window);
+        var before = viewer.Source;
+
+        var chat = new ScriptedChat(
+            Call("insert_element", new() { ["target"] = "1", ["markup"] = "<path d=\"M0 0h4\" />", ["summary"] = "add a stroke" }),
+            Call("get_element", new() { ["key"] = "1/1" }),
+            Call("duplicate_elements", new() { ["keys"] = new[] { "2" }, ["summary"] = "copy the dot" }),
+            Call("get_element", new() { ["key"] = "3" }),
+            Call("move_element", new() { ["key"] = "2", ["target"] = "1", ["summary"] = "group the dot" }),
+            Call("get_element", new() { ["key"] = "1/2" }),
+            Call("remove_elements", new() { ["keys"] = new[] { "2" }, ["summary"] = "drop the copy" }),
+            Call("get_drawing", new()),
+            Call("undo", new()),
+            Call("undo", new()),
+            Call("undo", new()),
+            Call("undo", new()),
+            Say("As it was."));
+
+        await Send(window, chat, "add, copy, move and remove, then take it all back");
+
+        Assert.Contains("It is at 1/1", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("have shifted", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("one undo step", chat.Results[0], StringComparison.Ordinal);
+        Assert.StartsWith("<path> at 1/1\nd=M0 0h4", chat.Results[1], StringComparison.Ordinal);
+
+        Assert.Contains("The copy is at 3 (#dot-2)", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains("id=dot-2", chat.Results[3], StringComparison.Ordinal);
+
+        Assert.Contains("It is now at 1/2", chat.Results[4], StringComparison.Ordinal);
+        Assert.Contains("id=dot\n", chat.Results[5], StringComparison.Ordinal);
+
+        Assert.Contains("have shifted", chat.Results[6], StringComparison.Ordinal);
+        Assert.DoesNotContain("dot-2", chat.Results[7], StringComparison.Ordinal);
+
+        Assert.Equal(
+            new[] { "Took back \"Assistant: drop the copy\".", "Took back \"Assistant: group the dot\".", "Took back \"Assistant: copy the dot\".", "Took back \"Assistant: add a stroke\"." },
+            chat.Results.Skip(8));
+        Assert.Equal(before, viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Gradient_Takes_Its_Stops_And_Each_Of_Several_Copies_Is_Named()
+    {
+        var window = await Host(Write("parts.svg", Parts));
+        var viewer = Viewer(window);
+
+        var chat = new ScriptedChat(
+            Call("insert_element", new() { ["target"] = "0/0", ["markup"] = "<stop offset=\"0\" />", ["summary"] = "start the shade" }),
+            Call("insert_element", new() { ["target"] = "0/0/0", ["where"] = "after", ["markup"] = "<stop offset=\"1\" />", ["summary"] = "end the shade" }),
+            Call("duplicate_elements", new() { ["keys"] = new[] { "1/0", "2" }, ["summary"] = "copy the box and the dot" }),
+            Say("Done."));
+
+        await Send(window, chat, "give the shade two stops, then copy the box and the dot");
+
+        Assert.Contains("It is at 0/0/0;", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("It is at 0/0/1;", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("The copies are at 1/1 (#box-2), 3 (#dot-2),", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains("<stop offset=\"1\" />", viewer.Source, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Element_Edit_The_Drawing_Cannot_Take_Is_Refused_And_Is_No_Step()
+    {
+        var window = await Host(Write("parts.svg", Parts));
+        var viewer = Viewer(window);
+        var before = viewer.Source;
+
+        var chat = new ScriptedChat(
+            Call("move_element", new() { ["key"] = "1", ["target"] = "1/0", ["summary"] = "x" }),
+            Call("move_element", new() { ["key"] = "1/0", ["target"] = "0", ["summary"] = "x" }),
+            Call("remove_elements", new() { ["keys"] = new[] { "(root)" }, ["summary"] = "x" }),
+            Call("insert_element", new() { ["target"] = "1", ["markup"] = "<path d=", ["summary"] = "x" }),
+            Call("insert_element", new() { ["target"] = "0/0", ["markup"] = "<rect />", ["summary"] = "x" }),
+            Call("duplicate_elements", new() { ["keys"] = new[] { "9" }, ["summary"] = "x" }),
+            Say("Refused."));
+
+        await Send(window, chat, "break it");
+
+        Assert.Contains("cannot be put inside itself", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("across a <defs>", chat.Results[1], StringComparison.Ordinal);
+        Assert.Equal("The drawing itself cannot be deleted.", chat.Results[2]);
+        Assert.Contains("not well formed", chat.Results[3], StringComparison.Ordinal);
+        Assert.Equal("A <linearGradient> cannot hold a <rect>.", chat.Results[4]);
+        Assert.Equal("That is not in this drawing any more.", chat.Results[5]);
+        Assert.All(chat.Results, result => Assert.DoesNotContain("undo step", result, StringComparison.Ordinal));
+        Assert.Equal(before, viewer.Source);
+        Assert.False(viewer.CanUndo);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Element_Edit_To_A_Drawing_In_No_Tab_Is_One_Step_Of_The_Project()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var filled = (ProjectDrawing)((ProjectGroup)workspace.Document.Root.Children[1]).Children[0];
+        var before = filled.Text;
+
+        var chat = new ScriptedChat(
+            Call("insert_element", new() { ["node"] = "1/0", ["target"] = "(root)", ["markup"] = "<circle cx=\"12\" cy=\"12\" r=\"2\" />", ["summary"] = "add a dot" }),
+            Call("duplicate_elements", new() { ["node"] = "1/0", ["keys"] = new[] { "1" }, ["summary"] = "copy the dot" }),
+            Call("get_element", new() { ["node"] = "1/0", ["key"] = "2" }),
+            Call("remove_elements", new() { ["node"] = "1/0", ["keys"] = new[] { "" }, ["summary"] = "x" }),
+            Call("undo", new()),
+            Call("undo", new()),
+            Call("redo", new()),
+            Say("One dot."));
+
+        await Send(window, chat, "add a dot, copy it, then take both back and put one back");
+
+        Assert.Contains("It is at 1", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("The copy is at 2", chat.Results[1], StringComparison.Ordinal);
+        Assert.StartsWith("<circle> at 2\n", chat.Results[2], StringComparison.Ordinal);
+        Assert.Equal("The drawing itself cannot be deleted.", chat.Results[3]);
+        Assert.Equal("Took back \"Assistant: copy the dot\".", chat.Results[4]);
+        Assert.Equal("Took back \"Assistant: add a dot\".", chat.Results[5]);
+        Assert.Equal("Put back \"Assistant: add a dot\".", chat.Results[6]);
+        Assert.Contains("<circle cx=\"12\" cy=\"12\" r=\"2\" />", filled.Text, StringComparison.Ordinal);
+        Assert.Equal("Assistant: add a dot", workspace.UndoLabel);
+
+        Assert.True(workspace.Undo());
+        Assert.Equal(before, filled.Text);
+    }
+
+    [AvaloniaFact]
     public async Task An_Edit_That_Changes_Nothing_Says_So_And_Is_Not_Undone_For_One_That_Did()
     {
         var window = await Host(Write("declared.svgstudio", Declared));
@@ -1654,11 +2122,16 @@ public class AssistantTests : IDisposable
             Call("set_node", new() { ["node"] = "1/0", ["setting"] = "width", ["value"] = "200" }),
             Call("set_node", new() { ["node"] = "1", ["setting"] = "width", ["value"] = "200" }),
             Call("set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" }),
+            Call("get_node", new() { ["node"] = "1/0" }),
             Say("Done."));
 
         await Send(window, chat, "widen them", allow: true);
 
         Assert.StartsWith("1/0 Filled has settings typed in the tab of 1 Badges", chat.Results[0], StringComparison.Ordinal);
+
+        // Read as the project has it, which says the typed width is not in it.
+        Assert.Contains("width=\"200\" from 1\n", chat.Results[3], StringComparison.Ordinal);
+        Assert.Contains("Settings typed in the tab of 1 Badges are not in the project yet", chat.Results[3], StringComparison.Ordinal);
         Assert.Null(filled.Width);
         Assert.Equal(200f, badges.Width);
         Assert.Equal("Home", root.Children[0].Class);

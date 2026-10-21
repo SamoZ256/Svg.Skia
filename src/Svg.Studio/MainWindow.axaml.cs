@@ -1500,11 +1500,12 @@ public partial class MainWindow : Window
     /// <summary>Adds an empty group, and opens it so it can be given a name.</summary>
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.</remarks>
     /// <param name="label">What the step is called in place of "add group", for a caller that says who made it.</param>
-    public async Task AddGroupAsync(ProjectNode beside, string? label = null)
+    /// <returns>The group, or null with no project open.</returns>
+    public async Task<ProjectGroup?> AddGroupAsync(ProjectNode beside, string? label = null)
     {
         if (_workspace is not { } workspace)
         {
-            return;
+            return null;
         }
 
         var (parent, index) = Beside(beside);
@@ -1517,7 +1518,7 @@ public partial class MainWindow : Window
 
         if (group is null)
         {
-            return;
+            return null;
         }
 
         BuildTree(group);
@@ -1525,6 +1526,8 @@ public partial class MainWindow : Window
         // Named "group" until something better is typed into its settings, which is what the tab
         // it opens on is for.
         await ShowAsync(group).ConfigureAwait(true);
+
+        return group;
     }
 
     /// <summary>Asks which drawing to add, and adds it.</summary>
@@ -3069,11 +3072,8 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return UndoDocument();
+        return Selected()?.Undo() == true || _workspace?.Undo() == true;
     }
-
-    /// <summary>Undo without the box that has focus, which for the assistant is always its own input.</summary>
-    internal bool UndoDocument() => Selected()?.Undo() == true || _workspace?.Undo() == true;
 
     /// <inheritdoc cref="Undo"/>
     public bool Redo()

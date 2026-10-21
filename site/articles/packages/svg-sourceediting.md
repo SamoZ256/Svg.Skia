@@ -33,8 +33,8 @@ dotnet add package Svg.SourceEditing
 | `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's replacement rules — the half of a recipe that is not declarations |
 | `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with; `Content` and `SetContent` for the text between a `<text>`, `<tspan>` or `<textPath>`'s tags |
 | `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` — or one element of it by `TextOf` |
-| `SvgSourceWorkspace` | That drawing and its history: `Commit`, `Undo`, `Redo`, `IsModified`, `MarkSaved` |
-| `SvgElementEditor` | `Move` an element to where a drop puts it, and `NewGroup` to put things in |
+| `SvgSourceWorkspace` | That drawing and its history: `Commit`, `Undo`, `Redo`, `IsModified`, `MarkSaved`, and `UndoStep`, `RedoStep`, `Holds` and `Undone` for a caller to know its own steps again |
+| `SvgElementEditor` | `Move` an element to where a drop puts it, `Insert` a new one there, `Remove` and `Duplicate` several; each that places one says the key it lands at |
 
 Every editor has two halves: one that writes the tree and answers a refusal or null, and one that
 measures spans against text. The first is what a host with a document uses. The second remains

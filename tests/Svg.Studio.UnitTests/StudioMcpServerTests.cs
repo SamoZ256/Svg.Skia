@@ -115,7 +115,13 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(tools["git_commit"].ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools["remove"].ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools["get_drawing"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.True(tools["get_node"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.False(tools["set_attributes"].ProtocolTool.Annotations?.DestructiveHint);
+
+        // One step on the history each, as set_attributes is.
+        Assert.All(
+            new[] { "insert_element", "remove_elements", "move_element", "duplicate_elements", "redo" },
+            name => Assert.False(tools[name].ProtocolTool.Annotations?.DestructiveHint, name));
 
         // Over MCP nobody but the client asks: Studio answers its own question yes.
         foreach (var name in new[] { "save", "remove", "git_commit" })
@@ -136,7 +142,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.All(tools.Values, tool => Assert.False(tool.ProtocolTool.Annotations?.OpenWorldHint, tool.Name));
         Assert.All(repeatable, name => Assert.True(tools[name].ProtocolTool.Annotations?.IdempotentHint, name));
         Assert.All(
-            new[] { "undo", "add_group", "add_drawing", "move", "remove", "git_commit" },
+            new[] { "undo", "redo", "add_group", "add_drawing", "move", "remove", "git_commit", "insert_element", "remove_elements", "move_element", "duplicate_elements" },
             name => Assert.NotEqual(true, tools[name].ProtocolTool.Annotations?.IdempotentHint));
     }
 
@@ -653,6 +659,77 @@ public class StudioMcpServerTests : IDisposable
         Assert.Equal(new[] { "home", "Badges" }, root.Children.Select(child => child.Name));
         Assert.NotEqual(true, same.IsError);
         Assert.StartsWith("Nothing changed", Text(same), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Element_Is_Added_Moved_Taken_Back_And_Put_Back_And_A_Refusal_Is_An_Error()
+    {
+        var (window, port) = await Serving();
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        await using var client = await Client(port);
+
+        var added = await Call(client, "insert_element", new() { ["target"] = "(root)", ["markup"] = "<circle cx=\"12\" cy=\"12\" r=\"4\" />", ["summary"] = "add a dot" });
+        var moved = await Call(client, "move_element", new() { ["key"] = "1", ["target"] = "0", ["where"] = "before", ["summary"] = "dot first" });
+        var first = await Call(client, "get_element", new() { ["key"] = "0" });
+
+        Assert.All(new[] { added, moved }, result => Assert.NotEqual(true, result.IsError));
+        Assert.Contains("It is at 1", Text(added), StringComparison.Ordinal);
+        Assert.Contains("It is now at 0", Text(moved), StringComparison.Ordinal);
+        Assert.StartsWith("<circle> at 0\n", Text(first), StringComparison.Ordinal);
+
+        var refusals = new[]
+        {
+            await Call(client, "move_element", new() { ["key"] = "(root)", ["target"] = "0", ["summary"] = "x" }),
+            await Call(client, "insert_element", new() { ["target"] = "0", ["markup"] = "<oops", ["summary"] = "x" }),
+            await Call(client, "remove_elements", new() { ["keys"] = new[] { "(root)" }, ["summary"] = "x" }),
+            await Call(client, "duplicate_elements", new() { ["keys"] = new[] { "7" }, ["summary"] = "x" }),
+            await Call(client, "move_element", new() { ["key"] = "0", ["target"] = "1", ["where"] = "beside", ["summary"] = "x" })
+        };
+
+        Assert.All(refusals, result => Assert.True(result.IsError, Text(result)));
+        Assert.Equal("The drawing itself cannot be moved.", Text(refusals[0]));
+        Assert.Equal("Claude Code: dot first", viewer.UndoLabel);
+
+        var undone = await Call(client, "undo", new());
+        var redone = await Call(client, "redo", new());
+        var none = await Call(client, "redo", new());
+
+        Assert.Equal("Took back \"Claude Code: dot first\".", Text(undone));
+        Assert.NotEqual(true, redone.IsError);
+        Assert.Equal("Put back \"Claude Code: dot first\".", Text(redone));
+        Assert.True(none.IsError);
+        Assert.Equal("There is nothing to put back.", Text(none));
+        Assert.Equal("Claude Code: dot first", viewer.UndoLabel);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Element_Edit_To_A_Drawing_In_No_Tab_Is_The_Projects_And_A_Refusal_Leaves_No_Step()
+    {
+        var path = Path.Combine(_directory, "nested.svgstudio");
+
+        File.WriteAllText(path, Nested);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var workspace = window.Workspace!;
+
+        var copied = await Call(client, "duplicate_elements", new() { ["node"] = "0", ["keys"] = new[] { "0" }, ["summary"] = "two squares" });
+        var refused = await Call(client, "remove_elements", new() { ["node"] = "0", ["keys"] = new[] { "(root)" }, ["summary"] = "x" });
+        var node = await Call(client, "get_node", new() { ["node"] = "1/0/0" });
+
+        Assert.NotEqual(true, copied.IsError);
+        Assert.Contains("The copy is at 1", Text(copied), StringComparison.Ordinal);
+        Assert.True(refused.IsError);
+        Assert.Equal("Claude Code: two squares", workspace.UndoLabel);
+        Assert.NotEqual(true, node.IsError);
+        Assert.StartsWith("1/0/0 drawing Dot\n", Text(node), StringComparison.Ordinal);
+
+        var undone = await Call(client, "undo", new());
+
+        Assert.Equal("Took back \"Claude Code: two squares\".", Text(undone));
+        Assert.False(workspace.CanUndo);
         Assert.Empty(_announced);
     }
 

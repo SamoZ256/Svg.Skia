@@ -158,9 +158,10 @@ public abstract class ProjectNode
     public ProjectNode? OwnerOf(string setting) => setting switch
     {
         "width" or "height" or "scale" => SizeOwner(true),
-        // Where a thing sits is its own. A group's place is on its parent's board, in its parent's
-        // coordinates, so offered as a drawing's inherited x it would be a number about somewhere else.
-        "x" or "y" => null,
+        // A name, and where a thing sits, are its own. A group's place is on its parent's board, in
+        // its parent's coordinates, so offered as a drawing's inherited x it would be a number about
+        // somewhere else.
+        "name" or "x" or "y" => null,
         _ => Ancestry(true).FirstOrDefault(node => node.Setting(setting) is { })
     };
 

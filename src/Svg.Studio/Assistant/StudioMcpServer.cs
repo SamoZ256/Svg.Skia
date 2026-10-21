@@ -48,7 +48,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
         "These tools read and edit what is open in Svg Studio, a desktop editor for SVG drawings that are built into C# (SkiaSharp) code.\n"
         + "- Call get_context before acting, to see the project, the tab in front and what is selected.\n"
         + "- read_doc with an empty id lists the documentation's sections; read one before answering how Studio works.\n"
-        + "- Every client connected to this Studio shares one undo: undo takes back the newest edit any of them made, so check the label it names.\n"
+        + "- Every client connected to this Studio shares one undo and redo: undo takes back the newest edit any of them made, and redo what any of them took back, so check the label each names.\n"
         + AssistantSession.Rules;
 
     private readonly AssistantTools _tools;

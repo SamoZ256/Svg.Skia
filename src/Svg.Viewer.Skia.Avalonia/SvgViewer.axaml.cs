@@ -879,7 +879,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         // Where the row landed is not where it was, and the addresses after it have all shifted, so
         // the row it went beside is what can still be pointed at.
-        return Rewritten("move an element", source => SvgElementEditor.Move(source, moved, target, where), () => new[] { targetKey });
+        return Rewritten("move an element", source => SvgElementEditor.Move(source, moved, target, where, out _), () => new[] { targetKey });
     }
 
     private bool NewGroup(string targetKey, SvgElementDrop where)
@@ -3064,6 +3064,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <inheritdoc cref="SvgSourceWorkspace.Holds"/>
     /// <remarks>A drawing closed or loaded afresh holds none of the steps it handed out before.</remarks>
     public bool Holds(object step) => _workspace?.Holds(step) == true;
+
+    /// <inheritdoc cref="SvgSourceWorkspace.RedoStep"/>
+    public object? RedoStep => _workspace?.RedoStep;
+
+    /// <inheritdoc cref="SvgSourceWorkspace.Undone"/>
+    public bool Undone(object step) => _workspace?.Undone(step) == true;
 
     /// <summary>Takes back the last edit to the drawing's text.</summary>
     /// <remarks>

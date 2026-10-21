@@ -92,6 +92,12 @@ public sealed class SvgSourceWorkspace
     /// <summary>Whether <paramref name="step"/>, once an <see cref="UndoStep"/>, is still done: not taken back, built over, or trimmed away.</summary>
     public bool Holds(object step) => _states.FindIndex(1, _at, state => ReferenceEquals(state, step)) >= 0;
 
+    /// <summary>The step <see cref="Redo"/> would put back: the <see cref="UndoStep"/> it was.</summary>
+    public object? RedoStep => CanRedo ? _states[_at + 1] : null;
+
+    /// <summary>Whether <paramref name="step"/> is taken back and can still be put back: not since dropped by a newer edit.</summary>
+    public bool Undone(object step) => _states.FindIndex(_at + 1, _states.Count - _at - 1, state => ReferenceEquals(state, step)) >= 0;
+
     /// <summary>Opens a drawing, or refuses with a sentence saying why it could not be read.</summary>
     public static SvgSourceWorkspace? Open(string svgText, out string? refusal)
     {

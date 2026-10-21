@@ -3989,7 +3989,9 @@ public sealed class GroupPanel : UserControl
         var box = new TextBox
         {
             Text = value,
-            PlaceholderText = Inherited(node, name) ?? (s_labels.TryGetValue(name, out var about) ? about.Hint : null),
+            PlaceholderText = Inherited(node, name) is { } inherited
+                ? $"{inherited.Value} — from {ProjectWorkspace.Label(inherited.Owner)}"
+                : s_labels.TryGetValue(name, out var about) ? about.Hint : null,
             FontSize = 12,
             Tag = name
         };
@@ -4152,18 +4154,12 @@ public sealed class GroupPanel : UserControl
         }
     }
 
-    /// <summary>What the node would take for <paramref name="name"/> if it said nothing itself.</summary>
-    private static string? Inherited(ProjectNode node, string name)
-    {
-        if (node.Parent is not { } parent)
-        {
-            return null;
-        }
-
-        var owner = parent.OwnerOf(name);
-
-        return owner is null ? null : $"{Value(owner, name)} — from {ProjectWorkspace.Label(owner)}";
-    }
+    /// <summary>What the node takes for <paramref name="name"/> while it says nothing itself, and the node above giving it; null for nothing.</summary>
+    /// <remarks>Nothing of a size where it gives any of width, height or scale: the nearest giving one decides all three, and may leave this one out.</remarks>
+    internal static (string Value, ProjectNode Owner)? Inherited(ProjectNode node, string name)
+        => name is "width" or "height" or "scale" && node.HasSize || node.Parent?.OwnerOf(name) is not { } owner || Value(owner, name) is not { } value
+            ? null
+            : (value, owner);
 
     internal static string? Value(ProjectNode node, string name) => name switch
     {

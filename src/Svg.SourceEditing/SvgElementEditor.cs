@@ -33,6 +33,7 @@ public enum SvgElementDrop
 public static class SvgElementEditor
 {
     /// <inheritdoc cref="Move(string, string, string, SvgElementDrop)"/>
+    /// <param name="movedKey">The key the element is at once moved, or null where it was not.</param>
     /// <returns>The sentence refusing the move, or null where it was made.</returns>
     /// <remarks>
     /// The element itself moves, rather than the line of text carrying it, so what it holds travels
@@ -45,12 +46,15 @@ public static class SvgElementEditor
         SvgSourceDocument source,
         string addressKey,
         string targetKey,
-        SvgElementDrop where)
+        SvgElementDrop where,
+        out string? movedKey)
     {
         if (source is null)
         {
             throw new ArgumentNullException(nameof(source));
         }
+
+        movedKey = null;
 
         if (SvgAttributeEditor.Resolve(source.Document, addressKey) is not { } moved ||
             SvgAttributeEditor.Resolve(source.Document, targetKey) is not { } target)
@@ -95,6 +99,8 @@ public static class SvgElementEditor
         Cut(moved);
         Put(target, where, moved, now);
         Reindent(moved, was, now);
+
+        movedKey = SvgAttributeEditor.Key(moved);
 
         return null;
     }
@@ -443,13 +449,26 @@ public static class SvgElementEditor
 
     /// <summary>Why <paramref name="parent"/> cannot hold <paramref name="placed"/>, or null where it can.</summary>
     /// <remarks>
-    /// A shape is not content these take: a clip path stops clipping, a gradient stops having
-    /// stops, and a run of text stops being one run.
+    /// A text's own spans are refused too: what is placed goes on a line of its own, and inside a
+    /// run of text that break reads as a space.
     /// </remarks>
     private static string? Holds(XElement parent, XElement placed)
-        => parent.Name.LocalName is "clipPath" or "linearGradient" or "radialGradient" or "filter" || IsText(parent)
-            ? $"A <{parent.Name.LocalName}> cannot hold a <{placed.Name.LocalName}>."
-            : null;
+    {
+        var (into, name) = (parent.Name.LocalName, placed.Name.LocalName);
+        var any = name is "desc" or "title" or "metadata" or "animate" or "set";
+        var takes = into switch
+        {
+            "linearGradient" or "radialGradient" => any || name is "stop",
+            "filter" => any || name.StartsWith("fe", StringComparison.Ordinal),
+            "clipPath" => any || name is "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "path" or "text" or "use",
+            _ => !IsText(parent)
+        };
+
+        return takes ? null
+            : IsText(parent) && IsText(placed)
+                ? $"What a <{into}> holds is one run of text, and a <{name}> would be written into it on a line of its own, which reads as a space; write the whole <text> instead."
+                : $"A <{into}> cannot hold a <{name}>.";
+    }
 
     private static bool IsText(XElement element) => element.Name.LocalName is "text" or "tspan" or "textPath";
 }

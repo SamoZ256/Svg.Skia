@@ -324,8 +324,9 @@ or `mask #sweep`. The filter finds it by that.
 ## Connecting Claude Code
 
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
-project and its drawings, lists every problem in them, sets attributes and text, reads and changes a
-group's declarations, adds, moves and renames nodes, and saves or commits.
+project, its drawings and each node's own and inherited settings, lists every problem in them, sets
+attributes and text, adds, removes, moves and copies elements, reads and changes a group's
+declarations, adds, moves and renames nodes, and saves or commits.
 
 1. In **Settings**, on the **Accounts** tab, turn on **Let Claude Code connect to this Studio**. Studio then listens on
    `127.0.0.1` only, on port 7337 unless you choose another.
@@ -338,8 +339,14 @@ Each edit Claude Code makes is one step on the same history as yours, named in t
 *Undo Claude Code: …*, so ⌘Z takes it back. Its `undo` tool takes back only its own steps, newest
 first, and names each one. While an edit of yours sits on top of its step it takes nothing back, and
 names your edit instead; only once it has none of its own left does it take back your last, and says
-so. Saving, removing a node and committing are marked as destructive, so Claude Code asks you before
-it does them; Studio does not ask again.
+so. Its `redo` puts back what its undo took, the same way: while a step you took back since is in
+front of one, it puts nothing back and names yours; once it makes a new edit, or has nothing of its
+undo's left, it puts back what **Redo** in the Edit menu would. Neither takes back or puts back a
+step that could close a tab holding edits you have not saved, which Studio would do without asking:
+one of its own that adds or removes what the tab is on, or, with none of its own left, any step of
+the project's. It names the tab instead. Saving, removing a node and
+committing are marked as destructive, so Claude Code asks you before it does them; Studio does not
+ask again.
 
 Only one Studio can hold a port. A second one open at the same time says in Settings that the port is
 taken; give it another and copy its command separately.

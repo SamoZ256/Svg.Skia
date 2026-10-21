@@ -114,6 +114,12 @@ public sealed class ProjectWorkspace
     /// <summary>Whether <paramref name="step"/>, once an <see cref="UndoStep"/>, is still done: not taken back, built over, or trimmed away.</summary>
     public bool Holds(object step) => _steps.FindIndex(0, _at, one => ReferenceEquals(one, step)) >= 0;
 
+    /// <summary>The step <see cref="Redo"/> would put back: the <see cref="UndoStep"/> it was.</summary>
+    public object? RedoStep => CanRedo ? _steps[_at] : null;
+
+    /// <summary>Whether <paramref name="step"/> is taken back and can still be put back: not since dropped by a newer edit.</summary>
+    public bool Undone(object step) => _steps.FindIndex(_at, _steps.Count - _at, one => ReferenceEquals(one, step)) >= 0;
+
     /// <summary>
     /// Runs one gesture against the document and keeps what it takes to put it back.
     /// </summary>

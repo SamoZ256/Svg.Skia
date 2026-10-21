@@ -40,7 +40,7 @@ public class SvgElementEditorDocumentTests
     {
         var source = Read();
 
-        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside));
+        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside, out var key));
 
         Assert.Equal(
             """
@@ -52,6 +52,9 @@ public class SvgElementEditorDocumentTests
             </svg>
             """,
             source.ToText());
+
+        // Where it landed, counted once the group it left has moved up into its place.
+        Assert.Equal("0/1", key);
     }
 
     [Fact]
@@ -59,7 +62,7 @@ public class SvgElementEditorDocumentTests
     {
         var source = Read();
 
-        Assert.Null(SvgElementEditor.Move(source, "1", "0", SvgElementDrop.Before));
+        Assert.Null(SvgElementEditor.Move(source, "1", "0", SvgElementDrop.Before, out _));
 
         Assert.Equal(
             """
@@ -78,7 +81,7 @@ public class SvgElementEditorDocumentTests
     {
         var source = Read();
 
-        Assert.Null(SvgElementEditor.Move(source, "1/0", "0", SvgElementDrop.After));
+        Assert.Null(SvgElementEditor.Move(source, "1/0", "0", SvgElementDrop.After, out _));
 
         Assert.Equal(
             """
@@ -107,7 +110,7 @@ public class SvgElementEditorDocumentTests
 
         var source = Read(svgText);
 
-        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside));
+        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside, out _));
 
         Assert.Equal(
             """
@@ -130,7 +133,7 @@ public class SvgElementEditorDocumentTests
 
         var source = Read(svgText);
 
-        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside));
+        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside, out _));
 
         Assert.Equal(
             "<svg xmlns=\"http://www.w3.org/2000/svg\">\n\t<g id=\"b\">\n\t\t<rect id=\"a\" />\n\t</g>\n</svg>",
@@ -146,7 +149,7 @@ public class SvgElementEditorDocumentTests
 
         var source = Read(svgText);
 
-        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside));
+        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside, out _));
 
         var written = source.ToText();
 
@@ -169,7 +172,7 @@ public class SvgElementEditorDocumentTests
 
         var source = Read(svgText);
 
-        Assert.Null(SvgElementEditor.Move(source, "1", "0", SvgElementDrop.Inside));
+        Assert.Null(SvgElementEditor.Move(source, "1", "0", SvgElementDrop.Inside, out _));
 
         Assert.Contains("\n  <g id=\"b\">\n    <rect id=\"a\" />\n  </g>\n\n</svg>", source.ToText());
     }
@@ -183,7 +186,7 @@ public class SvgElementEditorDocumentTests
 
         var source = Read(svgText);
 
-        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside));
+        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside, out _));
         Assert.Contains("""<g id="b">""", source.ToText());
         Assert.Contains("""<rect id="a" />""", source.ToText());
     }
@@ -193,7 +196,7 @@ public class SvgElementEditorDocumentTests
     {
         var source = Read();
 
-        Assert.Null(SvgElementEditor.Move(source, "1/0", "0", SvgElementDrop.Inside));
+        Assert.Null(SvgElementEditor.Move(source, "1/0", "0", SvgElementDrop.Inside, out _));
 
         Assert.Contains("""<rect id="a">""", source.ToText());
         Assert.Contains("</rect>", source.ToText());
@@ -204,7 +207,7 @@ public class SvgElementEditorDocumentTests
     {
         var source = Read();
 
-        Assert.Equal("The drawing itself cannot be moved.", SvgElementEditor.Move(source, string.Empty, "0", SvgElementDrop.After));
+        Assert.Equal("The drawing itself cannot be moved.", SvgElementEditor.Move(source, string.Empty, "0", SvgElementDrop.After, out _));
         Assert.Equal(Source, source.ToText());
     }
 
@@ -213,7 +216,7 @@ public class SvgElementEditorDocumentTests
     {
         var source = Read();
 
-        Assert.Equal("<g> cannot be put inside itself.", SvgElementEditor.Move(source, "1", "1/0", SvgElementDrop.After));
+        Assert.Equal("<g> cannot be put inside itself.", SvgElementEditor.Move(source, "1", "1/0", SvgElementDrop.After, out _));
         Assert.Equal(Source, source.ToText());
     }
 
@@ -222,8 +225,8 @@ public class SvgElementEditorDocumentTests
     {
         var source = Read();
 
-        Assert.Equal("One of those is not in this drawing any more.", SvgElementEditor.Move(source, "9", "0", SvgElementDrop.After));
-        Assert.Equal("One of those is not in this drawing any more.", SvgElementEditor.Move(source, "0", "9", SvgElementDrop.After));
+        Assert.Equal("One of those is not in this drawing any more.", SvgElementEditor.Move(source, "9", "0", SvgElementDrop.After, out _));
+        Assert.Equal("One of those is not in this drawing any more.", SvgElementEditor.Move(source, "0", "9", SvgElementDrop.After, out _));
         Assert.Equal(Source, source.ToText());
     }
 
@@ -243,7 +246,7 @@ public class SvgElementEditorDocumentTests
 
         Assert.Equal(
             "That would move it across a <defs>, a <clipPath> or a <mask>, which changes what the drawing paints.",
-            SvgElementEditor.Move(source, "0/0", "1", SvgElementDrop.Inside));
+            SvgElementEditor.Move(source, "0/0", "1", SvgElementDrop.Inside, out _));
 
         Assert.Equal(svgText, source.ToText());
     }
@@ -262,7 +265,7 @@ public class SvgElementEditorDocumentTests
 
         Assert.Equal(
             "A <text> cannot hold a <rect>.",
-            SvgElementEditor.Move(source, "1", "0", SvgElementDrop.Inside));
+            SvgElementEditor.Move(source, "1", "0", SvgElementDrop.Inside, out _));
 
         Assert.Equal(svgText, source.ToText());
     }
@@ -384,6 +387,45 @@ public class SvgElementEditorDocumentTests
         Assert.Equal(
             "A <text> cannot hold a <rect>.",
             SvgElementEditor.Insert(source, "0", SvgElementDrop.Inside, new XElement("rect"), out var key));
+        Assert.Null(key);
+        Assert.Equal(svgText, source.ToText());
+    }
+
+    [Fact]
+    public void A_Gradient_A_Filter_And_A_Clip_Path_Each_Take_What_They_Are_Made_Of()
+    {
+        var source = Read("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <linearGradient id="g" />
+              <filter id="f" />
+              <clipPath id="c" />
+            </svg>
+            """);
+
+        Assert.Null(SvgElementEditor.Insert(source, "0", SvgElementDrop.Inside, new XElement("stop"), out var stop));
+        Assert.Null(SvgElementEditor.Insert(source, "0/0", SvgElementDrop.After, new XElement("stop"), out var next));
+        Assert.Null(SvgElementEditor.Insert(source, "1", SvgElementDrop.Inside, new XElement("feGaussianBlur"), out var blur));
+        Assert.Null(SvgElementEditor.Insert(source, "2", SvgElementDrop.Inside, new XElement("circle"), out var clip));
+        Assert.Equal(new[] { "0/0", "0/1", "1/0", "2/0" }, new[] { stop, next, blur, clip });
+
+        Assert.Equal("A <clipPath> cannot hold a <g>.", SvgElementEditor.Insert(source, "2", SvgElementDrop.Inside, new XElement("g"), out _));
+        Assert.Equal("A <linearGradient> cannot hold a <rect>.", SvgElementEditor.Insert(source, "0/0", SvgElementDrop.After, new XElement("rect"), out _));
+    }
+
+    [Fact]
+    public void A_Span_Is_Not_Written_Into_A_Text_For_The_Space_Its_Line_Would_Read_As()
+    {
+        const string svgText = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <text id="t">hello</text>
+            </svg>
+            """;
+
+        var source = Read(svgText);
+
+        Assert.Equal(
+            "What a <text> holds is one run of text, and a <tspan> would be written into it on a line of its own, which reads as a space; write the whole <text> instead.",
+            SvgElementEditor.Insert(source, "0", SvgElementDrop.Inside, new XElement("tspan"), out var key));
         Assert.Null(key);
         Assert.Equal(svgText, source.ToText());
     }

@@ -6023,6 +6023,33 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Behind_A_Drawings_Name_And_A_Size_Its_Own_Width_Decides_Is_Nothing_Of_Its_Groups()
+    {
+        var window = await Host(Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+              <group name="Large" width="48" height="48">
+            {Holding("badge", " width=\"40\"")}
+              </group>
+            </studio>
+            """));
+
+        await window.ShowAsync(((ProjectGroup)window.Workspace!.Document.Root.Children[0]).Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        Open(window, window, "Properties");
+
+        TextBox Box(string name) => window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, name));
+
+        // Shown once the box is emptied, "Large — from Large" said a name could be inherited.
+        Assert.Equal("badge", Box("name").Text);
+        Assert.Null(Box("name").PlaceholderText);
+
+        // Its own width decides all three, so the group's 48 is no height it would take.
+        Assert.Null(Box("height").Text);
+        Assert.Equal("pixels", Box("height").PlaceholderText);
+    }
+
+    [AvaloniaFact]
     public async Task A_Drawing_Is_Given_A_Class_Of_Its_Own_In_Its_Tab()
     {
         Write("home.svg", Drawing);
