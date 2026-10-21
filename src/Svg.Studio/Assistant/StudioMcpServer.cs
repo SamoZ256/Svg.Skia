@@ -27,8 +27,9 @@ using ModelContextProtocol.Server;
 namespace Svg.Studio;
 
 /// <summary>
-/// Studio's tools over MCP, for Claude Code to connect to from outside: the same functions the
-/// assistant panel calls, served on this machine only, to a client holding the token.
+/// Studio's tools over MCP, for Claude Code to connect to from outside: the functions the assistant
+/// panel calls and those <see cref="Tools"/> adds, served on this machine only, to a client holding
+/// the token.
 /// </summary>
 /// <remarks>
 /// Asking before a save, a removal or a commit is the client's: those tools are marked destructive
@@ -255,7 +256,8 @@ public sealed class StudioMcpServer : IAsyncDisposable
             .Append(AIFunctionFactory.Create(
                 _tools.ContextAsync,
                 "get_context",
-                "What is open in Studio now: the project, the tab in front, what is selected in it or picked on its board, and how many errors and warnings the drawing in front has; get_problems lists a project's."))
+                "What is open in Studio now: the project, the tab in front, what is selected in it or picked on its board, and how many errors and warnings the drawing in front has; get_problems lists a project's.",
+                AssistantTools.s_arguments))
             .Append(AIFunctionFactory.Create(Render, new AIFunctionFactoryOptions
             {
                 Name = "render",
@@ -282,7 +284,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
     /// </remarks>
     private async Task<CallToolResult> Render(
         [Description("The drawing's node path from get_project; empty for the drawing in front; a group's, with svg, for a drawing before add_drawing adds it there.")] string? node = null,
-        [Description("Pixels on the drawing's longer side, such as [16, 24, 48]: up to 8 sizes from 1 to 1024, side by side; left out, the size it is built at.")] int[]? size = null,
+        [Description("Pixels on the drawing's longer side, such as [16, 24, 48]: up to 8 sizes from 1 to 1024, side by side on one sheet 8 px apart and from its edges, two rows of them for both, and the sheet at most 4096 px a side; left out, the size it is built at.")] int[]? size = null,
         [Description("What it is drawn on: transparent, the default; light; dark; or both, a row on light above one on dark.")] AssistantTools.Ground background = AssistantTools.Ground.Transparent,
         [Description("Values for the parameters it declares, by name, each written as a default is: #ff0000, true, 3, 'quoted text'. A parameter left out takes what its panel opens with.")] Dictionary<string, JsonElement>? values = null,
         [Description("A complete SVG source to draw in its place, through its declarations and at its size, without applying it: a look before replace_drawing, or before add_drawing where node is a group.")] string? svg = null)

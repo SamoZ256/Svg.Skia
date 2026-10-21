@@ -141,7 +141,7 @@ is, and there it waits in the grid with the rest: one that is still a grid itsel
 row would be the first placed one and would push everything nobody touched out to the right of it,
 and one with a group between them that names no place of its own.
 
-A drag writes the file as it is made, and like every other arrangement edit it is one step on the
+A drag writes the project as it is made, and like every other arrangement edit it is one step on the
 project's history, *move …* in the Edit menu, so ⌘Z takes it back.
 
 **Captions** writes each drawing's name inside its own top corner, where a group's name sits in its
@@ -342,14 +342,17 @@ Each edit Claude Code makes is one step on the same history as yours, named in t
 *Undo Claude Code: …*, so ⌘Z takes it back. Its `undo` tool takes back only its own steps, newest
 first, and names each one. While an edit of yours sits on top of its step it takes nothing back, and
 names your edit instead; only once it has none of its own left does it take back your last, and says
-so. Its `redo` puts back what its undo took, the same way: while a step you took back since is in
-front of one, it puts nothing back and names yours; once it makes a new edit, or has nothing of its
-undo's left, it puts back what **Redo** in the Edit menu would. Neither takes back or puts back a
-step that could close a tab holding edits you have not saved, which Studio would do without asking:
-one of its own that adds or removes what the tab is on, or, with none of its own left, any step of
-the project's. It names the tab instead. Saving, removing a node and
-committing are marked as destructive, so Claude Code asks you before it does them; Studio does not
-ask again.
+so. If you have taken back each of its steps yourself already, the first `undo` after takes nothing
+back and says so, and the next is the one that reaches yours. Its `redo` puts back what its undo
+took, the same way: while a step you took back since is in front of one, it puts nothing back and
+names yours; once it makes a new edit, or has nothing of its undo's left, it puts back what **Redo**
+in the Edit menu would, and if you have put back or built over all its undo took, the first `redo`
+after puts nothing back and says so. Neither takes back or puts back a step that could close a tab
+holding edits you have not saved, which Studio would do without asking: one of its own that adds or
+removes what the tab is on, or, with none of its own left, any step of the project's. Nor does either
+step a drawing's text in the project under a tab you have since opened on it and typed in, whose
+next save would write over it. It names the tab instead. Saving, removing a node and committing are
+marked as destructive, so Claude Code asks you before it does them; Studio does not ask again.
 
 Only one Studio can hold a port. A second one open at the same time says in Settings that the port is
 taken; give it another and copy its command separately.

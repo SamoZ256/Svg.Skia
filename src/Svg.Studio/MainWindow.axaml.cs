@@ -2375,10 +2375,12 @@ public partial class MainWindow : Window
     /// <remarks>
     /// The tab it is open in, so the edit lands in a buffer somebody can take back. Null is answered
     /// by the caller with the project itself, which takes the edit with nothing to take it back.
-    /// By the row rather than by a file: a drawing is one row of the project, so one tab.
+    /// By the row rather than by a file: a drawing is one row of the project, so one tab. Not a tab
+    /// <see cref="Rebuild"/> left out of date, which <see cref="Refill"/> reloads from the project,
+    /// throwing away an edit made in it; it is clean, so the project is what it will show.
     /// </remarks>
     internal ISvgViewerDeclarationTarget? DrawingOf(ProjectDrawing drawing)
-        => Tab(drawing)?.Content as SvgViewer;
+        => Tab(drawing) is { } item && !_stale.Contains(item) ? item.Content as SvgViewer : null;
 
     /// <summary>A tab for something that is not a drawing, which the viewer's own tab does not fit.</summary>
     private void AddNodeTab(Control content, object tag, string name)
@@ -4411,7 +4413,7 @@ public partial class MainWindow : Window
     /// </remarks>
     /// <param name="committed">The tab the caller committed, told once this has written its work that it holds none.</param>
     /// <returns>Whether it was written.</returns>
-    private async Task<bool> WriteAsync(ProjectWorkspace workspace, TabItem? committed, List<string>? notes = null)
+    private async Task<bool> WriteAsync(ProjectWorkspace workspace, TabItem? committed, List<string>? notes)
     {
         // A save would write over the conflict unnoticed, and the merge would then commit whatever
         // the window happened to hold.

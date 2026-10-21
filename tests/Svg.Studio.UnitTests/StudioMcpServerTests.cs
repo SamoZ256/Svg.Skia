@@ -144,9 +144,8 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(tools["get_code"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.False(tools["set_attributes"].ProtocolTool.Annotations?.DestructiveHint);
 
-        // Over MCP alone, since its answer is an image, and asked for again it draws the same.
+        // Over MCP alone, since its answer is an image.
         Assert.True(tools["render"].ProtocolTool.Annotations?.ReadOnlyHint);
-        Assert.True(tools["render"].ProtocolTool.Annotations?.IdempotentHint);
         Assert.False(tools["render"].ProtocolTool.Annotations?.OpenWorldHint);
 
         // One step on the history each, as set_attributes is.
@@ -548,6 +547,63 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(result.IsError);
         Assert.Contains("unexpected key 'nodePath'", Text(result), StringComparison.Ordinal);
         Assert.Equal(before, viewer.Source);
+
+        // Taking none, get_context answered one given as though it had narrowed what it said.
+        var context = await Call(client, "get_context", new() { ["node"] = "0" });
+
+        Assert.True(context.IsError);
+        Assert.Contains("unexpected key 'node'", Text(context), StringComparison.Ordinal);
+    }
+
+    /// <remarks>A row the Elements filter hides is selected all the same, so only a selection left as it was is an error.</remarks>
+    [AvaloniaFact]
+    public async Task A_Selection_The_Filter_Partly_Hides_Is_Made_And_One_It_Wholly_Hides_Says_So()
+    {
+        var path = Path.Combine(_directory, "dots.svg");
+
+        File.WriteAllText(path, """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="4" />
+              <rect width="24" height="24" />
+            </svg>
+            """);
+
+        var (window, port) = await Serving(path);
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        await using var client = await Client(port);
+
+        viewer.Elements.Filter = "circle";
+        Dispatcher.UIThread.RunJobs();
+
+        var both = await Call(client, "select", new() { ["keys"] = new[] { "0", "1" } });
+        var hidden = await Call(client, "select", new() { ["keys"] = new[] { "1" } });
+
+        Assert.NotEqual(true, both.IsError);
+        Assert.Equal("Selected.", Text(both));
+        Assert.True(hidden.IsError);
+        Assert.Contains("filter", Text(hidden), StringComparison.Ordinal);
+        Assert.Equal(new[] { "0", "1" }, viewer.Elements.SelectedAddresses);
+    }
+
+    /// <remarks>As for an edit asked for twice: what was asked holds already, which a retry after a lost answer finds.</remarks>
+    [AvaloniaFact]
+    public async Task A_Move_Into_The_Group_A_Node_Is_In_Changes_Nothing_And_Is_No_Error()
+    {
+        var path = Path.Combine(_directory, "nested.svgstudio");
+
+        File.WriteAllText(path, Nested);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var there = await Call(client, "move", new() { ["node"] = "1/0", ["into"] = "1" });
+        var inside = await Call(client, "move", new() { ["node"] = "1", ["into"] = "1/0" });
+
+        Assert.NotEqual(true, there.IsError);
+        Assert.StartsWith("Nothing changed", Text(there), StringComparison.Ordinal);
+        Assert.True(inside.IsError);
+        Assert.Equal("It did not move: that would put a group inside itself.", Text(inside));
+        Assert.False(window.Workspace!.CanUndo);
     }
 
     [AvaloniaFact]
@@ -1022,6 +1078,7 @@ public class StudioMcpServerTests : IDisposable
         var misspelled = await Call(client, "render", new() { ["nodes"] = "0/0" });
         var purple = await Call(client, "render", new() { ["node"] = "0/0", ["background"] = "purple" });
         var flat = await Call(client, "render", new() { ["node"] = "0/0", ["svg"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="0" height="24"><rect width="24" height="24" /></svg>""" });
+        var large = await Call(client, "render", new() { ["node"] = "0/0", ["svg"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="5000" height="3000"><rect width="24" height="24" /></svg>""" });
 
         // Emptied as a tab is whose drawing would not load, so what it holds is no SVG at all.
         await window.ShowAsync(window.Workspace!.Document.Root.Drawings.Single());
@@ -1029,7 +1086,7 @@ public class StudioMcpServerTests : IDisposable
         window.GetVisualDescendants().OfType<SvgViewer>().First().Close();
 
         var empty = await Call(client, "render", new() { ["node"] = "0/0" });
-        var refusals = new[] { group, project, missing, none, huge, many, wide, unreadable, misspelled, purple, flat, empty };
+        var refusals = new[] { group, project, missing, none, huge, many, wide, unreadable, misspelled, purple, flat, large, empty };
 
         Assert.All(refusals, result => Assert.True(result.IsError, Text(result)));
         Assert.All(refusals, result => Assert.Empty(result.Content.OfType<ImageContentBlock>()));
@@ -1039,6 +1096,10 @@ public class StudioMcpServerTests : IDisposable
         Assert.Contains("1 to 1024", Text(huge), StringComparison.Ordinal);
         Assert.Contains("8", Text(many), StringComparison.Ordinal);
         Assert.Contains("4096", Text(wide), StringComparison.Ordinal);
+        Assert.Contains("ask for fewer or smaller sizes", Text(wide), StringComparison.Ordinal);
+
+        // Built that large, with no size asked for, there is no size to ask fewer of.
+        Assert.Contains("give a size to draw it smaller", Text(large), StringComparison.Ordinal);
         Assert.Contains("'nodes'", Text(misspelled), StringComparison.Ordinal);
         Assert.Equal("Drawing 0/0 drawing Filled has nothing to draw: it comes to no width or no height.", Text(flat));
         Assert.StartsWith("Drawing 0/0 drawing Filled cannot be drawn: ", Text(empty), StringComparison.Ordinal);
@@ -1077,6 +1138,23 @@ public class StudioMcpServerTests : IDisposable
         // A read tool's answer is never an error, whatever it says: what it read is no refusal.
         Assert.NotEqual(true, group.IsError);
         Assert.Equal("'0' is not a drawing. get_project lists the paths.", Text(group));
+    }
+
+    /// <remarks>A file can hold a size the build refuses, since each setting is read on its own; render already said why in plain text.</remarks>
+    [AvaloniaFact]
+    public async Task Get_Code_Of_A_Size_The_Build_Refuses_Says_Why_As_Plain_Text()
+    {
+        var path = Path.Combine(_directory, "scaled.svgstudio");
+
+        File.WriteAllText(path, Project.Replace("<studio namespace=\"Demo.Icons\">", "<studio namespace=\"Demo.Icons\" width=\"24\" scale=\"2\">", StringComparison.Ordinal));
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var code = await Call(client, "get_code", new() { ["node"] = "0" });
+
+        Assert.NotEqual(true, code.IsError);
+        Assert.StartsWith("Drawing 0 drawing home cannot be generated: ", Text(code), StringComparison.Ordinal);
     }
 
     /// <remarks>

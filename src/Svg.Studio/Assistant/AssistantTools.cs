@@ -51,7 +51,7 @@ public sealed class AssistantTools
 
     private const string Gone = "(no longer in the project)";
 
-    /// <summary>How long get_drawing's answer can grow before it leaves the source out, well under the 100,000 characters Claude Code cuts a tool's answer at.</summary>
+    /// <summary>About how long an answer grows before it leaves things out, well under the 100,000 characters Claude Code cuts a tool's answer at: a source, a value, rows of a list, or the code past a part.</summary>
     private const int Answer = 40_000;
 
     /// <summary>How many problems an answer lists before it says how many more.</summary>
@@ -69,9 +69,7 @@ public sealed class AssistantTools
     /// <remarks>
     /// The window's own undo asks the front tab first and the project second. An edit to a drawing
     /// in no tab lands on the project, so after one the window's undo took back whatever the front
-    /// tab had done instead. Each edit is known by the step its history handed out: one the person
-    /// has taken back, or one in a tab or a project since closed, is passed over, and one they have
-    /// built on is refused, naming what is on top.
+    /// tab had done instead.
     /// </remarks>
     private readonly Stack<Made> _undos = new();
 
@@ -83,7 +81,8 @@ public sealed class AssistantTools
     /// The node the step adds or removes, or the project's root for a step of anyone's, which could
     /// be either: taking it back or putting it again would close the tabs under it without asking.
     /// </param>
-    private sealed record Made(string Label, object Step, SvgViewer? Viewer, ProjectWorkspace? Workspace, ProjectNode? Node = null);
+    /// <param name="Text">The drawing whose text a step of the project's rewrites, under any tab opened on it since.</param>
+    private sealed record Made(string Label, object Step, SvgViewer? Viewer, ProjectWorkspace? Workspace, ProjectNode? Node = null, ProjectDrawing? Text = null);
 
     /// <summary>Whether <see cref="For"/> last handed out the small set, which has no open or save to act on what a tab holds.</summary>
     /// <remarks><see cref="Context"/> is told instead: a session asks for it before the tools, so after a change of model this is still the last one's.</remarks>
@@ -118,7 +117,7 @@ public sealed class AssistantTools
     /// <summary>The tools that, called again with the same arguments, leave things as the first call did.</summary>
     public static readonly IReadOnlySet<string> Repeatable = new HashSet<string>(StringComparer.Ordinal)
     {
-        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "render"
+        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing"
     };
 
     /// <summary>Who the Edit menu says made an edit: "Undo Assistant: make it red".</summary>
@@ -150,14 +149,14 @@ public sealed class AssistantTools
         Add(GetProject, "get_project", "Lists the open project's groups and drawings with their node paths, and which one is in front.");
         Add(GetDrawing, "get_drawing", "Reads a drawing: its elements with their address keys, any problems, and its SVG source.");
         Add(SetAttributes, "set_attributes", "Sets or removes attributes on one element of a drawing, as a single undo step.");
-        Add(Undo, "undo", "Takes back the last edit these tools made, whichever drawing or the project it went to, and names it. Takes nothing back while another edit is on top of it in its tab or the project, and names that one; with no edit of these tools' left, takes back the person's last and names it.");
+        Add(Undo, "undo", "Takes back the last edit these tools made, whichever drawing or the project it went to, and names it. Takes nothing back while another edit is on top of it in its tab or the project, and names that one. With no edit of these tools' left, takes back the person's last and names it; where the person has taken back every one already, the first call takes nothing and says so.");
 
         if (small)
         {
             return tools;
         }
 
-        Add(Redo, "redo", "Puts back what undo last took back, and names it. Puts nothing back while a step taken back since is in front of it, and names that one. Once these tools make a newer edit, or with nothing of undo's left, puts back what Studio's own Redo would, and names it.");
+        Add(Redo, "redo", "Puts back what undo last took back, and names it. Puts nothing back while a step taken back since is in front of it, and names that one. Once these tools make a newer edit, or with nothing of undo's left, puts back what Studio's own Redo would, and names it; where all undo took has been put back already or built over, the first call puts nothing back and says so.");
         Add(GetElement, "get_element", "Reads every attribute of one element of a drawing, and the text set_text changes, as the file writes them.");
         Add(GetNode, "get_node", "Reads the settings of a group, a drawing or the project: each one it gives itself, or the value it inherits and the path of the node giving it, the size it is built at, and what it declares and inherits.");
         Add(GetProblems, "get_problems", "Lists every problem in a drawing, in the drawings under a group, or in the whole project: the one call that finds what is wrong.");
@@ -274,7 +273,7 @@ public sealed class AssistantTools
     /// <summary><see cref="Context"/> on the UI thread, for a client that has no message to put it in.</summary>
     public Task<string> ContextAsync() => Ui(() => Context());
 
-    private Task<string> GetProject() => Ui(() =>
+    private Task<string> GetProject([Description("A group's node path to list only what is under it; empty for the whole project.")] string? node = null) => Ui(() =>
     {
         if (_window.Workspace is not { } workspace)
         {
@@ -283,7 +282,13 @@ public sealed class AssistantTools
                 : "Nothing is open.";
         }
 
+        if (Resolve(node) is not ProjectGroup listed)
+        {
+            return NotA("group", node);
+        }
+
         var text = new StringBuilder();
+        var rows = new List<string>();
         var held = _window.HoldingEdits();
 
         text.Append("Project ").Append(workspace.Name)
@@ -304,30 +309,30 @@ public sealed class AssistantTools
 
         text.Append("Nodes (path, kind, name, the settings it gives itself; a drawing takes each setting but x and y from the nearest of itself and the nodes above it to give one, the nearest giving any of width, height or scale decides all three, and every drawing under a group inherits what it declares):\n");
 
-        Walk(workspace.Document.Root, 0);
+        Walk(listed, 0);
 
-        return text.ToString();
+        return text.Append(Fit(rows, "get_project with a group's path lists only what is under it", text.Length)).Append(rows.Count > 0 ? "\n" : null).ToString();
 
         void Walk(ProjectGroup group, int depth)
         {
             foreach (var child in group.Children)
             {
-                text.Append(new string(' ', depth * 2)).Append(Path(child)).Append(' ')
+                var row = new StringBuilder(new string(' ', depth * 2)).Append(Path(child)).Append(' ')
                     .Append(child is ProjectGroup ? "group" : "drawing").Append(' ')
                     .Append(ProjectWorkspace.Label(child))
                     .Append(OwnSettings(child));
 
                 if (_window.TabOf(child) is { })
                 {
-                    text.Append(held.Contains(child) ? " (open, holding unsaved edits)" : " (open)");
+                    row.Append(held.Contains(child) ? " (open, holding unsaved edits)" : " (open)");
                 }
 
                 if (child is ProjectGroup holder && Declares(holder) is { } names)
                 {
-                    text.Append(names);
+                    row.Append(names);
                 }
 
-                text.Append('\n');
+                rows.Add(row.ToString());
 
                 if (child is ProjectGroup inner)
                 {
@@ -338,7 +343,8 @@ public sealed class AssistantTools
     });
 
     private Task<string> GetDrawing(
-        [Description("The drawing's node path from get_project; empty for the drawing in front.")] string? node = null)
+        [Description("The drawing's node path from get_project; empty for the drawing in front.")] string? node = null,
+        [Description("An element's address key to list only the elements inside it; empty for all of them.")] string? key = null)
         => Ui(() =>
         {
             if (Target(node, out var about) is not { } target)
@@ -348,30 +354,37 @@ public sealed class AssistantTools
 
             var text = new StringBuilder(about).Append('\n');
             var source = target.Text;
+            var read = SvgSourceDocument.Read(source, out var unreadable);
+            var root = read?.Document.Root;
+            var under = Key(key);
 
-            var root = SvgSourceDocument.Read(source, out var unreadable)?.Document.Root;
+            if (read is { } && under.Length > 0 && SvgAttributeEditor.ElementName(read, under) is null)
+            {
+                return $"There is no element {under}. get_drawing lists the keys.";
+            }
+
+            // Read first, for the outline to leave them room.
+            var drawing = Drawing(node);
+            var after = new StringBuilder(drawing is { } ? Inherits(drawing) : null);
+            var rows = new List<string>();
+
+            if (Problems(drawing, source) is { Count: > 0 } problems)
+            {
+                after.Append(Cut(problems.Select(problem => "Problem: " + problem).ToList(), null)).Append('\n');
+            }
 
             if (root is { })
             {
-                text.Append("Elements (address key, element, id or name):\n");
                 Outline(root, string.Empty, 0);
+                text.Append("Elements (address key, element, id or name):\n");
+                text.Append(Fit(rows, "get_drawing with an element's key lists only what is inside it", text.Length + after.Length)).Append('\n');
             }
             else
             {
                 text.Append("The source does not read as XML: ").Append(unreadable).Append('\n');
             }
 
-            var drawing = Drawing(node);
-
-            if (drawing is { })
-            {
-                text.Append(Inherits(drawing));
-            }
-
-            if (Problems(drawing, source) is { Count: > 0 } problems)
-            {
-                text.Append(Cut(problems.Select(problem => "Problem: " + problem).ToList(), null)).Append('\n');
-            }
+            text.Append(after);
 
             // Whole or not at all: replace_drawing takes the source back whole, and one cut short
             // and sent back would write the cut into the drawing.
@@ -388,28 +401,31 @@ public sealed class AssistantTools
 
             return text.ToString();
 
-            void Outline(XElement element, string key, int depth)
+            void Outline(XElement element, string at, int depth)
             {
-                text.Append(new string(' ', depth * 2)).Append(key.Length == 0 ? "(root)" : key).Append(' ')
-                    .Append(SvgAttributeEditor.ElementName(element));
-
-                if (element.Attribute("id")?.Value is { } id)
+                if (under.Length == 0 || at == under || at.StartsWith(under + "/", StringComparison.Ordinal))
                 {
-                    text.Append(" #").Append(id);
-                }
-                else if (element.Attribute("name")?.Value is { } name)
-                {
-                    // Not "#", which is an id's here: no url(#…) finds a declaration by its name.
-                    text.Append(" name=").Append(name);
-                }
+                    var row = new StringBuilder(new string(' ', depth * 2)).Append(at.Length == 0 ? "(root)" : at).Append(' ')
+                        .Append(SvgAttributeEditor.ElementName(element));
 
-                text.Append('\n');
+                    if (element.Attribute("id")?.Value is { } id)
+                    {
+                        row.Append(" #").Append(id);
+                    }
+                    else if (element.Attribute("name")?.Value is { } name)
+                    {
+                        // Not "#", which is an id's here: no url(#…) finds a declaration by its name.
+                        row.Append(" name=").Append(name);
+                    }
+
+                    rows.Add(row.ToString());
+                }
 
                 var index = 0;
 
                 foreach (var child in element.Elements())
                 {
-                    Outline(child, key.Length == 0 ? index.ToString(CultureInfo.InvariantCulture) : $"{key}/{index}", depth + 1);
+                    Outline(child, at.Length == 0 ? index.ToString(CultureInfo.InvariantCulture) : $"{at}/{index}", depth + 1);
                     index++;
                 }
             }
@@ -441,24 +457,23 @@ public sealed class AssistantTools
 
             foreach (var attribute in SvgAttributeEditor.Attributes(source, key))
             {
-                var value = attribute.Value;
-
-                // An embedded image is its base64, which no answer has room for; marked so that, copied back, it is plainly no URI.
-                if (value.Length > 1_000 && value.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                {
-                    value = $"(left out: {value[..Math.Max(value.IndexOfAny(new[] { ';', ',' }), 5)]}, {value.Length} characters)";
-                }
-
-                text.Append(attribute.Name).Append('=').Append(value).Append('\n');
+                text.Append(attribute.Name).Append('=').Append(Shown(attribute.Value)).Append('\n');
             }
 
             // What set_text changes, which get_drawing does not show where it leaves the source out.
             if (SvgAttributeEditor.Content(source, key, out _) is { } words)
             {
-                text.Append("Text: ").Append(words).Append('\n');
+                text.Append("Text: ").Append(Shown(words)).Append('\n');
             }
 
             return text.ToString();
+
+            // An embedded image is its base64, which no answer has room for, and the client cuts one
+            // longer than an answer holds; marked so that, copied back, it is plainly no value.
+            string Shown(string value)
+                => value.Length > 1_000 && value.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ? $"(left out: {value[..Math.Max(value.IndexOfAny(new[] { ';', ',' }), 5)]}, {value.Length} characters)"
+                   : text.Length + value.Length > Answer ? $"(left out: {value.Length} characters, more than this answer holds)"
+                   : value;
         });
 
     private Task<string> GetNode(
@@ -546,44 +561,45 @@ public sealed class AssistantTools
             }
 
             var log = new List<string>();
-            Func<string?> generate;
             string what;
-
-            // Everything read here, on the UI thread, and built from off it as Export builds.
-            if (Drawing(node) is { } drawing && _window.Workspace is { } workspace)
-            {
-                var project = workspace.Document.Flatten((drawing, target.Text));
-                var item = project.Items.Single();
-                var settings = SvgcBuildSettings.For(project);
-                var loader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
-
-                // Export's answer where the person gave one; asked, it is baked unless they choose
-                // otherwise, and a text it freezes is among the warnings.
-                settings.TextLayout = StudioSettings.RelaxedText == RelaxedTextAnswer.Always ? SvgTextLayout.Relaxed : SvgTextLayout.Baked;
-                generate = () => SvgcProjectBuild.Generate(item, settings, loader, log.Add);
-                what = $"the C# svgc writes for it alone, class {item.Namespace ?? settings.Namespace}.{item.Class}"
-                       + (string.Equals(target.Text, drawing.Text, StringComparison.Ordinal) ? null : ", built from the text in its tab")
-                       + " (Export writes every drawing into one file, with the helpers where helperScope puts them)";
-            }
-            else if (target is SvgViewer { Document: { } document } viewer)
-            {
-                var (text, name) = (viewer.Source, viewer.ClassName?.Invoke() ?? SvgExport.ClassName(viewer.DocumentPath ?? "drawing"));
-
-                generate = () => SvgExport.Generate(document, text, name);
-                what = $"the C# Export writes for it when no project is open, class {SvgExport.Namespace}.{name}";
-            }
-            else
-            {
-                return $"{about} has not loaded, so there is nothing to generate from.";
-            }
-
             string? code;
 
             try
             {
+                Func<string?> generate;
+
+                // Everything read here, on the UI thread, and built from off it as Export builds.
+                if (Drawing(node) is { } drawing && _window.Workspace is { } workspace)
+                {
+                    var project = workspace.Document.Flatten((drawing, target.Text));
+                    var item = project.Items.Single();
+                    var settings = SvgcBuildSettings.For(project);
+                    var loader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
+
+                    // Export's answer where the person gave one; asked, it is baked unless they choose
+                    // otherwise, and a text it freezes is among the warnings.
+                    settings.TextLayout = StudioSettings.RelaxedText == RelaxedTextAnswer.Always ? SvgTextLayout.Relaxed : SvgTextLayout.Baked;
+                    generate = () => SvgcProjectBuild.Generate(item, settings, loader, log.Add);
+                    what = $"the C# svgc writes for it alone, class {item.Namespace ?? settings.Namespace}.{item.Class}"
+                           + (string.Equals(target.Text, drawing.Text, StringComparison.Ordinal) ? null : ", built from the text in its tab")
+                           + " (Export writes every drawing into one file, with the helpers where helperScope puts them)";
+                }
+                else if (target is SvgViewer { Document: { } document } viewer)
+                {
+                    var (text, name) = (viewer.Source, viewer.ClassName?.Invoke() ?? SvgExport.ClassName(viewer.DocumentPath ?? "drawing"));
+
+                    generate = () => SvgExport.Generate(document, text, name);
+                    what = $"the C# Export writes for it when no project is open, class {SvgExport.Namespace}.{name}";
+                }
+                else
+                {
+                    return $"{about} has not loaded, so there is nothing to generate from.";
+                }
+
                 code = await Task.Run(generate).ConfigureAwait(true);
             }
-            // ArgumentException for an emptied tab, which the parser takes for no text, and for clamp.
+            // ArgumentException for an emptied tab, which the parser takes for no text, for clamp, and
+            // for a size or padding the build refuses, which a file can hold since each is read alone.
             catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException or InvalidOperationException or XmlException or ArgumentException)
             {
                 return $"{about} cannot be generated: {failure.Message}";
@@ -746,7 +762,7 @@ public sealed class AssistantTools
 
                 if (width > 4096 || row * grounds.Length > 4096)
                 {
-                    return (null, $"That would be {width}×{row * grounds.Length} px, more than 4096 on a side; ask for fewer or smaller sizes.");
+                    return (null, $"That would be {width}×{row * grounds.Length} px, more than 4096 on a side; {(size is { Length: > 0 } ? "ask for fewer or smaller sizes" : "give a size to draw it smaller")}.");
                 }
 
                 using var sheet = new SKBitmap(width, row * grounds.Length);
@@ -852,9 +868,7 @@ public sealed class AssistantTools
             var before = target.Text;
 
             // A tab has a history of its own to put the whole text on; a drawing in no tab is the
-            // project's, where the same text goes in as one step of the project's history. Only the
-            // root is kept, so the same root again is no step, whatever surrounds it. It is read with
-            // plain newlines, and the drawing's text ends its lines as the project file does.
+            // project's, where the same text goes in as one step of the project's history.
             if (target is SvgViewer viewer)
             {
                 // False is a refusal, which the viewer says through ErrorRaised, or text already there, which it does not.
@@ -876,6 +890,8 @@ public sealed class AssistantTools
                 }
             }
             else if (Resolve(node) is ProjectDrawing drawing && _window.Workspace is { } workspace
+                // Only the root is kept, read with plain newlines where the file may end its lines
+                // otherwise, so the same root again is no step.
                 && read.TextOf(read.Document.Root!) != before.Replace("\r\n", "\n", StringComparison.Ordinal))
             {
                 workspace.Do(Label(summary), () => ProjectSnapshot.Text(drawing), () => drawing.SetText(svg));
@@ -983,9 +999,14 @@ public sealed class AssistantTools
                 return "None of those keys is an element of the drawing in front.";
             }
 
-            return viewer.Elements.TrySelect(picked)
+            // By what is selected afterwards: TrySelect is false for a row the Elements filter hides,
+            // and selects it all the same.
+            viewer.Elements.TrySelect(picked);
+
+            return viewer.Elements.SelectedAddresses.ToHashSet(StringComparer.Ordinal).SetEquals(picked)
                 ? Report((keys.Length == 0 ? "Selection cleared." : "Selected.") + (missing.Count > 0 ? $" Not elements of this drawing: {string.Join(", ", missing)}." : string.Empty), "select")
-                : "Nothing changed.";
+                : "Nothing changed: the Elements pane has no row for any of them"
+                  + (viewer.Elements.Filter is { Length: > 0 } filter ? $"; the filter \"{filter}\" typed there hides them, and clearing it shows them." : ".");
         });
 
     private Task<string> Undo() => Ui(() => Step(back: true));
@@ -1000,7 +1021,8 @@ public sealed class AssistantTools
     /// <remarks>
     /// One the person has stepped already, built over, or that was in a tab or a project since closed,
     /// is passed over. One behind a step of the person's is refused, naming that step, and kept; so is
-    /// one that would take a node whose tab holds edits out of the project, which closes the tab unasked.
+    /// one that would take a node whose tab holds edits out of the project, which closes the tab unasked,
+    /// and one rewriting a drawing's text under a tab holding edits, which shows and saves them over it.
     /// </remarks>
     private string Step(bool back)
     {
@@ -1056,6 +1078,11 @@ public sealed class AssistantTools
             return $"Nothing was {verb} back: {Named(holding)} has edits in its tab not yet saved into the project, and {doing} back \"{made.Label}\" could close it without asking; open it and save them first.";
         }
 
+        if (made.Text is { } drawing && _window.TabOf(drawing)?.Content is SvgViewer { IsSourceModified: true })
+        {
+            return $"Nothing was {verb} back: {Named(drawing)} has edits in its tab not yet saved into the project, made over \"{made.Label}\"; {doing} it back in the project would not reach the tab, whose next save writes over it. Open it and save or undo them first.";
+        }
+
         if (from.TryPeek(out var mine) && ReferenceEquals(mine, made))
         {
             from.Pop();
@@ -1101,7 +1128,8 @@ public sealed class AssistantTools
 
         Undoable(label, node: added);
 
-        return Report($"Added the group {(added is { } ? Path(added) : "(unknown)")}; set_node renames it." + Undoes, "add group");
+        // Null only with no project open, which Resolve has ruled out.
+        return Report($"Added the group {Path(added!)}; set_node renames it." + Undoes, "add group");
     });
 
     private Task<string> AddDrawing(
@@ -1152,11 +1180,16 @@ public sealed class AssistantTools
                 return NotA("group", into);
             }
 
+            if (ReferenceEquals(moving.Parent, group))
+            {
+                return Report("Nothing changed; it is already in that group.", null);
+            }
+
             var label = Label($"move {ProjectWorkspace.Label(moving)}");
 
             if (!_window.Move(moving, group, label))
             {
-                return "It did not move: it is already there, or that would put a group inside itself.";
+                return "It did not move: that would put a group inside itself.";
             }
 
             Undoable(label);
@@ -1197,8 +1230,17 @@ public sealed class AssistantTools
                 return $"{Named(found)} has settings typed in the tab of {Named(holder)}, not yet in the project, that saving would write over this; open that tab and save first.";
             }
 
-            // As the node's own panel tells a value typed back to what the file says.
-            if (text == GroupPanel.Value(found, setting))
+            // Written and put back, since Write spells a value as the file does and can take a partner
+            // with it: 24.0 for a width of 24 is no step, and the same width beside a scale is one.
+            var was = found.Element.Attributes().Select(attribute => new XAttribute(attribute)).ToList();
+
+            GroupPanel.Write(found, setting, text);
+
+            var same = string.Concat(found.Element.Attributes()) == string.Concat(was);
+
+            found.Element.ReplaceAttributes(was);
+
+            if (same)
             {
                 return Report("Nothing changed; it already says that.", null);
             }
@@ -1422,6 +1464,19 @@ public sealed class AssistantTools
         => string.Join("\n", lines.Take(most))
            + (lines.Count > most ? $"\n… and {lines.Count - most} more{(narrower is null ? null : "; " + narrower)}." : string.Empty);
 
+    /// <summary><see cref="Cut"/> at as many of <paramref name="lines"/> as fit in an answer holding <paramref name="used"/> characters besides.</summary>
+    private static string Fit(IReadOnlyList<string> lines, string narrower, int used)
+    {
+        var most = 0;
+
+        while (most < lines.Count && (used += lines[most].Length + 1) <= Answer)
+        {
+            most++;
+        }
+
+        return Cut(lines, narrower, most);
+    }
+
     /// <summary>The drawing as it stands: the buffer of a tab holding it, or the project's text.</summary>
     private string Text(ProjectDrawing drawing) => _window.DrawingOf(drawing)?.Text ?? drawing.Text;
 
@@ -1457,7 +1512,7 @@ public sealed class AssistantTools
             return Report("Nothing changed; it already says that.", null);
         }
 
-        Undoable(Label(summary), target as SvgViewer);
+        Undoable(Label(summary), target as SvgViewer, text: target is SvgViewer ? null : Drawing(node));
 
         var problems = Problems(Drawing(node), target.Text);
 
@@ -1472,7 +1527,8 @@ public sealed class AssistantTools
     /// ends what redo had to put back, as any new edit does.
     /// </summary>
     /// <param name="node">The node the step added or removed, if it did either.</param>
-    private void Undoable(string label, SvgViewer? viewer = null, ProjectNode? node = null)
+    /// <param name="text">The drawing whose text a step of the project's rewrote, if it did.</param>
+    private void Undoable(string label, SvgViewer? viewer = null, ProjectNode? node = null, ProjectDrawing? text = null)
     {
         _redos.Clear();
 
@@ -1480,7 +1536,7 @@ public sealed class AssistantTools
 
         if (Way(viewer, workspace, back: true) is ({ } step, var top, _, _) && top == label)
         {
-            _undos.Push(new Made(label, step, viewer, workspace, node));
+            _undos.Push(new Made(label, step, viewer, workspace, node, text));
         }
     }
 

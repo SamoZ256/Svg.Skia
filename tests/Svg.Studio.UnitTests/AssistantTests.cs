@@ -858,6 +858,45 @@ public class AssistantTests : IDisposable
         Assert.EndsWith("… and 10 more.", chat.Results[3], StringComparison.Ordinal);
     }
 
+    /// <remarks>
+    /// A library of icons, or a traced drawing of thousands of paths, listed whole ran past what a
+    /// client takes, and get_element sent a path's whole d where get_drawing had pointed to it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Project_Or_A_Drawing_Too_Large_To_List_Whole_Is_Cut_And_Says_How_To_Narrow_It()
+    {
+        var icon = "<drawing name=\"An icon with a name long enough to fill a row\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" /></drawing>";
+        var sets = string.Concat(Enumerable.Range(0, 10).Select(set => $"<group name=\"Set {set}\">{string.Concat(Enumerable.Repeat(icon, 100))}</group>"));
+        var paths = string.Concat(Enumerable.Range(0, 30).Select(_ => "<g>" + string.Concat(Enumerable.Repeat("<path d=\"M0 0h1\" />", 100)) + "</g>"));
+        var scribble = "M0 0" + string.Concat(Enumerable.Repeat(" l1 1", 10_000));
+        var traced = $"<drawing name=\"Traced\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">{paths}<path d=\"{scribble}\" /></svg></drawing>";
+        var window = await Host(Write("library.svgstudio", $"<studio namespace=\"Demo.Icons\">{traced}<group name=\"Library\">{sets}</group></studio>"));
+        var chat = new ScriptedChat(
+            Call("get_project", new()),
+            Call("get_project", new() { ["node"] = "1/3" }),
+            Call("get_drawing", new() { ["node"] = "0" }),
+            Call("get_drawing", new() { ["node"] = "0", ["key"] = "5" }),
+            Call("get_element", new() { ["node"] = "0", ["key"] = "30" }),
+            Call("get_project", new() { ["node"] = "0" }),
+            Call("get_drawing", new() { ["node"] = "0", ["key"] = "31" }),
+            Say("Read."));
+
+        await Send(window, chat, "what is in it");
+
+        Assert.All(chat.Results, result => Assert.True(result.Length < 41_000, $"{result.Length} characters"));
+        Assert.Matches(@"\n… and \d+ more; get_project with a group's path lists only what is under it\.\n$", chat.Results[0]);
+        Assert.Equal(100, chat.Results[1].Split('\n').Count(line => line.StartsWith("1/3/", StringComparison.Ordinal)));
+        Assert.DoesNotContain("… and", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("… and ", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains(" more; get_drawing with an element's key lists only what is inside it.\n", chat.Results[2], StringComparison.Ordinal);
+        Assert.DoesNotContain("Source:", chat.Results[2], StringComparison.Ordinal);
+        Assert.Equal(101, chat.Results[3].Split('\n').Count(line => line.TrimStart().StartsWith("5", StringComparison.Ordinal)));
+        Assert.DoesNotContain("\n  4", chat.Results[3], StringComparison.Ordinal);
+        Assert.Contains($"d=(left out: {scribble.Length} characters", chat.Results[4], StringComparison.Ordinal);
+        Assert.Equal("'0' is not a group. get_project lists the paths.", chat.Results[5]);
+        Assert.Equal("There is no element 31. get_drawing lists the keys.", chat.Results[6]);
+    }
+
     [AvaloniaFact]
     public async Task A_Path_Is_Quoted_When_It_Names_Nothing_And_Without_A_Project_None_Is_Asked_For()
     {
@@ -1435,6 +1474,120 @@ public class AssistantTests : IDisposable
         Assert.Equal(new[] { "home", "Badges" }, root.Children.Select(child => child.Name));
     }
 
+    /// <remarks>
+    /// Taken back underneath, the tab went on showing the edit and handing it to the tools, and its
+    /// next save wrote it into the project again.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Project_Edit_Is_Not_Stepped_Under_The_Persons_Typing_In_A_Tab_Opened_On_It_Since()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var tools = new AssistantTools(window);
+
+        await Send(
+            window,
+            new ScriptedChat(Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#111111" } }, ["summary"] = "darken" }), Say("Done.")),
+            "darken home",
+            tools: tools);
+
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "mine");
+
+        var chat = new ScriptedChat(Call("undo", new()), Say("Not undone."));
+
+        await Send(window, chat, "undo", tools: tools);
+
+        Assert.StartsWith("Nothing was taken back: 0 home has edits in its tab", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("\"Assistant: darken\"", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("#111111", home.Text, StringComparison.Ordinal);
+
+        // Once the person takes their typing back, the edit is next; typed over again, the redo is refused the same way.
+        Assert.True(viewer.Undo());
+
+        var again = new ScriptedChat(Call("undo", new()), Say("Undone."));
+
+        await Send(window, again, "undo", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: darken\".", again.Results[0]);
+        Assert.DoesNotContain("#111111", home.Text, StringComparison.Ordinal);
+
+        await Gestures.Until(() => !viewer.Source.Contains("#111111", StringComparison.Ordinal));
+        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "mine");
+
+        var redo = new ScriptedChat(Call("redo", new()), Say("Not put back."));
+
+        await Send(window, redo, "redo", tools: tools);
+
+        Assert.StartsWith("Nothing was put back: 0 home has edits in its tab", redo.Results[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("#111111", home.Text, StringComparison.Ordinal);
+    }
+
+    /// <remarks>
+    /// A tab behind the front one is reloaded from the project once it comes to the front, so an
+    /// edit made in its buffer was thrown away then, and what it read was the text before the step.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Edit_To_A_Drawing_Whose_Tab_Is_Out_Of_Date_Goes_To_The_Project_And_Shows_When_It_Comes_Back()
+    {
+        var window = await Host(Write("sized.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <group name="Badges" width="24" height="24">
+                <drawing name="Filled">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+                </drawing>
+                <drawing name="Wide" width="40">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+                </drawing>
+              </group>
+            </studio>
+            """));
+        var group = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+        var filled = (ProjectDrawing)group.Children[0];
+        var tools = new AssistantTools(window);
+
+        await window.ShowAsync(filled);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        await window.ShowAsync(group.Children[1]);
+        Dispatcher.UIThread.RunJobs();
+
+        // The group's width is Filled's, so its tab behind is out of date.
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "width", ["value"] = "48" }),
+            Call("set_attributes", new() { ["node"] = "0/0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "deepen" }),
+            Call("get_drawing", new() { ["node"] = "0/0" }),
+            Say("Done."));
+
+        await Send(window, chat, "widen Badges and deepen Filled", tools: tools);
+
+        Assert.StartsWith("Done.", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("#123456", filled.Text, StringComparison.Ordinal);
+        Assert.False(viewer.IsSourceModified);
+        Assert.Contains("#123456", chat.Results[2], StringComparison.Ordinal);
+
+        await window.ShowAsync(filled);
+        await Gestures.Until(() => viewer.Source.Contains("#123456", StringComparison.Ordinal));
+
+        Assert.False(viewer.IsSourceModified);
+
+        await window.ShowAsync(group.Children[1]);
+        Dispatcher.UIThread.RunJobs();
+
+        var back = new ScriptedChat(Call("undo", new()), Call("get_drawing", new() { ["node"] = "0/0" }), Say("Undone."));
+
+        await Send(window, back, "undo", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: deepen\".", back.Results[0]);
+        Assert.DoesNotContain("#123456", back.Results[1], StringComparison.Ordinal);
+    }
+
     [AvaloniaFact]
     public async Task A_Nodes_Own_Settings_Are_Told_From_What_It_Inherits_And_From_Where()
     {
@@ -1769,6 +1922,25 @@ public class AssistantTests : IDisposable
         Assert.StartsWith("Nothing changed", chat.Results[1], StringComparison.Ordinal);
         Assert.Equal("Took back \"Assistant: change name\".", chat.Results[2]);
         Assert.Equal("Badges", badges.Name);
+        Assert.False(workspace.CanUndo);
+        Assert.False(workspace.IsEdited);
+    }
+
+    /// <remarks>Told by the raw text, a width the file writes as 24 asked for as 24.0 was a step that changed nothing, again on every retry.</remarks>
+    [AvaloniaFact]
+    public async Task A_Setting_Spelled_Otherwise_Than_The_File_Spells_It_Is_No_Step()
+    {
+        var window = await Host(Write("sized.svgstudio", Sized));
+        var workspace = window.Workspace!;
+
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "width", ["value"] = "24.0" }),
+            Call("set_node", new() { ["node"] = "0/1", ["setting"] = "width", ["value"] = "4e1" }),
+            Say("Unchanged."));
+
+        await Send(window, chat, "set the widths they have");
+
+        Assert.All(chat.Results, result => Assert.StartsWith("Nothing changed", result, StringComparison.Ordinal));
         Assert.False(workspace.CanUndo);
         Assert.False(workspace.IsEdited);
     }
