@@ -1499,7 +1499,8 @@ public partial class MainWindow : Window
 
     /// <summary>Adds an empty group, and opens it so it can be given a name.</summary>
     /// <remarks>Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.</remarks>
-    public async Task AddGroupAsync(ProjectNode beside)
+    /// <param name="label">What the step is called in place of "add group", for a caller that says who made it.</param>
+    public async Task AddGroupAsync(ProjectNode beside, string? label = null)
     {
         if (_workspace is not { } workspace)
         {
@@ -1510,7 +1511,7 @@ public partial class MainWindow : Window
         ProjectGroup? group = null;
 
         workspace.Do(
-            "add group",
+            label ?? "add group",
             () => ProjectSnapshot.Contents(parent),
             () => group = parent.AddGroup("group", index));
 
@@ -1613,7 +1614,8 @@ public partial class MainWindow : Window
     /// Where what the import had to say goes, for a caller with nowhere to show a dialog; null
     /// announces it here, which is what a drop or a paste wants.
     /// </param>
-    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true, List<string>? notes = null)
+    /// <param name="label">What the step is called, in place of the import's own.</param>
+    public async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(ProjectGroup parent, int index, IReadOnlyList<TemplateImport> imports, bool show = true, List<string>? notes = null, string? label = null)
     {
         if (_workspace is not { } workspace || imports.Count == 0)
         {
@@ -1621,7 +1623,7 @@ public partial class MainWindow : Window
         }
 
         var said = notes ?? new List<string>();
-        var added = TemplateLibrary.Import(workspace, parent, index, imports, said);
+        var added = TemplateLibrary.Import(workspace, parent, index, imports, said, label);
 
         if (notes is null)
         {
@@ -1744,10 +1746,11 @@ public partial class MainWindow : Window
     /// removed node goes on writing settings into a detached element and reporting itself saved.
     /// </remarks>
     /// <returns>Whether it was removed, or false when the question was answered against it.</returns>
-    public Task<bool> RemoveAsync(ProjectNode node) => RemoveAsync(new[] { node });
+    public Task<bool> RemoveAsync(ProjectNode node, string? label = null) => RemoveAsync(new[] { node }, label);
 
     /// <summary>Takes several rows out of the project, as one step to undo.</summary>
-    public async Task<bool> RemoveAsync(IReadOnlyList<ProjectNode> nodes)
+    /// <param name="label">What the step is called in place of "remove" and the rows, for a caller that says who made it.</param>
+    public async Task<bool> RemoveAsync(IReadOnlyList<ProjectNode> nodes, string? label = null)
     {
         var removed = nodes.Where(node => node.Parent is { }).ToList();
 
@@ -1769,7 +1772,7 @@ public partial class MainWindow : Window
         var parents = removed.Select(node => node.Parent!).Distinct().ToList();
 
         workspace.Do(
-            Labelled("remove", removed),
+            label ?? Labelled("remove", removed),
             () => ProjectSnapshot.All(parents.Select(ProjectSnapshot.Contents).ToArray()),
             () =>
             {
@@ -2072,11 +2075,12 @@ public partial class MainWindow : Window
     /// Whether it moved. A drop that lands nowhere, that would take a group into itself, or that
     /// puts a row back in the group it is already in, does not.
     /// </returns>
-    public bool Move(ProjectNode node, ProjectNode target) => Move(new[] { node }, target);
+    public bool Move(ProjectNode node, ProjectNode target, string? label = null) => Move(new[] { node }, target, label);
 
     /// <summary>Moves several rows into the group a drop on <paramref name="target"/> means, as one step.</summary>
-    /// <inheritdoc cref="Move(ProjectNode, ProjectNode)" path="/returns"/>
-    public bool Move(IReadOnlyList<ProjectNode> nodes, ProjectNode target)
+    /// <inheritdoc cref="Move(ProjectNode, ProjectNode, string?)" path="/returns"/>
+    /// <param name="label">What the step is called in place of "move" and the rows, for a caller that says who made it.</param>
+    public bool Move(IReadOnlyList<ProjectNode> nodes, ProjectNode target, string? label = null)
     {
         if (_workspace is not { } workspace || Landing(target) is not { } landing)
         {
@@ -2104,7 +2108,7 @@ public partial class MainWindow : Window
         // it lands, and takes it out of one list and puts it into another. Indentation first, while
         // where a row sits still says what depth it was written at.
         workspace.Do(
-            Labelled("move", moving),
+            label ?? Labelled("move", moving),
             () => ProjectSnapshot.All(
                 moving.Select(ProjectSnapshot.Indentation)
                     .Append(ProjectSnapshot.Contents(landing))
@@ -3783,7 +3787,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// The first node whose tab holds edits that removing <paramref name="node"/> would lose: one at or
-    /// under it, which <see cref="RemoveAsync(ProjectNode)"/> closes and so asks about, or a group whose
+    /// under it, which <see cref="RemoveAsync(ProjectNode, string?)"/> closes and so asks about, or a group whose
     /// board has picked one, whose typed settings would fall to the group once it is gone.
     /// </summary>
     internal ProjectNode? HoldingEdits(ProjectNode node)
@@ -4381,19 +4385,17 @@ public partial class MainWindow : Window
 
             if (viewer.IsSourceModified && selected.Tag is ProjectDrawing drawing)
             {
-                string? refusal = null;
+                if (ProjectDrawing.Read(viewer.Source, out var refusal) is null)
+                {
+                    await ChangesPanel.Say(Announce, title, refusal ?? "The drawing cannot be read.", notes).ConfigureAwait(true);
+
+                    return false;
+                }
 
                 holder.Do(
                     $"save {ProjectWorkspace.Label(drawing)}",
                     () => ProjectSnapshot.Text(drawing),
-                    () => refusal = drawing.SetText(viewer.Source));
-
-                if (refusal is { })
-                {
-                    await ChangesPanel.Say(Announce, title, refusal, notes).ConfigureAwait(true);
-
-                    return false;
-                }
+                    () => drawing.SetText(viewer.Source));
             }
         }
 

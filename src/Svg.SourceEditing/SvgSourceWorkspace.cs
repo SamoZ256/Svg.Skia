@@ -85,6 +85,13 @@ public sealed class SvgSourceWorkspace
     /// <inheritdoc cref="UndoLabel"/>
     public string? RedoLabel => CanRedo ? _labels[_at + 1] : null;
 
+    /// <summary>The step <see cref="Undo"/> would take back, for whoever made it to know it again.</summary>
+    /// <remarks>The state the step left, which each commit writes afresh, so no two steps share one whatever they are labelled.</remarks>
+    public object? UndoStep => CanUndo ? _states[_at] : null;
+
+    /// <summary>Whether <paramref name="step"/>, once an <see cref="UndoStep"/>, is still done: not taken back, built over, or trimmed away.</summary>
+    public bool Holds(object step) => _states.FindIndex(1, _at, state => ReferenceEquals(state, step)) >= 0;
+
     /// <summary>Opens a drawing, or refuses with a sentence saying why it could not be read.</summary>
     public static SvgSourceWorkspace? Open(string svgText, out string? refusal)
     {

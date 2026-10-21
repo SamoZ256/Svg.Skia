@@ -262,12 +262,15 @@ public class StudioMcpServerTests : IDisposable
         Dispatcher.UIThread.RunJobs();
         window.GetVisualDescendants().OfType<SvgViewer>().First().SetSource("<div/>");
 
+        var top = window.Workspace.UndoLabel;
         var refused = await Call(client, "git_commit", new() { ["message"] = "Break it" });
 
         Assert.True(refused.IsError);
         Assert.Contains("has to be an <svg>", Text(refused), StringComparison.Ordinal);
         Assert.Empty(_announced);
         Assert.Equal("2", Git(work, "rev-list", "--count", "HEAD").Trim());
+        Assert.Equal(top, window.Workspace.UndoLabel);
+        Assert.False(window.Workspace.IsEdited);
     }
 
     [AvaloniaFact]
@@ -489,6 +492,53 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.True(window.Undo());
         Assert.Equal(before, viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Undo_Under_The_Persons_Edit_Is_Refused_And_Names_It()
+    {
+        var path = Path.Combine(_directory, "nested.svgstudio");
+
+        File.WriteAllText(path, Nested);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var workspace = window.Workspace!;
+        var root = workspace.Document.Root;
+
+        var moved = await Call(client, "move", new() { ["node"] = "0", ["into"] = "1" });
+
+        Assert.NotEqual(true, moved.IsError);
+        Assert.Equal("Claude Code: move home", workspace.UndoLabel);
+
+        // The person drags Dot out to the project.
+        Assert.True(window.Move(((ProjectGroup)((ProjectGroup)root.Children[0]).Children[0]).Children[0], root));
+
+        var buried = await Call(client, "undo", new());
+        var still = await Call(client, "undo", new());
+
+        Assert.True(buried.IsError);
+        Assert.Contains("\"move Dot\"", Text(buried), StringComparison.Ordinal);
+        Assert.Equal(Text(buried), Text(still));
+        Assert.Equal("move Dot", workspace.UndoLabel);
+
+        Assert.True(workspace.Undo());
+
+        var undone = await Call(client, "undo", new());
+        var same = await Call(client, "set_attributes", new()
+        {
+            ["node"] = "0",
+            ["key"] = "0",
+            ["attributes"] = new[] { new { name = "fill", value = "#00ff00" } },
+            ["summary"] = "green"
+        });
+
+        Assert.NotEqual(true, undone.IsError);
+        Assert.Equal("Took back \"Claude Code: move home\".", Text(undone));
+        Assert.Equal(new[] { "home", "Badges" }, root.Children.Select(child => child.Name));
+        Assert.True(same.IsError);
+        Assert.StartsWith("Nothing changed", Text(same), StringComparison.Ordinal);
+        Assert.Empty(_announced);
     }
 
     [AvaloniaFact]

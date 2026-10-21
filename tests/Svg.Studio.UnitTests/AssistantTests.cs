@@ -497,6 +497,361 @@ public class AssistantTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Each_Undo_Takes_Back_One_Of_The_Assistants_Own_Edits_By_Name()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var root = workspace.Document.Root;
+
+        workspace.Edit("mine");
+
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }),
+            Call("remove", new() { ["node"] = "0" }),
+            Call("undo", new()),
+            Call("undo", new()),
+            Say("As it was."));
+
+        await Send(window, chat, "rename Badges, remove home, then take both back", allow: true);
+
+        Assert.Equal("Took back \"Assistant: remove home\".", chat.Results[2]);
+        Assert.Equal("Took back \"Assistant: change name\".", chat.Results[3]);
+        Assert.Equal(new[] { "home", "Badges" }, root.Children.Select(child => child.Name));
+        Assert.Equal("mine", workspace.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Assistants_Project_Edits_Are_Labelled_As_Its_Own_And_The_Persons_As_Before()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var root = workspace.Document.Root;
+
+        var chat = new ScriptedChat(
+            Call("add_group", new() { ["parent"] = "" }),
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Star", ["svg"] = Drawing }),
+            Call("move", new() { ["node"] = "0", ["into"] = "1" }),
+            Call("remove", new() { ["node"] = "1" }),
+            Call("undo", new()),
+            Call("undo", new()),
+            Call("undo", new()),
+            Call("undo", new()),
+            Say("As it was."));
+
+        await Send(window, chat, "add, move and remove, then take it all back", allow: true);
+
+        Assert.Equal(
+            new[] { "Took back \"Assistant: remove group\".", "Took back \"Assistant: move home\".", "Took back \"Assistant: add Star\".", "Took back \"Assistant: add group\"." },
+            chat.Results.Skip(4));
+        Assert.Equal(new[] { "home", "Badges" }, root.Children.Select(child => child.Name));
+
+        // The same gestures made by the person are named as they always were.
+        await window.AddGroupAsync(root);
+        Assert.Equal("add group", workspace.UndoLabel);
+        await window.ImportAsync(root, 0, new[] { new TemplateImport("Star", Drawing) }, show: false);
+        Assert.Equal("add Star", workspace.UndoLabel);
+        Assert.True(window.Move(root.Children[0], root.Children[2]));
+        Assert.Equal("move Star", workspace.UndoLabel);
+        Assert.True(await window.RemoveAsync(root.Children[0]));
+        Assert.Equal("remove home", workspace.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Undo_Leaves_The_Persons_Work_Alone_Once_They_Took_Its_Edit_Back()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var tools = new AssistantTools(window);
+
+        workspace.Edit("mine");
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Say("Renamed.")), "rename Badges", tools: tools);
+
+        // The person takes the rename back by hand.
+        Assert.True(workspace.Undo());
+
+        var chat = new ScriptedChat(Call("undo", new()), Call("undo", new()), Say("Undone."));
+
+        await Send(window, chat, "undo that", tools: tools);
+
+        Assert.StartsWith("Nothing was taken back", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal("Badges", workspace.Document.Root.Children[1].Name);
+
+        // With nothing of its own left, the next undo is the person's, and it says which.
+        Assert.Equal("Took back \"mine\".", chat.Results[1]);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Undo_Under_A_Newer_Edit_Of_The_Persons_Takes_Nothing_And_Names_It()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var root = workspace.Document.Root;
+        var badges = root.Children[1];
+        var tools = new AssistantTools(window);
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Say("Renamed.")), "rename Badges", tools: tools);
+
+        Assert.True(window.Move(root.Children[0], badges));
+
+        // Asked twice: the rename is kept for later, not dropped so the second reaches the move.
+        var chat = new ScriptedChat(Call("undo", new()), Call("undo", new()), Say("Not undone."));
+
+        await Send(window, chat, "undo", tools: tools);
+
+        Assert.All(chat.Results, result => Assert.StartsWith("Nothing was taken back", result, StringComparison.Ordinal));
+        Assert.Contains("\"move home\"", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal("move home", workspace.UndoLabel);
+        Assert.Equal("Tags", badges.Name);
+
+        // Once the person takes their move back, the rename is on top again, and still the assistant's.
+        Assert.True(workspace.Undo());
+
+        var again = new ScriptedChat(Call("undo", new()), Say("Undone."));
+
+        await Send(window, again, "undo", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: change name\".", again.Results[0]);
+        Assert.Equal("Badges", badges.Name);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Undo_Under_The_Persons_Typing_In_A_Tab_Takes_Nothing_And_Keeps_The_Edit_For_Later()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var badges = workspace.Document.Root.Children[1];
+        var tools = new AssistantTools(window);
+
+        await window.ShowAsync(workspace.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        await Send(
+            window,
+            new ScriptedChat(
+                Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#111111" } }, ["summary"] = "darken" }),
+                Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }),
+                Say("Done.")),
+            "darken home, rename Badges",
+            tools: tools);
+
+        // The person types in home's tab, over the assistant's edit there.
+        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "mine");
+
+        var chat = new ScriptedChat(Call("undo", new()), Call("undo", new()), Call("undo", new()), Say("Undone what I could."));
+
+        await Send(window, chat, "undo everything", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: change name\".", chat.Results[0]);
+        Assert.All(chat.Results.Skip(1), result => Assert.StartsWith("Nothing was taken back", result, StringComparison.Ordinal));
+        Assert.Contains("\"mine\"", chat.Results[1], StringComparison.Ordinal);
+        Assert.Equal("Badges", badges.Name);
+        Assert.Equal("mine", viewer.UndoLabel);
+        Assert.Contains("stroke=\"black\"", viewer.Source, StringComparison.Ordinal);
+
+        Assert.True(viewer.Undo());
+
+        var again = new ScriptedChat(Call("undo", new()), Say("Undone."));
+
+        await Send(window, again, "undo", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: darken\".", again.Results[0]);
+        Assert.DoesNotContain("#111111", viewer.Source, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task With_No_Edit_Of_Its_Own_An_Undo_Takes_Back_The_Front_Tabs_Last_And_Names_It()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+
+        workspace.Edit("theirs");
+        await window.ShowAsync(workspace.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+        var before = viewer.Source;
+
+        viewer.SetSource(before.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "mine");
+
+        var chat = new ScriptedChat(Call("undo", new()), Say("Undone."));
+
+        await Send(window, chat, "undo");
+
+        Assert.Equal("Took back \"mine\".", chat.Results[0]);
+        Assert.Equal(before, viewer.Source);
+        Assert.Equal("theirs", workspace.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Undo_Never_Reaches_Into_A_Project_Since_Reopened()
+    {
+        var path = Write("icons.svgstudio", Project);
+        var window = await Host(path);
+        var tools = new AssistantTools(window);
+
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }), Say("Renamed.")), "rename Badges", tools: tools);
+
+        // Reopened, as a pull does, and edited by the person.
+        window.ConfirmDiscard = _ => Task.FromResult(true);
+        await window.OpenAsync(new[] { path });
+        Dispatcher.UIThread.RunJobs();
+
+        var reopened = window.Workspace!;
+
+        reopened.Edit("mine");
+
+        var chat = new ScriptedChat(Call("undo", new()), Say("Nothing."));
+
+        await Send(window, chat, "undo", tools: tools);
+
+        Assert.StartsWith("Nothing was taken back", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal("mine", reopened.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Edit_That_Changes_Nothing_Says_So_And_Is_Not_Undone_For_One_That_Did()
+    {
+        var window = await Host(Write("declared.svgstudio", Declared));
+        var workspace = window.Workspace!;
+        var dial = (ProjectDrawing)workspace.Document.Root.Children[0];
+        var badges = (ProjectGroup)workspace.Document.Root.Children[1];
+        var tools = new AssistantTools(window);
+
+        await window.ShowAsync(dial);
+        Dispatcher.UIThread.RunJobs();
+
+        await Send(window, new ScriptedChat(Darken("darken"), Say("Darker.")), "darken the dial", tools: tools);
+
+        // The person removes the badge by hand; the assistant then writes what is there already.
+        Assert.True(await window.RemoveAsync(badges.Children[0]));
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(
+            Call("set_declarations", new() { ["node"] = "1", ["code"] = badges.CodeText, ["summary"] = "keep the tint" }),
+            Darken("darken again"),
+            Call("undo", new()),
+            Say("Undone."));
+
+        await Send(window, chat, "check it, then undo", tools: tools);
+
+        Assert.StartsWith("Nothing changed", chat.Results[0], StringComparison.Ordinal);
+        Assert.StartsWith("Nothing changed", chat.Results[1], StringComparison.Ordinal);
+        Assert.Equal("Took back \"Assistant: darken\".", chat.Results[2]);
+        Assert.Empty(badges.Children);
+        Assert.DoesNotContain("#111111", Viewer(window).Source, StringComparison.Ordinal);
+
+        static ChatResponse Darken(string summary)
+            => Call("set_attributes", new() { ["node"] = "0", ["key"] = "1", ["attributes"] = new[] { new { name = "fill", value = "#111111" } }, ["summary"] = summary });
+    }
+
+    [AvaloniaFact]
+    public async Task A_Setting_Set_To_What_It_Says_Already_Is_No_Step_And_The_Undo_Is_The_Renames()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var badges = workspace.Document.Root.Children[1];
+
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }),
+            Call("undo", new()),
+            Say("As it was."));
+
+        await Send(window, chat, "rename Badges, again, then undo");
+
+        Assert.StartsWith("Nothing changed", chat.Results[1], StringComparison.Ordinal);
+        Assert.Equal("Took back \"Assistant: change name\".", chat.Results[2]);
+        Assert.Equal("Badges", badges.Name);
+        Assert.False(workspace.CanUndo);
+        Assert.False(workspace.IsEdited);
+    }
+
+    /// <param name="ending">The project's line ending, which a drawing's text carries and a replacement read as a drawing does not.</param>
+    [AvaloniaTheory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public async Task A_Drawing_The_Project_Refuses_Or_Already_Holds_Leaves_No_Step_Behind(string ending)
+    {
+        var window = await Host(Write("icons.svgstudio", Project.Replace("\n", ending, StringComparison.Ordinal)));
+        var workspace = window.Workspace!;
+        var home = (ProjectDrawing)workspace.Document.Root.Children[0];
+        var before = home.Text;
+
+        var chat = new ScriptedChat(
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Bad", ["svg"] = "<svg><rect" }),
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Div", ["svg"] = "<div/>" }),
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = " ", ["svg"] = Drawing }),
+            Call("replace_drawing", new() { ["node"] = "0", ["svg"] = "<div/>", ["summary"] = "swap" }),
+            Call("replace_drawing", new() { ["node"] = "0", ["svg"] = before + "\n", ["summary"] = "same" }),
+            Call("replace_drawing", new() { ["node"] = "0", ["svg"] = before.Replace("\r\n", "\n", StringComparison.Ordinal), ["summary"] = "same" }),
+            Say("Refused."));
+
+        await Send(window, chat, "add drawings the project will not take");
+
+        Assert.Contains("<svg> document", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("needs a name", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains("<svg> document", chat.Results[3], StringComparison.Ordinal);
+        Assert.StartsWith("Nothing changed", chat.Results[4], StringComparison.Ordinal);
+        Assert.StartsWith("Nothing changed", chat.Results[5], StringComparison.Ordinal);
+        Assert.Single(((ProjectGroup)workspace.Document.Root.Children[1]).Children);
+        Assert.Equal(before, home.Text);
+        Assert.False(workspace.CanUndo);
+        Assert.False(workspace.IsEdited);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Added_Drawing_Is_Named_By_Its_Own_Path_Though_The_Person_Works_While_It_Opens()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var root = workspace.Document.Root;
+        var tools = new AssistantTools(window);
+
+        await window.ShowAsync(root.Children[1]);
+        Dispatcher.UIThread.RunJobs();
+
+        var adding = tools.For(small: false, docs: false).OfType<AIFunction>().Single(tool => tool.Name == "add_drawing")
+            .InvokeAsync(new AIFunctionArguments { ["parent"] = "", ["name"] = "Star", ["svg"] = Drawing })
+            .AsTask();
+
+        // Loading off the UI thread, while the person goes back to the board and edits the project.
+        Assert.False(adding.IsCompleted);
+        await window.ShowAsync(root.Children[1]);
+        workspace.Edit("mine");
+
+        await Gestures.Until(() => adding.IsCompleted);
+
+        Assert.StartsWith("Added Star as 2.", (await adding)?.ToString(), StringComparison.Ordinal);
+
+        var chat = new ScriptedChat(Call("undo", new()), Say("Not undone."));
+
+        await Send(window, chat, "undo", tools: tools);
+
+        Assert.StartsWith("Nothing was taken back", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal("mine", workspace.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task Taking_Back_Every_Edit_Since_The_Save_Leaves_Nothing_To_Save()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken home" }),
+            Call("undo", new()),
+            Say("As it was."));
+
+        await Send(window, chat, "darken home, then undo");
+
+        Assert.Equal("Took back \"Assistant: darken home\".", chat.Results[1]);
+        Assert.False(window.Workspace!.IsEdited);
+        Assert.DoesNotContain("unsaved", new AssistantTools(window).Context(), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
     public async Task An_Edit_Says_What_Is_Wrong_With_The_Drawing_Afterwards()
     {
         var window = await Host(Write("declared.svgstudio", Declared));
@@ -630,6 +985,8 @@ public class AssistantTests : IDisposable
 
         Assert.Contains("has to be an <svg>", refused.Results[0], StringComparison.Ordinal);
         Assert.Equal(Project, File.ReadAllText(path));
+        Assert.False(window.Workspace!.CanUndo);
+        Assert.False(window.Workspace.IsEdited);
 
         Viewer(window).SetSource(Drawing.Replace("#00ff00", "#123456", StringComparison.Ordinal));
         Directory.Delete(gone, recursive: true);
@@ -1042,15 +1399,14 @@ public class AssistantTests : IDisposable
 
     /// <param name="asked">Where each question the tools put to the person goes.</param>
     /// <param name="small">Whether the model is one with a context too small for the docs, and so the core tools only.</param>
-    private static async Task<string> Send(MainWindow window, ScriptedChat chat, string text, bool allow = false, List<string>? asked = null, bool small = false)
+    /// <param name="tools">Tools kept from an earlier send, whose undo remembers what they did there.</param>
+    private static async Task<string> Send(MainWindow window, ScriptedChat chat, string text, bool allow = false, List<string>? asked = null, bool small = false, AssistantTools? tools = null)
     {
-        var tools = new AssistantTools(window)
+        tools ??= new AssistantTools(window);
+        tools.Confirm = question =>
         {
-            Confirm = question =>
-            {
-                asked?.Add(question);
-                return Task.FromResult(allow);
-            }
+            asked?.Add(question);
+            return Task.FromResult(allow);
         };
         var session = new AssistantSession(tools);
 

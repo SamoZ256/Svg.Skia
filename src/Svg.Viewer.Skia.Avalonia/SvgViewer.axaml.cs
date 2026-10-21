@@ -3058,6 +3058,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <inheritdoc cref="UndoLabel"/>
     public string? RedoLabel => _workspace?.RedoLabel;
 
+    /// <inheritdoc cref="SvgSourceWorkspace.UndoStep"/>
+    public object? UndoStep => _workspace?.UndoStep;
+
+    /// <inheritdoc cref="SvgSourceWorkspace.Holds"/>
+    /// <remarks>A drawing closed or loaded afresh holds none of the steps it handed out before.</remarks>
+    public bool Holds(object step) => _workspace?.Holds(step) == true;
+
     /// <summary>Takes back the last edit to the drawing's text.</summary>
     /// <remarks>
     /// For a host with a menu: the canvas binds the platform's gestures itself, and a menu item

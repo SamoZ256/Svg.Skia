@@ -779,7 +779,9 @@ public sealed class ProjectDrawing : ProjectNode
         set => Element.SetAttributeValue("source", Trimmed(value));
     }
 
-    internal string? Inline(string svgText, bool indent)
+    /// <summary>The text read as a drawing, or null with why it cannot be one.</summary>
+    /// <remarks>Asked before a step is recorded as well as here: refused inside one, it left a step that took nothing back.</remarks>
+    internal static SvgSourceDocument? Read(string svgText, out string? refusal)
     {
         if (svgText is null)
         {
@@ -788,17 +790,26 @@ public sealed class ProjectDrawing : ProjectNode
 
         // The project's own ending is put back when the file is written, so one drawing pasted from
         // a machine that ends its lines differently cannot decide it for the whole file.
-        var read = SvgSourceDocument.Read(svgText.Replace("\r\n", "\n"), out var refusal);
+        var read = SvgSourceDocument.Read(svgText.Replace("\r\n", "\n"), out refusal);
 
-        if (read is null)
+        if (read is { Document.Root: not { Name.LocalName: "svg" } })
+        {
+            refusal = "A drawing has to be an <svg> document.";
+
+            return null;
+        }
+
+        return read;
+    }
+
+    internal string? Inline(string svgText, bool indent)
+    {
+        if (Read(svgText, out var refusal) is not { } read)
         {
             return refusal;
         }
 
-        if (read.Document.Root is not { } root || root.Name.LocalName != "svg")
-        {
-            return "A drawing has to be an <svg> document.";
-        }
+        var root = read.Document.Root!;
 
         // Detached first: adding a node that still has a parent copies it, and the bytes each tag
         // was read as are annotations, which a copy does not carry.

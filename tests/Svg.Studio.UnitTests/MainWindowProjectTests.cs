@@ -1768,6 +1768,66 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(Project, File.ReadAllText(path));
     }
 
+    /// <summary>Whether the project is saved is where its history stands against where it stood at the save.</summary>
+    [Fact]
+    public void Undoing_Back_To_The_Save_Is_Saved_And_A_Save_No_Step_Leads_Back_To_Never_Is()
+    {
+        var path = Write("icons.svgstudio", Project);
+        var workspace = new ProjectWorkspace(ProjectDocument.Load(path));
+
+        workspace.Edit();
+        workspace.Save();
+
+        Assert.True(workspace.Undo());
+        Assert.True(workspace.IsEdited);
+        Assert.True(workspace.Redo());
+        Assert.False(workspace.IsEdited);
+
+        // Taken back past the save and built on: the saved state is on no step any more.
+        Assert.True(workspace.Undo());
+        workspace.Edit();
+        Assert.True(workspace.IsEdited);
+        Assert.True(workspace.Undo());
+        Assert.True(workspace.IsEdited);
+
+        // Nor once the step back to it has been trimmed off the far end of the history.
+        workspace.Save();
+
+        for (var edit = 0; edit <= 200; edit++)
+        {
+            workspace.Edit();
+        }
+
+        while (workspace.Undo())
+        {
+        }
+
+        Assert.True(workspace.IsEdited);
+
+        // A save five steps in moves down as those five are trimmed, and is still reached.
+        var trimmed = new ProjectWorkspace(ProjectDocument.Load(path));
+
+        for (var edit = 0; edit < 5; edit++)
+        {
+            trimmed.Edit();
+        }
+
+        trimmed.Save();
+
+        for (var edit = 0; edit < 200; edit++)
+        {
+            trimmed.Edit();
+        }
+
+        for (var undo = 0; undo < 200; undo++)
+        {
+            Assert.True(trimmed.Undo());
+        }
+
+        Assert.False(trimmed.CanUndo);
+        Assert.False(trimmed.IsEdited);
+    }
+
     /// <summary>
     /// A row put back is the row that was taken out, not a copy of it.
     /// </summary>

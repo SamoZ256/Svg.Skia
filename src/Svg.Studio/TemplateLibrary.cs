@@ -264,13 +264,15 @@ public sealed class TemplateLibrary
     /// with the declarations their templates need and the target does not inherit, as one undo step.
     /// </summary>
     /// <param name="notes">A drawing that was left out and why, or a name two templates declare differently.</param>
+    /// <param name="label">What the step is called in place of "add" and the name, for a caller that says who made it.</param>
     /// <returns>The drawings added, in order; none where the declarations could not be written.</returns>
     public static IReadOnlyList<ProjectDrawing> Import(
         ProjectWorkspace workspace,
         ProjectGroup target,
         int index,
         IReadOnlyList<TemplateImport> imports,
-        ICollection<string> notes)
+        ICollection<string> notes,
+        string? label = null)
     {
         if (workspace is null)
         {
@@ -286,7 +288,7 @@ public sealed class TemplateLibrary
         var added = new List<ProjectDrawing>();
 
         workspace.Do(
-            prepared.Texts.Count == 1 ? $"add {prepared.Texts[0].Import.Name}" : $"add {prepared.Texts.Count} drawings",
+            label ?? (prepared.Texts.Count == 1 ? $"add {prepared.Texts[0].Import.Name}" : $"add {prepared.Texts.Count} drawings"),
             // The block is one of the group's own nodes, so this puts the declarations back as well.
             () => ProjectSnapshot.Contents(target),
             () =>
@@ -351,8 +353,8 @@ public sealed class TemplateLibrary
                 : ProjectSnapshot.Text(drawing),
             () =>
             {
-                // The text first: it can be refused where the block, checked in Prepared, cannot, and
-                // a refusal before anything is written leaves no half of the update behind.
+                // Both were checked in Prepared; the text still goes first, so a refusal before anything
+                // is written leaves no half of the update behind.
                 // Indented as AddDrawing indents, since the text arrives written for a file of its own.
                 refusal = drawing.Inline(text, indent: true);
 
@@ -659,7 +661,7 @@ public sealed class TemplateLibrary
         {
             if (import.Recipe is not { } recipe)
             {
-                texts.Add((import, import.Text));
+                Keep(import, import.Text);
 
                 continue;
             }
@@ -670,7 +672,10 @@ public sealed class TemplateLibrary
                 // declarations: those go on the group, and a drawing redeclaring a name is refused.
                 var bare = recipe.Bind(Array.Empty<SvgRecipeSurveyValue>(), declared: recipe.Declarations.Select(Named)).Recipe ?? recipe;
 
-                texts.Add((import, SvgRecipeRewriter.Apply(Sized(import.Text, recipe), bare).Svg));
+                if (!Keep(import, SvgRecipeRewriter.Apply(Sized(import.Text, recipe), bare).Svg))
+                {
+                    continue;
+                }
             }
             catch (SvgRecipeException failure)
             {
@@ -705,6 +710,29 @@ public sealed class TemplateLibrary
         }
 
         return (code, texts);
+
+        // Refused here rather than by the drawing inside the step, which is then recorded with nothing in it.
+        bool Keep(TemplateImport import, string text)
+        {
+            // A file dropped as ".svg" is named nothing.
+            if (string.IsNullOrWhiteSpace(import.Name))
+            {
+                notes.Add("A drawing needs a name.");
+
+                return false;
+            }
+
+            if (ProjectDrawing.Read(text, out var refusal) is null)
+            {
+                notes.Add($"{import.Name}: {refusal}");
+
+                return false;
+            }
+
+            texts.Add((import, text));
+
+            return true;
+        }
 
         static string Named(XElement declaration) => ((string?)declaration.Attribute("name"))?.Trim() ?? string.Empty;
     }

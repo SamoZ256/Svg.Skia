@@ -252,6 +252,40 @@ public class SvgSourceWorkspaceTests
     }
 
     [Fact]
+    public void A_Step_Is_Known_Again_By_What_It_Handed_Out_Under_Any_Label()
+    {
+        var workspace = Open();
+
+        Assert.Null(workspace.UndoStep);
+
+        workspace.Commit("set fill", source => Fill(source, "red"));
+
+        var mine = workspace.UndoStep!;
+
+        workspace.Commit("set fill", source => Fill(source, "blue"));
+
+        Assert.True(workspace.Holds(mine));
+        Assert.NotSame(mine, workspace.UndoStep);
+
+        workspace.Undo();
+
+        Assert.Same(mine, workspace.UndoStep);
+
+        workspace.Undo();
+
+        Assert.False(workspace.Holds(mine));
+
+        workspace.Redo();
+
+        Assert.True(workspace.Holds(mine));
+
+        workspace.Undo();
+        workspace.Commit("set fill", source => Fill(source, "red"));
+
+        Assert.False(workspace.Holds(mine));
+    }
+
+    [Fact]
     public void The_Modified_Mark_Is_Raised_Only_When_It_Turns_Over()
     {
         var workspace = Open();

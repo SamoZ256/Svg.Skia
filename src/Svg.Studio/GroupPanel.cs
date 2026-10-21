@@ -4124,7 +4124,7 @@ public sealed class GroupPanel : UserControl
         return owner is null ? null : $"{Value(owner, name)} — from {ProjectWorkspace.Label(owner)}";
     }
 
-    private static string? Value(ProjectNode node, string name) => name switch
+    internal static string? Value(ProjectNode node, string name) => name switch
     {
         "name" => node.Name,
         "namespace" => node.Namespace,
