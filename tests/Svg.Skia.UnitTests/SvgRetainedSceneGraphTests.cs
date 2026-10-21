@@ -2086,7 +2086,10 @@ public class SvgRetainedSceneGraphTests : SvgUnitTest
 
         var alphabetic = Assert.Single(retainedModel!.FindCommandsBySourceElementId<DrawTextCanvasCommand>("alphabetic"));
         var cap = Assert.Single(retainedModel.FindCommandsBySourceElementId<DrawTextCanvasCommand>("cap"));
-        var capHeight = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())).GetFontMetrics(cap.Paint!).CapHeight;
+        // Measured the way the compiler measures: a text paint without antialias, which DirectWrite
+        // hints, so on Windows the cap height comes back whole (17 where the drawn paint says 16.8).
+        var measured = new SKPaint { Typeface = cap.Paint!.Typeface, TextSize = cap.Paint.TextSize, LcdRenderText = true, SubpixelText = true };
+        var capHeight = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())).GetFontMetrics(measured).CapHeight;
 
         Assert.NotNull(capHeight);
         Assert.Equal(alphabetic.Y + capHeight!.Value / 2f, cap.Y, 3);
