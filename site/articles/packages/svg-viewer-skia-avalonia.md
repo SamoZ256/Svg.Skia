@@ -183,11 +183,12 @@ What it was really for was **where** a mistake is, and that moved to the rows th
   file that declares one was simply wrong.
 - The count is in the status bar, as before.
 
-`SourceDiagnostics` is the whole list, as ranges into `Source`, if you would rather show it your own
-way — a problems panel, a gutter, a report. Nothing about it changed: it is analysed on first ask
-rather than when anything is opened, so whether a drawing is at fault is knowable before anyone has
-picked a row. Each one carries `Start`, `Length`, `Severity` and `Message`; an element name this
-renderer does not know, or an id used twice, is a warning, since the drawing still opens either way.
+`SourceDiagnostics` is the whole list, if you would rather show it your own way — a problems panel,
+a gutter, a report. Its ranges are into the drawing as built: `Source`, or what a `Rewrite` returns
+for it. It is analysed on first ask rather than when anything is opened, so whether a drawing is at
+fault is knowable before anyone has picked a row. Each one carries `Start`, `Length`, `Severity` and
+`Message`; an element name this renderer does not know, or an id used twice, is a warning, since the
+drawing still opens either way.
 
 That covers the drawing's expressions and the `<e:code>` block alike: a name nothing declares, a range
 on a colour, a `min` above its `max`, a `default` that will not resolve.
@@ -345,8 +346,8 @@ for things to be dragged into. Both arrive as one step to take back.
 
 What cannot be done is refused with a sentence rather than attempted: a row cannot land in its own
 branch, a drawing written on one line has no line to move, a tag that closes itself has no inside,
-and a drop that would carry an element across a `<defs>`, a `<clipPath>` or a `<mask>` would change
-what the drawing paints.
+a shape holds nothing but what describes or animates it, and a drop that would carry an element
+across a `<defs>`, a `<clipPath>` or a `<mask>` would change what the drawing paints.
 
 Three things are worth knowing before relying on it:
 

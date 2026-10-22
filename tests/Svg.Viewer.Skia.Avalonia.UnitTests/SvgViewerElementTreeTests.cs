@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -824,6 +825,60 @@ public class SvgViewerElementTreeTests
         Assert.False(viewer.Elements.MoveRequested!("1", "1/0", SvgElementDrop.After));
 
         Assert.Equal(was, viewer.Source);
+    }
+
+    /// <remarks>
+    /// Over the top of the drawing's own row, which for any other row that holds children means
+    /// before it: the editor refuses anything beside the root, so the tree asks for inside.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Row_Dropped_On_The_Edge_Of_The_Drawing_Itself_Goes_Last_Inside_It()
+    {
+        var (window, viewer) = await Host();
+
+        // At the usual height the tree's region is a row or so tall, and the next region covers the rows below.
+        window.Height = 1400;
+        Dispatcher.UIThread.RunJobs();
+
+        var was = viewer.Source;
+        var labels = viewer.Elements.GetVisualDescendants().OfType<TextBlock>().ToList();
+        var defs = labels.Single(label => label.Text == "defs" && label.DataContext is SvgViewerElementNode);
+        var root = labels.Single(label => label.Text == "svg" && label.DataContext is SvgViewerElementNode).FindAncestorOfType<TreeViewItem>()!;
+        var top = root.TranslatePoint(new Point(root.Bounds.Width / 2d, 1d), window)!.Value;
+
+        window.MouseDown(defs.TranslatePoint(new Point(defs.Bounds.Width / 2d, defs.Bounds.Height / 2d), window)!.Value, MouseButton.Left);
+
+        foreach (var stage in new[] { RawDragEventType.DragEnter, RawDragEventType.DragOver, RawDragEventType.Drop })
+        {
+            window.DragDrop(top, stage, new DataTransfer(), DragDropEffects.Move, RawInputModifiers.None);
+        }
+
+        window.MouseUp(top, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "g #wrap", "rect", "text", "defs", "code", "param" }, Rows(viewer));
+        Assert.Equal("1", viewer.Elements.Root!.Children.Last().AddressKey);
+
+        Assert.True(viewer.Undo());
+        Assert.Equal(was, viewer.Source);
+        Assert.False(viewer.CanUndo);
+    }
+
+    /// <remarks>The editor refuses a group beside the root, which has no siblings, so the tree asks for inside.</remarks>
+    [AvaloniaFact]
+    public async Task A_New_Group_Picked_On_The_Drawing_Itself_Goes_Last_Inside_It()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(string.Empty));
+
+        var menu = viewer.Elements.GetVisualDescendants().OfType<TreeView>().Single().ContextMenu!;
+
+        menu.ItemsSource!.OfType<MenuItem>().Single(item => Equals(item.Header, "New group")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect", "text", "g" }, Rows(viewer));
+        Assert.Equal("2", viewer.Elements.Root!.Children.Last().AddressKey);
     }
 
     [AvaloniaFact]

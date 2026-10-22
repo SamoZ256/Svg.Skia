@@ -106,7 +106,7 @@ public readonly struct SvgPadding
         if (value < 0f || float.IsNaN(value) || float.IsInfinity(value))
         {
             throw new ArgumentException(
-                $"A {name} padding has to be zero or more, but was {value}. Padding adds space and never takes it away.");
+                $"A {name} padding has to be zero or more, but was {value.ToString(CultureInfo.InvariantCulture)}. Padding adds space and never takes it away.");
         }
     }
 }
@@ -198,7 +198,7 @@ public readonly struct SvgSizeRequest
     {
         if (value is { } number && (number <= 0f || float.IsNaN(number) || float.IsInfinity(number)))
         {
-            throw new ArgumentException($"A {name} has to be a positive number, but was {number}.");
+            throw new ArgumentException($"A {name} has to be a positive number, but was {number.ToString(CultureInfo.InvariantCulture)}.");
         }
     }
 }

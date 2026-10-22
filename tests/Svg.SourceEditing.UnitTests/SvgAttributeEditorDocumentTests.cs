@@ -170,7 +170,7 @@ public class SvgAttributeEditorDocumentTests
         var source = Read();
 
         Assert.Equal(
-            "That element is no longer in the drawing.",
+            $"There is no element at {addressKey} in this drawing.",
             SvgAttributeEditor.SetAttribute(source, addressKey, "fill", "red"));
 
         Assert.Equal(Source, source.ToText());
@@ -396,7 +396,7 @@ public class SvgAttributeEditorDocumentTests
             "Only a <text>, a <tspan>, a <textPath> or an <e:let> has text of its own to edit.",
             SvgAttributeEditor.SetContent(source, "5", "no"));
 
-        Assert.Equal("That element is no longer in the drawing.", SvgAttributeEditor.SetContent(source, "9", "no"));
+        Assert.Equal("There is no element at 9 in this drawing.", SvgAttributeEditor.SetContent(source, "9", "no"));
 
         Assert.StartsWith("This element's text is written in its <tspan> children", SvgAttributeEditor.SetContent(source, "2", "no"), StringComparison.Ordinal);
 

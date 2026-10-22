@@ -1119,6 +1119,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private const string Unwritten = "That row is not written in this file, so it cannot be edited here.";
 
+    private const string Untexted = "What is open here does not read as SVG, so it cannot be edited.";
+
     /// <summary>Commits an edit to the tree and selects what <paramref name="follow"/> then names.</summary>
     /// <remarks>
     /// Asked after the commit rather than before: what there is to point at — the rows an edit just
@@ -1139,7 +1141,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Whether an edit can be written at all, saying why not where it cannot.</summary>
     /// <remarks>
     /// There is no tree for a drawing the reader would not take, and the reason it refused is worth
-    /// more than the sentence about a row this file does not have.
+    /// more than the sentence saying only that there is no text to edit.
     /// </remarks>
     private bool Writable()
     {
@@ -1148,7 +1150,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return true;
         }
 
-        ShowNote(_unreadable ?? Unwritten);
+        ShowNote(_unreadable ?? Untexted);
 
         return false;
     }
@@ -1739,7 +1741,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     /// <summary>
-    /// What is wrong with the open drawing, as ranges into <see cref="Source"/>.
+    /// What is wrong with the open drawing, as ranges into the drawing as built: <see cref="Source"/>,
+    /// unless a <see cref="Rewrite"/> writes blocks into it.
     /// </summary>
     /// <remarks>
     /// Analysed on first ask and not on the edit: the error panel needs to know whether a failed
@@ -2203,7 +2206,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </summary>
     /// <remarks>
     /// Splitting is context-free and checking is not, so this is a second pass — and a free one on a
-    /// drawing with no expressions.
+    /// drawing with no expressions. Of the drawing as built, as the element panel checks it: read
+    /// alone, a name a Svg.Studio group declares was an unknown one in every drawing using it.
     /// </remarks>
     private IReadOnlyList<SvgSourceDiagnostic> Diagnostics()
     {
@@ -2213,7 +2217,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
 
         _sourceAnalysed = true;
-        _sourceDiagnostics = SvgSourceDiagnostics.Analyse(PaneSource());
+        _sourceDiagnostics = SvgSourceDiagnostics.Analyse(Declarations());
 
         return _sourceDiagnostics;
     }
@@ -2429,7 +2433,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         if (_workspace is not { } workspace)
         {
-            return _unreadable ?? Unwritten;
+            return _unreadable ?? Untexted;
         }
 
         var refusal = workspace.Commit(label, edit);
@@ -2862,7 +2866,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         if (_workspace is not { } workspace)
         {
-            return _unreadable ?? Unwritten;
+            return _unreadable ?? Untexted;
         }
 
         var was = workspace.Text;
@@ -2893,7 +2897,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         if (_workspace is not { } workspace)
         {
-            ShowNote(_unreadable ?? Unwritten);
+            ShowNote(_unreadable ?? Untexted);
 
             return false;
         }

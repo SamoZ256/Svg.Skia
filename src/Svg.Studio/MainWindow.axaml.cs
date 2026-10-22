@@ -3694,7 +3694,7 @@ public partial class MainWindow : Window
 
         // Posted, so the close finishes being called off first: a prompt that answered immediately
         // would re-enter Close from inside OnClosing, as a test's stub does.
-        Dispatcher.UIThread.Post(async () => await ConfirmThenClose(Describe(unsaved, project)));
+        Dispatcher.UIThread.Post(async () => await ConfirmThenClose());
     }
 
     /// <summary>
@@ -3718,9 +3718,13 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
-    private async Task ConfirmThenClose(string message)
+    /// <remarks>What is unsaved is read again here: a tool's call can run before the post, and was thrown away unnamed.</remarks>
+    private async Task ConfirmThenClose()
     {
-        if (!await ConfirmDiscard(message))
+        var unsaved = Unsaved();
+        var project = Unwritten;
+
+        if ((unsaved.Count > 0 || project is { }) && !await ConfirmDiscard(Describe(unsaved, project)))
         {
             return;
         }
@@ -3729,6 +3733,14 @@ public partial class MainWindow : Window
 
         Close();
     }
+
+    /// <summary>The dialog this window is waiting on the person to answer, or null while it waits on none.</summary>
+    /// <remarks>
+    /// A modal disables the window but not its dispatcher, so a tool's call still runs under one. A
+    /// file picker is the platform's and is not among them; it asks where, not whether. The settings
+    /// are left out: they ask nothing about the drawings, so an edit made under them loses nothing.
+    /// </remarks>
+    internal Window? Asking => OwnedWindows.FirstOrDefault(owned => owned.IsDialog && owned is not SettingsWindow);
 
     /// <summary>The viewer in the selected tab, or null while there is none.</summary>
     private SvgViewer? Selected() => (_tabs.SelectedItem as TabItem)?.Content as SvgViewer;

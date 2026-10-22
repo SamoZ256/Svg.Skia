@@ -61,7 +61,7 @@ public sealed class AssistantTools
     private const int Gap = 8;
 
     /// <summary>Refuses an argument no parameter takes: dropped, a misspelled node fell back to the drawing in front, which took the edit.</summary>
-    internal static readonly JsonSerializerOptions s_arguments = new(AIJsonUtilities.DefaultOptions) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+    private static readonly JsonSerializerOptions s_arguments = new(AIJsonUtilities.DefaultOptions) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
 
     private readonly MainWindow _window;
 
@@ -181,7 +181,15 @@ public sealed class AssistantTools
 
         return tools;
 
-        void Add(Delegate tool, string name, string description) => tools.Add(AIFunctionFactory.Create(tool, name, description, s_arguments));
+        void Add(Delegate tool, string name, string description) => tools.Add(Function(tool, new AIFunctionFactoryOptions { Name = name, Description = description }));
+    }
+
+    /// <summary>A tool made as <see cref="For"/> makes each of its own, for one the MCP server adds.</summary>
+    internal AIFunction Function(Delegate tool, AIFunctionFactoryOptions options)
+    {
+        options.SerializerOptions = s_arguments;
+
+        return new Checked(AIFunctionFactory.Create(tool, options), Reading.Contains(options.Name!) ? null : _window);
     }
 
     /// <summary>What is open, in a few lines, for the start of every message the person sends.</summary>
@@ -189,7 +197,8 @@ public sealed class AssistantTools
     /// Whether the model is one without the save tool, which is not told there is anything to save:
     /// a 3B on-device model answered every mention of it by telling the person to.
     /// </param>
-    public string Context(bool small = false)
+    /// <param name="conflicted">Whether git, asked now, says the project is part way through a merge or a rebase.</param>
+    public string Context(bool small = false, bool conflicted = false)
     {
         var text = new StringBuilder();
         var front = _window.FrontNode;
@@ -258,7 +267,9 @@ public sealed class AssistantTools
 
         if (_window.Changes.Summary is { } git)
         {
-            text.Append("Git: ").Append(git).Append('\n');
+            text.Append("Git: ").Append(git)
+                .Append(conflicted ? "; the project is part way through a merge or a rebase, so save and git_commit refuse until it is finished or aborted." : null)
+                .Append('\n');
         }
 
         return text.ToString().TrimEnd();
@@ -271,7 +282,11 @@ public sealed class AssistantTools
            ?? $"{(string.IsNullOrWhiteSpace(id) ? "The" : $"There is no section {id}. The")} documentation's sections, by id:\n{AssistantDocs.Contents}";
 
     /// <summary><see cref="Context"/> on the UI thread, for a client that has no message to put it in.</summary>
-    public Task<string> ContextAsync() => Ui(() => Context());
+    /// <remarks>
+    /// Git is asked, as save and git_commit ask it before refusing: the panel's last look is from when
+    /// the window was last in front, and a client calls while it is not.
+    /// </remarks>
+    public Task<string> ContextAsync() => UiAsync(async () => Context(conflicted: await _window.Changes.Conflicted().ConfigureAwait(true)));
 
     private Task<string> GetProject([Description("A group's node path to list only what is under it; empty for the whole project.")] string? node = null) => Ui(() =>
     {
@@ -516,7 +531,7 @@ public sealed class AssistantTools
                 : string.Join(" ", new[] { "width", "height", "scale" }.Select(name => GroupPanel.Value(sizer, name) is { } value ? $"{name}={value}" : null).OfType<string>())
                   + $", given by {(ReferenceEquals(sizer, found) ? "itself" : Path(sizer))}.";
 
-            text.Append(found is ProjectDrawing ? "Built at " : "Hands down ").Append(size).Append('\n');
+            text.Append(found is ProjectDrawing ? "Built at " : "Hands down ").Append(size).Append(found is ProjectDrawing drawn ? Pixels(drawn) : null).Append('\n');
 
             if (found is ProjectDrawing { Source: { } source })
             {
@@ -543,6 +558,24 @@ public sealed class AssistantTools
 
                 return own.Parameters.Select(parameter => parameter.Name).Concat(own.Lets.Select(let => let.Name));
             }
+
+            // Loaded as render loads it, so the two agree; nothing where it will not build.
+            string? Pixels(ProjectDrawing drawing)
+            {
+                try
+                {
+                    using var document = GroupPanel.Load(Text(drawing), drawing);
+
+                    return document.Svg.Picture is { CullRect: { Width: > 0f, Height: > 0f } cull }
+                        ? FormattableString.Invariant($" That is {cull.Width:0.##}×{cull.Height:0.##} px.")
+                        : null;
+                }
+                catch (Exception)
+                {
+                    // Anything, as on the board: this is user data reaching a parser.
+                    return null;
+                }
+            }
         });
 
     /// <remarks>
@@ -561,6 +594,10 @@ public sealed class AssistantTools
             }
 
             var log = new List<string>();
+            var (drawing, text) = (Drawing(node), target.Text);
+
+            // Before the build, which frees the UI thread for a tab switch or another call's edit.
+            var found = Problems(drawing, text);
             string what;
             string? code;
 
@@ -569,9 +606,9 @@ public sealed class AssistantTools
                 Func<string?> generate;
 
                 // Everything read here, on the UI thread, and built from off it as Export builds.
-                if (Drawing(node) is { } drawing && _window.Workspace is { } workspace)
+                if (drawing is { } && _window.Workspace is { } workspace)
                 {
-                    var project = workspace.Document.Flatten((drawing, target.Text));
+                    var project = workspace.Document.Flatten((drawing, text));
                     var item = project.Items.Single();
                     var settings = SvgcBuildSettings.For(project);
                     var loader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
@@ -581,12 +618,12 @@ public sealed class AssistantTools
                     settings.TextLayout = StudioSettings.RelaxedText == RelaxedTextAnswer.Always ? SvgTextLayout.Relaxed : SvgTextLayout.Baked;
                     generate = () => SvgcProjectBuild.Generate(item, settings, loader, log.Add);
                     what = $"the C# svgc writes for it alone, class {item.Namespace ?? settings.Namespace}.{item.Class}"
-                           + (string.Equals(target.Text, drawing.Text, StringComparison.Ordinal) ? null : ", built from the text in its tab")
+                           + (string.Equals(text, drawing.Text, StringComparison.Ordinal) ? null : ", built from the text in its tab")
                            + " (Export writes every drawing into one file, with the helpers where helperScope puts them)";
                 }
                 else if (target is SvgViewer { Document: { } document } viewer)
                 {
-                    var (text, name) = (viewer.Source, viewer.ClassName?.Invoke() ?? SvgExport.ClassName(viewer.DocumentPath ?? "drawing"));
+                    var name = viewer.ClassName?.Invoke() ?? SvgExport.ClassName(viewer.DocumentPath ?? "drawing");
 
                     generate = () => SvgExport.Generate(document, text, name);
                     what = $"the C# Export writes for it when no project is open, class {SvgExport.Namespace}.{name}";
@@ -612,8 +649,11 @@ public sealed class AssistantTools
 
             var warnings = Cut(log.Where(line => line.StartsWith("warning:", StringComparison.Ordinal)).ToList(), null);
 
-            // Room left for the header, the warnings, and "; part 10 of 10, get_code with part 11 reads on".
-            var parts = Parts(code, Math.Max(Answer - about.Length - what.Length - warnings.Length - 100, Answer / 2));
+            // A drawing with errors is generated all the same, drawing nothing of what they are in.
+            var problems = found.Count > 0 ? $"Problems:\n{Cut(found.Select(problem => "- " + problem).ToList(), null)}\n" : null;
+
+            // Room left for the header, the warnings, the problems, and "; part 10 of 10, get_code with part 11 reads on".
+            var parts = Parts(code, Math.Max(Answer - about.Length - what.Length - warnings.Length - (problems?.Length ?? 0) - 100, Answer / 2));
 
             if (part < 1 || part > parts.Count)
             {
@@ -624,6 +664,7 @@ public sealed class AssistantTools
                    + (parts.Count == 1 ? null : $"; part {part} of {parts.Count}" + (part < parts.Count ? $", get_code with part {part + 1} reads on" : null))
                    + ".\n"
                    + (part == 1 && warnings.Length > 0 ? warnings + "\n" : null)
+                   + (part == 1 ? problems : null)
                    + "\n"
                    + parts[part - 1];
 
@@ -662,7 +703,7 @@ public sealed class AssistantTools
             {
                 if (svg is null)
                 {
-                    return (null, $"{Named(into)} is {(into is ProjectRoot ? "the project" : "a group")}, and render draws one drawing; name one of the drawings under it, or give svg to see one before add_drawing adds it there.");
+                    return (null, $"{(into is ProjectRoot ? "(project) is the project" : $"{Named(into)} is a group")}, and render draws one drawing; name one of the drawings under it, or give svg to see one before add_drawing adds it there.");
                 }
 
                 about = $"A drawing added to {(into is ProjectRoot ? "the project" : "group " + Named(into))}";
@@ -1445,6 +1486,11 @@ public sealed class AssistantTools
 
             var wrong = Listed(drawings, found is ProjectGroup ? "name a group or a drawing to narrow it" : null, out var clean);
 
+            if (found is ProjectDrawing)
+            {
+                return wrong.Length > 0 ? wrong : "No problems.";
+            }
+
             return (wrong.Length > 0 ? wrong + "\n" : string.Empty) + $"{clean} drawing(s) with no problems.";
         });
 
@@ -1705,6 +1751,92 @@ public sealed class AssistantTools
         Called?.Invoke(this, summary);
 
         return result;
+    }
+
+    /// <summary>A tool whose arguments are read before it runs, and which does nothing while the window waits on the person.</summary>
+    /// <remarks>
+    /// The factory's own binding hands a null to a parameter taking none, which then threw from inside
+    /// the tool, and says of a value that would not convert only the .NET type it wanted. A dialog's
+    /// answer applies to what it described, so an edit made under it was lost unnamed; checked on
+    /// the UI thread with the call, so none can open between the two.
+    /// </remarks>
+    private sealed class Checked : DelegatingAIFunction
+    {
+        /// <summary>The window whose questions hold the tool back, or null for a tool that only reads.</summary>
+        private readonly MainWindow? _window;
+
+        public Checked(AIFunction inner, MainWindow? window)
+            : base(inner)
+        {
+            _window = window;
+        }
+
+        protected override async ValueTask<object?> InvokeCoreAsync(AIFunctionArguments arguments, System.Threading.CancellationToken cancellationToken)
+        {
+            foreach (var parameter in UnderlyingMethod!.GetParameters())
+            {
+                if (parameter.Name is not { } name
+                    || !arguments.TryGetValue(name, out var value)
+                    || !JsonSchema.TryGetProperty("properties", out var properties)
+                    || !properties.TryGetProperty(name, out var schema))
+                {
+                    continue;
+                }
+
+                if (value is null or JsonElement { ValueKind: JsonValueKind.Null })
+                {
+                    if (!(schema.TryGetProperty("type", out var types) && types.ValueKind == JsonValueKind.Array && types.EnumerateArray().Any(type => type.GetString() == "null")))
+                    {
+                        throw new ArgumentException($"'{name}' cannot be null: it takes {Kind(schema)}.");
+                    }
+                }
+                else if (value is JsonElement json)
+                {
+                    try
+                    {
+                        _ = json.Deserialize(parameter.ParameterType, s_arguments);
+                    }
+                    catch (JsonException failure)
+                    {
+                        throw new ArgumentException($"'{name}' takes {Kind(schema)}"
+                            + (failure.Path is { Length: > 1 } at ? $", and {at[1..]} in what was given does not read as its schema says." : $", not {json.GetRawText()}."));
+                    }
+                }
+            }
+
+            if (_window is not { } window)
+            {
+                return await base.InvokeCoreAsync(arguments, cancellationToken).ConfigureAwait(false);
+            }
+
+            Task<object?> Run() => window.Asking is { } question
+                ? Task.FromResult<object?>(JsonSerializer.SerializeToElement(
+                    $"Nothing was done: Studio is waiting on the person to answer {(question.Title is { Length: > 0 } title ? $"\"{title}\"" : "a question")} in its window, and takes no edit until they have; ask them to, then try again.",
+                    s_arguments))
+                : base.InvokeCoreAsync(arguments, cancellationToken).AsTask();
+
+            return await (Dispatcher.UIThread.CheckAccess() ? Run() : Dispatcher.UIThread.InvokeAsync(Run)).ConfigureAwait(false);
+        }
+
+        /// <summary>What a parameter takes, as its schema tells the model.</summary>
+        private static string Kind(JsonElement schema)
+        {
+            if (schema.TryGetProperty("enum", out var values))
+            {
+                return "one of " + string.Join(", ", values.EnumerateArray());
+            }
+
+            var type = schema.TryGetProperty("type", out var types) ? types.ValueKind == JsonValueKind.Array ? types[0].GetString() : types.GetString() : null;
+
+            return type switch
+            {
+                "integer" => "a whole number",
+                "boolean" => "true or false",
+                "array" or "object" => "an " + type,
+                null => "a value",
+                _ => "a " + type
+            };
+        }
     }
 
     /// <summary>Runs on the UI thread, where a function is called from whichever thread the model's reply arrived on.</summary>

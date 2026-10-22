@@ -1091,7 +1091,8 @@ public class StudioMcpServerTests : IDisposable
         Assert.All(refusals, result => Assert.True(result.IsError, Text(result)));
         Assert.All(refusals, result => Assert.Empty(result.Content.OfType<ImageContentBlock>()));
         Assert.Contains("one drawing", Text(group), StringComparison.Ordinal);
-        Assert.Contains("one drawing", Text(project), StringComparison.Ordinal);
+        Assert.StartsWith("(project) is the project, and render draws one drawing", Text(project), StringComparison.Ordinal);
+        Assert.Contains("'background' takes one of Transparent, Light, Dark, Both, not \"purple\".", Text(purple), StringComparison.Ordinal);
         Assert.Contains("1 to 1024", Text(none), StringComparison.Ordinal);
         Assert.Contains("1 to 1024", Text(huge), StringComparison.Ordinal);
         Assert.Contains("8", Text(many), StringComparison.Ordinal);
@@ -1214,6 +1215,82 @@ public class StudioMcpServerTests : IDisposable
             Assert.All(head[1..], line => Assert.StartsWith("warning: ", line, StringComparison.Ordinal));
             Assert.Contains(head[1..], line => line.Contains(said, StringComparison.Ordinal));
         }
+    }
+
+    /// <remarks>Closing the window with an edit asks, in Studio's own dialog, whether to throw it away.</remarks>
+    [AvaloniaFact]
+    public async Task A_Call_While_Studio_Asks_The_Person_Is_Refused_As_An_Error_And_Changes_Nothing()
+    {
+        var (window, port) = await Serving();
+        await using var client = await Client(port);
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+
+        viewer.SetSource(Drawing.Replace("#00ff00", "#123456", StringComparison.Ordinal));
+        window.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        var question = Assert.Single(window.OwnedWindows);
+        var refused = await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#0000ff" } }, ["summary"] = "blue" });
+        var read = await Call(client, "get_drawing", new());
+
+        Assert.True(refused.IsError);
+        Assert.StartsWith("Nothing was done: Studio is waiting on the person to answer \"Unsaved changes\"", Text(refused), StringComparison.Ordinal);
+        Assert.NotEqual(true, read.IsError);
+        Assert.Contains("#123456", viewer.Source, StringComparison.Ordinal);
+
+        question.Close();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <remarks>The settings ask nothing about the drawings, so an edit made under them loses nothing.</remarks>
+    [AvaloniaFact]
+    public async Task A_Call_While_The_Settings_Are_Open_Goes_Through()
+    {
+        var (window, port) = await Serving();
+        await using var client = await Client(port);
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+
+        var shown = window.ShowSettingsAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        var settings = Assert.IsType<SettingsWindow>(Assert.Single(window.OwnedWindows));
+        var result = await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#0000ff" } }, ["summary"] = "blue" });
+
+        Assert.NotEqual(true, result.IsError);
+        Assert.Contains("one undo step", Text(result), StringComparison.Ordinal);
+        Assert.Contains("#0000ff", viewer.Source, StringComparison.Ordinal);
+
+        settings.Close();
+        await shown;
+    }
+
+    [AvaloniaFact]
+    public async Task An_Argument_Null_Or_Of_The_Wrong_Kind_Is_An_Error_Naming_It()
+    {
+        var (window, port) = await Serving();
+        await using var client = await Client(port);
+        var before = window.GetVisualDescendants().OfType<SvgViewer>().First().Source;
+
+        var nulled = await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "red" } }, ["summary"] = null });
+        var numbered = await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "width", ["value"] = 5 });
+        var listed = await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = "fill=red", ["summary"] = "red" });
+        var placed = await Call(client, "insert_element", new() { ["target"] = "", ["markup"] = "<circle />", ["where"] = "Under", ["summary"] = "x" });
+        var nested = await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = 5, value = "red" } }, ["summary"] = "red" });
+        var optional = await Call(client, "get_element", new() { ["key"] = "0", ["node"] = null });
+        var refusals = new[] { nulled, numbered, listed, placed, nested };
+
+        Assert.NotEqual(true, optional.IsError);
+
+        Assert.All(refusals, result => Assert.True(result.IsError, Text(result)));
+        Assert.Contains("'summary' cannot be null: it takes a string.", Text(nulled), StringComparison.Ordinal);
+        Assert.Contains("'value' takes a string, not 5.", Text(numbered), StringComparison.Ordinal);
+        Assert.Contains("'attributes' takes an array, not \"fill=red\".", Text(listed), StringComparison.Ordinal);
+        Assert.Contains("'where' takes one of Before, After, Inside, not \"Under\".", Text(placed), StringComparison.Ordinal);
+        Assert.Contains("'attributes' takes an array, and [0].name in what was given does not read as its schema says.", Text(nested), StringComparison.Ordinal);
+        Assert.All(refusals, result => Assert.DoesNotContain("Object reference", Text(result), StringComparison.Ordinal));
+        Assert.All(refusals, result => Assert.DoesNotContain("System.", Text(result), StringComparison.Ordinal));
+        Assert.All(refusals, result => Assert.DoesNotContain("Svg.", Text(result), StringComparison.Ordinal));
+        Assert.Equal(before, window.GetVisualDescendants().OfType<SvgViewer>().First().Source);
     }
 
     [AvaloniaFact]

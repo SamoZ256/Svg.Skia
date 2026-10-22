@@ -148,7 +148,8 @@ public partial class SvgViewerElementTree : UserControl
     /// <summary>The rows' menu, showing whatever a host has wired and nothing where it wired nothing.</summary>
     private ContextMenu Menu()
     {
-        var group = Item("New group", () => NewGroupRequested is { } write && SelectedNode is { } row && write(row.AddressKey, SvgElementDrop.After));
+        // Last inside the drawing itself, which has nothing beside it.
+        var group = Item("New group", () => NewGroupRequested is { } write && SelectedNode is { } row && write(row.AddressKey, row.AddressKey.Length == 0 ? SvgElementDrop.Inside : SvgElementDrop.After));
         var duplicate = Item("Duplicate", () => DuplicateRequested is { } write && write(_selectedAddresses.ToList()));
         var delete = Item("Delete", () => DeleteRequested is { } write && write(_selectedAddresses.ToList()));
         var menu = new ContextMenu { ItemsSource = new[] { group, duplicate, delete } };
@@ -332,9 +333,15 @@ public partial class SvgViewerElementTree : UserControl
     /// <remarks>
     /// A row that can hold children has three: a quarter at each end to go beside it, and the middle
     /// to go in it. One that cannot has two, so there is nowhere to aim that would mean nothing.
+    /// The drawing itself has one, since it has nothing beside it.
     /// </remarks>
     private static SvgElementDrop Bands(double y, double height, SvgViewerElementNode target)
     {
+        if (target.AddressKey.Length == 0)
+        {
+            return SvgElementDrop.Inside;
+        }
+
         if (!Holds(target))
         {
             return y < height / 2 ? SvgElementDrop.Before : SvgElementDrop.After;

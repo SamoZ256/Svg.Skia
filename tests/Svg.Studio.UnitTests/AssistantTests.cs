@@ -177,6 +177,44 @@ public class AssistantTests : IDisposable
         </svg>
         """;
 
+    /// <summary>A copy of the live run's Keys: 0 = Badges declaring tint, 0/0 = Tinted, with no block of its own, 0/1 = Keys, with one, under a project declaring angle.</summary>
+    private const string Keyed = """
+        <studio namespace="Mcp.Test">
+          <e:code xmlns:e="https://svg.skia/expr/1.0">
+            <e:param name="angle" type="number" default="15" />
+          </e:code>
+
+          <group name="Badges">
+            <e:code xmlns:e="https://svg.skia/expr/1.0">
+              <e:param name="tint" type="color" default="#ff0000" />
+            </e:code>
+
+            <drawing name="Tinted">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                <rect width="24" height="24" fill="{{ tint }}" transform="rotate({{ angle }} 12 12)" />
+              </svg>
+            </drawing>
+
+            <drawing name="Keys">
+              <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+                <defs>
+                  <e:code>
+                    <e:param name="a" type="number" default="2" />
+                    <e:param name="b" type="number" default="3" />
+                    <e:let name="size">a * b * 2</e:let>
+                    <e:let name="half">size / 2</e:let>
+                  </e:code>
+                  <linearGradient id="g1"><stop offset="0" stop-color="#ff0000" /><stop offset="1" stop-color="#ffff00" /></linearGradient>
+                  <linearGradient id="g2"><stop offset="0" stop-color="#0000ff" /><stop offset="1" stop-color="#00ffff" /></linearGradient>
+                </defs>
+                <rect width="{{ size }}" height="24" fill="url(#g1)" />
+                <circle cx="18" cy="12" r="{{ half / 2 }}" fill="{{ tint }}" />
+              </svg>
+            </drawing>
+          </group>
+        </studio>
+        """;
+
     /// <summary>A drawing that declares entities of its own, which Studio draws and has no source to edit for.</summary>
     internal const string Entities = """
         <?xml version="1.0"?>
@@ -851,7 +889,7 @@ public class AssistantTests : IDisposable
         Assert.EndsWith("0 drawing(s) with no problems.", chat.Results[0], StringComparison.Ordinal);
 
         // A drawing is as narrow as a path goes, and get_drawing and an edit's answer cut the list too.
-        Assert.Contains("… and 10 more.\n", chat.Results[1], StringComparison.Ordinal);
+        Assert.EndsWith("… and 10 more.", chat.Results[1], StringComparison.Ordinal);
         Assert.Equal(50, chat.Results[2].Split('\n').Count(line => line.StartsWith("Problem: Unknown name 'nothing'", StringComparison.Ordinal)));
         Assert.Contains("… and 10 more.\n", chat.Results[2], StringComparison.Ordinal);
         Assert.Equal(50, chat.Results[3].Split('\n').Count(line => line.StartsWith("- Unknown name 'nothing'", StringComparison.Ordinal)));
@@ -1632,13 +1670,19 @@ public class AssistantTests : IDisposable
         Assert.Contains("\nUnset: height, scale, x, y\n", wide, StringComparison.Ordinal);
         Assert.Contains("Built at width=40, given by itself.", wide, StringComparison.Ordinal);
 
+        // The group's padding of 200% leaves it no room, so it builds to no size at all.
+        Assert.DoesNotContain(" px.", wide, StringComparison.Ordinal);
+
         Assert.Equal("There is no node '3'. get_project lists the paths.", chat.Results[4]);
 
         var unsized = new ScriptedChat(Call("get_node", new() { ["node"] = "0" }), Say("Read."));
+        var scaled = new ScriptedChat(Call("get_node", new() { ["node"] = "0" }), Say("Read."));
 
         await Send(await Host(Write("icons.svgstudio", Project)), unsized, "and home?");
+        await Send(await Host(Write("scaled.svgstudio", Project.Replace("<drawing name=\"home\">", "<drawing name=\"home\" scale=\"2\">", StringComparison.Ordinal))), scaled, "and home now?");
 
-        Assert.Contains("Built at the size its svg gives: neither it nor a node above it gives width, height or scale.", unsized.Results[0], StringComparison.Ordinal);
+        Assert.Contains("Built at the size its svg gives: neither it nor a node above it gives width, height or scale. That is 24×24 px.", unsized.Results[0], StringComparison.Ordinal);
+        Assert.Contains("Built at scale=2, given by itself. That is 48×48 px.", scaled.Results[0], StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -1828,7 +1872,7 @@ public class AssistantTests : IDisposable
         Assert.Equal("The drawing itself cannot be deleted.", chat.Results[2]);
         Assert.Contains("not well formed", chat.Results[3], StringComparison.Ordinal);
         Assert.Equal("A <linearGradient> cannot hold a <rect>.", chat.Results[4]);
-        Assert.Equal("That is not in this drawing any more.", chat.Results[5]);
+        Assert.Equal("There is no element at 9 in this drawing.", chat.Results[5]);
         Assert.All(chat.Results, result => Assert.DoesNotContain("undo step", result, StringComparison.Ordinal));
         Assert.Equal(before, viewer.Source);
         Assert.False(viewer.CanUndo);
@@ -2108,6 +2152,7 @@ public class AssistantTests : IDisposable
             Call("get_problems", new()),
             Call("get_element", new() { ["node"] = "1/0", ["key"] = "(root)" }),
             Call("get_problems", new() { ["node"] = "0" }),
+            Call("get_problems", new() { ["node"] = "1/0" }),
             Say("Read."));
 
         await Send(window, chat, "what is wrong");
@@ -2119,8 +2164,10 @@ public class AssistantTests : IDisposable
         Assert.StartsWith("<svg> at (root)", chat.Results[1], StringComparison.Ordinal);
 
         // A drawing's path is taken as well as a group's.
+        // One drawing is not counted among drawings.
         Assert.Contains("0 Dial: 'angle' is declared more than once", chat.Results[2], StringComparison.Ordinal);
-        Assert.EndsWith("0 drawing(s) with no problems.", chat.Results[2], StringComparison.Ordinal);
+        Assert.DoesNotContain("drawing(s)", chat.Results[2], StringComparison.Ordinal);
+        Assert.Equal("No problems.", chat.Results[3]);
     }
 
     [AvaloniaFact]
@@ -2545,6 +2592,212 @@ public class AssistantTests : IDisposable
         finally
         {
             ClaudeProvider.ApiKey = was;
+        }
+    }
+
+    /// <remarks>
+    /// Studio's own dialog, not a stub: the window knows it is asking by the dialog over it. Let
+    /// through, the edit went in under a question that never named it, and a tab opened under it
+    /// was left over a project the answer closed.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Nothing_Is_Edited_While_The_Window_Asks_The_Person_A_Question()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var filled = (ProjectDrawing)((ProjectGroup)window.Workspace!.Document.Root.Children[1]).Children[0];
+        var before = filled.Text;
+
+        await window.ShowAsync(window.Workspace.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Viewer(window).SetSource(Drawing.Replace("#00ff00", "#123456", StringComparison.Ordinal));
+
+        var closing = window.CloseProjectAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        var question = Assert.Single(window.OwnedWindows);
+        var tabs = window.GetVisualDescendants().OfType<TabItem>().Count();
+        ChatResponse Blue() => Call("set_attributes", new() { ["node"] = "1/0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#0000ff" } }, ["summary"] = "blue" });
+        var chat = new ScriptedChat(Blue(), Call("open", new() { ["node"] = "1" }), Call("get_project", new()), Say("Waiting."));
+
+        await Send(window, chat, "make the badge blue");
+
+        Assert.All(chat.Results.Take(2), result => Assert.StartsWith("Nothing was done: Studio is waiting on the person to answer \"Unsaved changes\"", result, StringComparison.Ordinal));
+        Assert.Contains("1/0 drawing Filled", chat.Results[2], StringComparison.Ordinal);
+        Assert.Equal(before, filled.Text);
+        Assert.Equal(tabs, window.GetVisualDescendants().OfType<TabItem>().Count());
+
+        question.Close();
+        Assert.False(await closing);
+
+        var answered = new ScriptedChat(Blue(), Say("Blue."));
+
+        await Send(window, answered, "now make it blue");
+
+        Assert.Contains("one undo step", answered.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Nothing_Is_Put_Beside_The_Drawing_Itself_Or_Inside_A_Shape()
+    {
+        var window = await Host(Write("parts.svg", Parts));
+        var viewer = Viewer(window);
+        var before = viewer.Source;
+
+        var chat = new ScriptedChat(
+            Call("insert_element", new() { ["target"] = "", ["where"] = "Before", ["markup"] = "<circle />", ["summary"] = "x" }),
+            Call("move_element", new() { ["key"] = "2", ["target"] = "(root)", ["where"] = "After", ["summary"] = "x" }),
+            Call("insert_element", new() { ["target"] = "1/0", ["markup"] = "<circle />", ["summary"] = "x" }),
+            Call("move_element", new() { ["key"] = "2", ["target"] = "1/0", ["summary"] = "x" }),
+            Say("Refused."));
+
+        await Send(window, chat, "put a circle where none can go");
+
+        Assert.Equal("Nothing can go beside the drawing itself, which has no siblings; put it inside instead.", chat.Results[0]);
+        Assert.Equal(chat.Results[0], chat.Results[1]);
+        Assert.Equal("A <rect> cannot hold a <circle>.", chat.Results[2]);
+        Assert.Equal(chat.Results[2], chat.Results[3]);
+        Assert.Equal(before, viewer.Source);
+        Assert.False(viewer.CanUndo);
+
+        // What describes or animates a shape is still what it holds.
+        var animated = new ScriptedChat(
+            Call("insert_element", new() { ["target"] = "1/0", ["markup"] = "<animateTransform attributeName=\"transform\" type=\"rotate\" to=\"90\" dur=\"1s\" />", ["summary"] = "turn the box" }),
+            Say("Turning."));
+
+        await Send(window, animated, "turn the box");
+
+        Assert.Contains("It is at 1/0/0;", animated.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Argument_Null_Or_Of_The_Wrong_Kind_Is_Refused_By_Its_Name()
+    {
+        var window = await Host(Write("parts.svg", Parts));
+        var viewer = Viewer(window);
+        var before = viewer.Source;
+
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["key"] = "1/0", ["attributes"] = new[] { new { name = "fill", value = "red" } }, ["summary"] = null }),
+            Call("set_text", new() { ["key"] = "1/0", ["text"] = 5, ["summary"] = "five" }),
+            Call("insert_element", new() { ["target"] = "1", ["markup"] = "<circle />", ["where"] = "Under", ["summary"] = "x" }),
+
+            // Between, since the fourth failure in a row is thrown out of the reply rather than answered;
+            // and a null where a parameter takes one is no refusal.
+            Call("get_element", new() { ["key"] = "1", ["node"] = null }),
+            Call("get_code", new() { ["part"] = "first" }),
+            Say("Refused."));
+
+        await Send(window, chat, "try it every wrong way");
+
+        Assert.Contains("'summary' cannot be null: it takes a string.", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("'text' takes a string, not 5.", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("'where' takes one of Before, After, Inside, not \"Under\".", chat.Results[2], StringComparison.Ordinal);
+        Assert.StartsWith("<g> at 1", chat.Results[3], StringComparison.Ordinal);
+        Assert.Contains("'part' takes a whole number, not \"first\".", chat.Results[4], StringComparison.Ordinal);
+        Assert.All(chat.Results, result => Assert.DoesNotContain("Object reference", result, StringComparison.Ordinal));
+        Assert.All(chat.Results, result => Assert.DoesNotContain("System.", result, StringComparison.Ordinal));
+        Assert.All(chat.Results, result => Assert.DoesNotContain("Svg.SourceEditing", result, StringComparison.Ordinal));
+        Assert.Equal(before, viewer.Source);
+    }
+
+    /// <remarks>
+    /// The tab read Keys on its own and found tint undeclared, which the group declares: three
+    /// errors in its status line, where the tools, reading it as built, said two.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Tab_Counts_The_Errors_The_Tools_Do_In_A_Drawing_Using_What_Its_Group_Declares()
+    {
+        var keys = await Host(Write("keys.svgstudio", Keyed));
+
+        await keys.ShowAsync(((ProjectGroup)keys.Workspace!.Document.Root.Children[0]).Children[1]);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(2, Viewer(keys).SourceDiagnostics.Count);
+        Assert.DoesNotContain(Viewer(keys).SourceDiagnostics, diagnostic => diagnostic.Message.Contains("tint", StringComparison.Ordinal));
+        Assert.Contains("The drawing has 2 error(s)", new AssistantTools(keys).Context(), StringComparison.Ordinal);
+
+        var tinted = await Host(Write("tinted.svgstudio", Keyed));
+
+        await tinted.ShowAsync(((ProjectGroup)tinted.Workspace!.Document.Root.Children[0]).Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(Viewer(tinted).SourceDiagnostics);
+        Assert.DoesNotContain("error", new AssistantTools(tinted).Context(), StringComparison.Ordinal);
+    }
+
+    /// <remarks>Broken from the live run, whose code draws nothing and said nothing of why.</remarks>
+    [AvaloniaFact]
+    public async Task The_Code_Of_A_Drawing_With_Problems_Says_What_They_Are()
+    {
+        const string broken = """
+            <studio namespace="Demo.Icons">
+              <drawing name="Broken">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                  <circle cx="12" cy="12" r="{{ radius * 2 }}" fill="#0000ff" />
+                </svg>
+              </drawing>
+            </studio>
+            """;
+        var chat = new ScriptedChat(Call("get_code", new() { ["node"] = "0" }), Say("Here."));
+        var clean = new ScriptedChat(Call("get_code", new() { ["node"] = "0" }), Say("Here."));
+
+        await Send(await Host(Write("broken.svgstudio", broken)), chat, "show me the code");
+        await Send(await Host(Write("icons.svgstudio", Project)), clean, "show me the code");
+
+        var header = chat.Results[0][..chat.Results[0].IndexOf("\n\n", StringComparison.Ordinal)];
+
+        Assert.Contains("public static", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("\nProblems:\n- 'r' does not take an expression.", header, StringComparison.Ordinal);
+        Assert.Contains("\n- Unknown name 'radius'", header, StringComparison.Ordinal);
+        Assert.DoesNotContain("Problems", clean.Results[0][..clean.Results[0].IndexOf("\n\n", StringComparison.Ordinal)], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tab_Holding_No_Svg_Says_So_Rather_Than_Naming_A_Row()
+    {
+        var window = await Host(Write("home.svg", Drawing));
+
+        // Emptied, as a tab is whose drawing would not load.
+        Viewer(window).Close();
+
+        var chat = new ScriptedChat(
+            Call("replace_drawing", new() { ["svg"] = Drawing, ["summary"] = "fill it" }),
+            Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "red" } }, ["summary"] = "red" }),
+            Say("Refused."));
+
+        await Send(window, chat, "replace it");
+
+        Assert.All(chat.Results, result => Assert.Equal("What is open here does not read as SVG, so it cannot be edited.", result));
+    }
+
+    [AvaloniaFact]
+    public async Task A_Number_Refused_Is_Written_The_Same_Way_Whatever_The_Culture()
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+
+        // A comma for the point, and ∞ for infinity.
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+
+        try
+        {
+            var window = await Host(Write("icons.svgstudio", Project));
+            var chat = new ScriptedChat(
+                Call("set_node", new() { ["node"] = "1", ["setting"] = "width", ["value"] = "Infinity" }),
+                Call("set_node", new() { ["node"] = "1", ["setting"] = "x", ["value"] = "1e999" }),
+                Call("set_node", new() { ["node"] = "1", ["setting"] = "scale", ["value"] = "-1.5" }),
+                Call("set_node", new() { ["node"] = "1", ["setting"] = "padding", ["value"] = "-0.5" }),
+                Say("Refused."));
+
+            await Send(window, chat, "size Badges as nothing can be");
+
+            Assert.Equal("A width has to be a positive number, but was Infinity.", chat.Results[0]);
+            Assert.Equal("A position has to be a finite number, but was Infinity.", chat.Results[1]);
+            Assert.Equal("A scale has to be a positive number, but was -1.5.", chat.Results[2]);
+            Assert.StartsWith("A top padding has to be zero or more, but was -0.5.", chat.Results[3], StringComparison.Ordinal);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = culture;
         }
     }
 

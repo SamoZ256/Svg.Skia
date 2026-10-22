@@ -302,6 +302,27 @@ public class ChangesPanelTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task The_Context_Says_A_Merge_Part_Way_Through_Holds_Saving_And_Committing_Back()
+    {
+        Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
+
+        var window = await Host();
+        var before = await new AssistantTools(window).ContextAsync();
+
+        // Where the panel does not see it, as a client's call arrives while Studio is in the background.
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+
+        var during = await new AssistantTools(window).ContextAsync();
+
+        Assert.Contains("\nGit: main", before, StringComparison.Ordinal);
+        Assert.DoesNotContain("merge", before, StringComparison.Ordinal);
+        Assert.Contains("\nGit: main; the project is part way through a merge or a rebase, so save and git_commit refuse until it is finished or aborted.", during, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task A_Commit_From_The_Panel_Announces_Why_It_Was_Not_Made()
     {
         Committed();

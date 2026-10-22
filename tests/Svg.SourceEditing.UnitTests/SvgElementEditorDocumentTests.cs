@@ -194,12 +194,13 @@ public class SvgElementEditorDocumentTests
     [Fact]
     public void A_Target_That_Closes_Itself_Is_Opened_By_What_Is_Put_In_It()
     {
-        var source = Read();
+        // An empty group, since a rect holds no shape.
+        var source = Read(Source.Replace("""<rect id="a" />""", """<g id="a" />""", System.StringComparison.Ordinal));
 
         Assert.Null(SvgElementEditor.Move(source, "1/0", "0", SvgElementDrop.Inside, out _));
 
-        Assert.Contains("""<rect id="a">""", source.ToText());
-        Assert.Contains("</rect>", source.ToText());
+        Assert.Contains("""<g id="a">""", source.ToText());
+        Assert.Contains("""<circle id="c" />""" + "\n  </g>", source.ToText());
     }
 
     [Fact]
@@ -225,8 +226,9 @@ public class SvgElementEditorDocumentTests
     {
         var source = Read();
 
-        Assert.Equal("One of those is not in this drawing any more.", SvgElementEditor.Move(source, "9", "0", SvgElementDrop.After, out _));
-        Assert.Equal("One of those is not in this drawing any more.", SvgElementEditor.Move(source, "0", "9", SvgElementDrop.After, out _));
+        Assert.Equal("There is no element at 9 in this drawing.", SvgElementEditor.Move(source, "9", "0", SvgElementDrop.After, out _));
+        Assert.Equal("There is no element at 8 in this drawing.", SvgElementEditor.Move(source, "0", "8", SvgElementDrop.After, out _));
+        Assert.Equal("There is no element at 7 in this drawing.", SvgElementEditor.Insert(source, "7", SvgElementDrop.Inside, new XElement("g"), out _));
         Assert.Equal(Source, source.ToText());
     }
 
@@ -296,19 +298,54 @@ public class SvgElementEditorDocumentTests
             source.ToText());
     }
 
+    /// <remarks>
+    /// Read as inside, a client asking for before the root was told where it landed, last inside;
+    /// the tree, whose top row is the root, reads a drop there as inside itself.
+    /// </remarks>
     [Fact]
-    public void A_New_Group_Beside_The_Drawing_Itself_Goes_Inside_It()
+    public void Nothing_Goes_Beside_The_Drawing_Itself()
     {
+        const string refused = "Nothing can go beside the drawing itself, which has no siblings; put it inside instead.";
         var source = Read();
 
-        Assert.Null(SvgElementEditor.Insert(source, string.Empty, SvgElementDrop.After, Group(), out var key));
-        Assert.Equal("2", key);
+        Assert.Equal(refused, SvgElementEditor.Insert(source, string.Empty, SvgElementDrop.After, Group(), out var key));
+        Assert.Equal(refused, SvgElementEditor.Insert(source, string.Empty, SvgElementDrop.Before, Group(), out _));
+        Assert.Equal(refused, SvgElementEditor.Move(source, "0", string.Empty, SvgElementDrop.Before, out _));
+        Assert.Null(key);
+        Assert.Equal(Source, source.ToText());
 
-        Assert.Contains("""
-              <g>
-              </g>
+        Assert.Null(SvgElementEditor.Insert(source, string.Empty, SvgElementDrop.Inside, Group(), out key));
+        Assert.Equal("2", key);
+    }
+
+    [Fact]
+    public void A_Shape_Holds_Only_What_Describes_Or_Animates_It()
+    {
+        var source = Read("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <rect id="a" />
+              <path id="p" d="M0 0h4" />
+              <use href="#a" />
+              <circle id="c" />
+              <linearGradient id="l"><stop offset="0" /></linearGradient>
+              <animate attributeName="opacity" to="0" dur="1s" />
+              <animateMotion dur="1s" />
             </svg>
-            """, source.ToText());
+            """);
+
+        Assert.Equal("A <rect> cannot hold a <circle>.", SvgElementEditor.Insert(source, "0", SvgElementDrop.Inside, new XElement("circle"), out _));
+        Assert.Equal("A <path> cannot hold a <g>.", SvgElementEditor.Insert(source, "1", SvgElementDrop.Inside, new XElement("g"), out _));
+        Assert.Equal("A <use> cannot hold a <rect>.", SvgElementEditor.Insert(source, "2", SvgElementDrop.Inside, new XElement("rect"), out _));
+        Assert.Equal("A <rect> cannot hold a <circle>.", SvgElementEditor.Move(source, "3", "0", SvgElementDrop.Inside, out _));
+        Assert.Equal("A <stop> cannot hold a <rect>.", SvgElementEditor.Insert(source, "4/0", SvgElementDrop.Inside, new XElement("rect"), out _));
+        Assert.Equal("A <animate> cannot hold a <rect>.", SvgElementEditor.Insert(source, "5", SvgElementDrop.Inside, new XElement("rect"), out _));
+        Assert.Equal("A <animateMotion> cannot hold a <rect>.", SvgElementEditor.Insert(source, "6", SvgElementDrop.Inside, new XElement("rect"), out _));
+
+        Assert.Null(SvgElementEditor.Insert(source, "0", SvgElementDrop.Inside, new XElement("title"), out var title));
+        Assert.Null(SvgElementEditor.Insert(source, "0", SvgElementDrop.Inside, new XElement("animateTransform"), out var turn));
+        Assert.Null(SvgElementEditor.Insert(source, "1", SvgElementDrop.Inside, new XElement("set"), out var set));
+        Assert.Null(SvgElementEditor.Insert(source, "6", SvgElementDrop.Inside, new XElement("mpath", new XAttribute("href", "#p")), out var along));
+        Assert.Equal(new[] { "0/0", "0/1", "1/0", "6/0" }, new[] { title, turn, set, along });
     }
 
     [Fact]
@@ -506,7 +543,7 @@ public class SvgElementEditorDocumentTests
         Assert.Equal(
             "The declarations cannot be deleted here: the Parameters panel edits them.",
             SvgElementEditor.Remove(source, new[] { "0/0" }));
-        Assert.Equal("That is not in this drawing any more.", SvgElementEditor.Remove(source, new[] { "1", "9" }));
+        Assert.Equal("There is no element at 9 in this drawing.", SvgElementEditor.Remove(source, new[] { "1", "9" }));
 
         Assert.Equal(Expressed, source.ToText());
     }

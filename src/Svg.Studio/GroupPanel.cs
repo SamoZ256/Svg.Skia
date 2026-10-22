@@ -4137,7 +4137,7 @@ public sealed class GroupPanel : UserControl
             case "x" or "y":
                 if (SvgcProject.ParseLength(value, "position") is { } at && !float.IsFinite(at))
                 {
-                    throw new SvgcProjectException($"A position has to be a finite number, but was {value}.");
+                    throw new SvgcProjectException($"A position has to be a finite number, but was {at.ToString(CultureInfo.InvariantCulture)}.");
                 }
 
                 break;

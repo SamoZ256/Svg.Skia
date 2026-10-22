@@ -180,7 +180,7 @@ public static class SvgAttributeEditor
 
         if (Resolve(source.Document, addressKey) is not { } element)
         {
-            return "That element is no longer in the drawing.";
+            return SvgElementEditor.Missing(addressKey);
         }
 
         // A style declaration beats the presentation attribute under it, so writing the attribute
@@ -314,7 +314,7 @@ public static class SvgAttributeEditor
 
         if (Resolve(source.Document, addressKey) is not { } element)
         {
-            return "That element is no longer in the drawing.";
+            return SvgElementEditor.Missing(addressKey);
         }
 
         if (Carries(element) is { } why)

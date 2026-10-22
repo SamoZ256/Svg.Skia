@@ -253,16 +253,15 @@ public sealed class StudioMcpServer : IAsyncDisposable
     private IEnumerable<McpServerTool> Tools()
         => _tools.For(small: false, docs: true)
             .OfType<AIFunction>()
-            .Append(AIFunctionFactory.Create(
-                _tools.ContextAsync,
-                "get_context",
-                "What is open in Studio now: the project, the tab in front, what is selected in it or picked on its board, and how many errors and warnings the drawing in front has; get_problems lists a project's.",
-                AssistantTools.s_arguments))
-            .Append(AIFunctionFactory.Create(Render, new AIFunctionFactoryOptions
+            .Append(_tools.Function(_tools.ContextAsync, new AIFunctionFactoryOptions
+            {
+                Name = "get_context",
+                Description = "What is open in Studio now: the project, the tab in front, what is selected in it or picked on its board, and how many errors and warnings the drawing in front has; get_problems lists a project's."
+            }))
+            .Append(_tools.Function(Render, new AIFunctionFactoryOptions
             {
                 Name = "render",
                 Description = "Draws a drawing as a PNG, to see what it looks like: at the size it is built at, or at several sizes side by side on one sheet, on transparent, light or dark, or a row on each. Values try parameters out and svg tries a whole replacement, changing nothing.",
-                SerializerOptions = AssistantTools.s_arguments,
 
                 // As it is, which the server sends on unchanged: the JSON of one would arrive as text.
                 MarshalResult = (result, _, _) => new ValueTask<object?>(result)
