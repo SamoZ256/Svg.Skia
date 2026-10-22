@@ -331,6 +331,20 @@ also see a drawing, which the panel cannot: `render` draws one as an image, at s
 side and on light and dark, with parameter values of its own, or as a replacement or a new drawing
 would look before either is applied.
 
+It works with files by their full paths: `save` writes a project that was never saved, or a drawing
+of no project's, to a path it names; `export` writes the project as one C# file, or with no project
+open the drawing in front as SVG or C#; `new_project` starts an empty one; `open_file` opens a drawing,
+a project, or an svgc project or PaintCode document to convert; and `reload` reads the open project
+or drawing again from its file. Studio does not watch the disk, so after a file it has open is changed
+elsewhere — by another editor, or a `git pull` in a terminal — Claude Code is told to call `reload`,
+or Studio's next save would write its copy back over the change. Where Studio would stop to ask you
+something, a tool never does. Over unsaved work, or a recovery copy waiting to be restored, it refuses
+and says why, and the choice stays yours in Studio. Otherwise it goes on as you chose before and says
+what it did: a PaintCode document is converted on the terms you last picked, and text an export would
+ask about is baked unless you chose to relax it for good. A project part way through a merge still
+opens if its file reads, and Studio offers you the merge when you next come back to it; one whose
+file holds the conflict is refused.
+
 1. In **Settings**, on the **Accounts** tab, turn on **Let Claude Code connect to this Studio**. Studio then listens on
    `127.0.0.1` only, on port 7337 unless you choose another.
 2. Press **Copy command** and paste it into a terminal. It runs `claude mcp add` with this Studio's
@@ -351,8 +365,9 @@ after puts nothing back and says so. Neither takes back or puts back a step that
 holding edits you have not saved, which Studio would do without asking: one of its own that adds or
 removes what the tab is on, or, with none of its own left, any step of the project's. Nor does either
 step a drawing's text in the project under a tab you have since opened on it and typed in, whose
-next save would write over it. It names the tab instead. Saving, removing a node and committing are
-marked as destructive, so Claude Code asks you before it does them; Studio does not ask again.
+next save would write over it. It names the tab instead. Saving, exporting, removing a node and
+committing are marked as destructive, so Claude Code asks you before it does them; Studio does not ask
+again.
 
 Only one Studio can hold a port. A second one open at the same time says in Settings that the port is
 taken; give it another and copy its command separately.

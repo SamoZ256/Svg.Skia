@@ -51,8 +51,8 @@ public sealed class AssistantSession : IDisposable
         - Every edit is one step the person can undo with Cmd/Ctrl+Z.
         """;
 
-    /// <summary>Only for a model that has the save, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>
-    private const string Confirming = "\n- Saving, removing and committing ask the person first; don't ask again in words.";
+    /// <summary>Only for a model that has the save, export, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>
+    private const string Confirming = "\n- Saving, exporting, removing and committing ask the person first; don't ask again in words.";
 
     private readonly AssistantTools _tools;
     private readonly List<ChatMessage> _messages = new();

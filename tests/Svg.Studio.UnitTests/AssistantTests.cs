@@ -286,7 +286,7 @@ public class AssistantTests : IDisposable
         // And is not told about saving at all, having no tool to do it: told it asks first, a 3B
         // on-device model asked to save after every edit.
         Assert.DoesNotContain("Saving", AssistantSession.SystemPrompt(small: true), StringComparison.Ordinal);
-        Assert.Contains("Saving, removing and committing ask the person first", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
+        Assert.Contains("Saving, exporting, removing and committing ask the person first", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
 
         // A path is a position: removing 0 and then 1 by one read of the project removed what was 2.
         Assert.Contains("Paths are positions", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
@@ -2228,6 +2228,84 @@ public class AssistantTests : IDisposable
 
         Assert.Contains("never been saved", saving.Results[0], StringComparison.Ordinal);
         Assert.Null(untitled.Workspace?.Document.Path);
+    }
+
+    /// <remarks>It writes past the history, as a save does, so in the panel Studio asks first.</remarks>
+    [AvaloniaFact]
+    public async Task The_Panel_Asks_Before_An_Export_And_Writes_Nothing_On_No()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var target = Path.Combine(_directory, "Icons.cs");
+        var asked = new List<string>();
+        var chat = new ScriptedChat(Call("export", new() { ["path"] = target }), Say("Not exported."));
+
+        await Send(window, chat, "export it", asked: asked);
+
+        Assert.Equal($"Export to {target}?", Assert.Single(asked));
+        Assert.Equal("The person said no; nothing was written.", chat.Results[0]);
+        Assert.False(File.Exists(target));
+    }
+
+    [AvaloniaFact]
+    public async Task The_Panel_Asks_Before_A_Save_To_A_Path_And_Writes_Nothing_On_No()
+    {
+        var window = await Host(Write("star.svg", Drawing));
+        var target = Path.Combine(_directory, "copy.svg");
+        var asked = new List<string>();
+        var chat = new ScriptedChat(Call("save", new() { ["path"] = target }), Say("Not saved."));
+
+        await Send(window, chat, "save it there", asked: asked);
+
+        Assert.Equal($"Save it as {target}?", Assert.Single(asked));
+        Assert.Equal("The person said no; nothing was saved.", chat.Results[0]);
+        Assert.False(File.Exists(target));
+    }
+
+    /// <remarks>
+    /// The panel asks without holding the window, so the person can bring another tab forward before
+    /// answering; the save then wrote that tab's text and moved it to the path, and the export wrote it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Tab_Brought_Forward_While_The_Person_Is_Asked_Is_Not_Saved_Or_Exported_In_Place_Of_The_One_Asked_About()
+    {
+        var dot = Write("dot.svg", Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        var window = await Host(Write("star.svg", Drawing));
+        var copy = Path.Combine(_directory, "copy.svg");
+        var exported = Path.Combine(_directory, "exported.svg");
+
+        await window.OpenAsync(new[] { dot });
+        Dispatcher.UIThread.RunJobs();
+
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+        var items = tabs.Items.OfType<TabItem>().ToList();
+        var tools = new AssistantTools(window)
+        {
+            Confirm = _ =>
+            {
+                tabs.SelectedItem = items[1];
+                return Task.FromResult(true);
+            }
+        };
+
+        // Asked with the star in front, and answered with the dot.
+        async Task<string?> Asked(string tool, string path)
+        {
+            tabs.SelectedItem = items[0];
+            Dispatcher.UIThread.RunJobs();
+
+            var result = await tools.For(small: false, docs: false).OfType<AIFunction>().Single(function => function.Name == tool)
+                .InvokeAsync(new AIFunctionArguments { ["path"] = path });
+
+            Dispatcher.UIThread.RunJobs();
+
+            return result?.ToString();
+        }
+
+        Assert.Equal("What is in front changed while the person was asked, so nothing was saved; get_context says what is in front now.", await Asked("save", copy));
+        Assert.Equal("What is in front changed while the person was asked, so nothing was written; get_context says what is in front now.", await Asked("export", exported));
+        Assert.False(File.Exists(copy));
+        Assert.False(File.Exists(exported));
+        Assert.Equal(dot, Assert.IsType<SvgViewer>(items[1].Content).DocumentPath);
     }
 
     [AvaloniaFact]

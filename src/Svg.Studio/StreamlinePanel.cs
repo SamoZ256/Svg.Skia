@@ -250,7 +250,10 @@ public sealed class StreamlinePanel : UserControl
     public IReadOnlyList<StreamlineIcon> Dragged { get; set; } = Array.Empty<StreamlineIcon>();
 
     /// <summary>Whether <see cref="DropAsync"/> would take what is being dragged, for a drop target to say so.</summary>
-    public bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && _running is null && !_opening;
+    public bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && !Busy;
+
+    /// <summary>Whether icons are on their way into the project, through the import window, a drop or a family.</summary>
+    internal bool Busy => _running is { } || _opening;
 
     /// <summary>The group picked in the tree; imports go there, or into the project where none is.</summary>
     public ProjectGroup? Target
@@ -451,7 +454,7 @@ public sealed class StreamlinePanel : UserControl
     /// <remarks>With no project open each icon opens in a tab of its own, as delivered, and no window is needed.</remarks>
     public async Task OpenImportAsync()
     {
-        if (_opening || _running is { } || _picked.Count == 0 || _client is null)
+        if (Busy || _picked.Count == 0 || _client is null)
         {
             return;
         }
@@ -1021,7 +1024,7 @@ public sealed class StreamlinePanel : UserControl
     private void ShowImport()
     {
         _import.Content = _picked.Count > 0 ? $"Import {_picked.Count}…" : "Import…";
-        _import.IsEnabled = _picked.Count > 0 && !_opening && _running is null;
+        _import.IsEnabled = _picked.Count > 0 && !Busy;
         ToolTip.SetTip(_import, _window.Workspace is null
             ? "No project is open, so each icon opens in a tab of its own."
             : $"Icons go into {ProjectWorkspace.Label(Target!)}.");

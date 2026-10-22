@@ -111,13 +111,13 @@ public sealed class AssistantTools
     /// <summary>The tools that write past the history - to disk, to git, or a node away - which a client should ask about.</summary>
     public static readonly IReadOnlySet<string> Confirming = new HashSet<string>(StringComparer.Ordinal)
     {
-        "save", "remove", "git_commit"
+        "save", "export", "remove", "git_commit"
     };
 
     /// <summary>The tools that, called again with the same arguments, leave things as the first call did.</summary>
     public static readonly IReadOnlySet<string> Repeatable = new HashSet<string>(StringComparer.Ordinal)
     {
-        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing"
+        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "export", "reload"
     };
 
     /// <summary>Who the Edit menu says made an edit: "Undo Assistant: make it red".</summary>
@@ -175,7 +175,11 @@ public sealed class AssistantTools
         Add(GetDeclarations, "get_declarations", "Reads the declarations block a group, or the project, gives every drawing under it.");
         Add(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step.");
         Add(SetNode, "set_node", "Changes one setting of a group, a drawing or the project, as a single undo step. cache, helperScope and skiaSharp are the project's alone, and name, x and y a group's or drawing's; a width or height clears a scale, and a scale both.");
-        Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own.");
+        Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Given a path, saves a project never saved, or a drawing of no project's, there: the drawing's tab then saves to it, and its undo history starts again.");
+        Add(Export, "export", "Writes what is open to a file outside the project: with a project open, every drawing of it as one C# file, as Export in the File menu does, after taking in the edits of the tab in front; with none, the drawing in front, as C# where the path ends .cs and as SVG where it ends .svg.");
+        Add(NewProject, "new_project", "Starts a new, empty project in place of the one open, closing its tabs; refused while it or a tab of it holds changes not saved. Nothing is written until save is given a path.");
+        Add(OpenFile, "open_file", "Opens a file by its full path: a drawing (.svg) in a tab of its own, or a project (.svgstudio) in place of the one open, closing its tabs, which is refused while it or a tab of it holds changes not saved. An svgc project (.svgcproj) or a PaintCode document (.pcvd) is converted into a new project, held in Studio until save is given a path.");
+        Add(Reload, "reload", "Reads the open project again from its file, or the drawing of no project's in front from its own, after it was changed outside Studio, which does not watch the disk. Refused while it holds edits not saved. The project's tabs open again where their path still names the same node; the undo history starts again.");
         Add(Remove, "remove", "Removes a group or drawing from the project.");
         Add(GitCommit, "git_commit", "Saves and commits the project to its git repository.");
 
@@ -1301,51 +1305,91 @@ public sealed class AssistantTools
                 $"change {setting}");
         });
 
-    private Task<string> Save() => UiAsync(async () =>
-    {
-        if (_window.Workspace is null && _window.FrontViewer is null)
+    private Task<string> Save(
+        [Description("Where to write a project never saved, ending .svgstudio, or the drawing in front when it is of no project, ending .svg; left out, each is saved to its own file.")] string? path = null)
+        => UiAsync(async () =>
         {
-            return "Nothing is open.";
-        }
-
-        // A save that would have to ask where opens a picker, which a client cannot answer. A tab of
-        // no project's saves to its own file, whether or not the project has one.
-        if (_window.FrontNode is null && _window.FrontViewer is { } alone)
-        {
-            if (alone.DocumentPath is null)
+            if (_window.Workspace is null && _window.FrontViewer is null)
             {
-                return "The drawing in front has no file; save it once in Studio, which asks where.";
+                return "Nothing is open.";
             }
-        }
-        else if (_window.Workspace is { Document.Path: null })
-        {
-            return "The project has never been saved, so there is nowhere to write it; save it once in Studio, which asks where.";
-        }
-        else if (await _window.Changes.Conflicted().ConfigureAwait(true))
-        {
-            // WriteAsync asks too, but an unedited project never reaches it and would answer "Saved."
-            // over a file holding the conflict markers.
-            return "The project is in conflict, part way through a merge or a rebase; finish it, or abort it, before saving.";
-        }
 
-        if (!await Confirm("Save the project?").ConfigureAwait(true))
-        {
-            return "The person said no; nothing was saved.";
-        }
+            string? target = null;
 
-        var notes = new List<string>();
+            if (!string.IsNullOrEmpty(path) && (target = Located(path, existing: false, out var why)) is null)
+            {
+                return why;
+            }
 
-        if (!await _window.SaveAsync(notes).ConfigureAwait(true))
-        {
-            return string.Join("\n", notes.DefaultIfEmpty("Nothing was saved."));
-        }
+            // A save that would have to ask where opens a picker, which a client cannot answer. A tab of
+            // no project's saves to its own file, whether or not the project has one.
+            var shown = Front();
+            var alone = shown.Alone;
 
-        return Report(
-            _window.HoldingEdits() is { Count: > 0 } held
-                ? $"Saved, except {string.Join(", ", held.Select(Named))}: a save takes only the front tab's edits, so open each and save again."
-                : "Saved.",
-            "save");
-    });
+            if (alone is { })
+            {
+                if (target is null && alone.DocumentPath is null)
+                {
+                    return "The drawing in front has no file; give save a path ending .svg to write it there.";
+                }
+
+                if (target is { } && !Ends(target, ".svg"))
+                {
+                    return "A drawing of no project's saves as SVG; give a path ending .svg.";
+                }
+            }
+            else if (_window.Workspace?.Document.Path is { } file)
+            {
+                if (target is { })
+                {
+                    return $"The project is saved at {file} already, and Studio has no Save As for a project; save without a path writes it there.";
+                }
+
+                // WriteAsync asks too, but an unedited project never reaches it and would answer "Saved."
+                // over a file holding the conflict markers.
+                if (await _window.Changes.Conflicted().ConfigureAwait(true))
+                {
+                    return "The project is in conflict, part way through a merge or a rebase; finish it, or abort it, before saving.";
+                }
+            }
+            else if (target is null)
+            {
+                return "The project has never been saved; give save a path ending .svgstudio to write it there.";
+            }
+            else if (!Ends(target, ".svgstudio"))
+            {
+                return "A project saves to a path ending .svgstudio.";
+            }
+
+            if (!await Confirm(target is { } ? $"Save it as {target}?" : "Save the project?").ConfigureAwait(true))
+            {
+                return "The person said no; nothing was saved.";
+            }
+
+            if (Front() != shown)
+            {
+                return "What is in front changed while the person was asked, so nothing was saved; get_context says what is in front now.";
+            }
+
+            var replacing = target is { } && File.Exists(target);
+            var moving = alone is { } && target is { };
+            var notes = new List<string>();
+
+            if (!await (moving ? _window.SaveAsAsync(target!, notes) : _window.SaveAsync(notes, target)).ConfigureAwait(true))
+            {
+                return string.Join("\n", notes.DefaultIfEmpty("Nothing was saved."));
+            }
+
+            var saved = target is null ? "Saved" : $"Saved as {target}" + (replacing ? ", replacing the file there" : null);
+
+            // Moving the drawing writes it alone, so the project's tabs are no exception to it.
+            return Report(
+                string.Join("\n", notes.Prepend(
+                    moving ? saved + ". Its tab saves there from now on, and its undo history started again."
+                    : _window.HoldingEdits() is { Count: > 0 } held ? $"{saved}, except {string.Join(", ", held.Select(Named))}: a save takes only the front tab's edits, so open each and save again."
+                    : saved + ".")),
+                "save");
+        });
 
     private Task<string> Remove([Description("The node path of the group or drawing to remove.")] string node) => UiAsync(async () =>
     {
@@ -1406,6 +1450,232 @@ public sealed class AssistantTools
         return await _window.Changes.Commit(message, notes).ConfigureAwait(true)
             ? Report("Committed.", "commit")
             : string.Join("\n", notes.DefaultIfEmpty("Nothing was committed."));
+    });
+
+    /// <remarks>
+    /// Repeatable, since a second writes the same file again; destructive, since it replaces one.
+    /// A project's takes in the front tab's edits first, as the File menu's does, which leaves the
+    /// project edited.
+    /// </remarks>
+    private Task<string> Export(
+        [Description("The full path of the file to write, which replaces any file there; a project's ends .cs, and a drawing's .svg or .cs.")] string path)
+        => UiAsync(async () =>
+        {
+            if (_window.Workspace is null && _window.FrontViewer is null)
+            {
+                return "Nothing is open.";
+            }
+
+            if (Located(path, existing: false, out var why) is not { } target)
+            {
+                return why;
+            }
+
+            if (_window.Workspace is { } && !SvgExport.IsCSharp(target))
+            {
+                return "A project exports as one C# file; give a path ending .cs.";
+            }
+
+            var shown = Front();
+
+            if (shown is { Workspace: null, Alone: { } alone })
+            {
+                if (!SvgExport.IsCSharp(target) && !Ends(target, ".svg"))
+                {
+                    return "A drawing exports as SVG to a path ending .svg, or as C# to one ending .cs.";
+                }
+
+                if (alone.DocumentPath is { } own && Same(own, target))
+                {
+                    return "That is the drawing's own file, which save writes.";
+                }
+
+                if (alone.Document is null)
+                {
+                    return "The drawing in front has not loaded, so there is nothing to export.";
+                }
+            }
+
+            if (!await Confirm($"Export to {target}?").ConfigureAwait(true))
+            {
+                return "The person said no; nothing was written.";
+            }
+
+            if (Front() != shown)
+            {
+                return "What is in front changed while the person was asked, so nothing was written; get_context says what is in front now.";
+            }
+
+            // Read once asked: the person can bring another of the project's tabs forward before answering.
+            var front = _window.FrontNode;
+            var held = _window.HoldingEdits();
+            var replacing = File.Exists(target);
+            var notes = new List<string>();
+
+            if (!await _window.ExportAsync(target, notes).ConfigureAwait(true))
+            {
+                return string.Join("\n", notes.DefaultIfEmpty("Nothing was written."));
+            }
+
+            var what = _window.Workspace is { } ? "every drawing of the project as one C# file"
+                : SvgExport.IsCSharp(target) ? $"the drawing in front as C#, class {SvgExport.Namespace}.{SvgExport.ClassName(target)}"
+                : "the drawing in front as SVG";
+            var behind = held.Where(node => !ReferenceEquals(node, front)).ToList();
+
+            return Report(
+                $"Wrote {target}{(replacing ? ", replacing the file there" : null)}: {what}."
+                + (notes.Count > 0 ? "\n" + Cut(notes, null) : null)
+                + (front is { } && held.Contains(front) ? $"\nIt took in the edits held in the tab of {Named(front)}, as Export does; the project holds them unsaved." : null)
+                + (behind.Count > 0 ? $"\nLeft out: the edits held in the tabs of {string.Join(", ", behind.Select(Named))}; open each and save, then export again." : null),
+                "export");
+        });
+
+    private Task<string> NewProject() => UiAsync(async () =>
+    {
+        var was = _window.Workspace;
+        var notes = new List<string>();
+
+        if (!await _window.NewProjectAsync(notes).ConfigureAwait(true))
+        {
+            return string.Join("\n", notes.DefaultIfEmpty("No new project was opened."));
+        }
+
+        return Report(
+            "Opened a new project, never saved; add_group and add_drawing fill it, and save with a path ending .svgstudio writes it."
+            + (was is { } ? $" {was.Name} was closed, with its tabs." : null),
+            "new project");
+    });
+
+    private Task<string> OpenFile([Description("The file's full path.")] string path) => UiAsync(async () =>
+    {
+        if (Located(path, existing: true, out var why) is not { } file)
+        {
+            return why;
+        }
+
+        var was = _window.Workspace;
+
+        if (was?.Document.Path is { } open && Same(open, file))
+        {
+            return Report($"The project at {file} is open already; reload reads it again from its file.", null);
+        }
+
+        var notes = new List<string>();
+
+        if (!await _window.OpenAsync(new[] { file }, notes).ConfigureAwait(true))
+        {
+            return string.Join("\n", notes.DefaultIfEmpty("Nothing was opened."));
+        }
+
+        var opened = _window.Workspace;
+        var text = ReferenceEquals(opened, was) ? $"Opened {file} in a tab of its own, not part of a project."
+            : opened is { Document.Path: null } ? $"Converted {System.IO.Path.GetFileName(file)} into a new project, held unsaved; save with a path ending .svgstudio writes it, and get_project lists it."
+            : $"Opened the project {opened!.Name} at {file}; get_project lists it.";
+
+        return Report(
+            text + (was is { } && !ReferenceEquals(opened, was) ? $" {was.Name} was closed, with its tabs." : null) + (notes.Count > 0 ? "\n" + Cut(notes, null) : null),
+            "open file");
+    });
+
+    /// <remarks>
+    /// Repeatable: a second reads what the first did, and changes nothing. Tabs are opened again by
+    /// path and name, since the nodes they were on are the old document's.
+    /// </remarks>
+    private Task<string> Reload() => UiAsync(async () =>
+    {
+        if (_window.FrontNode is null && _window.FrontViewer is { } alone)
+        {
+            if (alone.DocumentPath is not { } drawing)
+            {
+                return "The drawing in front has no file to read again.";
+            }
+
+            if (alone.IsSourceModified)
+            {
+                return "Nothing was reloaded: the drawing in front holds edits not saved. Saving them writes Studio's copy over what changed on disk; take them back first, or close its tab unsaved in Studio.";
+            }
+
+            if (File.Exists(drawing) && string.Equals(File.ReadAllText(drawing), alone.Source, StringComparison.Ordinal))
+            {
+                return Report("Nothing changed: the file holds what Studio has.", null);
+            }
+
+            var faults = new List<string>();
+
+            return await _window.LoadAsync(alone, drawing, faults).ConfigureAwait(true)
+                ? Report($"Read {drawing} again. Its undo history started again.", "reload")
+                : string.Join("\n", faults.Append("The tab still shows what it had."));
+        }
+
+        if (_window.Workspace is not { } workspace)
+        {
+            return "Nothing is open.";
+        }
+
+        if (workspace.Document.Path is not { } path)
+        {
+            return "The project has never been saved, so it has no file to read again.";
+        }
+
+        if (await _window.Changes.Conflicted().ConfigureAwait(true))
+        {
+            return "The project is part way through a merge or a rebase; finish it, or abort it, then reload.";
+        }
+
+        var held = (workspace.IsEdited ? new[] { "the project" } : Array.Empty<string>())
+            .Concat(_window.HoldingEdits().Select(node => $"the tab of {Named(node)}"))
+            .ToList();
+
+        if (held.Count > 0)
+        {
+            return $"Nothing was reloaded: changes not saved are held in {string.Join(", ", held)}. Saving them writes Studio's copy over what changed on disk; take them back first, or close the project unsaved in Studio.";
+        }
+
+        // Read here first, so a file that no longer parses is said, not taken for a merge to resolve.
+        try
+        {
+            if (string.Equals(ProjectDocument.Load(path).ToXml(), workspace.Document.ToXml(), StringComparison.Ordinal))
+            {
+                return Report("Nothing changed: the file holds what Studio has.", null);
+            }
+        }
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
+        {
+            return $"{path} no longer reads as a project: {failure.Message}";
+        }
+
+        var front = _window.FrontNode;
+        var tabs = _window.OpenNodes()
+            .OrderBy(node => ReferenceEquals(node, front))
+            .Select(node => (At: Path(node), Label: ProjectWorkspace.Label(node), Group: node is ProjectGroup))
+            .ToList();
+        var notes = new List<string>();
+
+        if (!await _window.OpenAsync(new[] { path }, notes).ConfigureAwait(true))
+        {
+            return string.Join("\n", notes.DefaultIfEmpty("Nothing was reloaded."));
+        }
+
+        var lost = new List<string>();
+
+        foreach (var (at, label, group) in tabs)
+        {
+            if (Resolve(at) is { } node && node is ProjectGroup == group && ProjectWorkspace.Label(node) == label)
+            {
+                await _window.ShowAsync(node).ConfigureAwait(true);
+            }
+            else
+            {
+                lost.Add($"{at} {label}");
+            }
+        }
+
+        return Report(
+            $"Read {path} again; get_project lists it now."
+            + (lost.Count > 0 ? $" The tabs of {string.Join(", ", lost)} were not opened again, as their paths now name other nodes or none." : null)
+            + " Its undo history started again."
+            + (notes.Count > 0 ? "\n" + Cut(notes, null) : null),
+            "reload");
     });
 
     private Task<string> GetDeclarations(
@@ -1743,6 +2013,30 @@ public sealed class AssistantTools
     /// <inheritdoc cref="NoNode"/>
     private string NotA(string kind, string? path)
         => _window.Workspace is null ? "No project is open." : $"'{path}' is not a {kind}. get_project lists the paths.";
+
+    /// <summary>The file a tool was given a path to, or null and why that path will not do.</summary>
+    /// <param name="existing">Whether the file has to be there already.</param>
+    private static string? Located(string path, bool existing, out string why)
+    {
+        var full = System.IO.Path.IsPathFullyQualified(path) ? System.IO.Path.GetFullPath(path) : null;
+        var folder = full is { } ? System.IO.Path.GetDirectoryName(full) : null;
+
+        why = full is null ? $"'{path}' is not a full path; Studio has no folder it is relative to."
+            : !Directory.Exists(folder) ? $"There is no folder {folder ?? full}."
+            : existing && !File.Exists(full) ? $"There is no file at {full}."
+            : string.Empty;
+
+        return why.Length == 0 ? full : null;
+    }
+
+    private static bool Ends(string path, string extension) => System.IO.Path.GetExtension(path).Equals(extension, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether <paramref name="path"/> names the file at <paramref name="full"/>, by case too only where the disk tells cases apart.</summary>
+    private static bool Same(string path, string full)
+        => string.Equals(System.IO.Path.GetFullPath(path), full, OperatingSystem.IsMacOS() || OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    /// <summary>What a tool checks before asking, and again once answered: the panel asks without holding the window, so the person can bring another tab forward first.</summary>
+    private (ProjectWorkspace? Workspace, SvgViewer? Alone) Front() => (_window.Workspace, _window.FrontNode is null ? _window.FrontViewer : null);
 
     private string Label(string summary) => $"{Who}: {summary.Trim()}";
 

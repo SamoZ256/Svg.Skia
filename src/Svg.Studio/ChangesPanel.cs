@@ -164,8 +164,9 @@ public sealed class ChangesPanel : UserControl
     public Func<ProjectMerge, Task<bool?>> ResolveConflicts { get; set; } = _ => Task.FromResult<bool?>(null);
 
     /// <summary>Points the panel at the project file <paramref name="path"/>, or at nothing.</summary>
+    /// <param name="notes">Where a merge to resolve is said, for a caller that cannot answer the merge window; see <see cref="Refresh"/>.</param>
     /// <returns>Whether there is anything to show: a saved project, and a git to ask about it.</returns>
-    public async Task<bool> Track(string? path)
+    public async Task<bool> Track(string? path, List<string>? notes = null)
     {
         var tracking = ++_tracking;
         var shown = path is { } && ProjectGit.Installed is { } && File.Exists(path) ? path : null;
@@ -183,13 +184,17 @@ public sealed class ChangesPanel : UserControl
         _head = null;
         _offered = false;
 
-        await Refresh().ConfigureAwait(true);
+        await Refresh(notes).ConfigureAwait(true);
 
         return _path is { };
     }
 
     /// <summary>Asks git again, for a save, a return to the window, or a command of its own.</summary>
-    public async Task Refresh()
+    /// <param name="notes">
+    /// Where a conflict is said instead of offering the merge window, which is then offered on the
+    /// window's next return, for a caller that cannot answer it.
+    /// </param>
+    public async Task Refresh(List<string>? notes = null)
     {
         if (_busy)
         {
@@ -251,10 +256,17 @@ public sealed class ChangesPanel : UserControl
         }
         else if (!_offered && _rebasing is null)
         {
-            // Once per conflict: closing the merge window hands focus back to the window, whose
-            // return refreshes, which would offer it again for ever.
-            _offered = true;
-            await Resolve(git, opening: false).ConfigureAwait(true);
+            if (notes is { })
+            {
+                notes.Add($"{git.Name} is part way through a merge: resolve it from Studio's Changes panel, or with git; save and git_commit refuse until then.");
+            }
+            else
+            {
+                // Once per conflict: closing the merge window hands focus back to the window, whose
+                // return refreshes, which would offer it again for ever.
+                _offered = true;
+                await Resolve(git, opening: false).ConfigureAwait(true);
+            }
         }
     }
 
@@ -423,8 +435,9 @@ public sealed class ChangesPanel : UserControl
     public Task Resolve() => _git is { } git ? Resolve(git, opening: false) : Task.CompletedTask;
 
     /// <summary>Resolves the merge <paramref name="path"/> is stopped in, which is why it cannot be opened.</summary>
+    /// <param name="notes">Where the conflict is said instead of resolved, for a caller that cannot answer the merge window.</param>
     /// <returns>Whether the file was in a merge, and has been dealt with or said about.</returns>
-    public async Task<bool> Resolve(string path)
+    public async Task<bool> Resolve(string path, List<string>? notes = null)
     {
         if (await ProjectGit.For(path).ConfigureAwait(true) is not { } git)
         {
@@ -441,6 +454,14 @@ public sealed class ChangesPanel : UserControl
         catch (ProjectGitException)
         {
             return false;
+        }
+
+        if (notes is { })
+        {
+            notes.Add($"{git.Name} is part way through a merge or a rebase, and can't be opened until it is finished or aborted: "
+                      + "open it in Studio, which offers to resolve a merge, or finish it with git.");
+
+            return true;
         }
 
         await Resolve(git, opening: true).ConfigureAwait(true);
@@ -856,7 +877,7 @@ public sealed class ChangesPanel : UserControl
             _busy = false;
         }
 
-        await Refresh().ConfigureAwait(true);
+        await Refresh(notes).ConfigureAwait(true);
 
         if (refusal is { })
         {

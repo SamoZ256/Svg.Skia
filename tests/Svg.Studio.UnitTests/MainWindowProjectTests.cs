@@ -2863,6 +2863,50 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(window.Workspace!.IsEdited);
     }
 
+    /// <remarks>The panels are rearranged for the tree and again for the changes panel, and the drawing in front before was put back over the project's tab.</remarks>
+    [AvaloniaFact]
+    public async Task A_Project_Opened_Over_A_Drawing_Of_Its_Own_Comes_Up_On_Its_Settings()
+    {
+        var window = await Host(Write("star.svg", Drawing));
+
+        await window.OpenAsync(new[] { Write("icons.svgstudio", Project) });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(window.Workspace!.Document.Root, ((TabItem)Tabs(window).SelectedItem!).Tag);
+
+        await window.NewProjectAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(window.Workspace!.Document.Root, ((TabItem)Tabs(window).SelectedItem!).Tag);
+    }
+
+    /// <remarks>It is not the project's, so closing the project leaves it open, edits and all.</remarks>
+    [AvaloniaFact]
+    public async Task Closing_The_Project_Asks_Nothing_About_A_Drawing_Of_Its_Own_That_Stays_Open()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var asked = new List<string>();
+
+        await window.OpenAsync(new[] { Write("star.svg", Drawing) });
+        Dispatcher.UIThread.RunJobs();
+
+        var star = Viewer(window);
+
+        star.SetSource(Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        window.ConfirmDiscard = message =>
+        {
+            asked.Add(message);
+
+            return Task.FromResult(false);
+        };
+
+        Assert.True(await window.CloseProjectAsync());
+        Assert.Empty(asked);
+        Assert.Null(window.Workspace);
+        Assert.True(star.IsSourceModified);
+        Assert.Same(star, Assert.Single(Tabs(window).Items.OfType<TabItem>()).Content);
+    }
+
     [AvaloniaFact]
     public async Task A_Tab_And_The_Project_Are_Named_Together()
     {

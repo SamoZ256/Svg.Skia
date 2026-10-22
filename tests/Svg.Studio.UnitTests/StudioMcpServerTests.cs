@@ -84,6 +84,18 @@ public class StudioMcpServerTests : IDisposable
         </studio>
         """;
 
+    /// <summary>Words placed by a span of their own, which a baked build freezes at their default and a relaxed one carries.</summary>
+    private const string Badge = """
+        <studio namespace="Demo.Icons">
+          <drawing name="Badge">
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 64 24" width="64" height="24">
+              <defs><e:code><e:param name="step" type="string" default="'1'" /></e:code></defs>
+              <text x="32" y="18" font-family="Arial" font-size="12" fill="#111827"><tspan x="4" y="18">{{ step }}</tspan></text>
+            </svg>
+          </drawing>
+        </studio>
+        """;
+
     private static readonly SKColor s_green = new(0x00, 0xFF, 0x00);
     private static readonly SKColor s_light = new(0xF2, 0xF2, 0xF4);
     private static readonly SKColor s_dark = new(0x2E, 0x2E, 0x34);
@@ -137,6 +149,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.False(tools["set_declarations"].ProtocolTool.Annotations?.DestructiveHint);
 
         Assert.True(tools["save"].ProtocolTool.Annotations?.DestructiveHint);
+        Assert.True(tools["export"].ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools["git_commit"].ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools["remove"].ProtocolTool.Annotations?.DestructiveHint);
         Assert.True(tools["get_drawing"].ProtocolTool.Annotations?.ReadOnlyHint);
@@ -148,13 +161,14 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(tools["render"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.False(tools["render"].ProtocolTool.Annotations?.OpenWorldHint);
 
-        // One step on the history each, as set_attributes is.
+        // One step on the history each, as set_attributes is; and the file tools that refuse over
+        // unsaved work rather than lose it.
         Assert.All(
-            new[] { "insert_element", "remove_elements", "move_element", "duplicate_elements", "redo" },
+            new[] { "insert_element", "remove_elements", "move_element", "duplicate_elements", "redo", "new_project", "open_file", "reload" },
             name => Assert.False(tools[name].ProtocolTool.Annotations?.DestructiveHint, name));
 
         // Over MCP nobody but the client asks: Studio answers its own question yes.
-        foreach (var name in new[] { "save", "remove", "git_commit" })
+        foreach (var name in new[] { "save", "export", "remove", "git_commit" })
         {
             Assert.DoesNotContain("Asks the person", tools[name].Description, StringComparison.Ordinal);
         }
@@ -167,12 +181,12 @@ public class StudioMcpServerTests : IDisposable
         await using var client = await Client(port);
 
         var tools = (await client.ListToolsAsync()).ToDictionary(tool => tool.Name);
-        var repeatable = new[] { "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing" };
+        var repeatable = new[] { "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "export", "reload" };
 
         Assert.All(tools.Values, tool => Assert.False(tool.ProtocolTool.Annotations?.OpenWorldHint, tool.Name));
         Assert.All(repeatable, name => Assert.True(tools[name].ProtocolTool.Annotations?.IdempotentHint, name));
         Assert.All(
-            new[] { "undo", "redo", "add_group", "add_drawing", "move", "remove", "git_commit", "insert_element", "remove_elements", "move_element", "duplicate_elements" },
+            new[] { "undo", "redo", "add_group", "add_drawing", "move", "remove", "git_commit", "insert_element", "remove_elements", "move_element", "duplicate_elements", "new_project", "open_file" },
             name => Assert.NotEqual(true, tools[name].ProtocolTool.Annotations?.IdempotentHint));
     }
 
@@ -1165,19 +1179,9 @@ public class StudioMcpServerTests : IDisposable
     [AvaloniaFact]
     public async Task Get_Code_Lays_Text_Out_As_The_Person_Answered_Export_And_Says_What_That_Did()
     {
-        const string badge = """
-            <studio namespace="Demo.Icons">
-              <drawing name="Badge">
-                <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 64 24" width="64" height="24">
-                  <defs><e:code><e:param name="step" type="string" default="'1'" /></e:code></defs>
-                  <text x="32" y="18" font-family="Arial" font-size="12" fill="#111827"><tspan x="4" y="18">{{ step }}</tspan></text>
-                </svg>
-              </drawing>
-            </studio>
-            """;
         var path = Path.Combine(_directory, "badge.svgstudio");
 
-        File.WriteAllText(path, badge);
+        File.WriteAllText(path, Badge);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -1215,6 +1219,775 @@ public class StudioMcpServerTests : IDisposable
             Assert.All(head[1..], line => Assert.StartsWith("warning: ", line, StringComparison.Ordinal));
             Assert.Contains(head[1..], line => line.Contains(said, StringComparison.Ordinal));
         }
+    }
+
+    /// <remarks>Export would ask whether to relax the words; asked to ask, a tool lays them out as get_code does.</remarks>
+    [AvaloniaFact]
+    public async Task Export_Writes_The_Project_As_One_CSharp_File_With_Its_Warnings_And_Asks_Nothing()
+    {
+        var path = Path.Combine(_directory, "badge.svgstudio");
+        var target = Path.Combine(_directory, "Icons.cs");
+
+        File.WriteAllText(path, Badge);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        StudioSettings.RelaxedText = RelaxedTextAnswer.Ask;
+
+        var first = await Call(client, "export", new() { ["path"] = target });
+        var again = await Call(client, "export", new() { ["path"] = target });
+
+        // Built as svgc builds it, to a file of the same name, which names the helper class.
+        var flat = window.Workspace!.Document.Flatten();
+        var settings = SvgcBuildSettings.For(flat);
+        var expected = Path.Combine(Directory.CreateDirectory(Path.Combine(_directory, "svgc")).FullName, "Icons.cs");
+
+        settings.SingleFile = expected;
+        settings.TextLayout = SvgTextLayout.Baked;
+        SvgcProjectBuild.Run(flat, settings, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())));
+
+        Assert.NotEqual(true, first.IsError);
+        Assert.StartsWith($"Wrote {target}: every drawing of the project as one C# file.\nwarning: ", Text(first), StringComparison.Ordinal);
+        Assert.Contains("is frozen at its default", Text(first), StringComparison.Ordinal);
+        Assert.Equal(File.ReadAllText(expected), File.ReadAllText(target));
+        Assert.NotEqual(true, again.IsError);
+        Assert.StartsWith($"Wrote {target}, replacing the file there: ", Text(again), StringComparison.Ordinal);
+        Assert.False(window.Workspace.IsEdited);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task Export_Refuses_A_Path_It_Cannot_Write_And_Writes_Nothing()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var locked = Path.Combine(_directory, "Locked.cs");
+
+        File.WriteAllText(path, Project);
+        File.WriteAllText(locked, "// kept");
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        File.SetAttributes(locked, FileAttributes.ReadOnly);
+
+        CallToolResult unwritable;
+
+        try
+        {
+            unwritable = await Call(client, "export", new() { ["path"] = locked });
+        }
+        finally
+        {
+            File.SetAttributes(locked, FileAttributes.Normal);
+        }
+
+        var relative = await Call(client, "export", new() { ["path"] = "Icons.cs" });
+        var nowhere = await Call(client, "export", new() { ["path"] = Path.Combine(_directory, "gone", "Icons.cs") });
+        var svg = await Call(client, "export", new() { ["path"] = Path.Combine(_directory, "Icons.svg") });
+
+        Assert.All(new[] { unwritable, relative, nowhere, svg }, result => Assert.True(result.IsError, Text(result)));
+        Assert.StartsWith("The project couldn't be exported: ", Text(unwritable), StringComparison.Ordinal);
+        Assert.Equal("'Icons.cs' is not a full path; Studio has no folder it is relative to.", Text(relative));
+        Assert.Equal($"There is no folder {Path.Combine(_directory, "gone")}.", Text(nowhere));
+        Assert.Equal("A project exports as one C# file; give a path ending .cs.", Text(svg));
+        Assert.Equal("// kept", File.ReadAllText(locked));
+        Assert.Equal(new[] { "Locked.cs", "icons.svgstudio" }, Directory.GetFiles(_directory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>A failed write was said in a dialog of the window's own, which no test could replace.</remarks>
+    [AvaloniaFact]
+    public async Task Export_Of_A_Drawing_Of_No_Project_Writes_Svg_Or_CSharp_By_The_Name_Given()
+    {
+        var (window, port) = await Serving();
+        await using var client = await Client(port);
+        var svg = Path.Combine(_directory, "copy.svg");
+        var cs = Path.Combine(_directory, "Copy.cs");
+        var locked = Path.Combine(_directory, "locked.svg");
+
+        File.WriteAllText(locked, "<svg />");
+        File.SetAttributes(locked, FileAttributes.ReadOnly);
+
+        CallToolResult unwritable;
+
+        try
+        {
+            unwritable = await Call(client, "export", new() { ["path"] = locked });
+        }
+        finally
+        {
+            File.SetAttributes(locked, FileAttributes.Normal);
+        }
+
+        var drawn = await Call(client, "export", new() { ["path"] = svg });
+        var coded = await Call(client, "export", new() { ["path"] = cs });
+        var own = await Call(client, "export", new() { ["path"] = Path.Combine(_directory, "drawing.svg") });
+        var png = await Call(client, "export", new() { ["path"] = Path.Combine(_directory, "copy.png") });
+
+        Assert.NotEqual(true, drawn.IsError);
+        Assert.Equal($"Wrote {svg}: the drawing in front as SVG.", Text(drawn));
+        Assert.Contains("fill=\"#00ff00\"", File.ReadAllText(svg), StringComparison.Ordinal);
+        Assert.NotEqual(true, coded.IsError);
+        Assert.Equal($"Wrote {cs}: the drawing in front as C#, class Svg.Copy.", Text(coded));
+        Assert.Contains("class Copy", File.ReadAllText(cs), StringComparison.Ordinal);
+
+        Assert.All(new[] { unwritable, own, png }, result => Assert.True(result.IsError, Text(result)));
+        Assert.StartsWith("Export failed: ", Text(unwritable), StringComparison.Ordinal);
+        Assert.Equal("That is the drawing's own file, which save writes.", Text(own));
+        Assert.Equal("A drawing exports as SVG to a path ending .svg, or as C# to one ending .cs.", Text(png));
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "drawing.svg")));
+        Assert.Equal("<svg />", File.ReadAllText(locked));
+
+        // A tab whose drawing would not load, as the window's own Open leaves one.
+        var broken = Path.Combine(_directory, "broken.svg");
+
+        File.WriteAllText(broken, "<svg><rect");
+        await window.OpenAsync(new[] { broken });
+        Dispatcher.UIThread.RunJobs();
+
+        var empty = await Call(client, "export", new() { ["path"] = Path.Combine(_directory, "empty.svg") });
+
+        Assert.True(empty.IsError);
+        Assert.Equal("The drawing in front has not loaded, so there is nothing to export.", Text(empty));
+        Assert.False(File.Exists(Path.Combine(_directory, "empty.svg")));
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task Export_Takes_In_The_Front_Tabs_Edits_And_Names_The_Tabs_It_Left_Out()
+    {
+        var path = Path.Combine(_directory, "nested.svgstudio");
+        var target = Path.Combine(_directory, "Icons.cs");
+
+        File.WriteAllText(path, Nested);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var root = window.Workspace!.Document.Root;
+        var home = (ProjectDrawing)root.Children[0];
+        var dot = (ProjectDrawing)((ProjectGroup)((ProjectGroup)root.Children[1]).Children[0]).Children[0];
+
+        // home's edit held in a tab behind, and Dot's in the tab in front.
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+        await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken" });
+        await window.ShowAsync(dot);
+        Dispatcher.UIThread.RunJobs();
+        await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#654321" } }, ["summary"] = "brown" });
+
+        var exported = await Call(client, "export", new() { ["path"] = target });
+        var edits = window.Workspace.Edits;
+
+        // The tab still holds the edits, unsaved, and the project has them already: no second step.
+        var again = await Call(client, "export", new() { ["path"] = target });
+
+        Assert.NotEqual(true, exported.IsError);
+        Assert.Equal(
+            $"Wrote {target}: every drawing of the project as one C# file.\n"
+            + "It took in the edits held in the tab of 1/0/0 Dot, as Export does; the project holds them unsaved.\n"
+            + "Left out: the edits held in the tabs of 0 home; open each and save, then export again.",
+            Text(exported));
+        Assert.Contains("#654321", dot.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("#123456", home.Text, StringComparison.Ordinal);
+        Assert.True(window.Workspace.IsEdited);
+        Assert.NotEqual(true, again.IsError);
+        Assert.Equal(Text(exported).Replace($"Wrote {target}:", $"Wrote {target}, replacing the file there:", StringComparison.Ordinal), Text(again));
+        Assert.Equal(edits, window.Workspace.Edits);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>Taking in the tab's text would have said why it cannot, in a dialog nobody closes for a client.</remarks>
+    [AvaloniaFact]
+    public async Task Export_Is_Refused_Where_The_Tab_In_Front_Holds_Text_The_Project_Will_Not_Take()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var target = Path.Combine(_directory, "Icons.cs");
+
+        File.WriteAllText(path, Project);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Assert.IsType<SvgViewer>(((TabItem)Tabs(window).SelectedItem!).Content).SetSource("<div/>");
+
+        var refused = await Call(client, "export", new() { ["path"] = target });
+
+        Assert.True(refused.IsError);
+        Assert.StartsWith("The project couldn't be exported: ", Text(refused), StringComparison.Ordinal);
+        Assert.Contains("has to be an <svg>", Text(refused), StringComparison.Ordinal);
+        Assert.False(File.Exists(target));
+        Assert.False(window.Workspace.IsEdited);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Project_Never_Saved_Is_Saved_To_The_Path_Given_Without_Asking_Where()
+    {
+        var (window, port) = await Serving();
+        await using var client = await Client(port);
+        var target = Path.Combine(_directory, "fresh.svgstudio");
+
+        var opened = await Call(client, "new_project", new());
+        var unnamed = await Call(client, "save", new());
+        var added = await Call(client, "add_drawing", new() { ["parent"] = "", ["name"] = "dot", ["svg"] = Drawing });
+        var saved = await Call(client, "save", new() { ["path"] = target });
+
+        Assert.All(new[] { opened, added, saved }, result => Assert.NotEqual(true, result.IsError));
+        Assert.True(unnamed.IsError);
+        Assert.Equal("The project has never been saved; give save a path ending .svgstudio to write it there.", Text(unnamed));
+        Assert.Equal($"Saved as {target}.", Text(saved));
+        Assert.Equal(target, window.Workspace!.Document.Path);
+        Assert.False(window.Workspace.IsEdited);
+        Assert.Equal("dot", Assert.Single(ProjectDocument.Load(target).Root.Drawings).Name);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task Save_With_A_Path_Is_Refused_For_A_Project_Saved_Already_Or_A_File_Of_Another_Kind()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, Project);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var saved = await Call(client, "save", new() { ["path"] = Path.Combine(_directory, "other.svgstudio") });
+
+        await Call(client, "new_project", new());
+
+        var drawing = await Call(client, "save", new() { ["path"] = Path.Combine(_directory, "other.svg") });
+        var relative = await Call(client, "save", new() { ["path"] = "other.svgstudio" });
+
+        // A tab of no project's, with no file of its own.
+        await window.OpenTextAsync(Drawing, "Icon");
+        Dispatcher.UIThread.RunJobs();
+
+        var project = await Call(client, "save", new() { ["path"] = Path.Combine(_directory, "icon.svgstudio") });
+        var untitled = await Call(client, "save", new());
+
+        Assert.All(new[] { saved, drawing, relative, project, untitled }, result => Assert.True(result.IsError, Text(result)));
+        Assert.Equal($"The project is saved at {path} already, and Studio has no Save As for a project; save without a path writes it there.", Text(saved));
+        Assert.Equal("A project saves to a path ending .svgstudio.", Text(drawing));
+        Assert.Equal("'other.svgstudio' is not a full path; Studio has no folder it is relative to.", Text(relative));
+        Assert.Equal("A drawing of no project's saves as SVG; give a path ending .svg.", Text(project));
+        Assert.Equal("The drawing in front has no file; give save a path ending .svg to write it there.", Text(untitled));
+        Assert.Equal(new[] { "icons.svgstudio" }, Directory.GetFiles(_directory).Select(Path.GetFileName));
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Of_No_Project_Saved_To_A_Path_Takes_Its_Tab_There()
+    {
+        var (window, port) = await Serving();
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        await using var client = await Client(port);
+        var target = Path.Combine(_directory, "red.svg");
+        var icon = Path.Combine(_directory, "icon.svg");
+
+        File.WriteAllText(icon, "<svg />");
+
+        await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "red" });
+
+        var saved = await Call(client, "save", new() { ["path"] = target });
+
+        // And one with no file at all, which a save without a path could only have asked about.
+        await window.OpenTextAsync(Drawing, "Icon");
+        Dispatcher.UIThread.RunJobs();
+
+        var named = await Call(client, "save", new() { ["path"] = icon });
+
+        Assert.NotEqual(true, saved.IsError);
+        Assert.Equal($"Saved as {target}. Its tab saves there from now on, and its undo history started again.", Text(saved));
+        Assert.Equal(target, viewer.DocumentPath);
+        Assert.False(viewer.IsSourceModified);
+        Assert.Contains("#ff0000", File.ReadAllText(target), StringComparison.Ordinal);
+        Assert.Equal(Drawing, File.ReadAllText(Path.Combine(_directory, "drawing.svg")));
+        Assert.NotEqual(true, named.IsError);
+        Assert.Equal($"Saved as {icon}, replacing the file there. Its tab saves there from now on, and its undo history started again.", Text(named));
+        Assert.Equal(Drawing, File.ReadAllText(icon));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>Only the drawing is written, so the project's tabs that hold edits are no exception to the save.</remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Of_No_Project_Saved_To_A_Path_Beside_A_Project_Says_Nothing_Of_The_Projects_Tabs()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var star = Path.Combine(_directory, "star.svg");
+        var target = Path.Combine(_directory, "copy.svg");
+
+        File.WriteAllText(path, Project);
+        File.WriteAllText(star, Drawing);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#123456" } }, ["summary"] = "darken" });
+        await window.OpenAsync(new[] { star });
+        Dispatcher.UIThread.RunJobs();
+
+        var saved = await Call(client, "save", new() { ["path"] = target });
+
+        Assert.NotEqual(true, saved.IsError);
+        Assert.Equal($"Saved as {target}. Its tab saves there from now on, and its undo history started again.", Text(saved));
+        Assert.Equal(Drawing, File.ReadAllText(target));
+        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>A failed write was announced, which nobody closes for a client; text that would not read back was said to have moved the tab.</remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Of_No_Project_That_Cannot_Be_Saved_To_A_Path_Says_Why_And_Its_Tab_Stays_Where_It_Was()
+    {
+        var (window, port) = await Serving();
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        await using var client = await Client(port);
+        var own = Path.Combine(_directory, "drawing.svg");
+        var locked = Path.Combine(_directory, "locked.svg");
+        var unread = Path.Combine(_directory, "div.svg");
+
+        File.WriteAllText(locked, "<svg />");
+        File.SetAttributes(locked, FileAttributes.ReadOnly);
+
+        await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "red" });
+
+        CallToolResult unwritable;
+
+        try
+        {
+            unwritable = await Call(client, "save", new() { ["path"] = locked });
+        }
+        finally
+        {
+            File.SetAttributes(locked, FileAttributes.Normal);
+        }
+
+        // Text that reads, but not as a drawing: written, and then not read back.
+        viewer.SetSource("<div/>");
+
+        var unreadable = await Call(client, "save", new() { ["path"] = unread });
+
+        Assert.All(new[] { unwritable, unreadable }, result => Assert.True(result.IsError, Text(result)));
+        Assert.StartsWith("The drawing couldn't be saved: ", Text(unwritable), StringComparison.Ordinal);
+        Assert.Equal("<svg />", File.ReadAllText(locked));
+        Assert.Matches(@"^div\.svg couldn't be opened: \S", Text(unreadable));
+        Assert.EndsWith("\nIt was written all the same, but the tab is where it was, holding the edits.", Text(unreadable), StringComparison.Ordinal);
+        Assert.Equal("<div/>", File.ReadAllText(unread));
+        Assert.Equal(own, viewer.DocumentPath);
+        Assert.True(viewer.IsSourceModified);
+        Assert.Equal(Drawing, File.ReadAllText(own));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>A drawing of no project's is not the project's to close, so its edits are no reason to refuse.</remarks>
+    [AvaloniaFact]
+    public async Task A_New_Project_Replaces_The_One_Open_And_Is_Refused_Over_Unsaved_Changes()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var star = Path.Combine(_directory, "star.svg");
+
+        File.WriteAllText(path, Project);
+        File.WriteAllText(star, Drawing);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var workspace = window.Workspace!;
+
+        await window.OpenAsync(new[] { star });
+        Dispatcher.UIThread.RunJobs();
+        await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "red" });
+        await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" });
+
+        var refused = await Call(client, "new_project", new());
+
+        Assert.True(refused.IsError);
+        Assert.StartsWith("icons.svgstudio has changes that have not been saved. ", Text(refused), StringComparison.Ordinal);
+        Assert.Same(workspace, window.Workspace);
+
+        await Call(client, "undo", new());
+
+        var opened = await Call(client, "new_project", new());
+
+        Assert.NotEqual(true, opened.IsError);
+        Assert.Equal(
+            "Opened a new project, never saved; add_group and add_drawing fill it, and save with a path ending .svgstudio writes it. icons.svgstudio was closed, with its tabs.",
+            Text(opened));
+        Assert.NotSame(workspace, window.Workspace);
+        Assert.Null(window.Workspace!.Document.Path);
+        Assert.Contains(Tabs(window).Items.OfType<TabItem>(), item => item.Content is SvgViewer { DocumentPath: { } shown, IsSourceModified: true } && shown == star);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task Open_File_Opens_A_Drawing_In_A_Tab_Of_Its_Own_And_A_Project_In_Place_Of_The_One_Open()
+    {
+        var first = Path.Combine(_directory, "icons.svgstudio");
+        var second = Path.Combine(_directory, "nested.svgstudio");
+        var drawing = Path.Combine(_directory, "dot.svg");
+
+        File.WriteAllText(first, Project);
+        File.WriteAllText(second, Nested);
+        File.WriteAllText(drawing, Drawing);
+
+        var (window, port) = await Serving(first);
+        await using var client = await Client(port);
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var tab = await Call(client, "open_file", new() { ["path"] = drawing });
+
+        Assert.NotEqual(true, tab.IsError);
+        Assert.Equal($"Opened {drawing} in a tab of its own, not part of a project.", Text(tab));
+        Assert.Equal(drawing, Assert.IsType<SvgViewer>(((TabItem)Tabs(window).SelectedItem!).Content).DocumentPath);
+        Assert.Equal(first, window.Workspace!.Document.Path);
+
+        var project = await Call(client, "open_file", new() { ["path"] = second });
+
+        Assert.NotEqual(true, project.IsError);
+        Assert.Equal($"Opened the project nested.svgstudio at {second}; get_project lists it. icons.svgstudio was closed, with its tabs.", Text(project));
+        Assert.Equal(second, window.Workspace!.Document.Path);
+
+        // The old project's tabs went with it, and the drawing of its own stayed.
+        Assert.Equal(
+            new object?[] { null, window.Workspace.Document.Root },
+            Tabs(window).Items.OfType<TabItem>().Select(item => item.Tag));
+
+        var again = await Call(client, "open_file", new() { ["path"] = second });
+
+        Assert.NotEqual(true, again.IsError);
+        Assert.Equal($"The project at {second} is open already; reload reads it again from its file.", Text(again));
+
+        // The same file by another case, where the disk does not tell them apart: opened again, it lost its tabs.
+        var cased = Path.Combine(_directory, "NESTED.svgstudio");
+
+        if (!OperatingSystem.IsLinux() && File.Exists(cased))
+        {
+            var workspace = window.Workspace;
+            var same = await Call(client, "open_file", new() { ["path"] = cased });
+
+            Assert.Equal($"The project at {cased} is open already; reload reads it again from its file.", Text(same));
+            Assert.Same(workspace, window.Workspace);
+        }
+
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>A project that would not read was said in a dialog, which nobody closes for a client.</remarks>
+    [AvaloniaFact]
+    public async Task Open_File_Refuses_A_Relative_Or_Missing_Path_And_A_Drawing_That_Will_Not_Load_Leaves_No_Tab()
+    {
+        var (window, port) = await Serving();
+        await using var client = await Client(port);
+        var broken = Path.Combine(_directory, "broken.svg");
+        var unparsed = Path.Combine(_directory, "broken.svgstudio");
+        var garbage = Path.Combine(_directory, "broken.pcvd");
+        var count = Tabs(window).Items.Count;
+
+        File.WriteAllText(broken, "<svg><rect");
+        File.WriteAllText(unparsed, "<studio><drawing /></studio>");
+        File.WriteAllText(garbage, "not a PaintCode document");
+
+        var relative = await Call(client, "open_file", new() { ["path"] = "broken.svg" });
+        var missing = await Call(client, "open_file", new() { ["path"] = Path.Combine(_directory, "gone.svg") });
+        var unreadable = await Call(client, "open_file", new() { ["path"] = broken });
+        var project = await Call(client, "open_file", new() { ["path"] = unparsed });
+        var paintCode = await Call(client, "open_file", new() { ["path"] = garbage });
+
+        Assert.All(new[] { relative, missing, unreadable, project, paintCode }, result => Assert.True(result.IsError, Text(result)));
+        Assert.Equal("'broken.svg' is not a full path; Studio has no folder it is relative to.", Text(relative));
+        Assert.Equal($"There is no file at {Path.Combine(_directory, "gone.svg")}.", Text(missing));
+
+        // With the viewer's reason, which it shows only over the drawing.
+        Assert.Matches(@"^broken\.svg couldn't be opened: \S", Text(unreadable));
+        Assert.StartsWith("The project couldn't be opened: ", Text(project), StringComparison.Ordinal);
+        Assert.StartsWith("The document couldn't be imported: ", Text(paintCode), StringComparison.Ordinal);
+        Assert.Equal(count, Tabs(window).Items.Count);
+        Assert.Null(window.Workspace);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>The PaintCode document is converted on the terms the person last chose, which the dialog would offer.</remarks>
+    [AvaloniaFact]
+    public async Task Open_File_Converts_An_Svgc_Project_And_A_PaintCode_Document_And_Says_What_They_Lost()
+    {
+        var svgc = Path.Combine(_directory, "icons.svgcproj");
+        var paintCode = Path.Combine(_directory, "sample.pcvd");
+        var (asks, integers, organizes) = (StudioSettings.ConvertAsks, StudioSettings.ConvertIntegers, StudioSettings.ConvertOrganizes);
+
+        File.WriteAllText(Path.Combine(_directory, "badge.svg"), Drawing);
+        File.WriteAllText(svgc, """
+            <svgc namespace="Demo.Icons">
+              <svg input="badge.svg" class="Badge" />
+            </svgc>
+            """);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "TestAssets", "sample.pcvd"), paintCode);
+
+        var (window, port) = await Serving();
+        await using var client = await Client(port);
+
+        try
+        {
+            StudioSettings.ConvertAsks = true;
+            StudioSettings.ConvertIntegers = true;
+            StudioSettings.ConvertOrganizes = false;
+
+            var converted = await Call(client, "open_file", new() { ["path"] = svgc });
+
+            Assert.NotEqual(true, converted.IsError);
+            Assert.StartsWith(
+                "Converted icons.svgcproj into a new project, held unsaved; save with a path ending .svgstudio writes it, and get_project lists it.\nConverted: ",
+                Text(converted),
+                StringComparison.Ordinal);
+            Assert.Contains("icons.svgcproj was converted into a project holding the drawings themselves", Text(converted), StringComparison.Ordinal);
+            Assert.Equal("badge", Assert.Single(window.Workspace!.Document.Root.Drawings).Name);
+            Assert.True(window.Workspace.IsEdited);
+
+            // Held unsaved, so opening another in its place would throw it away.
+            var refused = await Call(client, "open_file", new() { ["path"] = paintCode });
+
+            Assert.True(refused.IsError);
+            Assert.StartsWith("Untitled has changes that have not been saved. ", Text(refused), StringComparison.Ordinal);
+
+            await Call(client, "save", new() { ["path"] = Path.Combine(_directory, "converted.svgstudio") });
+
+            var imported = await Call(client, "open_file", new() { ["path"] = paintCode });
+
+            Assert.NotEqual(true, imported.IsError);
+            Assert.StartsWith(
+                "Converted sample.pcvd into a new project, held unsaved; save with a path ending .svgstudio writes it, and get_project lists it. converted.svgstudio was closed, with its tabs.\nImported: ",
+                Text(imported),
+                StringComparison.Ordinal);
+            Assert.Equal(new[] { "badge", "host" }, window.Workspace!.Document.Root.Drawings.Select(drawing => drawing.Name).Order(StringComparer.Ordinal));
+            Assert.Contains("<e:param name=\"level\" type=\"integer\"", window.Workspace.Document.Root.CodeText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            (StudioSettings.ConvertAsks, StudioSettings.ConvertIntegers, StudioSettings.ConvertOrganizes) = (asks, integers, organizes);
+        }
+
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>Opening would close the project open and then ask whether to restore the copy, which a client cannot answer.</remarks>
+    [AvaloniaFact]
+    public async Task Open_File_Leaves_A_Copy_Of_Unsaved_Work_For_The_Person_And_Closes_Nothing()
+    {
+        var store = ProjectRecovery.Store;
+        var open = Path.Combine(_directory, "icons.svgstudio");
+        var kept = Path.Combine(_directory, "nested.svgstudio");
+
+        ProjectRecovery.Store = Directory.CreateDirectory(Path.Combine(_directory, "recovery")).FullName;
+
+        try
+        {
+            File.WriteAllText(open, Project);
+            File.WriteAllText(kept, Nested);
+            File.WriteAllText(ProjectRecovery.For(kept), Nested.Replace("\"Dot\"", "\"Spot\"", StringComparison.Ordinal));
+
+            var (window, port) = await Serving(open);
+            await using var client = await Client(port);
+            var workspace = window.Workspace;
+
+            var refused = await Call(client, "open_file", new() { ["path"] = kept });
+
+            Assert.True(refused.IsError);
+            Assert.StartsWith("Svg Studio kept a copy of nested.svgstudio from ", Text(refused), StringComparison.Ordinal);
+            Assert.EndsWith(" Nothing was opened: open it from Studio's File menu, which asks whether to restore the copy.", Text(refused), StringComparison.Ordinal);
+            Assert.Same(workspace, window.Workspace);
+            Assert.True(File.Exists(ProjectRecovery.For(kept)));
+            Assert.Empty(_announced);
+        }
+        finally
+        {
+            ProjectRecovery.Store = store;
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Reload_Reads_A_Changed_Project_Again_Reopens_Its_Tabs_And_Changes_Nothing_The_Second_Time()
+    {
+        var path = Path.Combine(_directory, "nested.svgstudio");
+
+        File.WriteAllText(path, Nested);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var root = window.Workspace!.Document.Root;
+        var round = (ProjectGroup)((ProjectGroup)root.Children[1]).Children[0];
+
+        await window.ShowAsync(round);
+        await window.ShowAsync(round.Children[0]);
+        await window.ShowAsync(root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        // As an editor or git would leave it: home recoloured, and Dot renamed, so its path names another node.
+        File.WriteAllText(path, Nested.Replace("#00ff00", "#0000ff", StringComparison.Ordinal).Replace("\"Dot\"", "\"Spot\"", StringComparison.Ordinal));
+
+        var reloaded = await Call(client, "reload", new());
+        var again = await Call(client, "reload", new());
+        var now = window.Workspace!.Document.Root;
+
+        Assert.NotEqual(true, reloaded.IsError);
+        Assert.Equal(
+            $"Read {path} again; get_project lists it now. The tabs of 1/0/0 Dot were not opened again, as their paths now name other nodes or none. Its undo history started again.",
+            Text(reloaded));
+        Assert.Contains("#0000ff", ((ProjectDrawing)now.Children[0]).Text, StringComparison.Ordinal);
+        Assert.Equal(
+            new[] { now, ((ProjectGroup)now.Children[1]).Children[0], now.Children[0] },
+            Tabs(window).Items.OfType<TabItem>().Select(item => item.Tag));
+        Assert.Same(now.Children[0], ((TabItem)Tabs(window).SelectedItem!).Tag);
+        Assert.NotEqual(true, again.IsError);
+        Assert.Equal("Nothing changed: the file holds what Studio has.", Text(again));
+        Assert.Same(now, window.Workspace.Document.Root);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task Reload_Is_Refused_While_The_Project_Or_A_Tab_Holds_Unsaved_Edits()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, Project);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var workspace = window.Workspace!;
+
+        await window.ShowAsync(workspace.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" });
+        var project = await Call(client, "reload", new());
+        await Call(client, "undo", new());
+
+        await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "red" });
+        var tab = await Call(client, "reload", new());
+        await Call(client, "undo", new());
+
+        await Call(client, "new_project", new());
+        var untitled = await Call(client, "reload", new());
+
+        Assert.All(new[] { project, tab, untitled }, result => Assert.True(result.IsError, Text(result)));
+        Assert.StartsWith("Nothing was reloaded: changes not saved are held in the project. ", Text(project), StringComparison.Ordinal);
+        Assert.StartsWith("Nothing was reloaded: changes not saved are held in the tab of 0 home. ", Text(tab), StringComparison.Ordinal);
+        Assert.Equal("The project has never been saved, so it has no file to read again.", Text(untitled));
+        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>Opened again, a file that does not parse goes to git's merge resolution, which says what it found in a dialog.</remarks>
+    [AvaloniaFact]
+    public async Task Reload_Refuses_A_Project_File_That_No_Longer_Reads_And_Keeps_What_Is_Open()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, Project);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var workspace = window.Workspace;
+
+        File.WriteAllText(path, "<studio><drawing /></studio>");
+
+        var refused = await Call(client, "reload", new());
+
+        Assert.True(refused.IsError);
+        Assert.StartsWith($"{path} no longer reads as a project: ", Text(refused), StringComparison.Ordinal);
+        Assert.Same(workspace, window.Workspace);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// A copy written while the project held an edit since taken back is still on disk until the next
+    /// write; it is the project's own, which closing it throws away, and no copy to keep for the person.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Reload_Is_Not_Refused_Over_The_Copy_Studio_Kept_Of_The_Open_Projects_Own_Work()
+    {
+        var store = ProjectRecovery.Store;
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        ProjectRecovery.Store = Directory.CreateDirectory(Path.Combine(_directory, "recovery")).FullName;
+
+        try
+        {
+            File.WriteAllText(path, Project);
+
+            var (window, port) = await Serving(path);
+            await using var client = await Client(port);
+            var copy = ProjectRecovery.For(path);
+
+            Assert.Equal(copy, window.Recovery!.Path);
+
+            File.WriteAllText(copy, Project.Replace("\"home\"", "\"house\"", StringComparison.Ordinal));
+            File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+
+            var reloaded = await Call(client, "reload", new());
+
+            Assert.NotEqual(true, reloaded.IsError);
+            Assert.StartsWith($"Read {path} again; ", Text(reloaded), StringComparison.Ordinal);
+            Assert.Contains("#0000ff", ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).Text, StringComparison.Ordinal);
+            Assert.False(File.Exists(copy));
+            Assert.Empty(_announced);
+        }
+        finally
+        {
+            ProjectRecovery.Store = store;
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Reload_Reads_A_Drawing_Of_No_Project_Again_Unless_Its_Tab_Holds_Edits()
+    {
+        var (window, port) = await Serving();
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        await using var client = await Client(port);
+        var path = Path.Combine(_directory, "drawing.svg");
+
+        var same = await Call(client, "reload", new());
+
+        File.WriteAllText(path, Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+
+        var reloaded = await Call(client, "reload", new());
+
+        File.WriteAllText(path, "<svg><rect");
+
+        var unloadable = await Call(client, "reload", new());
+
+        await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "red" });
+
+        var refused = await Call(client, "reload", new());
+
+        Assert.NotEqual(true, same.IsError);
+        Assert.Equal("Nothing changed: the file holds what Studio has.", Text(same));
+        Assert.NotEqual(true, reloaded.IsError);
+        Assert.Equal($"Read {path} again. Its undo history started again.", Text(reloaded));
+        Assert.True(unloadable.IsError);
+        Assert.Matches(@"^drawing\.svg couldn't be opened: \S", Text(unloadable));
+        Assert.EndsWith("\nThe tab still shows what it had.", Text(unloadable), StringComparison.Ordinal);
+        Assert.True(refused.IsError);
+        Assert.StartsWith("Nothing was reloaded: the drawing in front holds edits not saved. ", Text(refused), StringComparison.Ordinal);
+        Assert.Contains("#ff0000", viewer.Source, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>In the instructions alone, not the rules every model is given: the panel's small one has no reload to call.</remarks>
+    [AvaloniaFact]
+    public async Task Claude_Code_Is_Told_Studio_Does_Not_Watch_The_Disk()
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port);
+
+        Assert.Contains("Studio does not watch the disk", client.ServerInstructions, StringComparison.Ordinal);
+        Assert.Contains("call reload", client.ServerInstructions, StringComparison.Ordinal);
+        Assert.DoesNotContain("reload", AssistantSession.SystemPrompt(small: true), StringComparison.Ordinal);
     }
 
     /// <remarks>Closing the window with an edit asks, in Studio's own dialog, whether to throw it away.</remarks>
@@ -1418,14 +2191,23 @@ public class StudioMcpServerTests : IDisposable
             File.WriteAllText(path, Drawing);
         }
 
-        // Never closed, as nobody closes one for a client: a call that opens a dialog hangs until Call gives up.
+        // Never closed, as nobody closes one for a client: a call that opens a dialog hangs until Call
+        // gives up. The discard prompt stays the real one, which the tests of Asking answer.
+        Task<T> Unanswered<T>(string asked)
+        {
+            _announced.Add(asked);
+            return new TaskCompletionSource<T>().Task;
+        }
+
         var window = new MainWindow
         {
-            Announce = (title, _) =>
-            {
-                _announced.Add(title);
-                return new TaskCompletionSource().Task;
-            }
+            Announce = (title, _) => Unanswered<bool>(title),
+            AskWhereToSave = _ => Unanswered<string?>(nameof(MainWindow.AskWhereToSave)),
+            ConfirmRelax = _ => Unanswered<SvgTextLayout?>(nameof(MainWindow.ConfirmRelax)),
+            ConfirmConvert = _ => Unanswered<(bool Integers, bool Organize)?>(nameof(MainWindow.ConfirmConvert)),
+            ConfirmDiscardRecovery = _ => Unanswered<bool>(nameof(MainWindow.ConfirmDiscardRecovery)),
+            ResolveConflicts = _ => Unanswered<bool?>(nameof(MainWindow.ResolveConflicts)),
+            ShowImport = _ => Unanswered<bool>(nameof(MainWindow.ShowImport))
         };
 
         _windows.Add(window);
@@ -1500,6 +2282,8 @@ public class StudioMcpServerTests : IDisposable
 
     private static string Text(CallToolResult result)
         => string.Concat(result.Content.OfType<TextContentBlock>().Select(block => block.Text));
+
+    private static TabControl Tabs(MainWindow window) => window.FindControl<TabControl>("Tabs")!;
 
     /// <summary>The one image an answer holds, checked to be a PNG.</summary>
     private static SKBitmap Png(CallToolResult result)

@@ -32,9 +32,9 @@ namespace Svg.Studio;
 /// the token.
 /// </summary>
 /// <remarks>
-/// Asking before a save, a removal or a commit is the client's: those tools are marked destructive
-/// and Studio does not ask again. Every other edit is one step on the window's history, labelled
-/// "Claude Code: …" in the Edit menu.
+/// Asking before a save, an export, a removal or a commit is the client's: those tools are marked
+/// destructive and Studio does not ask again. Every other edit is one step on the window's history,
+/// labelled "Claude Code: …" in the Edit menu.
 /// </remarks>
 public sealed class StudioMcpServer : IAsyncDisposable
 {
@@ -50,6 +50,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
         + "- Call get_context before acting, to see the project, the tab in front and what is selected.\n"
         + "- read_doc with an empty id lists the documentation's sections; read one before answering how Studio works.\n"
         + "- Every client connected to this Studio shares one undo and redo: undo takes back the newest edit any of them made, and redo what any of them took back, so check the label each names.\n"
+        + "- Studio does not watch the disk: after a file it has open is changed outside it, by an edit or by git in a terminal, call reload before going on, or Studio's next save writes its copy over the change.\n"
         + AssistantSession.Rules;
 
     private readonly AssistantTools _tools;
