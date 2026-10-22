@@ -59,6 +59,9 @@ public sealed class StreamlinePanel : UserControl
         "light", "glyph", "minimal", "outlined", "geometric", "bold", "stroke", "wireframe", "filled"
     };
 
+    /// <summary>The styles Streamline takes, without the box's "any".</summary>
+    internal static IReadOnlyList<string> StyleNames { get; } = s_styles[1..];
+
     private static readonly Geometry s_lock = Geometry.Parse("M4 7V5a4 4 0 0 1 8 0v2h1v8H3V7zm2 0h4V5a2 2 0 0 0-4 0z");
 
     private readonly MainWindow _window;
@@ -116,7 +119,7 @@ public sealed class StreamlinePanel : UserControl
     private readonly List<StreamlineIcon> _picked = new();
     private int? _anchor;
 
-    /// <summary>Whether icons are on their way into the project through the import window, which the button, a drop and an update wait for.</summary>
+    /// <summary>Whether icons are on their way into the project other than as a family, which the button, a drop, an update, a family and a tool wait for.</summary>
     private bool _opening;
 
     private PointerPressedEventArgs? _pressed;
@@ -252,7 +255,7 @@ public sealed class StreamlinePanel : UserControl
     /// <summary>Whether <see cref="DropAsync"/> would take what is being dragged, for a drop target to say so.</summary>
     public bool CanDrop => Dragged.Count > 0 && _client is { } && _window.Workspace is { } && !Busy;
 
-    /// <summary>Whether icons are on their way into the project, through the import window, a drop or a family.</summary>
+    /// <summary>Whether icons are on their way into the project, through the import window, a drop, a family or a tool.</summary>
     internal bool Busy => _running is { } || _opening;
 
     /// <summary>The group picked in the tree; imports go there, or into the project where none is.</summary>
@@ -279,6 +282,8 @@ public sealed class StreamlinePanel : UserControl
 
     /// <summary>Whether there is a key to search with; without one the panel is a line pointing at Settings.</summary>
     public bool HasKey => _client is { };
+
+    internal StreamlineClient? Client => _client;
 
     /// <summary>What the panel is saying about the last thing that went wrong, or null.</summary>
     public string? Said => _said.IsVisible ? _said.Text : null;
@@ -360,11 +365,7 @@ public sealed class StreamlinePanel : UserControl
                 Forget(page.Items);
             }
 
-            foreach (var icon in page.Items)
-            {
-                _searchedStyle[icon.Hash] = style;
-            }
-
+            Searched(page.Items, style);
             _results.AddRange(page.Items);
             _next = page.NextOffset;
             _hasMore = page.HasMore;
@@ -386,6 +387,15 @@ public sealed class StreamlinePanel : UserControl
         finally
         {
             _paging = false;
+        }
+    }
+
+    /// <summary>Notes that <paramref name="icons"/> were found under <paramref name="style"/>, which a template can match and an icon does not say.</summary>
+    internal void Searched(IEnumerable<StreamlineIcon> icons, string? style)
+    {
+        foreach (var icon in icons)
+        {
+            _searchedStyle[icon.Hash] = style;
         }
     }
 
@@ -555,6 +565,71 @@ public sealed class StreamlinePanel : UserControl
 
         // Clamped, since an undo can have taken rows out of the group while the window was up.
         await _window.ImportAsync(import.Target, Math.Min(index, import.Target.Children.Count), Placed(import.Imports(), at).Imports, show && !_window.OnBoard(import.Target)).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Downloads <paramref name="hashes"/> and adds them at the end of <paramref name="group"/> through
+    /// <paramref name="template"/> or what each batch is suggested, as one step, saying in
+    /// <paramref name="notes"/> what the window would have shown; for a tool, which has no window.
+    /// </summary>
+    /// <remarks>
+    /// One at a time, so a failure that is not the icon's own, a spent limit above all, stops it with
+    /// what came before still landing. The choice is not remembered: it was a model's, not the person's.
+    /// </remarks>
+    internal async Task<IReadOnlyList<ProjectDrawing>> ImportAsync(IReadOnlyList<string> hashes, ProjectGroup group, string? template, List<string> notes, string label)
+    {
+        if (_client is not { } client || _window.Workspace is not { } workspace)
+        {
+            return Array.Empty<ProjectDrawing>();
+        }
+
+        _opening = true;
+        ShowImport();
+
+        try
+        {
+            var fetched = new List<StreamlineDownload>();
+
+            for (var at = 0; at < hashes.Count; at++)
+            {
+                try
+                {
+                    var icon = await client.Icon(hashes[at]).ConfigureAwait(true);
+
+                    fetched.Add(await Fetch(client, icon, icon.Colors).ConfigureAwait(true));
+                }
+                catch (Exception failure) when (Failure(failure) is { } said)
+                {
+                    notes.Add($"{hashes[at]}: {said}");
+
+                    if (failure is not (StreamlineException { Status: HttpStatusCode.Forbidden or HttpStatusCode.NotFound } or SvgRecipeException))
+                    {
+                        if (hashes.Skip(at + 1).ToList() is { Count: > 0 } rest)
+                        {
+                            notes.Add($"Stopped there, so {string.Join(", ", rest)} {(rest.Count == 1 ? "was" : "were")} not downloaded.");
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            if (Gone(workspace, group) is { } gone)
+            {
+                notes.Add(gone);
+
+                return Array.Empty<ProjectDrawing>();
+            }
+
+            var imports = Imports(new TemplateLibrary(workspace.Document.Root), group, fetched, template, notes);
+
+            return await _window.ImportAsync(group, group.Children.Count, imports, show: false, notes, label).ConfigureAwait(true);
+        }
+        finally
+        {
+            _opening = false;
+            ShowImport();
+        }
     }
 
     /// <summary>
@@ -730,9 +805,9 @@ public sealed class StreamlinePanel : UserControl
     /// </summary>
     public async Task ImportFamilyAsync(StreamlineIcon icon)
     {
-        if (_running is { })
+        if (Busy)
         {
-            Say("A family is already being imported; cancel it to start another.");
+            Say(_running is { } ? "A family is already being imported; cancel it to start another." : "Other icons are on their way in; import the family once they are.");
 
             return;
         }
@@ -928,21 +1003,35 @@ public sealed class StreamlinePanel : UserControl
         return made;
     }
 
-    /// <summary>The downloads as imports into <paramref name="into"/>, each batch through what its first icon is suggested, as a row would take it.</summary>
-    private static List<TemplateImport> Imports(TemplateLibrary library, ProjectGroup into, IReadOnlyList<StreamlineDownload> downloads)
+    /// <summary>
+    /// The downloads as imports into <paramref name="into"/>, each batch through <paramref name="template"/>
+    /// where its first icon is offered it, otherwise through what that icon is suggested first, as a row would take it.
+    /// </summary>
+    /// <param name="said">Where a line for each batch goes, naming its template and how it came to be chosen.</param>
+    private static List<TemplateImport> Imports(
+        TemplateLibrary library,
+        ProjectGroup into,
+        IReadOnlyList<StreamlineDownload> downloads,
+        string? template = null,
+        ICollection<string>? said = null)
     {
         var imports = new List<TemplateImport>();
 
         foreach (var batch in TemplateLibrary.Batch(downloads.Select(download => download.Prepared)))
         {
-            var suggested = batch.Select(icon => (Icon: icon, Suggestions: library.Suggest(icon, into))).ToList();
-            var chosen = suggested[0].Suggestions[0].Template.Name;
+            var suggested = batch.Select(icon => (Download: downloads.First(one => ReferenceEquals(one.Prepared, icon)), Suggestions: library.Suggest(icon, into))).ToList();
+            var offered = suggested[0].Suggestions;
+            var chosen = offered.Any(suggestion => suggestion.Template.Name == template) ? template! : offered[0].Template.Name;
 
-            foreach (var (icon, suggestions) in suggested)
+            said?.Add($"{string.Join(", ", suggested.Select(one => one.Download.Icon.Name))}: through {chosen}, "
+                      + (chosen == template ? "as asked."
+                          : template is { } ? $"as {template} does not fit {(suggested.Count == 1 ? "it" : "them")}."
+                          : offered[0].Sure ? "Studio's sure choice."
+                          : $"Studio's best guess; {string.Join(", ", offered.Skip(1).Select(suggestion => suggestion.Template.Name))} would fit too."));
+
+            foreach (var (download, suggestions) in suggested)
             {
-                var download = downloads.First(one => ReferenceEquals(one.Prepared, icon));
-
-                imports.Add(new TemplateImport(download.Icon.Name, icon.Text, StreamlineRow.Recipe(suggestions, chosen), SourceOf(download.Icon)));
+                imports.Add(new TemplateImport(download.Icon.Name, download.Prepared.Text, StreamlineRow.Recipe(suggestions, chosen), SourceOf(download.Icon)));
             }
         }
 
@@ -999,11 +1088,7 @@ public sealed class StreamlinePanel : UserControl
             var client = _client!;
 
             // The details first: they are not counted against the download limit, so a failure there spends nothing.
-            var colors = icon.Colors ?? (await client.Icon(icon.Hash).ConfigureAwait(true)).Colors;
-            var svg = await client.DownloadSvg(icon.Hash, Size()).ConfigureAwait(true);
-            var style = _searchedStyle.TryGetValue(icon.Hash, out var searched) ? searched : null;
-
-            return new StreamlineDownload(icon, svg, TemplateLibrary.Prepare(svg, icon.FamilySlug, style, icon.Name, colors));
+            return await Fetch(client, icon, icon.Colors ?? (await client.Icon(icon.Hash).ConfigureAwait(true)).Colors).ConfigureAwait(true);
         }
         catch (Exception failure) when (Failure(failure) is { } said)
         {
@@ -1011,6 +1096,15 @@ public sealed class StreamlinePanel : UserControl
 
             return null;
         }
+    }
+
+    /// <summary>The icon's SVG, prepared with <paramref name="colors"/> and the style it was found under; a failure is thrown, for a tool to tell one of the icon's own from a spent limit.</summary>
+    private async Task<StreamlineDownload> Fetch(StreamlineClient client, StreamlineIcon icon, IReadOnlyList<string>? colors)
+    {
+        var svg = await client.DownloadSvg(icon.Hash, Size()).ConfigureAwait(true);
+        var style = _searchedStyle.TryGetValue(icon.Hash, out var searched) ? searched : null;
+
+        return new StreamlineDownload(icon, svg, TemplateLibrary.Prepare(svg, icon.FamilySlug, style, icon.Name, colors));
     }
 
     /// <summary>The size the project's first sized template asks for, which is what an icon is mapped onto anyway.</summary>
@@ -1037,7 +1131,7 @@ public sealed class StreamlinePanel : UserControl
     }
 
     /// <summary>What to tell somebody about a failure reaching Streamline, or null for one this does not expect.</summary>
-    private static string? Failure(Exception failure) => failure switch
+    internal static string? Failure(Exception failure) => failure switch
     {
         StreamlineException { Status: HttpStatusCode.Unauthorized } refused
             => $"Streamline did not take the key: {refused.Message}. It is set in Settings.",

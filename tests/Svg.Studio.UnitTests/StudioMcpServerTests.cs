@@ -1,15 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -21,13 +24,15 @@ using Svg.Skia;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 using static Svg.Studio.UnitTests.ProjectGitTests;
+using static Svg.Studio.UnitTests.StreamlinePanelTests;
 
 namespace Svg.Studio.UnitTests;
 
 /// <summary>Studio's tools served over MCP, connected to with the SDK's own client.</summary>
 /// <remarks>
 /// In the settings collection: the switch and the port are <see cref="StudioSettings"/>, the token
-/// is <see cref="Keychain.Current"/>, and both are one static for the whole run.
+/// is <see cref="Keychain.Current"/>, and template choices <see cref="TemplateLibrary.ChoicesStore"/>,
+/// each one static for the whole run.
 /// </remarks>
 [Collection("settings")]
 public class StudioMcpServerTests : IDisposable
@@ -105,11 +110,16 @@ public class StudioMcpServerTests : IDisposable
     private readonly bool _enabled = StudioSettings.McpEnabled;
     private readonly int _port = StudioSettings.McpPort;
     private readonly RelaxedTextAnswer _relaxed = StudioSettings.RelaxedText;
+    private readonly string _choices = TemplateLibrary.ChoicesStore;
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
     private readonly List<Window> _windows = new();
     private readonly List<string> _announced = new();
 
-    public StudioMcpServerTests() => Keychain.Current = _keychain;
+    public StudioMcpServerTests()
+    {
+        Keychain.Current = _keychain;
+        TemplateLibrary.ChoicesStore = Path.Combine(_directory, "templates-choices");
+    }
 
     public void Dispose()
     {
@@ -128,6 +138,7 @@ public class StudioMcpServerTests : IDisposable
         StudioSettings.McpEnabled = _enabled;
         StudioSettings.McpPort = _port;
         StudioSettings.RelaxedText = _relaxed;
+        TemplateLibrary.ChoicesStore = _choices;
         Keychain.Current = _was;
         Scratch.Delete(_directory);
     }
@@ -157,14 +168,16 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(tools["get_code"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.False(tools["set_attributes"].ProtocolTool.Annotations?.DestructiveHint);
 
-        // Over MCP alone, since its answer is an image.
+        // Over MCP alone, since its answer is an image, or what only such an answer gives.
         Assert.True(tools["render"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.False(tools["render"].ProtocolTool.Annotations?.OpenWorldHint);
+        Assert.True(tools["streamline_search"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.NotEqual(true, tools["streamline_import"].ProtocolTool.Annotations?.ReadOnlyHint);
 
         // One step on the history each, as set_attributes is; and the file tools that refuse over
         // unsaved work rather than lose it.
         Assert.All(
-            new[] { "insert_element", "remove_elements", "move_element", "duplicate_elements", "redo", "new_project", "open_file", "reload" },
+            new[] { "insert_element", "remove_elements", "move_element", "duplicate_elements", "redo", "new_project", "open_file", "reload", "streamline_import" },
             name => Assert.False(tools[name].ProtocolTool.Annotations?.DestructiveHint, name));
 
         // Over MCP nobody but the client asks: Studio answers its own question yes.
@@ -175,15 +188,16 @@ public class StudioMcpServerTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task Every_Tool_Stays_On_This_Machine_And_The_Repeatable_Ones_Say_So()
+    public async Task Only_The_Streamline_Tools_Leave_This_Machine_And_The_Repeatable_Ones_Say_So()
     {
         var (_, port) = await Serving();
         await using var client = await Client(port);
 
         var tools = (await client.ListToolsAsync()).ToDictionary(tool => tool.Name);
-        var repeatable = new[] { "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "export", "reload" };
+        var repeatable = new[] { "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "export", "reload", "streamline_import" };
+        var reaching = new[] { "streamline_search", "streamline_import" };
 
-        Assert.All(tools.Values, tool => Assert.False(tool.ProtocolTool.Annotations?.OpenWorldHint, tool.Name));
+        Assert.All(tools.Values, tool => Assert.True(tool.ProtocolTool.Annotations?.OpenWorldHint == reaching.Contains(tool.Name), tool.Name));
         Assert.All(repeatable, name => Assert.True(tools[name].ProtocolTool.Annotations?.IdempotentHint, name));
         Assert.All(
             new[] { "undo", "redo", "add_group", "add_drawing", "move", "remove", "git_commit", "insert_element", "remove_elements", "move_element", "duplicate_elements", "new_project", "open_file" },
@@ -1990,6 +2004,366 @@ public class StudioMcpServerTests : IDisposable
         Assert.DoesNotContain("reload", AssistantSession.SystemPrompt(small: true), StringComparison.Ordinal);
     }
 
+    /// <summary>The previews are the CDN's, which the plan does not count: no download, and no icon's details either.</summary>
+    [AvaloniaFact]
+    public async Task Streamline_Search_Answers_A_Sheet_Of_Previews_And_A_Line_For_Each_Icon()
+    {
+        var streamline = new Streamline();
+
+        streamline.Paths["/v1/search/global"] = request => Streamline.Answer(
+            request.RequestUri!.Query.Contains("query=zebra", StringComparison.Ordinal)
+                ? Page("results", Array.Empty<string>(), more: false, next: 0)
+                : Page("results", new[] { Icon("ico_a", "bell"), Icon("ico_b", "bin", free: false), Icon("ico_c", "cog") }, more: true, next: 24),
+            "application/json");
+        streamline.Preview("ico_a");
+        streamline.Preview("ico_b");
+
+        var (_, port) = await Streaming(streamline);
+        await using var client = await Client(port);
+
+        var found = await Call(client, "streamline_search", new() { ["query"] = "bell", ["style"] = "Line" });
+        var none = await Call(client, "streamline_search", new() { ["query"] = "zebra" });
+        var sheet = Png(found);
+
+        Assert.NotEqual(true, found.IsError);
+        Assert.Equal((8 + 3 * 72, 8 + 72), (sheet.Width, sheet.Height));
+
+        // ico_c has no preview on the CDN, so its cell is left as the plate.
+        Assert.NotEqual(s_light, sheet.GetPixel(8 + 32, 8 + 32));
+        Assert.Equal(s_light, sheet.GetPixel(8 + 2 * 72 + 32, 8 + 32));
+        Assert.Contains("\n1. bell: ico_a, Core Duo, row 1, column 1\n", Text(found), StringComparison.Ordinal);
+        Assert.Contains("\n2. bin: ico_b, Core Duo, row 1, column 2, locked\n", Text(found), StringComparison.Ordinal);
+        Assert.Contains("\n3. cog: ico_c, Core Duo, row 1, column 3, no preview\n", Text(found), StringComparison.Ordinal);
+        Assert.EndsWith("offset 24 reads on.", Text(found), StringComparison.Ordinal);
+        Assert.Contains(streamline.Asked, asked => asked.StartsWith("/v1/search/global?", StringComparison.Ordinal)
+                                                   && asked.Contains("query=bell", StringComparison.Ordinal)
+                                                   && asked.Contains("limit=24", StringComparison.Ordinal)
+                                                   && asked.Contains("style=line", StringComparison.Ordinal));
+        Assert.Contains("/ico_c.png", streamline.Asked);
+        Assert.DoesNotContain(streamline.Asked, asked => asked.StartsWith("/v1/icons/", StringComparison.Ordinal));
+
+        Assert.NotEqual(true, none.IsError);
+        Assert.Equal("Nothing on Streamline matches 'zebra'.", Text(none));
+        Assert.Empty(none.Content.OfType<ImageContentBlock>());
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task Streamline_Search_Without_A_Key_Or_Past_The_Limit_Is_An_Error_That_Says_Why()
+    {
+        var lifts = new DateTimeOffset(2026, 10, 5, 0, 0, 0, TimeSpan.Zero);
+        var streamline = new Streamline();
+
+        streamline.Paths["/v1/search/global"] = _ =>
+        {
+            var spent = Streamline.Refused(HttpStatusCode.TooManyRequests, "Hourly limit reached");
+
+            spent.Headers.RetryAfter = new RetryConditionHeaderValue(lifts);
+
+            return spent;
+        };
+
+        var (window, port) = await Streaming(streamline, key: null);
+        await using var client = await Client(port);
+
+        var keyless = await Call(client, "streamline_search", new() { ["query"] = "bell" });
+
+        window.Streamline.StoredKey = () => "sk_test";
+        await window.Streamline.RefreshAsync();
+
+        var spent = await Call(client, "streamline_search", new() { ["query"] = "bell" });
+
+        Assert.True(keyless.IsError);
+        Assert.Equal("Searching Streamline needs an API key, which the person sets in Studio's Settings.", Text(keyless));
+        Assert.Empty(keyless.Content.OfType<ImageContentBlock>());
+        Assert.True(spent.IsError);
+        Assert.Equal($"Hourly limit reached. Streamline's limit lifts {lifts.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)}.", Text(spent));
+        Assert.Single(streamline.Asked);
+    }
+
+    [AvaloniaFact]
+    public async Task Streamline_Search_Refuses_A_Style_Streamline_Has_Not_Got_Without_Asking_It()
+    {
+        var streamline = new Streamline();
+        var (_, port) = await Streaming(streamline);
+        await using var client = await Client(port);
+
+        var refused = await Call(client, "streamline_search", new() { ["query"] = "bell", ["style"] = "sparkly" });
+
+        Assert.True(refused.IsError);
+        Assert.Equal(
+            "Streamline has no style 'sparkly'; it has line, solid, flat, duo, hand-drawn, creative, gradient, remix, neon, pop, light, glyph, minimal, outlined, geometric, bold, stroke, wireframe, filled.",
+            Text(refused));
+        Assert.Empty(streamline.Asked);
+    }
+
+    /// <remarks>A model's choice is not the person's, so it is not remembered as what Studio is sure of next time.</remarks>
+    [AvaloniaFact]
+    public async Task Streamline_Import_Brings_Icons_In_Through_Their_Template_As_One_Undo_Step()
+    {
+        var (window, port) = await Streaming(Glyphs("line-glyphs", ("ico_b", "bin"), ("ico_c", "cog")));
+        await using var client = await Client(port);
+        var scheme = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+
+        var imported = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b", "ico_c" }, ["parent"] = "0" });
+        var added = scheme.Children.Skip(2).OfType<ProjectDrawing>().ToList();
+
+        Assert.NotEqual(true, imported.IsError);
+        Assert.Equal(
+            "Imported 2 icons into 0 Scheme: 0/2 bin, 0/3 cog. It is one undo step.\n"
+            + "bin, cog: through Accent glyph, Studio's best guess; Mono glyph, Keep colours would fit too.",
+            Text(imported));
+        Assert.Equal(new[] { "streamline:ico_b", "streamline:ico_c" }, added.Select(drawing => drawing.Source));
+        Assert.All(added, drawing => Assert.Contains("fill=\"{{ stateAccentColor }}\"", drawing.Text, StringComparison.Ordinal));
+        Assert.Equal("Claude Code: import from Streamline", window.Workspace.UndoLabel);
+        Assert.Same(added[^1], ((TabItem)Tabs(window).SelectedItem!).Tag);
+        Assert.Null(TemplateLibrary.Remembered(TemplateLibrary.Prepare(Glyph, "line-glyphs", null, "bin", new[] { "#000000" })));
+
+        var undone = await Call(client, "undo", new());
+
+        Assert.Equal("Took back \"Claude Code: import from Streamline\".", Text(undone));
+        Assert.Equal(new[] { "Bell", "Core Duo" }, scheme.Children.Select(child => child.Name));
+        Assert.Empty(_announced);
+    }
+
+    /// <summary>One at a time: what came before a spent limit lands, and what is after it is never asked for.</summary>
+    [AvaloniaFact]
+    public async Task Streamline_Import_Skips_What_The_Group_Has_And_Keeps_What_Came_Before_A_Spent_Limit()
+    {
+        var lifts = new DateTimeOffset(2026, 10, 5, 0, 0, 0, TimeSpan.Zero);
+        var streamline = Glyphs("sure-glyphs", ("ico_a", "a"), ("ico_b", "bin"), ("ico_c", "cog"), ("ico_d", "dot"));
+
+        streamline.Paths["/v1/icons/ico_c/download/svg"] = _ =>
+        {
+            var spent = Streamline.Refused(HttpStatusCode.TooManyRequests, "Weekly download limit reached");
+
+            spent.Headers.RetryAfter = new RetryConditionHeaderValue(lifts);
+
+            return spent;
+        };
+        Sure("sure-glyphs");
+
+        var (window, port) = await Streaming(streamline);
+        await using var client = await Client(port);
+
+        // 0/1/0 a came from ico_a, a group further down.
+        var imported = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_a", "ico_b", "ico_c", "ico_d" }, ["parent"] = "0" });
+        var again = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_a", "ico_b" }, ["parent"] = "0" });
+
+        Assert.NotEqual(true, imported.IsError);
+        Assert.Equal(
+            "Imported 1 icon into 0 Scheme: 0/2 bin. It is one undo step.\n"
+            + "Already there, so not downloaded: 0/1/0 a.\n"
+            + $"ico_c: Weekly download limit reached. Streamline's limit lifts {lifts.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)}.\n"
+            + "Stopped there, so ico_d was not downloaded.\n"
+            + "bin: through Accent glyph, Studio's sure choice.",
+            Text(imported));
+        Assert.DoesNotContain(streamline.Asked, asked => asked.StartsWith("/v1/icons/ico_a", StringComparison.Ordinal) || asked.StartsWith("/v1/icons/ico_d", StringComparison.Ordinal));
+        Assert.NotEqual(true, again.IsError);
+        Assert.Equal("Nothing changed: 0 Scheme has every one already, as 0/1/0 a, 0/2 bin.", Text(again));
+        Assert.Equal(1, streamline.Count("/v1/icons/ico_b/download"));
+
+        Assert.True(window.Workspace!.Undo());
+        Assert.False(window.Workspace.CanUndo);
+        Assert.Empty(_announced);
+    }
+
+    /// <summary>One the key may not have, Streamline does not know or Studio cannot read fails on its own, so what is after it still comes.</summary>
+    [AvaloniaFact]
+    public async Task Streamline_Import_Passes_Over_An_Icon_It_May_Not_Have_And_Brings_In_The_Rest()
+    {
+        var streamline = Glyphs("line-glyphs", ("ico_b", "bin"), ("ico_d", "dot"), ("ico_e", "eye"));
+
+        streamline.Paths["/v1/icons/ico_b/download/svg"] = _ => Streamline.Refused(HttpStatusCode.Forbidden, "Your plan does not include this icon");
+        streamline.Svg("ico_d", """<!DOCTYPE svg [<!ENTITY ink "#000000">]><svg xmlns="http://www.w3.org/2000/svg" />""");
+
+        var (_, port) = await Streaming(streamline);
+        await using var client = await Client(port);
+
+        // ico_c is not on Streamline, so its details answer 404.
+        var imported = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b", "ico_c", "ico_d", "ico_e" }, ["parent"] = "0" });
+
+        Assert.NotEqual(true, imported.IsError);
+        Assert.Equal(
+            "Imported 1 icon into 0 Scheme: 0/2 eye. It is one undo step.\n"
+            + "ico_b: Streamline refused: Your plan does not include this icon\n"
+            + "ico_c: Streamline answered 404: Resource not found\n"
+            + "ico_d: This file declares entities of its own, which cannot be written back as they were written.\n"
+            + "eye: through Accent glyph, Studio's best guess; Mono glyph, Keep colours would fit too.",
+            Text(imported));
+        Assert.Equal(1, streamline.Count("/v1/icons/ico_e/download"));
+        Assert.Empty(_announced);
+    }
+
+    /// <summary>Nor no icon or more than twenty, nor without a key: each download counts, so nothing is asked for until the call is one that can land.</summary>
+    [AvaloniaFact]
+    public async Task Streamline_Import_Refuses_A_Template_The_Project_Has_Not_Got_Before_Downloading()
+    {
+        var streamline = Glyphs("line-glyphs", ("ico_b", "bin"));
+
+        streamline.Json("/v1/icons/ico_d", Icon("ico_d", "dot", "line-glyphs", colour: null));
+        streamline.Svg("ico_d", Duo);
+
+        var (window, port) = await Streaming(streamline, key: null);
+        await using var client = await Client(port);
+        var scheme = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+
+        var unknown = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b" }, ["parent"] = "0", ["template"] = "Sparkle" });
+        var none = await Call(client, "streamline_import", new() { ["hashes"] = Array.Empty<string>(), ["parent"] = "0" });
+        var many = await Call(client, "streamline_import", new() { ["hashes"] = Enumerable.Range(0, 21).Select(n => $"ico_{n}").ToArray(), ["parent"] = "0" });
+        var keyless = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b" }, ["parent"] = "0", ["template"] = "Mono glyph" });
+
+        // Nothing would be downloaded, so neither the key nor the panel is asked about.
+        var there = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_a" }, ["parent"] = "0" });
+
+        Assert.True(unknown.IsError);
+        Assert.Equal("The project has no template 'Sparkle'. Its own are Accent glyph, Mono glyph; Keep colours brings the icons in as Streamline drew them.", Text(unknown));
+        Assert.True(none.IsError);
+        Assert.Equal("Name the icons to import by the hashes streamline_search lists.", Text(none));
+        Assert.True(many.IsError);
+        Assert.Equal("21 icons are more than the 20 one call imports: each is a download Streamline counts against the key's plan.", Text(many));
+        Assert.True(keyless.IsError);
+        Assert.Equal("Importing from Streamline needs an API key, which the person sets in Studio's Settings.", Text(keyless));
+        Assert.NotEqual(true, there.IsError);
+        Assert.Equal("Nothing changed: 0 Scheme has every one already, as 0/1/0 a.", Text(there));
+        Assert.Empty(streamline.Asked);
+
+        window.Streamline.StoredKey = () => "sk_test";
+        await window.Streamline.RefreshAsync();
+
+        // dot has two colours, which Mono glyph does not match, so it keeps them.
+        var imported = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b", "ico_d" }, ["parent"] = "0", ["template"] = "Mono glyph" });
+
+        Assert.NotEqual(true, imported.IsError);
+        Assert.Equal(
+            "Imported 2 icons into 0 Scheme: 0/2 bin, 0/3 dot. It is one undo step.\n"
+            + "bin: through Mono glyph, as asked.\n"
+            + "dot: through Keep colours, as Mono glyph does not fit it.",
+            Text(imported));
+        Assert.Contains("fill=\"{{ stateBlackColor }}\"", ((ProjectDrawing)scheme.Children[2]).Text, StringComparison.Ordinal);
+        Assert.Contains("fill=\"#fb3e72\"", ((ProjectDrawing)scheme.Children[3]).Text, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <summary>A tool's import and the panel's share the one flag, so neither brings icons in under the other.</summary>
+    [AvaloniaFact]
+    public async Task Streamline_Import_Waits_For_Icons_The_Panel_Is_Bringing_In()
+    {
+        var held = new TaskCompletionSource();
+        var streamline = Glyphs("line-glyphs", ("ico_b", "bin"), ("ico_c", "cog"));
+
+        streamline.Json("/v1/search/global", Page("results", new[] { Icon("ico_c", "cog", "line-glyphs") }, more: false, next: 1));
+        streamline.Holding = request => request.RequestUri!.AbsolutePath == "/v1/icons/ico_c/download/svg" ? held.Task : Task.CompletedTask;
+
+        var (window, port) = await Streaming(streamline);
+        await using var client = await Client(port);
+        var panel = window.Streamline;
+        var scheme = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+
+        // Turned down, so the panel's own import ends once its download is let through.
+        window.ShowImport = _ => Task.FromResult(false);
+
+        await panel.SearchAsync();
+        await panel.PickAsync(0, KeyModifiers.None);
+
+        var picking = panel.OpenImportAsync();
+        var refused = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b" }, ["parent"] = "0" });
+
+        Assert.True(refused.IsError);
+        Assert.Equal("Icons are on their way in from the Streamline panel; try again once they have landed.", Text(refused));
+        Assert.DoesNotContain(streamline.Asked, asked => asked.StartsWith("/v1/icons/ico_b", StringComparison.Ordinal));
+        Assert.False(picking.IsCompleted);
+
+        held.SetResult();
+        await picking;
+
+        var imported = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b" }, ["parent"] = "0" });
+
+        Assert.NotEqual(true, imported.IsError);
+        Assert.Equal("streamline:ico_b", ((ProjectDrawing)scheme.Children[^1]).Source);
+        Assert.Empty(_announced);
+    }
+
+    /// <summary>The other way round: while a tool's icons are on their way, the panel's button, an update and a family wait.</summary>
+    [AvaloniaFact]
+    public async Task The_Panel_Waits_For_Icons_A_Tool_Is_Bringing_In()
+    {
+        var held = new TaskCompletionSource();
+        var streamline = Glyphs("line-glyphs", ("ico_b", "bin"), ("ico_c", "cog"));
+
+        streamline.Json("/v1/search/global", Page("results", new[] { Icon("ico_c", "cog", "line-glyphs") }, more: false, next: 1));
+        streamline.Holding = request => request.RequestUri!.AbsolutePath == "/v1/icons/ico_b/download/svg" ? held.Task : Task.CompletedTask;
+
+        var (window, port) = await Streaming(streamline);
+        await using var client = await Client(port);
+        var panel = window.Streamline;
+        var scheme = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+
+        // Turned down, so one let through ends rather than waits on a window.
+        window.ShowImport = _ => Task.FromResult(false);
+        panel.ConfirmFamily = _ => Task.FromResult(false);
+
+        await panel.SearchAsync();
+        await panel.PickAsync(0, KeyModifiers.None);
+
+        var importing = Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b" }, ["parent"] = "0" });
+
+        await Until(() => streamline.Count("/v1/icons/ico_b/download") == 1);
+
+        var button = panel.OpenImportAsync();
+
+        await panel.UpdateAsync((ProjectDrawing)((ProjectGroup)scheme.Children[1]).Children[0]);
+
+        var update = panel.Said;
+
+        await panel.ImportFamilyAsync(panel.Results[0]);
+
+        Assert.True(button.IsCompleted);
+        Assert.Equal("Other icons are on their way in; update this one once they are.", update);
+        Assert.Equal("Other icons are on their way in; import the family once they are.", panel.Said);
+        Assert.DoesNotContain(streamline.Asked, asked => asked.StartsWith("/v1/icons/ico_a", StringComparison.Ordinal)
+                                                       || asked.StartsWith("/v1/icons/ico_c/download", StringComparison.Ordinal)
+                                                       || asked.StartsWith("/v1/famil", StringComparison.Ordinal));
+
+        held.SetResult();
+
+        var imported = await importing;
+
+        Assert.NotEqual(true, imported.IsError);
+        Assert.Equal("streamline:ico_b", ((ProjectDrawing)scheme.Children[^1]).Source);
+
+        await panel.OpenImportAsync();
+
+        Assert.Equal(1, streamline.Count("/v1/icons/ico_c/download"));
+        Assert.Empty(_announced);
+    }
+
+    /// <summary>An icon does not say its style, so a template matching one fits only what a search found under it, as in the panel.</summary>
+    [AvaloniaFact]
+    public async Task Streamline_Import_Fits_A_Template_To_The_Style_A_Search_Found_The_Icon_Under()
+    {
+        const string line = """<e:recipe name="Line glyph"><e:match colors="1" style="line" /><e:slot name="glyph" rest="true">stateBlackColor</e:slot></e:recipe>""";
+        var streamline = Glyphs("line-glyphs", ("ico_b", "bin"), ("ico_c", "cog"));
+
+        streamline.Json("/v1/search/global", Page("results", new[] { Icon("ico_b", "bin", "line-glyphs") }, more: false, next: 1));
+
+        var (_, port) = await Streaming(streamline, text: StreamlinePanelTests.Project.Replace("""<e:recipe name="Accent glyph">""", line + """<e:recipe name="Accent glyph">""", StringComparison.Ordinal));
+        await using var client = await Client(port);
+
+        var unsearched = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_c" }, ["parent"] = "0", ["template"] = "Line glyph" });
+        var found = await Call(client, "streamline_search", new() { ["query"] = "bin", ["style"] = "line" });
+        var searched = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b" }, ["parent"] = "0", ["template"] = "Line glyph" });
+
+        Assert.NotEqual(true, found.IsError);
+        Assert.Equal(
+            "Imported 1 icon into 0 Scheme: 0/2 cog. It is one undo step.\ncog: through Accent glyph, as Line glyph does not fit it.",
+            Text(unsearched));
+        Assert.Equal(
+            "Imported 1 icon into 0 Scheme: 0/3 bin. It is one undo step.\nbin: through Line glyph, as asked.",
+            Text(searched));
+        Assert.Empty(_announced);
+    }
+
     /// <remarks>Closing the window with an edit asks, in Studio's own dialog, whether to throw it away.</remarks>
     [AvaloniaFact]
     public async Task A_Call_While_Studio_Asks_The_Person_Is_Refused_As_An_Error_And_Changes_Nothing()
@@ -2181,6 +2555,36 @@ public class StudioMcpServerTests : IDisposable
         await Until(() => StudioMcpServer.Status == $"Listening on 127.0.0.1:{StudioSettings.McpPort}.");
 
         return (window, StudioSettings.McpPort);
+    }
+
+    /// <summary>A window serving <paramref name="text"/>, whose Streamline panel answers from <paramref name="streamline"/> with <paramref name="key"/>.</summary>
+    private async Task<(MainWindow Window, int Port)> Streaming(Streamline streamline, string? key = "sk_test", string text = StreamlinePanelTests.Project)
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, text);
+
+        var (window, port) = await Serving(path);
+
+        window.Streamline.StoredKey = () => key;
+        window.Streamline.Connect = given => new StreamlineClient(given, new HttpClient(streamline));
+        await window.Streamline.RefreshAsync();
+
+        return (window, port);
+    }
+
+    /// <summary>Streamline giving each of <paramref name="icons"/> as a glyph of <paramref name="family"/>: its details, and its download.</summary>
+    private static Streamline Glyphs(string family, params (string Hash, string Name)[] icons)
+    {
+        var streamline = new Streamline();
+
+        foreach (var (hash, name) in icons)
+        {
+            streamline.Json($"/v1/icons/{hash}", Icon(hash, name, family));
+            streamline.Svg(hash, Glyph);
+        }
+
+        return streamline;
     }
 
     private async Task<MainWindow> Open(string? path = null)

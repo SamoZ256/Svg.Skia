@@ -57,7 +57,7 @@ public sealed class AssistantTools
     /// <summary>How many problems an answer lists before it says how many more.</summary>
     private const int Most = 50;
 
-    /// <summary>How far apart a render's images are on its sheet, and from the sheet's edges.</summary>
+    /// <summary>How far apart the images on a render's or a search's sheet are, and from the sheet's edges.</summary>
     private const int Gap = 8;
 
     /// <summary>Refuses an argument no parameter takes: dropped, a misspelled node fell back to the drawing in front, which took the edit.</summary>
@@ -105,7 +105,7 @@ public sealed class AssistantTools
     /// <summary>The tools that read and change nothing, for a client to call without asking.</summary>
     public static readonly IReadOnlySet<string> Reading = new HashSet<string>(StringComparer.Ordinal)
     {
-        "read_doc", "get_project", "get_drawing", "get_element", "get_node", "get_context", "get_declarations", "get_problems", "get_code", "render"
+        "read_doc", "get_project", "get_drawing", "get_element", "get_node", "get_context", "get_declarations", "get_problems", "get_code", "render", "streamline_search"
     };
 
     /// <summary>The tools that write past the history - to disk, to git, or a node away - which a client should ask about.</summary>
@@ -117,7 +117,13 @@ public sealed class AssistantTools
     /// <summary>The tools that, called again with the same arguments, leave things as the first call did.</summary>
     public static readonly IReadOnlySet<string> Repeatable = new HashSet<string>(StringComparer.Ordinal)
     {
-        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "export", "reload"
+        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "export", "reload", "streamline_import"
+    };
+
+    /// <summary>The tools that reach past this machine, to Streamline with the person's key.</summary>
+    public static readonly IReadOnlySet<string> Reaching = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "streamline_search", "streamline_import"
     };
 
     /// <summary>Who the Edit menu says made an edit: "Undo Assistant: make it red".</summary>
@@ -869,6 +875,118 @@ public sealed class AssistantTools
             }
         });
 
+    /// <summary>A page of Streamline's icons as one sheet of their previews and a line for each; or no sheet and why, refused where the search was not made or failed, but not where nothing matched.</summary>
+    /// <remarks>
+    /// The MCP server's alone, as render is. Only the CDN's previews, which no plan counts: the
+    /// panel's fallback for a missing one is the icon's details, one request each against the hour's.
+    /// </remarks>
+    internal async Task<(byte[]? Sheet, string Text, bool Refused)> SearchStreamline(string query, string? style, int offset)
+    {
+        const int cell = 64, across = 8, most = 24;
+
+        var known = style is null ? null : StreamlinePanel.StyleNames.FirstOrDefault(one => string.Equals(one, style.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (style is { } && known is null)
+        {
+            return (null, $"Streamline has no style '{style}'; it has {string.Join(", ", StreamlinePanel.StyleNames)}.", true);
+        }
+
+        // The plate read here too, on the UI thread: its first read makes the window's brushes, which belong to whichever thread that is.
+        var (connected, plate) = await Ui(() => (_window.Streamline.Client, StreamlineImportWindow.s_lightPlate)).ConfigureAwait(false);
+
+        if (connected is not { } client)
+        {
+            return (null, "Searching Streamline needs an API key, which the person sets in Studio's Settings.", true);
+        }
+
+        StreamlinePage<StreamlineIcon> page;
+
+        try
+        {
+            page = await client.Search(query, offset: offset, limit: most, style: known).ConfigureAwait(false);
+        }
+        catch (Exception failure) when (StreamlinePanel.Failure(failure) is { } said)
+        {
+            return (null, said, true);
+        }
+
+        var icons = page.Items;
+
+        if (icons.Count == 0)
+        {
+            return (null, $"Nothing on Streamline matches '{query}'{(offset > 0 ? $" from offset {offset} on" : null)}.", false);
+        }
+
+        // Kept by the panel, whose import prepares each icon in the style it was found under.
+        await Dispatcher.UIThread.InvokeAsync(() => _window.Streamline.Searched(icons, known)).GetTask().ConfigureAwait(false);
+
+        using var limit = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var previews = await Task.WhenAll(icons.Select(async icon =>
+        {
+            try
+            {
+                return icon.ImagePreviewUrl is { } url ? SKImage.FromEncodedData(await client.Thumbnail(url, limit.Token).ConfigureAwait(false)) : null;
+            }
+            catch (Exception)
+            {
+                // Anything, from the CDN or the decoder: the cell is left empty, and its line says so.
+                return null;
+            }
+        })).ConfigureAwait(false);
+
+        try
+        {
+            var width = Gap + Math.Min(across, icons.Count) * (cell + Gap);
+            var height = Gap + (icons.Count + across - 1) / across * (cell + Gap);
+
+            using var sheet = new SKBitmap(width, height);
+
+            using (var canvas = new SKCanvas(sheet))
+            {
+                canvas.Clear(plate);
+
+                for (var index = 0; index < icons.Count; index++)
+                {
+                    if (previews[index] is { } preview)
+                    {
+                        var scale = Math.Min((float)cell / preview.Width, (float)cell / preview.Height);
+                        var (w, h) = (preview.Width * scale, preview.Height * scale);
+
+                        canvas.DrawImage(
+                            preview,
+                            SKRect.Create(Gap + (index % across * (cell + Gap)) + ((cell - w) / 2), Gap + (index / across * (cell + Gap)) + ((cell - h) / 2), w, h),
+                            new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+                    }
+                }
+            }
+
+            using var png = sheet.Encode(SKEncodedImageFormat.Png, 100);
+            var text = new StringBuilder()
+                .Append($"{page.Total} icons on Streamline match '{query}'{(known is { } ? $" in the {known} style" : null)}; these are {offset + 1} to {offset + icons.Count}, ")
+                .Append($"on one sheet, {width}×{height} px, in {cell} px cells {across} across and {Gap} px apart, on light:\n");
+
+            for (var index = 0; index < icons.Count; index++)
+            {
+                var icon = icons[index];
+
+                text.Append($"{offset + index + 1}. {icon.Name}: {icon.Hash}, {icon.FamilyName ?? icon.FamilySlug ?? "no family"}, row {(index / across) + 1}, column {(index % across) + 1}")
+                    .Append(!icon.IsFree && !icon.HasPremiumAccess ? ", locked" : null)
+                    .Append(previews[index] is null ? ", no preview" : null)
+                    .Append('\n');
+            }
+
+            return (png.ToArray(), text.Append(page.HasMore ? $"offset {page.NextOffset} reads on." : "There are no more.").ToString(), false);
+        }
+        finally
+        {
+            foreach (var preview in previews)
+            {
+                preview?.Dispose();
+            }
+        }
+    }
+
     private Task<string> SetAttributes(
         [Description("The element's address key from get_drawing; empty for the root svg element.")] string key,
         [Description("The attributes to write.")] AttributeChange[] attributes,
@@ -1208,6 +1326,80 @@ public sealed class AssistantTools
             await _window.ShowAsync(added[^1]).ConfigureAwait(true);
 
             return Report(reply, $"add {name}");
+        });
+
+    /// <summary>Icons from Streamline added at the end of a group through the project's templates, as one step, and the last opened as add_drawing opens its drawing.</summary>
+    /// <remarks>The MCP server's alone: it takes the hashes only streamline_search answers.</remarks>
+    internal Task<string> ImportFromStreamline(
+        [Description("The icons' hashes from streamline_search: up to 20, each one download.")] string[] hashes,
+        [Description("The node path of the group to add them to; empty for the project itself.")] string parent,
+        [Description("A template of the project's to bring them in through, by name, where it fits them; Keep colours keeps Streamline's own colours. Left out, each batch of icons with the same colours goes through the one Studio suggests.")] string? template = null)
+        => UiAsync(async () =>
+        {
+            if (Resolve(parent) is not ProjectGroup group)
+            {
+                return NotA("group", parent);
+            }
+
+            if (hashes.Length == 0)
+            {
+                return "Name the icons to import by the hashes streamline_search lists.";
+            }
+
+            if (hashes.Length > 20)
+            {
+                return $"{hashes.Length} icons are more than the 20 one call imports: each is a download Streamline counts against the key's plan.";
+            }
+
+            var templates = new TemplateLibrary(_window.Workspace!.Document.Root).Templates.Select(one => one.Name).ToList();
+
+            if (template is { } && !templates.Contains(template))
+            {
+                var own = templates.Where(name => name != TemplateLibrary.KeepColoursName).ToList();
+
+                return $"The project has no template '{template}'. Its own are {(own.Count > 0 ? string.Join(", ", own) : "none")}; {TemplateLibrary.KeepColoursName} brings the icons in as Streamline drew them.";
+            }
+
+            var present = TemplateLibrary.Imported(group, hashes.Select(hash => StreamlinePanel.SourcePrefix + hash));
+            var wanted = hashes.Where(hash => !present.Contains(StreamlinePanel.SourcePrefix + hash)).Distinct(StringComparer.Ordinal).ToList();
+
+            // Before the key and the panel: nothing is to be downloaded, so neither is wanted.
+            if (wanted.Count == 0)
+            {
+                return Report($"Nothing changed: {Named(group)} has every one already, as {There()}.", null);
+            }
+
+            if (_window.Streamline.Busy)
+            {
+                return "Icons are on their way in from the Streamline panel; try again once they have landed.";
+            }
+
+            if (_window.Streamline.Client is null)
+            {
+                return "Importing from Streamline needs an API key, which the person sets in Studio's Settings.";
+            }
+
+            var notes = new List<string>();
+            var label = Label("import from Streamline");
+            var added = await _window.Streamline.ImportAsync(wanted, group, template, notes, label).ConfigureAwait(true);
+
+            if (added.Count == 0)
+            {
+                return notes.Count > 0 ? Cut(notes, null) : "No icon could be imported.";
+            }
+
+            Undoable(label, node: group);
+
+            // Paths read now: the downloads gave up the UI thread, and a call meanwhile can have renumbered the nodes.
+            var reply = $"Imported {added.Count} icon{(added.Count == 1 ? null : "s")} into {Named(group)}: {string.Join(", ", added.Select(Named))}." + Undoes
+                        + (present.Count > 0 ? $"\nAlready there, so not downloaded: {There()}." : null)
+                        + (notes.Count > 0 ? "\n" + Cut(notes, null) : null);
+
+            await _window.ShowAsync(added[^1]).ConfigureAwait(true);
+
+            return Report(reply, "import from Streamline");
+
+            string There() => string.Join(", ", group.Drawings.Where(drawing => drawing.Source is { } source && present.Contains(source)).Select(Named));
         });
 
     private Task<string> Move(

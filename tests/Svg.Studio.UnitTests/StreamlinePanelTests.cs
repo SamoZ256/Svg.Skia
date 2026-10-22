@@ -38,7 +38,7 @@ public class StreamlinePanelTests : IDisposable
         "row(col(tree/1.4/tree/open,variables/1/variables/open)/300px,*/1,"
         + "col(project+elements/1/project/open,element/1/element/open)/300px)";
 
-    private const string Project = """
+    internal const string Project = """
         <?xml version="1.0" encoding="utf-8"?>
         <studio namespace="Demo.Icons">
           <e:templates xmlns:e="https://svg.skia/expr/1.0">
@@ -71,9 +71,9 @@ public class StreamlinePanelTests : IDisposable
 
         """;
 
-    private const string Glyph = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /></svg>""";
+    internal const string Glyph = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /></svg>""";
 
-    private const string Duo = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /><path d="M2 46h40v-40z" fill="#fb3e72" /></svg>""";
+    internal const string Duo = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /><path d="M2 46h40v-40z" fill="#fb3e72" /></svg>""";
 
     /// <summary>A template for <see cref="Duo"/>, added to <see cref="Project"/> before its first recipe.</summary>
     private const string DuoRecipe = """
@@ -103,7 +103,7 @@ public class StreamlinePanelTests : IDisposable
     }
 
     /// <summary>Answers by path, and says what it was asked.</summary>
-    private sealed class Streamline : HttpMessageHandler
+    internal sealed class Streamline : HttpMessageHandler
     {
         private readonly List<string> _asked = new();
 
@@ -174,14 +174,14 @@ public class StreamlinePanelTests : IDisposable
             => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, type) };
     }
 
-    private static string Icon(string hash, string name, string family = "core-duo", bool free = true, string? colour = "#000000")
+    internal static string Icon(string hash, string name, string family = "core-duo", bool free = true, string? colour = "#000000")
         => $$"""
             { "hash": "{{hash}}", "name": "{{name}}", "imagePreviewUrl": "https://assets.streamlinehq.com/{{hash}}.png",
               "isFree": {{(free ? "true" : "false")}}, "hasPremiumAccess": false, "familySlug": "{{family}}", "familyName": "Core Duo"
               {{(colour is { } ? $", \"colors\": [\"{colour}\"]" : "")}} }
             """;
 
-    private static string Page(string list, IEnumerable<string> items, bool more, int next)
+    internal static string Page(string list, IEnumerable<string> items, bool more, int next)
         => $$"""{ "{{list}}": [{{string.Join(",", items)}}], "pagination": { "total": 3, "hasMore": {{(more ? "true" : "false")}}, "offset": 0, "nextOffset": {{next}} } }""";
 
     private async Task<MainWindow> Host(Streamline streamline, string? key = "sk_test", bool project = true, string text = Project)
@@ -1794,7 +1794,7 @@ public class StreamlinePanelTests : IDisposable
         => MainWindowProjectTests.Row(window, label).TranslatePoint(new Point(12, 6), window)!.Value;
 
     /// <summary>Makes <paramref name="family"/>'s glyphs sure: their template is the one remembered for icons like them.</summary>
-    private static void Sure(string family)
+    internal static void Sure(string family)
         => TemplateLibrary.Remember(TemplateLibrary.Prepare(Glyph, family, null, "any", new[] { "#000000" }), "Accent glyph");
 
     private static Streamline Downloading(params string[] hashes)

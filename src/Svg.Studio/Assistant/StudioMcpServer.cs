@@ -250,7 +250,10 @@ public sealed class StudioMcpServer : IAsyncDisposable
         return app;
     }
 
-    /// <summary>The panel's tools, and <c>get_context</c> and <c>render</c>, told which only read and which a client should ask about.</summary>
+    /// <summary>
+    /// The panel's tools, and <c>get_context</c>, <c>render</c> and the Streamline tools, told which only
+    /// read, which a client should ask about, and which reach past this machine.
+    /// </summary>
     private IEnumerable<McpServerTool> Tools()
         => _tools.For(small: false, docs: true)
             .OfType<AIFunction>()
@@ -267,12 +270,23 @@ public sealed class StudioMcpServer : IAsyncDisposable
                 // As it is, which the server sends on unchanged: the JSON of one would arrive as text.
                 MarshalResult = (result, _, _) => new ValueTask<object?>(result)
             }))
+            .Append(_tools.Function(SearchStreamline, new AIFunctionFactoryOptions
+            {
+                Name = "streamline_search",
+                Description = "Searches Streamline's icons with the person's API key, one request against the thousand an hour it allows, and answers a sheet of their previews and a line for each with the hash streamline_import takes; one marked locked needs a plan the key does not have.",
+                MarshalResult = (result, _, _) => new ValueTask<object?>(result)
+            }))
+            .Append(_tools.Function(_tools.ImportFromStreamline, new AIFunctionFactoryOptions
+            {
+                Name = "streamline_import",
+                Description = "Downloads icons from Streamline by the hashes streamline_search lists and adds them at the end of a group through the project's templates, as one undo step, and opens the last; each is one download from the person's plan, and an icon the group already came from is skipped."
+            }))
             .Select(function => McpServerTool.Create(new Plain(function, _reported), new McpServerToolCreateOptions
             {
                 ReadOnly = AssistantTools.Reading.Contains(function.Name),
                 Destructive = AssistantTools.Confirming.Contains(function.Name),
                 Idempotent = AssistantTools.Repeatable.Contains(function.Name),
-                OpenWorld = false
+                OpenWorld = AssistantTools.Reaching.Contains(function.Name)
             }))
             .ToList();
 
@@ -295,6 +309,20 @@ public sealed class StudioMcpServer : IAsyncDisposable
         return rendered.Png is { } png
             ? new CallToolResult { Content = [ImageContentBlock.FromBytes(png, "image/png"), said] }
             : new CallToolResult { IsError = true, Content = [said] };
+    }
+
+    /// <summary>Streamline's icons as a sheet of their previews beside a line for each, as render answers a drawing.</summary>
+    private async Task<CallToolResult> SearchStreamline(
+        [Description("What to look for, in words, as Streamline's own search box takes them.")] string query,
+        [Description("One of Streamline's styles to search within, such as line, solid or duo; left out, any.")] string? style = null,
+        [Description("Where in the results the 24 icons a call answers start: 0 for the first, then the offset the last answer says reads on.")] int offset = 0)
+    {
+        var found = await _tools.SearchStreamline(query, style, offset).ConfigureAwait(false);
+        var said = new TextContentBlock { Text = found.Text };
+
+        return found.Sheet is { } sheet
+            ? new CallToolResult { Content = [ImageContentBlock.FromBytes(sheet, "image/png"), said] }
+            : new CallToolResult { IsError = found.Refused, Content = [said] };
     }
 
     /// <summary>A function whose string answer reaches the client as text, not as a JSON string in quotes, and a refusal as an error.</summary>
