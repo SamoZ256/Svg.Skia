@@ -2192,7 +2192,7 @@ public sealed class GroupPanel : UserControl
 
         var drawing = shown.Built.Drawing;
 
-        _element.ClassName = () => drawing.EffectiveClass ?? SvgExport.Identifier(drawing.Name);
+        _element.ClassName = () => drawing.ClassName;
 
         // What the pane was holding is about to mean something else: a group builds one file
         // several ways, so the drawing arriving spells the same addresses for different shapes.
