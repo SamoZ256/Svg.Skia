@@ -25,7 +25,7 @@ public class PaintCodeSliceAssets
 
     public PaintCodeSliceAssets(ITestOutputHelper output) => _output = output;
 
-    [SampleFact]
+    [OracleFact]
     public void Write()
     {
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SVG_PAINTCODE_WRITE_SLICE")))

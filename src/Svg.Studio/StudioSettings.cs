@@ -82,14 +82,23 @@ public static class StudioSettings
 
     private const string ConvertOrganizesKey = "convertOrganizes";
 
+    /// <summary>Moves <see cref="Folder"/>, and keeps Studio off the keychain.</summary>
+    /// <remarks>
+    /// How the UI tests keep a launched Studio off its user's files: .NET's macOS ApplicationData
+    /// does not follow <c>HOME</c>.
+    /// </remarks>
+    public const string FolderVariable = "SVG_STUDIO_DATA";
+
+    /// <summary>The folder everything Studio keeps on this machine is in.</summary>
+    public static string Folder { get; } = Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 } moved
+        ? moved
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Svg.Studio");
+
     /// <summary>
     /// Where the settings are kept.
     /// </summary>
     /// <remarks>Settable so a test drives a file of its own instead of the one on this machine.</remarks>
-    public static string Store { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Svg.Studio",
-        "settings");
+    public static string Store { get; set; } = Path.Combine(Folder, "settings");
 
     /// <summary>Whether a recovery copy is kept of the project being edited.</summary>
     /// <remarks>

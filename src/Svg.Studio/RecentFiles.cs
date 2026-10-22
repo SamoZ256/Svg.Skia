@@ -25,10 +25,7 @@ public static class RecentFiles
     /// Where the list is kept.
     /// </summary>
     /// <remarks>Settable so a test drives a file of its own instead of the one on this machine.</remarks>
-    public static string Store { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Svg.Studio",
-        "recent");
+    public static string Store { get; set; } = Path.Combine(StudioSettings.Folder, "recent");
 
     /// <summary>What can be opened again, newest first.</summary>
     /// <remarks>

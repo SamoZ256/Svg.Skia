@@ -30,6 +30,11 @@ public abstract class Keychain
 
     private static Keychain? ForThisMachine()
     {
+        if (Environment.GetEnvironmentVariable(StudioSettings.FolderVariable) is { Length: > 0 })
+        {
+            return null;
+        }
+
         if (OperatingSystem.IsMacOS())
         {
             return new MacKeychain();

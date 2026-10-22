@@ -72,10 +72,7 @@ public sealed class ProjectRecovery
     /// Where the copies are kept.
     /// </summary>
     /// <remarks>Settable so a test drives a directory of its own instead of the one on this machine.</remarks>
-    public static string Store { get; set; } = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Svg.Studio",
-        "recovery");
+    public static string Store { get; set; } = System.IO.Path.Combine(StudioSettings.Folder, "recovery");
 
     /// <summary>
     /// What the clock reads.

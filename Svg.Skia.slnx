@@ -124,6 +124,7 @@
     <Project Path="tests/Svg.Highlighting.UnitTests/Svg.Highlighting.UnitTests.csproj" />
     <Project Path="tests/Svg.Viewer.Skia.Avalonia.UnitTests/Svg.Viewer.Skia.Avalonia.UnitTests.csproj" />
     <Project Path="tests/Svg.Studio.UnitTests/Svg.Studio.UnitTests.csproj" />
+    <Project Path="tests/Svg.Studio.UiTests/Svg.Studio.UiTests.csproj" />
     <Project Path="tests/Svg.Editor.Skia.UnitTests/Svg.Editor.Skia.UnitTests.csproj" />
     <Project Path="tests/Svg.Editor.Svg.UnitTests/Svg.Editor.Svg.UnitTests.csproj" />
     <Project Path="tests/Svg.CodeGen.Skia.Projects.UnitTests/Svg.CodeGen.Skia.Projects.UnitTests.csproj" />

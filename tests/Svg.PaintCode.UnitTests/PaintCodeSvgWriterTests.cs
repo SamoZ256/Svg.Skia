@@ -535,9 +535,35 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("9", run.Attribute("x")!.Value);
         Assert.Equal("4.5", run.Attribute("y")!.Value);
         Assert.Equal("end", run.Attribute("text-anchor")!.Value);
-        Assert.Equal("central", run.Attribute("dominant-baseline")!.Value);
+        Assert.Equal("cap-middle", run.Attribute("dominant-baseline")!.Value);
+        Assert.Equal("none", run.Attribute("font-kerning")!.Value);
         Assert.Equal("bold", run.Attribute("font-weight")!.Value);
         Assert.Equal("3", run.Value);
+    }
+
+    [Theory]
+    [InlineData(9.5, 1, "4.5")]
+    [InlineData(9.5, 2, "9")]
+    [InlineData(23.99999, 1, "12")]
+    public void A_Run_Aligns_Along_Its_Box_Cut_To_A_Whole_Unit_As_PaintCode_Does(double width, int alignment, string x)
+    {
+        var text = new PaintCodeText("3", "Inter", "Bold", 7, null, alignment, 0, 0, 0);
+        var shape = new PaintCodeShape(
+            "Text",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -9, width, 9, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            PaintCodePaint.None,
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            text,
+            PaintCodeShapeMetrics.Default);
+
+        var run = WriteTree(Only(shape), new List<PaintCodeImportNote>()).Descendants().First(one => one.Name.LocalName == "text");
+
+        Assert.Equal(x, run.Attribute("x")!.Value);
     }
 
     /// <summary>

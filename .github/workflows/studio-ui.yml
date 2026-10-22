@@ -1,0 +1,160 @@
+name: Studio UI
+
+# Drives the published Svg.Studio.app with the real pointer and keyboard through Appium's mac2
+# driver. It runs only here, because it takes over whatever machine runs it: anywhere
+# SVG_STUDIO_UI_APP is unset (a developer's dotnet test, build.yml's test matrix) the tests skip.
+# A workflow of its own rather than a job in build.yml, since paths filters are per workflow.
+on:
+  pull_request:
+    branches: [master, main, develop]
+    paths:
+      - 'src/Svg.Studio/**'
+      - 'tests/Svg.Studio.UiTests/**'
+      - '.github/workflows/studio-ui.yml'
+      - 'Directory.Packages.props'
+      - 'global.json'
+  push:
+    branches: [master, main, develop]
+    paths:
+      - 'src/Svg.Studio/**'
+      - 'tests/Svg.Studio.UiTests/**'
+      - '.github/workflows/studio-ui.yml'
+      - 'Directory.Packages.props'
+      - 'global.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-ui-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  APPIUM_VERSION: 3.8.0
+  # 4.4.0 is the version seen creating sessions on hosted runners, should 4.5.0 not.
+  MAC2_VERSION: 4.5.0
+
+jobs:
+  studio-ui:
+    name: Studio UI (macos-26)
+    # Pinned rather than macos-latest, so an image migration does not change the desktop under the
+    # tests. arm64: the -intel images hang NSOpenPanel (actions/runner-images#14751).
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # mac2 builds its WebDriverAgentMac with xcodebuild when the first session starts.
+      - name: Select Xcode
+        run: |
+          if [ ! -d /Applications/Xcode_26.6.app ]; then
+            ls -d /Applications/Xcode*.app
+            exit 1
+          fi
+          sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      - name: Show the desktop the tests get
+        run: |
+          sw_vers
+          csrutil status || true
+          automationmodetool
+          xcodebuild -version
+          system_profiler SPDisplaysDataType | grep -iE 'resolution|looks like' || true
+
+      # The image sets this already; without it a session dies on 'Timed out while enabling automation mode'.
+      - name: Allow automation mode without a password
+        run: |
+          automationmodetool | grep -q 'DOES NOT REQUIRE' || sudo automationmodetool enable-automationmode-without-authentication
+          automationmodetool | grep -q 'DOES NOT REQUIRE'
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: appium-${{ runner.os }}-${{ env.APPIUM_VERSION }}-mac2-${{ env.MAC2_VERSION }}
+
+      - name: Install Appium and the mac2 driver
+        run: |
+          npm install -g "appium@$APPIUM_VERSION"
+          appium driver install --source=npm "appium-mac2-driver@$MAC2_VERSION"
+          appium driver doctor mac2
+
+      - name: Publish Svg.Studio.app
+        run: >
+          dotnet publish src/Svg.Studio/Svg.Studio.csproj -c Release -r osx-arm64 --self-contained
+          -p:StudioAppBundle=true -p:StudioBuildInfo=false -o artifacts/ui/Svg.Studio
+
+      # A fresh machine's Launch Services has never seen com.svgskia.studio, which mac2 looks up.
+      - name: Register the bundle
+        run: |
+          app="$GITHUB_WORKSPACE/artifacts/ui/Svg.Studio/Svg.Studio.app"
+          codesign --verify --deep --strict "$app"
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
+
+      - name: Start Appium
+        run: |
+          mkdir -p artifacts/ui-evidence
+          nohup appium --address 127.0.0.1 --port 4723 --log-timestamp --log-no-colors \
+            --log "$GITHUB_WORKSPACE/artifacts/ui-evidence/appium.log" \
+            --default-capabilities '{"appium:showServerLogs":true,"appium:serverStartupTimeout":300000}' \
+            > artifacts/ui-evidence/appium.out 2>&1 &
+          for _ in $(seq 60); do
+            curl -sf http://127.0.0.1:4723/status > /dev/null && exit 0
+            sleep 0.5
+          done
+          cat artifacts/ui-evidence/appium.out
+          exit 1
+
+      - name: Test
+        env:
+          SVG_STUDIO_UI_APP: ${{ github.workspace }}/artifacts/ui/Svg.Studio/Svg.Studio.app
+        run: >
+          dotnet test tests/Svg.Studio.UiTests/Svg.Studio.UiTests.csproj -c Release
+          --logger trx --logger "console;verbosity=normal" --results-directory artifacts/ui-test
+
+      # A wrong SVG_STUDIO_UI_APP skips every test, which dotnet test reports as a success.
+      - name: Fail on skipped tests
+        run: |
+          if grep -q 'outcome="NotExecuted"' artifacts/ui-test/*.trx; then
+            echo "::error::Studio UI tests were skipped; SVG_STUDIO_UI_APP did not reach them."
+            exit 1
+          fi
+
+      - name: Capture the desktop
+        if: failure()
+        run: |
+          mkdir -p artifacts/ui-evidence
+          screencapture -x artifacts/ui-evidence/screen.png || true
+          log show --last 15m --style compact \
+            --predicate 'process == "testmanagerd" OR process CONTAINS "WebDriverAgent" OR process == "Svg.Studio"' \
+            > artifacts/ui-evidence/system.log 2>&1 || true
+          cp -R ~/Library/Logs/DiagnosticReports artifacts/ui-evidence/ 2>/dev/null || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-ui-results
+          path: |
+            artifacts/ui-test/**/*.trx
+            artifacts/ui-evidence/
+            tests/Svg.Studio.UiTests/bin/Release/net10.0/failures/
+          if-no-files-found: warn
+          retention-days: 7

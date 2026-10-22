@@ -550,9 +550,12 @@ internal static class PaintCodePathData
 
     private static string Pair(PaintCodePoint point) => Number(point.X) + "," + Number(point.Y);
 
+    /// <summary>A value at the precision every number is written in.</summary>
+    internal static double Rounded(double value) => Math.Round(value, 4, MidpointRounding.AwayFromZero);
+
     internal static string Number(double value)
     {
-        var rounded = Math.Round(value, 4, MidpointRounding.AwayFromZero);
+        var rounded = Rounded(value);
 
         // Negative zero prints as "-0", a needless difference between two identical drawings.
         return (rounded == 0 ? 0 : rounded).ToString("0.####", CultureInfo.InvariantCulture);
