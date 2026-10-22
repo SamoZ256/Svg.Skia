@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>True</IsPackable>
+    <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <!-- The namespace it had inside the app, so nothing that uses it had to change. -->
+    <RootNamespace>Svg.Studio</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Description>Reads and writes Svg Studio's .svgstudio projects, and exports one to C# the way the app's File → Export… does, without the app.</Description>
+    <PackageId>Svg.Studio.Projects</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>svg;skia;skiasharp;codegen;project;studio;graphics</PackageTags>
+  </PropertyGroup>
+
+  <!-- Unsigned, unlike the other libraries: a signed one cannot open its internals to Svg.Studio,
+       which is not signed and whose panels edit the model through them. -->
+  <Import Project="..\..\build\SourceLink.props" />
+  <Import Project="..\..\build\ReferenceAssemblies.props" />
+  <!-- The export measures text with native Skia, so a build that exports gets the library with it. -->
+  <Import Project="..\..\build\SkiaSharp.Native.props" />
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Svg.Studio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Svg.SourceEditing\Svg.SourceEditing.csproj" />
+    <ProjectReference Include="..\Svg.CodeGen.Skia.Projects\Svg.CodeGen.Skia.Projects.csproj" />
+    <!-- For the asset loader Studio's export has always measured text with. -->
+    <ProjectReference Include="..\Svg.Skia\Svg.Skia.csproj" />
+  </ItemGroup>
+
+</Project>

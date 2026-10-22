@@ -69,7 +69,8 @@ icons.svgstudio/
   one name.
 
 `File → Export…` writes the project through the build `svgc` runs, so the two cannot come to
-disagree about what the project says. The settings only an export reads (`cache`, `helperScope`,
+disagree about what the project says. Another project's build can write the same file without the
+app, through [Svg.Studio.Projects](../packages/svg-studio-projects). The settings only an export reads (`cache`, `helperScope`,
 `skiaSharp` and the ones shaping the file) are asked for there rather than shown in Properties.
 
 ## Opening one
@@ -300,7 +301,7 @@ changed under **Inline style** instead.
 the picture cache, the helper methods, the SkiaSharp version, how `Draw` draws (record a picture,
 or straight onto the canvas), the **Typeface** expression, and a **PaintCode-style API** block with
 the class, the resizing enum, the text context type and the argument order. The answers are kept in
-the project, where svgc reads them too, so the next export opens on them; changing them is one step
+the project, where a build exporting it reads them too, so the next export opens on them; changing them is one step
 Undo takes back. A drawing's Properties keep its own **API method** and **API arguments**. A
 PaintCode import fills in each drawing's method and the project's argument order. The API takes
 effect once its class is named. What the class looks like is in

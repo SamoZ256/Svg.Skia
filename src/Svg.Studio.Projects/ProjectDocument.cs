@@ -6,11 +6,13 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Xml.Linq;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
+using Svg.Skia;
 using Svg.SourceEditing;
 
 namespace Svg.Studio;
@@ -905,6 +907,28 @@ public sealed class ProjectDrawing : ProjectNode
     /// <summary>The drawing as text, written the way its file writes it.</summary>
     public string Text => File.TextOf(Svg);
 
+    /// <summary>The class the build gives it: the nearest one set, or its own name made into one.</summary>
+    /// <remarks>Its own name rather than the build's default of "Generated", which every drawing would share.</remarks>
+    public string ClassName => EffectiveClass ?? Identifier(Name);
+
+    /// <summary>A name as C# will take it: anything else becomes an underscore.</summary>
+    public static string Identifier(string text)
+    {
+        var name = new StringBuilder();
+
+        foreach (var c in text)
+        {
+            name.Append(c == '_' || char.IsLetterOrDigit(c) ? c : '_');
+        }
+
+        if (name.Length == 0 || char.IsDigit(name[0]))
+        {
+            name.Insert(0, '_');
+        }
+
+        return name.ToString();
+    }
+
     /// <summary>The whitespace its settings were written after, so they go back exactly where they were found.</summary>
     internal string? Lead { get; set; }
 
@@ -1368,9 +1392,7 @@ public sealed class ProjectDocument
                 drawing.Name,
                 null,
                 drawing.ScopedNamespace,
-                // Its own name where nothing above claims one, rather than the build's default of
-                // "Generated" — which every drawing of a project would share.
-                drawing.EffectiveClass ?? SvgExport.Identifier(drawing.Name),
+                drawing.ClassName,
                 null,
                 size?.Width,
                 size?.Height,
@@ -1404,6 +1426,39 @@ public sealed class ProjectDocument
             Style = Root.Style
         };
     }
+
+    /// <summary>Writes every drawing into one C# file at <paramref name="target"/>, as Studio's Export does.</summary>
+    /// <param name="textLayout">
+    /// What to do with text an expression drives. Studio asks whoever exports, so a build has to
+    /// say: Baked is Studio's usual answer, and Strict stops at the first such text.
+    /// </param>
+    /// <param name="log">Told what is read and written, and warned. Optional.</param>
+    /// <returns>The files written.</returns>
+    /// <exception cref="SvgcProjectException">The project asks for a build that cannot be made.</exception>
+    /// <remarks>
+    /// Also throws what the build does for a faulty expression or recipe, and IO errors. Text is
+    /// measured with Skia, as in Studio, so on one machine both write the same file.
+    /// </remarks>
+    public IReadOnlyList<string> Export(string target, SvgTextLayout textLayout, Action<string>? log = null)
+    {
+        var project = Flatten();
+        var settings = SvgcBuildSettings.For(project);
+
+        settings.SingleFile = target;
+        settings.TextLayout = textLayout;
+
+        return SvgcProjectBuild.Run(project, settings, Loader(), log);
+    }
+
+    /// <summary>What an export would freeze at its default: text an expression drives. Empty for ordinary icons.</summary>
+    public IReadOnlyList<string> Survey()
+    {
+        var project = Flatten();
+
+        return SvgcProjectBuild.Survey(project, SvgcBuildSettings.For(project), Loader());
+    }
+
+    private static SkiaSvgAssetLoader Loader() => new(new SkiaModel(new SKSvgSettings()));
 
     /// <summary>Every file of the project as it would be written, by <c>/</c>-separated path.</summary>
     /// <remarks>Names whatever has no file yet, which is why a save and this agree on where things go.</remarks>

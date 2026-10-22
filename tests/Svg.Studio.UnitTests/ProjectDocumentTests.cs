@@ -782,6 +782,38 @@ public class ProjectDocumentTests : IDisposable
     }
 
     /// <summary>
+    /// What a build runs: read from the folder and written as one file, with no window and no app.
+    /// Studio's own Export calls the same thing, so the two cannot write different files.
+    /// </summary>
+    [Fact]
+    public void A_Project_Exports_Without_The_Window()
+    {
+        var folder = TestPackage.Write(Path.Combine(_directory, "icons.svgstudio"), """
+            <studio namespace="Demo.Icons">
+              <drawing name="Badge">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+              </drawing>
+              <group name="Large" namespace=".Large" scale="2">
+                <drawing name="Badge Large">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
+                </drawing>
+              </group>
+            </studio>
+            """);
+        var target = Path.Combine(_directory, "Icons.g.cs");
+
+        Assert.Equal(new[] { target }, ProjectDocument.Load(folder).Export(target, SvgTextLayout.Baked));
+
+        var generated = File.ReadAllText(target);
+
+        Assert.Contains("namespace Demo.Icons", generated);
+        Assert.Contains("class Badge", generated);
+        Assert.Contains("namespace Demo.Icons.Large", generated);
+        Assert.Contains("class Badge_Large", generated);
+        Assert.Contains("48f, 48f", generated);
+    }
+
+    /// <summary>
     /// A project whose root and whose group each declare, and a drawing that uses both.
     /// </summary>
     private const string Declared = """

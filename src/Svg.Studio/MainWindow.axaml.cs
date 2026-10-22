@@ -2317,7 +2317,7 @@ public partial class MainWindow : Window
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
 
-        viewer.ClassName = () => drawing.EffectiveClass ?? SvgExport.Identifier(drawing.Name);
+        viewer.ClassName = () => drawing.ClassName;
 
         // What the groups above it declare, written into it on the way to being drawn. Source stays
         // the drawing's own, so the tab still shows, edits and saves the drawing.
@@ -3429,7 +3429,7 @@ public partial class MainWindow : Window
     /// a layout was measured with pays for it. Studio never asks for Strict -- refusing to write the
     /// file at all is svgc's answer, for a script that wants a build to stop.
     /// </remarks>
-    private async Task<SvgTextLayout?> RelaxAsync(SvgcProject project, SvgcBuildSettings settings, Svg.Model.ISvgAssetLoader loader)
+    private async Task<SvgTextLayout?> RelaxAsync(ProjectDocument document)
     {
         if (StudioSettings.RelaxedText is { } answer && answer != RelaxedTextAnswer.Ask)
         {
@@ -3440,7 +3440,7 @@ public partial class MainWindow : Window
 
         try
         {
-            frozen = await Task.Run(() => SvgcProjectBuild.Survey(project, settings, loader)).ConfigureAwait(true);
+            frozen = await Task.Run(document.Survey).ConfigureAwait(true);
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException)
         {
@@ -3459,7 +3459,7 @@ public partial class MainWindow : Window
     /// </remarks>
     private static string ExportName(ProjectWorkspace workspace)
         => workspace.Document.Path is { } path
-            ? SvgExport.Identifier(Path.GetFileNameWithoutExtension(path))
+            ? ProjectDrawing.Identifier(Path.GetFileNameWithoutExtension(path))
             : "Drawings";
 
     /// <inheritdoc cref="ExportName"/>
@@ -3506,13 +3506,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Writes the whole open project to <paramref name="target"/>, as svgc would.
+    /// Writes the whole open project to <paramref name="target"/>, as a build without the app would.
     /// </summary>
     /// <remarks>
-    /// Through the same build svgc runs rather than one of its own, so what this writes and what
-    /// the tool writes cannot come to differ — they would differ silently, since both outputs
-    /// compile. The file is the build's <c>singleFile</c>, laid over the project's settings here:
-    /// the project names no path of its own, so the answer to where it goes is the panel's alone.
+    /// Through <see cref="ProjectDocument.Export"/>, which is what such a build calls, so the two
+    /// cannot come to differ — they would differ silently, since both outputs compile. The project
+    /// names no path of its own, so where the file goes is the panel's answer alone.
     /// </remarks>
     /// <returns>Whether anything was written.</returns>
     private async Task<bool> ExportProjectAsync(string target)
@@ -3522,29 +3521,17 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var project = workspace.Document.Flatten();
-        var settings = SvgcBuildSettings.For(project);
         var log = new List<string>();
-        var loader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
 
-        settings.SingleFile = target;
-
-        if (await RelaxAsync(project, settings, loader).ConfigureAwait(true) is not { } layout)
+        if (await RelaxAsync(workspace.Document).ConfigureAwait(true) is not { } layout)
         {
             return false;
         }
 
-        settings.TextLayout = layout;
-
         try
         {
             // Off the UI thread: a project of any size compiles every drawing it names.
-            await Task.Run(
-                () => SvgcProjectBuild.Run(
-                    project,
-                    settings,
-                    loader,
-                    line => log.Add(line))).ConfigureAwait(true);
+            await Task.Run(() => workspace.Document.Export(target, layout, log.Add)).ConfigureAwait(true);
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException or IOException or UnauthorizedAccessException)
         {
