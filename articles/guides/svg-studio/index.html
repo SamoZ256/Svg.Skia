@@ -204,7 +204,8 @@ drawing each add a file each, and only a drawing both of them changed is a confl
 one name.</li>
 </ul>
 <p><code>File → Export…</code> writes the project through the build <code>svgc</code> runs, so the two cannot come to
-disagree about what the project says. The settings only an export reads (<code>cache</code>, <code>helperScope</code>,
+disagree about what the project says. Another project's build can write the same file without the
+app, through <a href="/Svg.Skia/articles/packages/svg-studio-projects">Svg.Studio.Projects</a>. The settings only an export reads (<code>cache</code>, <code>helperScope</code>,
 <code>skiaSharp</code> and the ones shaping the file) are asked for there rather than shown in Properties.</p>
 <h2 id="opening-one">Opening one</h2>
 <p><code>File → Open</code>, a drop anywhere on the window including an empty one, or a path on the command line.
@@ -394,7 +395,7 @@ changed under <strong>Inline style</strong> instead.</p>
 the picture cache, the helper methods, the SkiaSharp version, how <code>Draw</code> draws (record a picture,
 or straight onto the canvas), the <strong>Typeface</strong> expression, and a <strong>PaintCode-style API</strong> block with
 the class, the resizing enum, the text context type and the argument order. The answers are kept in
-the project, where svgc reads them too, so the next export opens on them; changing them is one step
+the project, where a build exporting it reads them too, so the next export opens on them; changing them is one step
 Undo takes back. A drawing's Properties keep its own <strong>API method</strong> and <strong>API arguments</strong>. A
 PaintCode import fills in each drawing's method and the project's argument order. The API takes
 effect once its class is named. What the class looks like is in
