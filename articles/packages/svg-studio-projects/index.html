@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Svg.Studio.Projects | Svg.Skia">
-<meta name="twitter:description" content="Svg.Studio.Projects Svg.Studio.Projects reads and writes Svg Studio's .svgstudio projects, and exports one to C# without Studio. It writes the same file Studio's File → Export… writes, because the app calls it too. A build calls it to keep generated code in step with a project somebody edits in Studio. Install dotnet add package Svg.Studio.Projects Use it using Svg; using Svg.Studio; ProjectDocument.Load(&quot;Icons.svgstudio&quot;) .Export(&quot;obj/Icons.g.cs&quot;, SvgTextLayout.Baked, Console.WriteLine);...">
+<meta name="twitter:description" content="Svg.Studio.Projects Svg.Studio.Projects reads and writes Svg Studio's .svgstudio projects, and exports one to C# without Studio. It writes the same file Studio's File → Export… writes, because the app calls it too. A build calls it to keep generated code in step with a project somebody edits in Studio. Install The package and the libraries it depends on are published to SamoZ256's GitHub Packages feed, not nuget.org. Upstream owns most...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Svg.Studio.Projects | Svg.Skia">
 <meta property="og:title" content="Svg.Studio.Projects | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Svg.Studio.Projects Svg.Studio.Projects reads and writes Svg Studio's .svgstudio projects, and exports one to C# without Studio. It writes the same file Studio's File → Export… writes, because the app calls it too. A build calls it to keep generated code in step with a project somebody edits in Studio. Install dotnet add package Svg.Studio.Projects Use it using Svg; using Svg.Studio; ProjectDocument.Load(&quot;Icons.svgstudio&quot;) .Export(&quot;obj/Icons.g.cs&quot;, SvgTextLayout.Baked, Console.WriteLine);...">
+<meta property="og:description" content="Svg.Studio.Projects Svg.Studio.Projects reads and writes Svg Studio's .svgstudio projects, and exports one to C# without Studio. It writes the same file Studio's File → Export… writes, because the app calls it too. A build calls it to keep generated code in step with a project somebody edits in Studio. Install The package and the libraries it depends on are published to SamoZ256's GitHub Packages feed, not nuget.org. Upstream owns most...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Svg.Studio.Projects | Svg.Skia">
   </head>
@@ -149,8 +149,40 @@ and exports one to C# without Studio. It writes the same file Studio's <code>Fil
 because the app calls it too. A build calls it to keep generated code in step with a project
 somebody edits in Studio.</p>
 <h2 id="install">Install</h2>
-<pre><code class="language-bash">dotnet add package Svg.Studio.Projects
+<p>The package and the libraries it depends on are published to SamoZ256's GitHub Packages feed, not
+nuget.org. Upstream owns most of these IDs on nuget.org, and its builds lack this fork's API, so a
+restore that finds them there still succeeds and the export then fails at run time. Put a
+<code>nuget.config</code> next to the consuming solution that maps those IDs to the feed:</p>
+<pre><code class="language-xml">&lt;configuration&gt;
+  &lt;packageSources&gt;
+    &lt;clear /&gt;
+    &lt;add key=&quot;nuget.org&quot; value=&quot;https://api.nuget.org/v3/index.json&quot; /&gt;
+    &lt;add key=&quot;github&quot; value=&quot;https://nuget.pkg.github.com/SamoZ256/index.json&quot; /&gt;
+  &lt;/packageSources&gt;
+  &lt;packageSourceCredentials&gt;
+    &lt;github&gt;
+      &lt;add key=&quot;Username&quot; value=&quot;SamoZ256&quot; /&gt;
+      &lt;add key=&quot;ClearTextPassword&quot; value=&quot;%GITHUB_PACKAGES_TOKEN%&quot; /&gt;
+    &lt;/github&gt;
+  &lt;/packageSourceCredentials&gt;
+  &lt;packageSourceMapping&gt;
+    &lt;packageSource key=&quot;github&quot;&gt;
+      &lt;package pattern=&quot;Svg.*&quot; /&gt;
+      &lt;package pattern=&quot;ShimSkiaSharp&quot; /&gt;
+    &lt;/packageSource&gt;
+    &lt;packageSource key=&quot;nuget.org&quot;&gt;
+      &lt;package pattern=&quot;*&quot; /&gt;
+    &lt;/packageSource&gt;
+  &lt;/packageSourceMapping&gt;
+&lt;/configuration&gt;
 </code></pre>
+<p>GitHub Packages needs a token to restore, even from a public repository. Use a personal access
+token with <code>read:packages</code>, set in <code>GITHUB_PACKAGES_TOKEN</code>. Versions carry a suffix upstream never
+uses, so a cached upstream build cannot take their place:</p>
+<pre><code class="language-bash">dotnet add package Svg.Studio.Projects --version 5.2.2-samoz.1
+</code></pre>
+<p>This assembly is not strong-named, unlike the libraries it uses. That is harmless on .NET 8 and
+later, which do not validate strong names.</p>
 <h2 id="use-it">Use it</h2>
 <pre><code class="language-csharp">using Svg;
 using Svg.Studio;
