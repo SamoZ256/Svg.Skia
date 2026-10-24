@@ -11,9 +11,46 @@ somebody edits in Studio.
 
 ## Install
 
-```bash
-dotnet add package Svg.Studio.Projects
+The package and the libraries it depends on are published to SamoZ256's GitHub Packages feed, not
+nuget.org. Upstream owns most of these IDs on nuget.org, and its builds lack this fork's API, so a
+restore that finds them there still succeeds and the export then fails at run time. Put a
+`nuget.config` next to the consuming solution that maps those IDs to the feed:
+
+```xml
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+    <add key="github" value="https://nuget.pkg.github.com/SamoZ256/index.json" />
+  </packageSources>
+  <packageSourceCredentials>
+    <github>
+      <add key="Username" value="SamoZ256" />
+      <add key="ClearTextPassword" value="%GITHUB_PACKAGES_TOKEN%" />
+    </github>
+  </packageSourceCredentials>
+  <packageSourceMapping>
+    <packageSource key="github">
+      <package pattern="Svg.*" />
+      <package pattern="ShimSkiaSharp" />
+    </packageSource>
+    <packageSource key="nuget.org">
+      <package pattern="*" />
+    </packageSource>
+  </packageSourceMapping>
+</configuration>
 ```
+
+GitHub Packages needs a token to restore, even from a public repository. Use a personal access
+token with `read:packages`, set in `GITHUB_PACKAGES_TOKEN`. Versions carry a suffix upstream never
+uses, so a cached upstream build cannot take their place:
+
+```bash
+dotnet add package Svg.Studio.Projects --version 5.2.2-samoz.1
+```
+
+This assembly is not strong-named, unlike the libraries it uses. That is harmless on .NET 8 and
+later, which do not validate strong names.
 
 ## Use it
 
