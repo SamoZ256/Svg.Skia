@@ -20,7 +20,7 @@ namespace Svg.SourceEditing;
 ///
 /// An attribute's value on a tree has had its references resolved already, so there is no offset
 /// table to carry between the text somebody wrote and the expression the language reads. What is
-/// found is a count and, when a new name is given, a value rewritten.
+/// found is a count, the elements holding it and, when a new name is given, a value rewritten.
 /// </remarks>
 internal static class SvgDeclarationReferences
 {
@@ -39,11 +39,12 @@ internal static class SvgDeclarationReferences
     /// Counts every use of <paramref name="name"/>, rewriting each to <paramref name="to"/> where one
     /// is given, or explains why they cannot be found.
     /// </summary>
-    public static string? Walk(XDocument document, string name, string? to, out int count)
+    /// <param name="holding">Where each element holding a use goes, once however many it holds.</param>
+    public static string? Walk(XDocument document, string name, string? to, out int count, List<XElement>? holding = null)
     {
         var found = 0;
 
-        var refusal = Visit(document, (text, tokens) =>
+        var refusal = Visit(document, (element, text, tokens) =>
         {
             var builder = to is null ? null : new StringBuilder();
             var at = 0;
@@ -56,6 +57,12 @@ internal static class SvgDeclarationReferences
                 }
 
                 found++;
+
+                // Visit hands over an element's expressions together, so one already added is the last.
+                if (holding is { } && !ReferenceEquals(holding.LastOrDefault(), element))
+                {
+                    holding.Add(element);
+                }
 
                 if (builder is { })
                 {
@@ -81,7 +88,7 @@ internal static class SvgDeclarationReferences
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
 
-        return Visit(document, (_, tokens) => Collect(tokens, names)) is { } ? null : names;
+        return Visit(document, (_, _, tokens) => Collect(tokens, names)) is { } ? null : names;
     }
 
     /// <summary>The same, for one expression rather than a document.</summary>
@@ -111,8 +118,8 @@ internal static class SvgDeclarationReferences
     /// back whatever it answers.
     /// </summary>
     /// <param name="visit">
-    /// Given the expression and its tokens, and answering the text to put in its place, or null to
-    /// leave it as it was.
+    /// Given the element holding the expression, the expression and its tokens, and answering the
+    /// text to put in its place, or null to leave it as it was.
     /// </param>
     /// <returns>The sentence refusing the walk, where an expression cannot be read.</returns>
     /// <remarks>
@@ -123,7 +130,7 @@ internal static class SvgDeclarationReferences
     /// is what text was, so a rename carried every attribute and left
     /// <c>&lt;text&gt;{{ label }}&lt;/text&gt;</c> naming something that had gone.
     /// </remarks>
-    private static string? Visit(XDocument document, Func<string, IReadOnlyList<ExprToken>, string?> visit)
+    private static string? Visit(XDocument document, Func<XElement, string, IReadOnlyList<ExprToken>, string?> visit)
     {
         foreach (var element in document.Descendants())
         {
@@ -134,7 +141,7 @@ internal static class SvgDeclarationReferences
                     continue;
                 }
 
-                if (Placeholders(attribute.Value, visit, out var rewritten) is { } bad)
+                if (Placeholders(element, attribute.Value, visit, out var rewritten) is { } bad)
                 {
                     return bad;
                 }
@@ -152,7 +159,7 @@ internal static class SvgDeclarationReferences
                 // placeholder can sit either side of a <tspan> rather than in one run.
                 foreach (var run in element.Nodes().OfType<XText>().ToList())
                 {
-                    if (Placeholders(run.Value, visit, out var said) is { } trouble)
+                    if (Placeholders(element, run.Value, visit, out var said) is { } trouble)
                     {
                         return trouble;
                     }
@@ -179,7 +186,7 @@ internal static class SvgDeclarationReferences
                 return unreadable;
             }
 
-            if (visit(body, tokens) is { } written && !string.Equals(written, body, StringComparison.Ordinal))
+            if (visit(element, body, tokens) is { } written && !string.Equals(written, body, StringComparison.Ordinal))
             {
                 element.Value = written;
             }
@@ -190,7 +197,7 @@ internal static class SvgDeclarationReferences
 
     /// <summary>Every <c>{{ … }}</c> in one value, visited, and the value rebuilt around them.</summary>
     /// <param name="written">The value as the visitor left it, or null where it changed nothing.</param>
-    private static string? Placeholders(string value, Func<string, IReadOnlyList<ExprToken>, string?> visit, out string? written)
+    private static string? Placeholders(XElement element, string value, Func<XElement, string, IReadOnlyList<ExprToken>, string?> visit, out string? written)
     {
         written = null;
 
@@ -229,7 +236,7 @@ internal static class SvgDeclarationReferences
                 return unreadable;
             }
 
-            if (visit(text, tokens) is { } inner)
+            if (visit(element, text, tokens) is { } inner)
             {
                 builder.Append(inner);
                 changed |= !string.Equals(inner, text, StringComparison.Ordinal);

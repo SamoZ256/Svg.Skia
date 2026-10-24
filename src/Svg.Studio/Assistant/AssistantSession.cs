@@ -46,7 +46,7 @@ public sealed class AssistantSession : IDisposable
         - get_drawing gives the address keys set_attributes takes. Keys are positions, so read again after an edit that adds, moves or removes elements, or an undo or redo of one.
         - Nodes of the project are named by path from get_project, such as 0/2. Paths are positions too: a remove or move renumbers the nodes after it, and so does an undo or redo of one, so read get_project again before naming another node.
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
-        - A group's or the project's declarations are inherited by every drawing under it; get_declarations and set_declarations read and change them.
+        - A group's or the project's declarations are inherited by every drawing under it; get_declarations reads them; declare adds or changes one, and renames one with every use; set_declarations replaces the whole block; find says where a name is used.
         - get_problems lists everything wrong across the project's drawings; set_text changes the text between an element's tags.
         - Every edit is one step the person can undo with Cmd/Ctrl+Z.
         """;

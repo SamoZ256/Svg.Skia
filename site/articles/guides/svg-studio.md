@@ -326,12 +326,15 @@ or `mask #sweep`. The filter finds it by that.
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project, its drawings and each node's own and inherited settings, lists every problem in them, reads
 the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
-reads and changes a group's declarations, adds, moves and renames nodes, and saves or commits. It can
-also see a drawing, which the panel cannot: `render` draws one as an image, at several sizes side by
-side and on light and dark, with parameter values of its own, or as a replacement or a new drawing
-would look before either is applied. With a Streamline key set in Settings, `streamline_search` shows
-it a sheet of Streamline's icons and `streamline_import` brings them in through the project's
-templates, both with your key and against your plan's quota.
+reads and changes a group's declarations, declares or renames one parameter or let with every use of
+it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits. It
+lists the project's templates and how an import would rank them for a drawing, makes one from a
+drawing, and brings a drawing in through one when it names it. It can also see a drawing, which the
+panel cannot: `render` draws one as an image, at several sizes side by side and on light and dark,
+with parameter values of its own, or as a replacement or a new drawing would look before either is
+applied. With a Streamline key set in Settings, `streamline_search` shows it a sheet of Streamline's
+icons and `streamline_import` brings them in through the project's templates, both with your key and
+against your plan's quota.
 
 It works with files by their full paths: `save` writes a project that was never saved, or a drawing
 of no project's, to a path it names; `export` writes the project as one C# file, or with no project

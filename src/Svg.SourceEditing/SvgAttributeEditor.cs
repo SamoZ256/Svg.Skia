@@ -94,12 +94,22 @@ public static class SvgAttributeEditor
             throw new ArgumentNullException(nameof(addressKey));
         }
 
-        return Resolve(source.Document, addressKey) is not { } element
-            ? Array.Empty<SvgSourceAttribute>()
-            : element.Attributes()
-                .Where(attribute => !attribute.IsNamespaceDeclaration)
-                .Select(attribute => new SvgSourceAttribute(Spelling(attribute), attribute.Value))
-                .ToList();
+        return Resolve(source.Document, addressKey) is { } element ? Attributes(element) : Array.Empty<SvgSourceAttribute>();
+    }
+
+    /// <summary>The attributes of <paramref name="element"/>, spelt as <see cref="Attributes(SvgSourceDocument, string)"/> spells them.</summary>
+    /// <remarks>For a walk holding each element already, as <see cref="ElementName(XElement)"/> is.</remarks>
+    public static IReadOnlyList<SvgSourceAttribute> Attributes(XElement element)
+    {
+        if (element is null)
+        {
+            throw new ArgumentNullException(nameof(element));
+        }
+
+        return element.Attributes()
+            .Where(attribute => !attribute.IsNamespaceDeclaration)
+            .Select(attribute => new SvgSourceAttribute(Spelling(attribute), attribute.Value))
+            .ToList();
     }
 
     /// <summary>What one of an element's attributes says, as the file spells it.</summary>

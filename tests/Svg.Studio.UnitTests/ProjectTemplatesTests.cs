@@ -175,6 +175,25 @@ public class ProjectTemplatesTests
     }
 
     [Fact]
+    public void A_Template_Put_Under_A_Label_Is_Named_So_In_The_Edit_Menu()
+    {
+        var workspace = new ProjectWorkspace(ProjectDocument.Parse(Project));
+        var root = workspace.Document.Root;
+
+        Assert.Null(TemplateLibrary.Put(workspace, root.Templates.Count, "<recipe xmlns=\"https://svg.skia/expr/1.0\" name=\"Mine\" />", "Claude Code: add template Mine"));
+        Assert.Equal("Claude Code: add template Mine", workspace.UndoLabel);
+        Assert.Equal(new[] { "Tinted", "Kept", "Mine" }, root.Templates.Select(one => one.Name));
+
+        // Without one, the step names itself as before.
+        Assert.Null(TemplateLibrary.Put(workspace, root.Templates.Count, "<recipe xmlns=\"https://svg.skia/expr/1.0\" name=\"Yours\" />"));
+        Assert.Equal("add template Yours", workspace.UndoLabel);
+
+        Assert.True(workspace.Undo());
+        Assert.True(workspace.Undo());
+        Assert.Equal(Project, workspace.Document.ToXml());
+    }
+
+    [Fact]
     public void Templates_Bound_From_Above_Read_On_Their_Own()
     {
         var templates = ProjectDocument.Parse(BoundAbove).Root.Templates;

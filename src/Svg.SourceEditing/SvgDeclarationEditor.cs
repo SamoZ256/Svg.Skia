@@ -224,6 +224,22 @@ public static class SvgDeclarationEditor
         return SvgDeclarationReferences.Walk(source.Document, name, null, out var count) is { } ? 1 : count;
     }
 
+    /// <summary>The address key of each element whose expressions name <paramref name="name"/>, once each, in document order: <see cref="Uses"/>' where rather than how many.</summary>
+    /// <param name="unreadable">The expression the walk stopped at, past which nothing was looked at.</param>
+    public static IReadOnlyList<string> Where(SvgSourceDocument source, string name, out string? unreadable)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        var found = new List<XElement>();
+
+        unreadable = SvgDeclarationReferences.Walk(source.Document, name, null, out _, found);
+
+        return found.Select(SvgAttributeEditor.Key).ToList();
+    }
+
     /// <summary>Carries a rename through a document that uses a name but does not declare it.</summary>
     /// <remarks>
     /// The other half of <see cref="Uses"/>, which is the same walk asked to count rather than to

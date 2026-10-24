@@ -404,4 +404,43 @@ public class SvgDeclarationEditorDocumentTests
         Assert.StartsWith("Fix what the declarations already say first:", SvgDeclarationEditor.Add(source, Number()));
         Assert.Equal(svgText, source.ToText());
     }
+
+    [Fact]
+    public void Where_A_Name_Is_Used_Is_Each_Element_Naming_It_In_An_Attribute_Its_Text_Or_A_Let_Once_In_Document_Order()
+    {
+        var svgText = Svg("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="EXPR-NS">
+              <defs>
+                <e:code>
+                  <e:param name="tint" type="color" default="#ff0000" />
+                  <e:param name="tinted" type="boolean" default="true" />
+                  <e:let name="wash">withAlpha(tint, 0.5)</e:let>
+                </e:code>
+              </defs>
+              <rect fill="{{ tint }}" stroke="{{ tint }}" />
+              <circle fill="{{ tinted ? wash : #000000 }}" />
+              <text>{{ tint }}</text>
+            </svg>
+            """);
+        var source = Read(svgText);
+
+        Assert.Equal(new[] { "0/0/2", "1", "3" }, SvgDeclarationEditor.Where(source, "tint", out var unreadable));
+        Assert.Null(unreadable);
+        Assert.Equal(svgText, source.ToText());
+    }
+
+    [Fact]
+    public void Where_Stops_At_An_Expression_It_Cannot_Read_And_Says_So()
+    {
+        var source = Read("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <rect fill="{{ tint }}" />
+              <circle r="{{ size = 2 }}" />
+              <path fill="{{ tint }}" />
+            </svg>
+            """);
+
+        Assert.Equal(new[] { "0" }, SvgDeclarationEditor.Where(source, "tint", out var unreadable));
+        Assert.StartsWith("'size = 2' cannot be read", unreadable, System.StringComparison.Ordinal);
+    }
 }

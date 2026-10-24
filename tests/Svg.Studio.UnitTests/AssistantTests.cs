@@ -16,6 +16,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Microsoft.Extensions.AI;
 using Svg.CodeGen.Skia;
+using Svg.Expressions;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
@@ -210,6 +211,71 @@ public class AssistantTests : IDisposable
                 <rect width="{{ size }}" height="24" fill="url(#g1)" />
                 <circle cx="18" cy="12" r="{{ half / 2 }}" fill="{{ tint }}" />
               </svg>
+            </drawing>
+          </group>
+        </studio>
+        """;
+
+    /// <summary>0 = Badges, declaring nothing yet, 0/0 = Filled naming tint, 0/1 = Round, whose let wash names tint too, 0/1/0 = Dot naming wash.</summary>
+    private const string Washed = """
+        <studio namespace="Demo.Icons">
+          <group name="Badges">
+            <drawing name="Filled">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <rect width="24" height="24" fill="{{ tint }}" />
+              </svg>
+            </drawing>
+
+            <group name="Round">
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:let name="wash">tint</e:let>
+              </e:code>
+
+              <drawing name="Dot">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="6" fill="{{ wash }}" />
+                </svg>
+              </drawing>
+            </group>
+          </group>
+        </studio>
+        """;
+
+    /// <summary>Templates for one colour, for two, one kept to a family, one for two kept away from one, and one that does not read; 0 = home, 1 = Empty, declaring nothing.</summary>
+    private const string Templated = """
+        <studio namespace="Demo.Icons">
+          <e:templates xmlns:e="https://svg.skia/expr/1.0">
+            <e:recipe name="Accent glyph">
+              <e:match colors="1" />
+              <e:code><e:let name="stateAccentColor">#fb3e72</e:let></e:code>
+              <e:slot name="glyph" rest="true">stateAccentColor</e:slot>
+            </e:recipe>
+            <e:recipe name="Two-tone">
+              <e:match colors="2" />
+              <e:slot name="ink" rest="true">stateAccentColor</e:slot>
+            </e:recipe>
+            <e:recipe name="Line icons">
+              <e:match family="streamline-light" />
+              <e:slot name="ink" rest="true">stateAccentColor</e:slot>
+            </e:recipe>
+            <e:recipe name="Not solid">
+              <e:match colors="2" family="!*solid*" />
+              <e:slot name="ink" rest="true">stateAccentColor</e:slot>
+            </e:recipe>
+            <e:recipe name="Broken">
+              <e:bogus />
+            </e:recipe>
+          </e:templates>
+
+          <drawing name="home">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" fill="#00ff00" />
+            </svg>
+          </drawing>
+
+          <group name="Empty">
+            <drawing name="Dot">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle r="4" /></svg>
             </drawing>
           </group>
         </studio>
@@ -1016,6 +1082,432 @@ public class AssistantTests : IDisposable
         Assert.Contains("angle", chat.Results[1], StringComparison.Ordinal);
         Assert.Equal(before, group.CodeText);
         Assert.False(window.Workspace.IsEdited);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Parameter_Is_Added_Changed_And_Renamed_On_A_Group_Through_Every_Drawing_Under_It_Each_As_One_Step()
+    {
+        var window = await Host(Write("washed.svgstudio", Washed));
+        var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+        var filled = (ProjectDrawing)badges.Children[0];
+        var round = (ProjectGroup)badges.Children[1];
+        var tools = new AssistantTools(window);
+        var chat = new ScriptedChat(
+            Call("declare", new() { ["node"] = "0", ["name"] = "tint", ["type"] = "color", ["default"] = "#ff0000", ["summary"] = "add tint" }),
+            Call("declare", new() { ["node"] = "0", ["name"] = "tint", ["default"] = "#00ff00", ["summary"] = "greener" }),
+            Call("declare", new() { ["node"] = "0", ["name"] = "tint", ["to"] = "hue", ["summary"] = "rename tint" }),
+            Say("Declared."));
+
+        await Send(window, chat, "declare a tint on Badges", tools: tools);
+
+        Assert.Equal("Done. It is one undo step. No problems in the 2 drawing(s) under it.", chat.Results[0]);
+        Assert.Equal("Done. It is one undo step. No problems in the 2 drawing(s) under it.", chat.Results[1]);
+        Assert.Equal("Done. Every drawing and group under it that named tint now names hue. It is one undo step. No problems in the 2 drawing(s) under it.", chat.Results[2]);
+        Assert.Contains("name=\"hue\" type=\"color\" default=\"#00ff00\"", badges.CodeText, StringComparison.Ordinal);
+        Assert.Contains("fill=\"{{ hue }}\"", filled.Text, StringComparison.Ordinal);
+        Assert.Contains(">hue</e:let>", round.CodeText, StringComparison.Ordinal);
+        Assert.Equal("Assistant: rename tint", window.Workspace.UndoLabel);
+
+        var undo = new ScriptedChat(Call("undo", new()), Call("undo", new()), Say("Undone."));
+
+        await Send(window, undo, "undo twice", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: rename tint\".", undo.Results[0]);
+        Assert.Equal("Took back \"Assistant: greener\".", undo.Results[1]);
+        Assert.Contains("name=\"tint\" type=\"color\" default=\"#ff0000\"", badges.CodeText, StringComparison.Ordinal);
+        Assert.Contains("fill=\"{{ tint }}\"", filled.Text, StringComparison.Ordinal);
+        Assert.Contains(">tint</e:let>", round.CodeText, StringComparison.Ordinal);
+    }
+
+    /// <remarks>A tab's document had nothing from above to read a let against, so one naming the project's angle was refused as naming nothing.</remarks>
+    [AvaloniaFact]
+    public async Task A_Let_Declared_On_A_Drawing_In_Its_Tab_May_Name_What_The_Project_Declares()
+    {
+        var window = await Host(Write("keyed.svgstudio", Keyed));
+        var keys = (ProjectDrawing)((ProjectGroup)window.Workspace!.Document.Root.Children[0]).Children[1];
+
+        await window.ShowAsync(keys);
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(
+            Call("declare", new() { ["node"] = "0/1", ["name"] = "turn", ["expression"] = "angle * 2", ["summary"] = "turn twice" }),
+            Say("Declared."));
+
+        await Send(window, chat, "turn it twice the angle");
+
+        var viewer = Viewer(window);
+
+        Assert.StartsWith("Done. It is one undo step.", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("<e:let name=\"turn\">angle * 2</e:let>", viewer.Source, StringComparison.Ordinal);
+        Assert.Equal("Assistant: turn twice", viewer.UndoLabel);
+        Assert.DoesNotContain("turn", keys.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Name_A_Group_Above_Declares_Is_Refused_On_The_Drawing_With_The_Path_To_Change_It_At()
+    {
+        var window = await Host(Write("keyed.svgstudio", Keyed));
+        var chat = new ScriptedChat(
+            Call("declare", new() { ["node"] = "0/0", ["name"] = "tint", ["default"] = "#00ff00", ["summary"] = "greener" }),
+            Call("declare", new() { ["node"] = "0", ["name"] = "angle", ["default"] = "30", ["summary"] = "steeper" }),
+            Call("declare", new() { ["node"] = "0/1", ["name"] = "tint", ["to"] = "size", ["summary"] = "rename tint" }),
+            Say("Refused."));
+
+        await Send(window, chat, "change them where they are used");
+
+        Assert.Equal("'tint' is declared by 0 Badges, which every drawing under it inherits; declare it there, with node 0.", chat.Results[0]);
+        Assert.Equal("'angle' is declared by (project) Project, which every drawing under it inherits; declare it there, with node (project).", chat.Results[1]);
+
+        // Not taken for a rename retried, although the drawing declares the name it would have left.
+        Assert.Equal(chat.Results[0], chat.Results[2]);
+        Assert.False(window.Workspace!.IsEdited);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Declaration_Given_Parts_Its_Kind_Does_Not_Take_Is_Refused_Saying_What_It_Takes()
+    {
+        var window = await Host(Write("keyed.svgstudio", Keyed));
+        var chat = new ScriptedChat(
+            Call("declare", new() { ["node"] = "0/1", ["name"] = "a", ["expression"] = "3", ["summary"] = "x" }),
+            Call("declare", new() { ["node"] = "0/1", ["name"] = "size", ["default"] = "4", ["summary"] = "x" }),
+            Call("declare", new() { ["node"] = "0/1", ["name"] = "fresh", ["summary"] = "x" }),
+            Call("declare", new() { ["node"] = "0/1", ["name"] = "fresh", ["to"] = "fresher", ["summary"] = "x" }),
+            Call("declare", new() { ["node"] = "0/1", ["name"] = "a", ["type"] = "color", ["summary"] = "x" }),
+            Say("Refused."));
+
+        await Send(window, chat, "declare things");
+
+        Assert.Equal("'a' is a parameter: it takes type, default, min, max and step, not expression.", chat.Results[0]);
+        Assert.Equal("'size' is a let: it takes expression, not type, default, min, max or step.", chat.Results[1]);
+        Assert.Equal("A new parameter needs a type, and a new let an expression.", chat.Results[2]);
+        Assert.Equal("Nothing here declares 'fresh' to rename.", chat.Results[3]);
+        Assert.Contains("cannot become", chat.Results[4], StringComparison.Ordinal);
+        Assert.False(window.Workspace!.IsEdited);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Part_Of_A_Declaration_Given_Empty_Is_Cleared_And_One_Left_Out_Stays()
+    {
+        var window = await Host(Write("keyed.svgstudio", Keyed));
+        var keys = (ProjectDrawing)((ProjectGroup)window.Workspace!.Document.Root.Children[0]).Children[1];
+        var chat = new ScriptedChat(
+            Call("declare", new() { ["node"] = "0/1", ["name"] = "a", ["min"] = "1", ["max"] = "10", ["step"] = "1", ["summary"] = "step a" }),
+            Call("declare", new() { ["node"] = "0/1", ["name"] = "a", ["step"] = "", ["summary"] = "slide a" }),
+            Say("Declared."));
+
+        await Send(window, chat, "step a, then let it slide");
+
+        Assert.All(chat.Results.Take(2), result => Assert.StartsWith("Done.", result, StringComparison.Ordinal));
+
+        var a = SvgExpressionDeclarations.Parse(keys.Text, out _).Parameters.Single(one => one.Name == "a");
+
+        Assert.Null(a.StepExpression);
+        Assert.Equal(("2", "1", "10"), (a.DefaultExpression, a.MinExpression, a.MaxExpression));
+    }
+
+    /// <remarks>Rewritten in the project under a tab holding edits, the drawing's next save would put the old name back.</remarks>
+    [AvaloniaFact]
+    public async Task A_Rename_Is_Refused_Whole_While_A_Drawing_Under_The_Group_Holds_Edits_In_Its_Tab()
+    {
+        var window = await Host(Write("washed.svgstudio", Washed.Replace("<group name=\"Badges\">", "<group name=\"Badges\"><e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:param name=\"tint\" type=\"color\" default=\"#ff0000\" /></e:code>", StringComparison.Ordinal)));
+        var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+        var filled = (ProjectDrawing)badges.Children[0];
+        var round = (ProjectGroup)badges.Children[1];
+
+        await window.ShowAsync(filled);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "mine");
+
+        var chat = new ScriptedChat(Call("declare", new() { ["node"] = "0", ["name"] = "tint", ["to"] = "hue", ["summary"] = "rename tint" }), Say("Refused."));
+
+        await Send(window, chat, "rename tint");
+
+        Assert.Equal("'Filled' has edits open in its tab that saving would write over the rename, so 'tint' was not renamed. Save or close that tab first.", chat.Results[0]);
+        Assert.Contains("name=\"tint\"", badges.CodeText, StringComparison.Ordinal);
+        Assert.Contains(">tint</e:let>", round.CodeText, StringComparison.Ordinal);
+        Assert.Contains("fill=\"{{ tint }}\"", filled.Text, StringComparison.Ordinal);
+        Assert.False(window.Workspace.IsEdited);
+    }
+
+    [AvaloniaFact]
+    public async Task An_Undo_Of_A_Rename_Waits_While_A_Drawing_It_Rewrote_Holds_Edits_In_A_Tab_Opened_Since()
+    {
+        var window = await Host(Write("washed.svgstudio", Washed.Replace("<group name=\"Badges\">", "<group name=\"Badges\"><e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:param name=\"tint\" type=\"color\" default=\"#ff0000\" /></e:code>", StringComparison.Ordinal)));
+        var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+        var filled = (ProjectDrawing)badges.Children[0];
+        var tools = new AssistantTools(window);
+
+        await Send(window, new ScriptedChat(Call("declare", new() { ["node"] = "0", ["name"] = "tint", ["to"] = "hue", ["summary"] = "rename tint" }), Say("Renamed.")), "rename tint", tools: tools);
+
+        Assert.Contains("fill=\"{{ hue }}\"", filled.Text, StringComparison.Ordinal);
+
+        await window.ShowAsync(filled);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "mine");
+
+        var chat = new ScriptedChat(Call("undo", new()), Say("Not undone."));
+
+        await Send(window, chat, "undo", tools: tools);
+
+        Assert.StartsWith("Nothing was taken back: 0/0 Filled has edits in its tab not yet saved into the project, made over \"Assistant: rename tint\"", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("name=\"hue\"", badges.CodeText, StringComparison.Ordinal);
+
+        Assert.True(viewer.Undo());
+
+        var again = new ScriptedChat(Call("undo", new()), Say("Undone."));
+
+        await Send(window, again, "undo", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: rename tint\".", again.Results[0]);
+        Assert.Contains("name=\"tint\"", badges.CodeText, StringComparison.Ordinal);
+        Assert.Contains("fill=\"{{ tint }}\"", filled.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Template_Is_Extracted_From_What_A_Drawing_Paints_As_One_Step_And_Nothing_Is_Asked()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var asked = new List<string>();
+
+        window.AskTemplateName = (name, _, _) =>
+        {
+            asked.Add(name);
+            throw new InvalidOperationException("A tool asked for a template's name.");
+        };
+
+        var root = window.Workspace!.Document.Root;
+        var tools = new AssistantTools(window);
+        var chat = new ScriptedChat(Call("extract_template", new() { ["node"] = "1/0", ["name"] = "Tinted badge" }), Say("Added."));
+
+        await Send(window, chat, "make a template of Filled", tools: tools);
+
+        Assert.StartsWith("Added the template 'Tinted badge' to the project. It is one undo step.\n<e:recipe", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains(">tint</e:slot>", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal(new[] { "Tinted badge" }, root.Templates.Select(template => template.Name));
+        Assert.Equal("Assistant: add template Tinted badge", window.Workspace.UndoLabel);
+        Assert.Empty(asked);
+
+        var undo = new ScriptedChat(Call("undo", new()), Say("Undone."));
+
+        await Send(window, undo, "undo", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: add template Tinted badge\".", undo.Results[0]);
+        Assert.Empty(root.Templates);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Painted_Through_No_Expression_Or_Under_A_Taken_Name_Has_No_Template_Extracted()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var chat = new ScriptedChat(
+            Call("extract_template", new() { ["node"] = "0" }),
+            Call("extract_template", new() { ["node"] = "1" }),
+            Call("extract_template", new() { ["node"] = "1/0" }),
+            Call("extract_template", new() { ["node"] = "1/0", ["name"] = "Filled" }),
+            Say("Done."));
+
+        await Send(window, chat, "make templates");
+
+        Assert.Equal("0 home: Nothing here is painted through an expression, so there is nothing for a template to write.", chat.Results[0]);
+        Assert.Equal("'1' is not a drawing. get_project lists the paths.", chat.Results[1]);
+        Assert.StartsWith("Added the template 'Filled' to the project.", chat.Results[2], StringComparison.Ordinal);
+        Assert.Equal("The project already has a template called 'Filled'.", chat.Results[3]);
+        Assert.Single(window.Workspace!.Document.Root.Templates);
+
+        var lone = await Host(Write("home.svg", Drawing));
+        var none = new ScriptedChat(Call("extract_template", new()), Say("No project."));
+
+        await Send(lone, none, "make a template");
+
+        Assert.Equal("Templates are kept in a project, and the drawing in front is in none.", none.Results[0]);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Added_Through_A_Template_Brings_What_Its_Group_Lacks_In_The_Same_Step()
+    {
+        var window = await Host(Write("icons.svgstudio", Templated));
+        var empty = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+        var tools = new AssistantTools(window);
+        var chat = new ScriptedChat(
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Star", ["svg"] = StreamlinePanelTests.Glyph, ["template"] = "Accent glyph" }),
+            Say("Added."));
+
+        await Send(window, chat, "add a star", tools: tools);
+
+        Assert.Equal("Added Star as 1/1 through the template 'Accent glyph', which declared stateAccentColor on 1 Empty as well. It is one undo step.", chat.Results[0]);
+        Assert.Contains("fill=\"{{ stateAccentColor }}\"", ((ProjectDrawing)empty.Children[1]).Text, StringComparison.Ordinal);
+        Assert.Contains("name=\"stateAccentColor\"", empty.CodeText, StringComparison.Ordinal);
+        Assert.Equal("Assistant: add Star", window.Workspace.UndoLabel);
+
+        var undo = new ScriptedChat(Call("undo", new()), Say("Undone."));
+
+        await Send(window, undo, "undo", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: add Star\".", undo.Results[0]);
+        Assert.Single(empty.Children);
+        Assert.Null(empty.Code);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Template_Not_There_Unreadable_Or_Not_Fitting_Is_Refused_And_Adds_Nothing()
+    {
+        var window = await Host(Write("icons.svgstudio", Templated));
+        var empty = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+        var chat = new ScriptedChat(
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Star", ["svg"] = StreamlinePanelTests.Glyph, ["template"] = "Nope" }),
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Star", ["svg"] = StreamlinePanelTests.Glyph, ["template"] = "Broken" }),
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Star", ["svg"] = StreamlinePanelTests.Glyph, ["template"] = "Line icons" }),
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Star", ["svg"] = StreamlinePanelTests.Glyph, ["template"] = "Two-tone" }),
+            Call("add_drawing", new() { ["parent"] = "1", ["name"] = "Star", ["svg"] = StreamlinePanelTests.Glyph, ["template"] = "Not solid" }),
+            Say("Refused."));
+
+        await Send(window, chat, "add a star");
+
+        const string Fitting = " Of the project's templates, Accent glyph fits this drawing, and Keep colours always does.";
+
+        Assert.Equal("The project has no template 'Nope'." + Fitting, chat.Results[0]);
+        Assert.Equal("The template 'Broken' does not read: <bogus> is not a recipe element. Expected <code>, <replace>, <slot> or <match>." + Fitting, chat.Results[1]);
+        Assert.Equal("The template 'Line icons' is kept to icons of the family streamline-light, which only a Streamline import names, so it cannot be applied here." + Fitting, chat.Results[2]);
+        Assert.Equal("The template 'Two-tone' does not fit this drawing." + Fitting, chat.Results[3]);
+
+        // A negation passes a drawing whose family is not known, so it is the colours that rule it out.
+        Assert.Equal("The template 'Not solid' does not fit this drawing." + Fitting, chat.Results[4]);
+        Assert.Single(empty.Children);
+        Assert.False(window.Workspace.IsEdited);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Templates_That_Do_Not_Read_Or_Fit_A_Drawing_Are_Listed_With_Why()
+    {
+        var window = await Host(Write("icons.svgstudio", Templated));
+        var chat = new ScriptedChat(
+            Call("get_templates", new()),
+            Call("get_templates", new() { ["svg"] = StreamlinePanelTests.Glyph, ["parent"] = "1" }),
+            Say("Listed."));
+
+        await Send(window, chat, "which templates are there");
+
+        Assert.Contains(
+            "\n- Not solid\n- Broken (does not read: <bogus> is not a recipe element. Expected <code>, <replace>, <slot> or <match>.)\n- Keep colours",
+            chat.Results[0],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\nNot fitting: Two-tone; Line icons, kept to the family streamline-light, which only a Streamline import names; Not solid; Broken, which does not read.\n",
+            chat.Results[1],
+            StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Find_Names_Each_Node_Element_Value_And_Use_By_Path_And_Key()
+    {
+        var window = await Host(Write("keyed.svgstudio", Keyed));
+        var chat = new ScriptedChat(
+            Call("find", new() { ["what"] = "tint" }),
+            Call("find", new() { ["what"] = "g1", ["kind"] = "ids" }),
+            Call("find", new() { ["what"] = "size", ["kind"] = "uses" }),
+            Call("find", new() { ["what"] = "a * b", ["kind"] = "values" }),
+            Call("find", new() { ["what"] = "badges", ["kind"] = "names" }),
+            Call("find", new() { ["what"] = "angle", ["node"] = "0/1" }),
+            Call("find", new() { ["what"] = "angle", ["node"] = "0/0", ["kind"] = "uses" }),
+            Call("find", new() { ["what"] = "g1" }),
+            Say("Found."));
+
+        await Send(window, chat, "where is tint");
+
+        Assert.Equal(
+            "6 found for \"tint\":\n"
+            + "0 group Badges: its block's param tint, name=\"tint\"\n"
+            + "0/0 drawing Tinted: its name\n"
+            + "0/0 Tinted 0 <rect> fill=\"{{ tint }}\"\n"
+            + "0/0 Tinted 0 <rect> uses tint\n"
+            + "0/1 Keys 2 <circle> fill=\"{{ tint }}\"\n"
+            + "0/1 Keys 2 <circle> uses tint",
+            chat.Results[0]);
+        Assert.Equal("1 found for \"g1\":\n0/1 Keys 0/1 <linearGradient> #g1", chat.Results[1]);
+        Assert.Equal("2 found for \"size\":\n0/1 Keys 0/0/3 <e:let> uses size\n0/1 Keys 1 <rect> uses size", chat.Results[2]);
+        Assert.Equal("1 found for \"a * b\":\n0/1 Keys 0/0/2 <e:let>: \"a * b * 2\"", chat.Results[3]);
+        Assert.Equal("1 found for \"badges\":\n0 group Badges: its name", chat.Results[4]);
+        Assert.Equal("Nothing found for \"angle\".", chat.Results[5]);
+        Assert.Equal("1 found for \"angle\":\n0/0 Tinted 0 <rect> uses angle", chat.Results[6]);
+
+        // An id among the values as well would come up twice.
+        Assert.Equal("2 found for \"g1\":\n0/1 Keys 0/1 <linearGradient> #g1\n0/1 Keys 1 <rect> fill=\"url(#g1)\"", chat.Results[7]);
+    }
+
+    [AvaloniaFact]
+    public async Task Find_Reads_A_Drawing_As_Its_Tab_Holds_It_And_Says_What_It_Could_Not_Read()
+    {
+        var window = await Host(Write("icons.svgstudio", Project.Replace("fill=\"#00ff00\" />", "fill=\"{{ tint }}\" opacity=\"{{ tint = 1 }}\" />", StringComparison.Ordinal)));
+        var filled = (ProjectDrawing)((ProjectGroup)window.Workspace!.Document.Root.Children[1]).Children[0];
+
+        await window.ShowAsync(filled);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        viewer.SetSource(viewer.Source.Replace("</svg>", "<circle id=\"typed\" r=\"2\" fill=\"{{ tint }}\" /></svg>", StringComparison.Ordinal), "mine");
+
+        var chat = new ScriptedChat(
+            Call("find", new() { ["what"] = "tint", ["kind"] = "uses" }),
+            Call("find", new() { ["what"] = "typed", ["kind"] = "ids" }),
+            Say("Found."));
+
+        await Send(window, chat, "where is tint");
+
+        var rows = chat.Results[0].Split('\n');
+
+        Assert.Equal("3 found for \"tint\":", rows[0]);
+        Assert.Equal("0 home 0 <rect> uses tint", rows[1]);
+        Assert.StartsWith("0 home: 'tint = 1' cannot be read", rows[2], StringComparison.Ordinal);
+        Assert.Equal(new[] { "1/0 Filled 0 <rect> uses tint", "1/0 Filled 1 <circle> uses tint" }, rows[3..]);
+        Assert.Equal("1 found for \"typed\":\n1/0 Filled 1 <circle> #typed", chat.Results[1]);
+        Assert.DoesNotContain("typed", filled.Text, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Find_With_No_Project_Searches_The_Drawing_In_Front_And_Says_If_It_Does_Not_Read()
+    {
+        var lone = await Host(Write("home.svg", Drawing));
+        var entities = await Host(Write("entities.svg", Entities));
+        var empty = new MainWindow();
+
+        empty.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var found = new ScriptedChat(Call("find", new() { ["what"] = "00FF00" }), Say("Found."));
+        var unread = new ScriptedChat(Call("find", new() { ["what"] = "green" }), Say("Not read."));
+        var nothing = new ScriptedChat(Call("find", new() { ["what"] = "green" }), Say("Nothing."));
+
+        await Send(lone, found, "where is the green");
+        await Send(entities, unread, "where is the green");
+        await Send(empty, nothing, "where is the green");
+
+        Assert.Equal("1 found for \"00FF00\" in the drawing in front:\n0 <rect> fill=\"#00ff00\"", found.Results[0]);
+        Assert.Equal(
+            "Nothing found for \"green\" in the drawing in front, but not everything could be searched:\n"
+            + "The drawing in front: does not read as XML, so it was not searched: This file declares entities of its own, which cannot be written back as they were written.",
+            unread.Results[0]);
+        Assert.Equal("Nothing is open.", nothing.Results[0]);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Long_Find_Is_Cut_And_Says_How_To_Narrow_It()
+    {
+        var rects = string.Concat(Enumerable.Range(0, 3000).Select(index => $"<rect id=\"r{index}\" width=\"1\" height=\"1\" />"));
+        var window = await Host(Write("big.svgstudio", $"<studio namespace=\"Demo.Icons\"><drawing name=\"Big\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">{rects}</svg></drawing></studio>"));
+        var chat = new ScriptedChat(Call("find", new() { ["what"] = "r", ["kind"] = "ids" }), Say("Found."));
+
+        await Send(window, chat, "find the rects");
+
+        Assert.StartsWith("3000 found for \"r\":\n0 Big 0 <rect> #r0\n", chat.Results[0], StringComparison.Ordinal);
+        Assert.Matches(@"\n… and \d+ more; find with node or kind narrows it\.$", chat.Results[0]);
+        Assert.True(chat.Results[0].Length < 41_000, $"{chat.Results[0].Length} characters");
     }
 
     [AvaloniaFact]

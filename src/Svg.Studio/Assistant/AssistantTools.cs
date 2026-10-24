@@ -81,8 +81,8 @@ public sealed class AssistantTools
     /// The node the step adds or removes, or the project's root for a step of anyone's, which could
     /// be either: taking it back or putting it again would close the tabs under it without asking.
     /// </param>
-    /// <param name="Text">The drawing whose text a step of the project's rewrites, under any tab opened on it since.</param>
-    private sealed record Made(string Label, object Step, SvgViewer? Viewer, ProjectWorkspace? Workspace, ProjectNode? Node = null, ProjectDrawing? Text = null);
+    /// <param name="Text">The drawing whose text a step of the project's rewrites, or the group whose drawings a rename does, under any tab opened on one since.</param>
+    private sealed record Made(string Label, object Step, SvgViewer? Viewer, ProjectWorkspace? Workspace, ProjectNode? Node = null, ProjectNode? Text = null);
 
     /// <summary>Whether <see cref="For"/> last handed out the small set, which has no open or save to act on what a tab holds.</summary>
     /// <remarks><see cref="Context"/> is told instead: a session asks for it before the tools, so after a change of model this is still the last one's.</remarks>
@@ -102,10 +102,19 @@ public sealed class AssistantTools
         Both
     }
 
+    /// <summary>What find looks among; left out, all four.</summary>
+    internal enum Sought
+    {
+        Names,
+        Ids,
+        Values,
+        Uses
+    }
+
     /// <summary>The tools that read and change nothing, for a client to call without asking.</summary>
     public static readonly IReadOnlySet<string> Reading = new HashSet<string>(StringComparer.Ordinal)
     {
-        "read_doc", "get_project", "get_drawing", "get_element", "get_node", "get_context", "get_declarations", "get_problems", "get_code", "render", "streamline_search"
+        "read_doc", "get_project", "get_drawing", "get_element", "get_node", "get_context", "get_declarations", "get_problems", "get_code", "get_templates", "find", "render", "streamline_search"
     };
 
     /// <summary>The tools that write past the history - to disk, to git, or a node away - which a client should ask about.</summary>
@@ -117,7 +126,7 @@ public sealed class AssistantTools
     /// <summary>The tools that, called again with the same arguments, leave things as the first call did.</summary>
     public static readonly IReadOnlySet<string> Repeatable = new HashSet<string>(StringComparer.Ordinal)
     {
-        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "export", "reload", "streamline_import"
+        "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "declare", "replace_drawing", "export", "reload", "streamline_import"
     };
 
     /// <summary>The tools that reach past this machine, to Streamline with the person's key.</summary>
@@ -176,10 +185,14 @@ public sealed class AssistantTools
         Add(Select, "select", "Selects elements of the drawing in front, by address key, so the person sees them.");
         Add(Open, "open", "Opens a group or drawing of the project in its tab.");
         Add(AddGroup, "add_group", "Adds an empty group inside a group, and opens it.");
-        Add(AddDrawing, "add_drawing", "Adds a drawing from SVG text inside a group, and opens it.");
+        Add(AddDrawing, "add_drawing", "Adds a drawing from SVG text inside a group, and opens it; with template, through one of the project's templates as an import puts it, declaring on the group what it needs and lacks, in the same undo step.");
+        Add(GetTemplates, "get_templates", "Lists the project's import templates as its <e:templates> block holds them, and any that do not read and why; with svg, which of them fit that drawing going into a group, best first, and whether an import would be sure of the first. Changes nothing.");
+        Add(ExtractTemplate, "extract_template", "Adds a template to the project made from what a drawing paints through {{ }}: a slot for each expression, picked by where it paints and how much, which an import then offers for icons laid out like it, as a single undo step.");
         Add(Move, "move", "Moves a group or drawing into another group.");
         Add(GetDeclarations, "get_declarations", "Reads the declarations block a group, or the project, gives every drawing under it.");
         Add(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step.");
+        Add(Declare, "declare", "Adds one parameter or let to a drawing, a group or the project, or changes one, as a single undo step: what is left out stays as it is, and to renames it with every use, through every drawing and group under a group or the project (not the project's templates). A new parameter needs a type, a new let an expression; a name a group above declares is changed on that group.");
+        Add(Find, "find", "Finds where something is in the project, each drawing as it stands: group and drawing names, element ids, attribute values and text between tags containing the words given, and the {{ }} expressions and lets naming a declared name, matched whole. Does not search the project's templates.");
         Add(SetNode, "set_node", "Changes one setting of a group, a drawing or the project, as a single undo step. cache, helperScope and skiaSharp are the project's alone, and name, x and y a group's or drawing's; a width or height clears a scale, and a scale both.");
         Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Given a path, saves a project never saved, or a drawing of no project's, there: the drawing's tab then saves to it, and its undo history starts again.");
         Add(Export, "export", "Writes what is open to a file outside the project: with a project open, every drawing of it as one C# file, as Export in the File menu does, after taking in the edits of the tab in front; with none, the drawing in front, as C# where the path ends .cs and as SVG where it ends .svg.");
@@ -400,7 +413,27 @@ public sealed class AssistantTools
 
             if (root is { })
             {
-                Outline(root, string.Empty, 0);
+                foreach (var (at, element, depth) in Keyed(root))
+                {
+                    if (under.Length == 0 || at == under || at.StartsWith(under + "/", StringComparison.Ordinal))
+                    {
+                        var row = new StringBuilder(new string(' ', depth * 2)).Append(at.Length == 0 ? "(root)" : at).Append(' ')
+                            .Append(SvgAttributeEditor.ElementName(element));
+
+                        if (element.Attribute("id")?.Value is { } id)
+                        {
+                            row.Append(" #").Append(id);
+                        }
+                        else if (element.Attribute("name")?.Value is { } name)
+                        {
+                            // Not "#", which is an id's here: no url(#…) finds a declaration by its name.
+                            row.Append(" name=").Append(name);
+                        }
+
+                        rows.Add(row.ToString());
+                    }
+                }
+
                 text.Append("Elements (address key, element, id or name):\n");
                 text.Append(Fit(rows, "get_drawing with an element's key lists only what is inside it", text.Length + after.Length)).Append('\n');
             }
@@ -425,36 +458,30 @@ public sealed class AssistantTools
             }
 
             return text.ToString();
-
-            void Outline(XElement element, string at, int depth)
-            {
-                if (under.Length == 0 || at == under || at.StartsWith(under + "/", StringComparison.Ordinal))
-                {
-                    var row = new StringBuilder(new string(' ', depth * 2)).Append(at.Length == 0 ? "(root)" : at).Append(' ')
-                        .Append(SvgAttributeEditor.ElementName(element));
-
-                    if (element.Attribute("id")?.Value is { } id)
-                    {
-                        row.Append(" #").Append(id);
-                    }
-                    else if (element.Attribute("name")?.Value is { } name)
-                    {
-                        // Not "#", which is an id's here: no url(#…) finds a declaration by its name.
-                        row.Append(" name=").Append(name);
-                    }
-
-                    rows.Add(row.ToString());
-                }
-
-                var index = 0;
-
-                foreach (var child in element.Elements())
-                {
-                    Outline(child, at.Length == 0 ? index.ToString(CultureInfo.InvariantCulture) : $"{at}/{index}", depth + 1);
-                    index++;
-                }
-            }
         });
+
+    /// <summary>Every element from <paramref name="root"/> down, in document order, with its address key and how deep it is.</summary>
+    /// <remarks>Counted on the way down: each key worked out from its element counts its siblings again.</remarks>
+    private static IEnumerable<(string Key, XElement Element, int Depth)> Keyed(XElement root)
+    {
+        var pending = new Stack<(string Key, XElement Element, int Depth)>();
+
+        pending.Push((string.Empty, root, 0));
+
+        while (pending.TryPop(out var next))
+        {
+            yield return next;
+
+            var children = next.Element.Elements().ToList();
+
+            for (var index = children.Count - 1; index >= 0; index--)
+            {
+                var at = index.ToString(CultureInfo.InvariantCulture);
+
+                pending.Push((next.Key.Length == 0 ? at : $"{next.Key}/{at}", children[index], next.Depth + 1));
+            }
+        }
+    }
 
     private Task<string> GetElement(
         [Description("The element's address key from get_drawing; empty for the root svg element.")] string key,
@@ -1241,7 +1268,14 @@ public sealed class AssistantTools
             return $"Nothing was {verb} back: {Named(holding)} has edits in its tab not yet saved into the project, and {doing} back \"{made.Label}\" could close it without asking; open it and save them first.";
         }
 
-        if (made.Text is { } drawing && _window.TabOf(drawing)?.Content is SvgViewer { IsSourceModified: true })
+        var rewritten = made.Text switch
+        {
+            ProjectGroup group => group.Drawings,
+            ProjectDrawing one => new[] { one },
+            _ => Enumerable.Empty<ProjectDrawing>()
+        };
+
+        if (rewritten.FirstOrDefault(one => _window.TabOf(one)?.Content is SvgViewer { IsSourceModified: true }) is { } drawing)
         {
             return $"Nothing was {verb} back: {Named(drawing)} has edits in its tab not yet saved into the project, made over \"{made.Label}\"; {doing} it back in the project would not reach the tab, whose next save writes over it. Open it and save or undo them first.";
         }
@@ -1298,7 +1332,8 @@ public sealed class AssistantTools
     private Task<string> AddDrawing(
         [Description("The node path of the group to add it to; empty for the project itself.")] string parent,
         [Description("The drawing's name, which is also its class unless one is set.")] string name,
-        [Description("The drawing's complete SVG source.")] string svg)
+        [Description("The drawing's complete SVG source.")] string svg,
+        [Description("A template's name from get_templates, to write the drawing's colours as its expressions; left out, it goes in as given.")] string? template = null)
         => UiAsync(async () =>
         {
             if (Resolve(parent) is not ProjectGroup group)
@@ -1306,13 +1341,61 @@ public sealed class AssistantTools
                 return NotA("group", parent);
             }
 
+            // Only where named, as a file dropped in goes in as it is: what Studio is sure of is
+            // this machine's choices, which would make what the same call adds differ by machine.
+            var library = new TemplateLibrary(_window.Workspace!.Document.Root);
+            var import = new TemplateImport(name, svg);
+            var named = !string.IsNullOrWhiteSpace(template) && template != TemplateLibrary.KeepColoursName;
+            TemplateIcon? icon = null;
+            string? hint = null;
+
+            try
+            {
+                icon = TemplateLibrary.Prepare(svg);
+            }
+            catch (SvgRecipeException failure) when (named)
+            {
+                return failure.Message;
+            }
+            catch (SvgRecipeException)
+            {
+                // The import says why it does not read.
+            }
+
+            // Asked of the group as it is, which the drawing is not yet one of.
+            var suggestions = icon is null ? Array.Empty<TemplateSuggestion>() : library.Suggest(icon, group);
+
+            if (named)
+            {
+                if (StreamlineRow.Recipe(suggestions, template) is not { } recipe)
+                {
+                    var fit = suggestions.Select(one => one.Template.Name).Where(one => one != TemplateLibrary.KeepColoursName).ToList();
+                    var chosen = library.Templates.FirstOrDefault(one => one.Name == template);
+
+                    return (chosen is null ? $"The project has no template '{template}'."
+                               : chosen.Error is { } error ? $"The template '{template}' does not read: {error}"
+                               : chosen.Recipe?.Match is { NeedsFamily: true } match ? $"The template '{template}' is kept to icons of the family {match.Family}, which only a Streamline import names, so it cannot be applied here."
+                               : $"The template '{template}' does not fit this drawing.")
+                           + (fit.Count == 0
+                               ? $" None of the project's templates fits this drawing, but {TemplateLibrary.KeepColoursName} always does."
+                               : $" Of the project's templates, {string.Join(", ", fit)} {(fit.Count == 1 ? "fits" : "fit")} this drawing, and {TemplateLibrary.KeepColoursName} always does.");
+                }
+
+                import = new TemplateImport(name, icon!.Text, recipe);
+            }
+            else if (string.IsNullOrWhiteSpace(template) && suggestions is [{ Sure: true } sure, ..] && sure.Template.Name != TemplateLibrary.KeepColoursName)
+            {
+                hint = $"\nThe template '{sure.Template.Name}' fits it, and a Streamline import would apply it without asking; to have it so, undo this and add it with template \"{sure.Template.Name}\".";
+            }
+
             // Through the import every other drawing arrives by, with its notes said here: a dialog
             // in the window is one a client cannot close, and a call that opens one never returns.
             // Opened only once its step and path are read, since the load gives up the UI thread
             // and whatever ran meanwhile was taken for them.
+            var had = Names(group).ToHashSet(StringComparer.Ordinal);
             var notes = new List<string>();
             var label = Label($"add {name}");
-            var added = await _window.ImportAsync(group, group.Children.Count, new[] { new TemplateImport(name, svg) }, show: false, notes: notes, label: label).ConfigureAwait(true);
+            var added = await _window.ImportAsync(group, group.Children.Count, new[] { import }, show: false, notes: notes, label: label).ConfigureAwait(true);
 
             if (added.Count == 0)
             {
@@ -1321,11 +1404,126 @@ public sealed class AssistantTools
 
             Undoable(label, node: added[^1]);
 
-            var reply = $"Added {name} as {Path(added[^1])}." + Undoes;
+            var declared = Names(group).Where(one => !had.Contains(one)).ToList();
+            var reply = $"Added {name} as {Path(added[^1])}"
+                        + (import.Recipe is null ? null : $" through the template '{template}'")
+                        + (declared.Count > 0 ? $", which declared {string.Join(", ", declared)} on {Named(group)} as well" : null)
+                        + "." + Undoes + hint;
 
             await _window.ShowAsync(added[^1]).ConfigureAwait(true);
 
             return Report(reply, $"add {name}");
+        });
+
+    /// <remarks>Never remembers a choice, which is the person's to teach the Streamline panel.</remarks>
+    private Task<string> GetTemplates(
+        [Description("A complete SVG source to rank the templates for, as an import would; left out, they are only listed.")] string? svg = null,
+        [Description("The node path of the group it would go into; empty for the project itself.")] string? parent = null)
+        => Ui(() =>
+        {
+            if (Resolve(parent) is not ProjectGroup group)
+            {
+                return NotA("group", parent);
+            }
+
+            var root = _window.Workspace!.Document.Root;
+            var library = new TemplateLibrary(root);
+            var keep = $"{TemplateLibrary.KeepColoursName}, which keeps a drawing's colours as they are";
+
+            if (svg is null)
+            {
+                if (root.Templates.Count == 0)
+                {
+                    return $"The project has no templates, so an import offers only {keep}; extract_template makes one from a drawing painted through {{{{ }}}}.";
+                }
+
+                var listed = new StringBuilder("The project's templates, in the order its <e:templates> block holds them:\n");
+
+                foreach (var one in library.Templates.SkipLast(1))
+                {
+                    listed.Append("- ").Append(one.Name).Append(one.Error is { } error ? $" (does not read: {error})" : null).Append('\n');
+                }
+
+                listed.Append("- ").Append(keep).Append(", always last\n");
+
+                // Whole or not at all, as get_drawing gives a source.
+                var block = root.TemplatesText;
+
+                return listed.Length + block.Length > Answer
+                    ? listed.Append($"The block, {block.Length} characters, is too long for this answer and is left out.").ToString()
+                    : listed.Append("\nThe block:\n").Append(block).ToString();
+            }
+
+            TemplateIcon icon;
+
+            try
+            {
+                icon = TemplateLibrary.Prepare(svg);
+            }
+            catch (SvgRecipeException failure)
+            {
+                return failure.Message;
+            }
+
+            var suggestions = library.Suggest(icon, group);
+            var rows = suggestions
+                .Select((one, index) => $"{index + 1}. {one.Template.Name}, score {one.Score.ToString("0.##", CultureInfo.InvariantCulture)}"
+                                        + (one.Template.Name == TemplateLibrary.KeepColoursName ? ", which keeps the drawing's colours as they are" : null)
+                                        + (one.Sure ? ": sure, so a Streamline import would apply it without asking" : null))
+                .ToList();
+
+            var unfit = library.Templates
+                .Where(one => !suggestions.Any(suggestion => ReferenceEquals(suggestion.Template, one)))
+                .Select(one => one.Error is { } ? $"{one.Name}, which does not read"
+                    : one.Recipe?.Match is { NeedsFamily: true } match ? $"{one.Name}, kept to the family {match.Family}, which only a Streamline import names"
+                    : one.Name)
+                .ToList();
+
+            return $"How an import ranks the project's templates for that drawing going into {(group is ProjectRoot ? "the project" : "group " + Named(group))}, best first:\n"
+                   + Cut(rows, null) + "\n"
+                   + (suggestions[0].Sure ? null : "Studio is not sure of the first, so the Streamline panel would ask which to use.\n")
+                   + (unfit.Count > 0 ? $"Not fitting: {string.Join("; ", unfit)}.\n" : null)
+                   + "add_drawing with template brings a drawing in through one.";
+        });
+
+    private Task<string> ExtractTemplate(
+        [Description("The drawing's node path from get_project; empty for the drawing in front.")] string? node = null,
+        [Description("What to call it, unique among the project's templates; empty for the drawing's own name.")] string? name = null)
+        => Ui(() =>
+        {
+            if (Target(node, out var about) is null)
+            {
+                return about;
+            }
+
+            if (Drawing(node) is not { } drawing || _window.Workspace is not { } workspace)
+            {
+                return "Templates are kept in a project, and the drawing in front is in none.";
+            }
+
+            var called = string.IsNullOrWhiteSpace(name) ? ProjectWorkspace.Label(drawing) : name.Trim();
+            string text;
+
+            try
+            {
+                text = TemplateLibrary.Extract(called, Text(drawing));
+            }
+            catch (SvgRecipeException failure)
+            {
+                return $"{Named(drawing)}: {failure.Message}";
+            }
+
+            // Not the window's ExtractTemplateAsync, which asks for the name in a dialog no client can close.
+            var label = Label($"add template {called}");
+
+            if (TemplateLibrary.Put(workspace, workspace.Document.Root.Templates.Count, text, label) is { } refusal)
+            {
+                return refusal;
+            }
+
+            Undoable(label);
+
+            return Report($"Added the template '{called}' to the project." + Undoes + "\n" + text, $"add template {called}");
         });
 
     /// <summary>Icons from Streamline added at the end of a group through the project's templates, as one step, and the last opened as add_drawing opens its drawing.</summary>
@@ -1878,55 +2076,342 @@ public sealed class AssistantTools
         [Description("The complete new <e:code> block, as get_declarations gives it: params and lets, with xmlns:e declared.")] string code,
         [Description("A few words saying what this does, shown in the Edit menu.")] string summary,
         [Description("The group's node path from get_project; empty for the project itself.")] string? node = null)
+        => Ui(() => Resolve(node) is not ProjectGroup group ? NotA("group", node) : Block(group, summary, source =>
+        {
+            if (SvgSourceDocument.Read(code, out var unreadable) is not { } given)
+            {
+                return unreadable;
+            }
+
+            if (given.Document.Root is not { } block || block.Name != XNamespace.Get(SvgExpressionDeclarations.Namespace) + "code")
+            {
+                return "Declarations have to be one <e:code> block, with xmlns:e declared on it.";
+            }
+
+            block.Remove();
+            source.Document.Root!.ReplaceWith(block);
+
+            return null;
+        }));
+
+    /// <summary>Makes one edit to a group's or the project's block, a rename carried through everything under it, and answers with the problems under it now.</summary>
+    private string Block(ProjectGroup group, string summary, Func<SvgSourceDocument, string?> edit, SvgDeclarationRename? rename = null)
+    {
+        var was = group.CodeText;
+        var label = Label(summary);
+
+        // Through the group's own target, which refuses a name declared above it or below it already,
+        // and a rename while a tab holds edits that saving would write back over it.
+        var refusal = new GroupTarget(_window.Workspace!, group) { Held = held => _window.DrawingOf(held)?.Text }.Commit(label, edit, rename);
+
+        if (refusal is { })
+        {
+            return refusal;
+        }
+
+        if (string.Equals(group.CodeText, was, StringComparison.Ordinal))
+        {
+            return Report("Nothing changed; the block already says that.", null);
+        }
+
+        Undoable(label, text: rename is { } ? group : null);
+
+        var under = Under(group).ToList();
+        var wrong = Listed(under, "get_problems lists them", out var clean, 5);
+
+        return Report(
+            "Done."
+            + (rename is { } renamed ? $" Every drawing and group under it that named {renamed.From} now names {renamed.To}." : null)
+            + Undoes
+            + (clean == under.Count ? $" No problems in the {under.Count} drawing(s) under it." : $"\nProblems under it now:\n{wrong}"),
+            summary);
+    }
+
+    /// <remarks>
+    /// Repeatable: a rename asked for again finds its name gone and the new one declared, and goes on
+    /// as the declaration it named, which then changes nothing.
+    /// </remarks>
+    private Task<string> Declare(
+        [Description("The parameter's or let's name; to rename one, the name it has now.")] string name,
+        [Description("A few words saying what this does, shown in the Edit menu.")] string summary,
+        [Description("The node path of the drawing, the group or (project) declaring it; empty for the drawing in front.")] string? node = null,
+        [Description("A new parameter's type, or a new let's to hold it to one; a parameter's type is not changed, but removed and declared again.")] ExprType? type = null,
+        [Description("A parameter's default, written as an expression such as #ff0000, 2 or 'text'; empty clears it.")] string? @default = null,
+        [Description("A parameter's lowest value; empty clears it.")] string? min = null,
+        [Description("A parameter's highest value; empty clears it.")] string? max = null,
+        [Description("How far a parameter's slider moves at a time; empty clears it.")] string? step = null,
+        [Description("A let's expression, which may name what the declarations above it give.")] string? expression = null,
+        [Description("A new name, which every use is renamed to as well.")] string? to = null)
         => Ui(() =>
         {
-            if (Resolve(node) is not ProjectGroup group || _window.Workspace is not { } workspace)
+            var found = string.IsNullOrEmpty(node) ? null : Resolve(node);
+            var group = found as ProjectGroup;
+            ISvgViewerDeclarationTarget? target = null;
+
+            if (!string.IsNullOrEmpty(node) && found is null)
             {
-                return NotA("group", node);
+                return NoNode(node);
             }
 
-            var was = group.CodeText;
-            var label = Label(summary);
-
-            // Through the group's own target, which refuses a name declared above it or below it already.
-            var refusal = new GroupTarget(workspace, group).Commit(label, source =>
+            if (group is null && (target = Target(node, out var about)) is null)
             {
-                if (SvgSourceDocument.Read(code, out var unreadable) is not { } given)
+                return about;
+            }
+
+            var at = group ?? (ProjectNode?)Drawing(node);
+            var own = SvgExpressionDeclarations.Parse(group?.CodeText ?? target!.Text, out _);
+            var parameter = own.Parameters.FirstOrDefault(one => one.Name == name);
+            var let = own.Lets.FirstOrDefault(one => one.Name == name);
+
+            var holder = parameter is null && let is null && at is { } ? ProjectDeclarations.Chain(at).LastOrDefault(one => Names(one).Contains(name)) : null;
+
+            to = string.IsNullOrWhiteSpace(to) || to == name ? null : to.Trim();
+
+            if (to is { } && parameter is null && let is null && holder is null)
+            {
+                var renamed = to;
+
+                parameter = own.Parameters.FirstOrDefault(one => one.Name == renamed);
+                let = own.Lets.FirstOrDefault(one => one.Name == renamed);
+
+                if (parameter is { } || let is { })
                 {
-                    return unreadable;
+                    (name, to) = (renamed, null);
+                }
+            }
+
+            if (holder is { })
+            {
+                return $"'{name}' is declared by {Named(holder)}, which every drawing under it inherits; declare it there, with node {Path(holder)}.";
+            }
+
+            var bounds = @default ?? min ?? max ?? step;
+            Func<SvgSourceDocument, string?> edit;
+
+            if (parameter is { })
+            {
+                if (expression is { })
+                {
+                    return $"'{name}' is a parameter: it takes type, default, min, max and step, not expression.";
                 }
 
-                if (given.Document.Root is not { } block || block.Name != XNamespace.Get(SvgExpressionDeclarations.Namespace) + "code")
+                edit = source => SvgDeclarationEditor.Update(source, name, new SvgExpressionParameter(
+                    to ?? name,
+                    type ?? parameter.Type,
+                    Kept(@default, parameter.DefaultExpression),
+                    Kept(min, parameter.MinExpression),
+                    Kept(max, parameter.MaxExpression),
+                    Kept(step, parameter.StepExpression)));
+            }
+            else if (let is { })
+            {
+                // The type it was added with, given again, is a retry.
+                if ((type is { } given && given != let.DeclaredType) || bounds is { })
                 {
-                    return "Declarations have to be one <e:code> block, with xmlns:e declared on it.";
+                    return $"'{name}' is a let: it takes expression, not type, default, min, max or step.";
                 }
 
-                block.Remove();
-                source.Document.Root!.ReplaceWith(block);
+                edit = source => SvgDeclarationEditor.UpdateLet(source, name, to ?? name, expression ?? let.Expression);
+            }
+            else if (to is { })
+            {
+                return $"Nothing here declares '{name}' to rename.";
+            }
+            else if (expression is { })
+            {
+                if (bounds is { })
+                {
+                    return "A new let takes expression, and type to hold it to one, not default, min, max or step.";
+                }
 
-                return null;
+                edit = source => SvgDeclarationEditor.AddLet(source, name, expression, type);
+            }
+            else if (type is { } kind)
+            {
+                edit = source => SvgDeclarationEditor.Add(source, new SvgExpressionParameter(name, kind, Kept(@default, null), Kept(min, null), Kept(max, null), Kept(step, null)));
+            }
+            else
+            {
+                return "A new parameter needs a type, and a new let an expression.";
+            }
+
+            if (group is { })
+            {
+                return Block(group, summary, edit, to is { } ? new SvgDeclarationRename(name, to) : null);
+            }
+
+            return Edit(node, summary, source =>
+            {
+                // A tab's document has nothing from above to read a let against, and is put back after:
+                // it outlives this edit, and the blocks above can change before its next.
+                var inherited = source.Inherited;
+
+                source.Inherited = at is ProjectDrawing drawing ? ProjectDeclarations.Declared(drawing) : null;
+
+                try
+                {
+                    return edit(source);
+                }
+                finally
+                {
+                    source.Inherited = inherited;
+                }
             });
 
-            if (refusal is { })
+            static string? Kept(string? given, string? was) => given is null ? was : given.Length == 0 ? null : given;
+        });
+
+    private Task<string> Find(
+        [Description("What to look for: words in names, ids, values and text, in any case; and a declared name, matched whole, among uses.")] string what,
+        [Description("Names, ids, values or uses, to look one way only; left out, all four.")] Sought? kind = null,
+        [Description("A group's or drawing's node path to look only there; empty for the whole project, or for the drawing in front where no project is open.")] string? node = null)
+        => Ui(() =>
+        {
+            if (string.IsNullOrWhiteSpace(what))
             {
-                return refusal;
+                return "Say what to find.";
             }
 
-            if (string.Equals(group.CodeText, was, StringComparison.Ordinal))
+            var rows = new List<string>();
+            var found = 0;
+            var where = string.Empty;
+
+            if (_window.Workspace is null)
             {
-                return Report("Nothing changed; the block already says that.", null);
+                if (_window.FrontViewer is not { } viewer)
+                {
+                    return "Nothing is open.";
+                }
+
+                where = " in the drawing in front";
+                Search(string.Empty, "The drawing in front", viewer.Source, block: false);
+            }
+            else if (Resolve(node) is not { } scope)
+            {
+                return NoNode(node);
+            }
+            else
+            {
+                Walk(scope);
             }
 
-            Undoable(label);
+            if (rows.Count == 0)
+            {
+                return $"Nothing found for \"{what}\"{where}.";
+            }
 
-            var under = Under(group).ToList();
-            var wrong = Listed(under, "get_problems lists them", out var clean, 5);
+            var head = found == 0 ? $"Nothing found for \"{what}\"{where}, but not everything could be searched:\n" : $"{found} found for \"{what}\"{where}:\n";
 
-            return Report(
-                "Done." + Undoes + (clean == under.Count
-                    ? $" No problems in the {under.Count} drawing(s) under it."
-                    : $"\nProblems under it now:\n{wrong}"),
-                summary);
+            return head + Fit(rows, "find with node or kind narrows it", head.Length);
+
+            bool Looks(Sought one) => kind is null || kind == one;
+
+            bool Has(string text) => text.Contains(what, StringComparison.OrdinalIgnoreCase);
+
+            void Found(string row)
+            {
+                rows.Add(row);
+                found++;
+            }
+
+            void Walk(ProjectNode under)
+            {
+                if (under is not ProjectRoot && Looks(Sought.Names) && Has(ProjectWorkspace.Label(under)))
+                {
+                    Found($"{Describe(under, small: true)}: its name");
+                }
+
+                if (under is ProjectDrawing drawing)
+                {
+                    Search(Named(drawing) + " ", Named(drawing), Text(drawing), block: false);
+                }
+                else if (under is ProjectGroup group)
+                {
+                    var holder = group is ProjectRoot ? "(project)" : Describe(group, small: true);
+
+                    if (group.Code is { })
+                    {
+                        Search($"{holder}: its block's ", holder, group.CodeText, block: true);
+                    }
+
+                    foreach (var child in group.Children)
+                    {
+                        Walk(child);
+                    }
+                }
+            }
+
+            // A block's declarations are named by what they declare, as nothing takes their keys.
+            void Search(string prefix, string named, string text, bool block)
+            {
+                if (!Looks(Sought.Ids) && !Looks(Sought.Values) && !Looks(Sought.Uses))
+                {
+                    return;
+                }
+
+                if (SvgSourceDocument.Read(text, out var unreadable) is not { Document.Root: { } root } source)
+                {
+                    rows.Add($"{named}: does not read as XML, so it was not searched: {unreadable}");
+
+                    return;
+                }
+
+                string? stopped = null;
+                var users = Looks(Sought.Uses) ? SvgDeclarationEditor.Where(source, what.Trim(), out stopped).ToHashSet(StringComparer.Ordinal) : new HashSet<string>();
+
+                foreach (var (key, element, _) in Keyed(root))
+                {
+                    if (block && key.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    var place = block ? $"{element.Name.LocalName} {(string?)element.Attribute("name")}" : $"{(key.Length == 0 ? "(root)" : key)} <{SvgAttributeEditor.ElementName(element)}>";
+                    var by = block ? ", " : " ";
+
+                    if (!block && Looks(Sought.Ids) && element.Attribute("id")?.Value is { } id && Has(id))
+                    {
+                        Found($"{prefix}{place} #{id}");
+                    }
+
+                    if (Looks(Sought.Values))
+                    {
+                        // An id is the ids' to find, which would otherwise come up twice.
+                        foreach (var attribute in SvgAttributeEditor.Attributes(element).Where(one => (block || one.Name != "id") && Has(one.Value)))
+                        {
+                            Found($"{prefix}{place}{by}{attribute.Name}=\"{Around(attribute.Value)}\"");
+                        }
+
+                        if (string.Concat(element.Nodes().OfType<XText>().Select(run => run.Value)).Trim() is { Length: > 0 } words && Has(words))
+                        {
+                            Found($"{prefix}{place}: \"{Around(words)}\"");
+                        }
+                    }
+
+                    if (users.Contains(key))
+                    {
+                        Found($"{prefix}{place} uses {what.Trim()}");
+                    }
+                }
+
+                if (stopped is { })
+                {
+                    rows.Add($"{named}: {stopped} Uses past it were not looked for.");
+                }
+            }
+
+            // About a hundred characters around the match, as a path's data or an embedded image runs to thousands.
+            string Around(string value)
+            {
+                if (value.Length <= 100)
+                {
+                    return value;
+                }
+
+                var start = Math.Clamp(value.IndexOf(what, StringComparison.OrdinalIgnoreCase) - 40, 0, value.Length - 100);
+
+                return (start > 0 ? "…" : null) + value.Substring(start, 100) + (start + 100 < value.Length ? "…" : null);
+            }
         });
 
     private Task<string> GetProblems(
@@ -2035,8 +2520,8 @@ public sealed class AssistantTools
     /// ends what redo had to put back, as any new edit does.
     /// </summary>
     /// <param name="node">The node the step added or removed, if it did either.</param>
-    /// <param name="text">The drawing whose text a step of the project's rewrote, if it did.</param>
-    private void Undoable(string label, SvgViewer? viewer = null, ProjectNode? node = null, ProjectDrawing? text = null)
+    /// <param name="text">The drawing whose text a step of the project's rewrote, or the group whose drawings a rename did, if it did.</param>
+    private void Undoable(string label, SvgViewer? viewer = null, ProjectNode? node = null, ProjectNode? text = null)
     {
         _redos.Clear();
 

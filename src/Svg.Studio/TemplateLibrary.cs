@@ -377,12 +377,13 @@ public sealed class TemplateLibrary
     /// after the last where the index is their count, or takes that one out where the text is null,
     /// as one undo step.
     /// </summary>
+    /// <param name="label">What the step is called in place of what it does, for a caller that says who made it.</param>
     /// <returns>Why it could not, or null.</returns>
     /// <remarks>
     /// A template that does not parse as a recipe is still kept, and listed with its error, as one
     /// written into the file by hand would be; only what the block cannot hold is refused.
     /// </remarks>
-    public static string? Put(ProjectWorkspace workspace, int index, string? templateText)
+    public static string? Put(ProjectWorkspace workspace, int index, string? templateText, string? label = null)
     {
         if (workspace is null)
         {
@@ -394,7 +395,7 @@ public sealed class TemplateLibrary
         var holder = block.Document.Root!;
         var templates = holder.Elements().ToList();
         var was = index < templates.Count ? Named(templates[index]) : null;
-        string label;
+        string step;
 
         if (templateText is null)
         {
@@ -404,7 +405,7 @@ public sealed class TemplateLibrary
             }
 
             templates[index].Remove();
-            label = $"remove template {was}";
+            step = $"remove template {was}";
         }
         else
         {
@@ -439,7 +440,7 @@ public sealed class TemplateLibrary
             if (index < templates.Count)
             {
                 templates[index].ReplaceWith(template);
-                label = was == name ? $"edit template {name}" : $"rename template {was} to {name}";
+                step = was == name ? $"edit template {name}" : $"rename template {was} to {name}";
             }
             else
             {
@@ -461,7 +462,7 @@ public sealed class TemplateLibrary
                     holder.Add(new XText(indent), template, new XText("\n"));
                 }
 
-                label = $"add template {name}";
+                step = $"add template {name}";
             }
 
             // The block binds the prefix already, and a template read on its own carries it too.
@@ -484,7 +485,7 @@ public sealed class TemplateLibrary
 
         string? refusal = null;
 
-        workspace.Do(label, () => ProjectSnapshot.Templates(root), () => refusal = root.SetTemplates(text));
+        workspace.Do(label ?? step, () => ProjectSnapshot.Templates(root), () => refusal = root.SetTemplates(text));
 
         return refusal;
 

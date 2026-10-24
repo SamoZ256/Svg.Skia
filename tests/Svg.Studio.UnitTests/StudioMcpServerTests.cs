@@ -166,6 +166,8 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(tools["get_drawing"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.True(tools["get_node"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.True(tools["get_code"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.True(tools["get_templates"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.True(tools["find"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.False(tools["set_attributes"].ProtocolTool.Annotations?.DestructiveHint);
 
         // Over MCP alone, since its answer is an image, or what only such an answer gives.
@@ -177,7 +179,7 @@ public class StudioMcpServerTests : IDisposable
         // One step on the history each, as set_attributes is; and the file tools that refuse over
         // unsaved work rather than lose it.
         Assert.All(
-            new[] { "insert_element", "remove_elements", "move_element", "duplicate_elements", "redo", "new_project", "open_file", "reload", "streamline_import" },
+            new[] { "insert_element", "remove_elements", "move_element", "duplicate_elements", "redo", "new_project", "open_file", "reload", "streamline_import", "declare", "extract_template" },
             name => Assert.False(tools[name].ProtocolTool.Annotations?.DestructiveHint, name));
 
         // Over MCP nobody but the client asks: Studio answers its own question yes.
@@ -194,13 +196,13 @@ public class StudioMcpServerTests : IDisposable
         await using var client = await Client(port);
 
         var tools = (await client.ListToolsAsync()).ToDictionary(tool => tool.Name);
-        var repeatable = new[] { "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "replace_drawing", "export", "reload", "streamline_import" };
+        var repeatable = new[] { "select", "open", "set_attributes", "set_text", "set_node", "set_declarations", "declare", "replace_drawing", "export", "reload", "streamline_import" };
         var reaching = new[] { "streamline_search", "streamline_import" };
 
         Assert.All(tools.Values, tool => Assert.True(tool.ProtocolTool.Annotations?.OpenWorldHint == reaching.Contains(tool.Name), tool.Name));
         Assert.All(repeatable, name => Assert.True(tools[name].ProtocolTool.Annotations?.IdempotentHint, name));
         Assert.All(
-            new[] { "undo", "redo", "add_group", "add_drawing", "move", "remove", "git_commit", "insert_element", "remove_elements", "move_element", "duplicate_elements", "new_project", "open_file" },
+            new[] { "undo", "redo", "add_group", "add_drawing", "move", "remove", "git_commit", "insert_element", "remove_elements", "move_element", "duplicate_elements", "new_project", "open_file", "extract_template" },
             name => Assert.NotEqual(true, tools[name].ProtocolTool.Annotations?.IdempotentHint));
     }
 
@@ -271,6 +273,41 @@ public class StudioMcpServerTests : IDisposable
         Assert.All(new[] { renamed, named, declared, same }, result => Assert.NotEqual(true, result.IsError));
         Assert.StartsWith("Nothing changed", Text(named), StringComparison.Ordinal);
         Assert.StartsWith("Nothing changed", Text(same), StringComparison.Ordinal);
+    }
+
+    /// <remarks>A rename retried finds the old name gone and the new one declared, which is what the first call left.</remarks>
+    [AvaloniaFact]
+    public async Task A_Declaration_Asked_For_Twice_Or_A_Rename_Retried_Changes_Nothing_And_Is_No_Error()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, Tinted);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+        var greener = new Dictionary<string, object?> { ["node"] = "0", ["name"] = "tint", ["default"] = "#00ff00", ["summary"] = "greener" };
+        var rename = new Dictionary<string, object?> { ["node"] = "0", ["name"] = "tint", ["to"] = "hue", ["summary"] = "rename tint" };
+        var wash = new Dictionary<string, object?> { ["node"] = "0/0", ["name"] = "wash", ["expression"] = "hue", ["type"] = "color", ["summary"] = "wash" };
+        var wide = new Dictionary<string, object?> { ["node"] = "0/0", ["name"] = "wide", ["type"] = "number", ["default"] = "2", ["summary"] = "wide" };
+
+        var changed = await Call(client, "declare", greener);
+        var same = await Call(client, "declare", greener);
+        var renamed = await Call(client, "declare", rename);
+        var retried = await Call(client, "declare", rename);
+        var washed = await Call(client, "declare", wash);
+        var rewashed = await Call(client, "declare", wash);
+        var added = await Call(client, "declare", wide);
+        var again = await Call(client, "declare", wide);
+
+        Assert.All(new[] { changed, same, renamed, retried, washed, rewashed, added, again }, result => Assert.NotEqual(true, result.IsError));
+        Assert.StartsWith("Nothing changed", Text(same), StringComparison.Ordinal);
+        Assert.StartsWith("Nothing changed", Text(retried), StringComparison.Ordinal);
+        Assert.StartsWith("Nothing changed", Text(rewashed), StringComparison.Ordinal);
+        Assert.StartsWith("Nothing changed", Text(again), StringComparison.Ordinal);
+        Assert.Contains("name=\"hue\" type=\"color\" default=\"#00ff00\"", badges.CodeText, StringComparison.Ordinal);
+        Assert.Contains("type=\"color\">hue</e:let>", ((ProjectDrawing)badges.Children[0]).Text, StringComparison.Ordinal);
+        Assert.Equal("Claude Code: wide", window.Workspace.UndoLabel);
     }
 
     [AvaloniaFact]
@@ -2361,6 +2398,84 @@ public class StudioMcpServerTests : IDisposable
         Assert.Equal(
             "Imported 1 icon into 0 Scheme: 0/3 bin. It is one undo step.\nbin: through Line glyph, as asked.",
             Text(searched));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>Ranked by the import's own Suggest, which a choice the person made before puts first; reading it remembers none.</remarks>
+    [AvaloniaFact]
+    public async Task The_Templates_Are_Listed_And_Those_That_Fit_An_Svg_Ranked_As_An_Import_Ranks_Them()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, StreamlinePanelTests.Project);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var root = window.Workspace!.Document.Root;
+        var scheme = (ProjectGroup)root.Children[0];
+        var icon = TemplateLibrary.Prepare(Glyph);
+
+        var listed = await Call(client, "get_templates", new());
+        var ranked = await Call(client, "get_templates", new() { ["svg"] = Glyph, ["parent"] = "0" });
+        var suggested = new TemplateLibrary(root).Suggest(icon, scheme);
+
+        Assert.Null(TemplateLibrary.Remembered(icon));
+
+        TemplateLibrary.Remember(icon, "Mono glyph");
+
+        var remembered = new TemplateLibrary(root).Suggest(icon, scheme);
+        var sure = await Call(client, "get_templates", new() { ["svg"] = Glyph, ["parent"] = "0" });
+
+        Assert.All(new[] { listed, ranked, sure }, result => Assert.NotEqual(true, result.IsError));
+        Assert.Contains("\n- Accent glyph\n- Mono glyph\n- Keep colours, which keeps a drawing's colours as they are, always last\n", Text(listed), StringComparison.Ordinal);
+        Assert.EndsWith(root.TemplatesText, Text(listed), StringComparison.Ordinal);
+        Assert.Equal(suggested.Select(one => one.Template.Name), Ranked(Text(ranked)));
+        Assert.DoesNotContain(": sure", Text(ranked), StringComparison.Ordinal);
+        Assert.Equal(new[] { "Mono glyph", "Accent glyph", TemplateLibrary.KeepColoursName }, Ranked(Text(sure)));
+        Assert.Contains(
+            $"\n1. Mono glyph, score {remembered[0].Score.ToString("0.##", CultureInfo.InvariantCulture)}: sure, so a Streamline import would apply it without asking\n",
+            Text(sure),
+            StringComparison.Ordinal);
+
+        static IEnumerable<string> Ranked(string text)
+            => text.Split('\n').Where(line => line.Length > 0 && char.IsDigit(line[0])).Select(line => line[(line.IndexOf(". ", StringComparison.Ordinal) + 2)..line.IndexOf(", score", StringComparison.Ordinal)]);
+    }
+
+    /// <remarks>Applied only where named, since what Studio is sure of is this machine's; said, so a client can have it so.</remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Added_Without_A_Template_Names_The_One_An_Import_Would_Be_Sure_Of()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, StreamlinePanelTests.Project);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var scheme = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+
+        var unsure = await Call(client, "add_drawing", new() { ["parent"] = "0", ["name"] = "Moon", ["svg"] = Glyph });
+
+        TemplateLibrary.Remember(TemplateLibrary.Prepare(Glyph), "Accent glyph");
+
+        var hinted = await Call(client, "add_drawing", new() { ["parent"] = "0", ["name"] = "Star", ["svg"] = Glyph });
+        var through = await Call(client, "add_drawing", new() { ["parent"] = "0", ["name"] = "Sun", ["svg"] = Glyph, ["template"] = "Accent glyph" });
+
+        TemplateLibrary.Remember(TemplateLibrary.Prepare(Glyph), TemplateLibrary.KeepColoursName);
+
+        var kept = await Call(client, "add_drawing", new() { ["parent"] = "0", ["name"] = "Pluto", ["svg"] = Glyph });
+
+        Assert.All(new[] { unsure, hinted, through, kept }, result => Assert.NotEqual(true, result.IsError));
+        Assert.Equal("Added Moon as 0/2. It is one undo step.", Text(unsure));
+        Assert.Equal(
+            "Added Star as 0/3. It is one undo step.\n"
+            + "The template 'Accent glyph' fits it, and a Streamline import would apply it without asking; to have it so, undo this and add it with template \"Accent glyph\".",
+            Text(hinted));
+        Assert.Equal("Added Sun as 0/4 through the template 'Accent glyph'. It is one undo step.", Text(through));
+
+        // Sure of keeping the colours, which is what a drawing left without a template already does.
+        Assert.Equal("Added Pluto as 0/5. It is one undo step.", Text(kept));
+        Assert.Contains("fill=\"#000000\"", ((ProjectDrawing)scheme.Children[3]).Text, StringComparison.Ordinal);
+        Assert.Contains("fill=\"{{ stateAccentColor }}\"", ((ProjectDrawing)scheme.Children[4]).Text, StringComparison.Ordinal);
         Assert.Empty(_announced);
     }
 
