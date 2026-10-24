@@ -46,11 +46,15 @@ public sealed class AssistantSession : IDisposable
         - get_drawing gives the address keys set_attributes takes. Keys are positions, so read again after an edit that adds, moves or removes elements, or an undo or redo of one.
         - Nodes of the project are named by path from get_project, such as 0/2. Paths are positions too: a remove or move renumbers the nodes after it, and so does an undo or redo of one, so read get_project again before naming another node.
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
-        - A group's or the project's declarations are inherited by every drawing under it; get_declarations reads them; declare adds or changes one, and renames one with every use; set_declarations replaces the whole block; find says where a name is used.
-        - get_problems lists everything wrong across the project's drawings; set_text changes the text between an element's tags.
-        - Every edit is one step the person can undo with Cmd/Ctrl+Z; get_history says what undo and redo would take now, and whose each step is.
-        - get_changes says what changed since the last commit, for a commit message; git_history lists the commits, and get_drawing with a revision reads a drawing as one of them had it.
+        - A group's or the project's declarations are inherited by every drawing under it.
+        - Every edit is one step the person can undo with Cmd/Ctrl+Z.
         """;
+
+    /// <summary>The rules naming tools the small set has not got, for every model but the panel's small one.</summary>
+    internal const string Tooled = "\n- get_declarations reads a group's or the project's declarations; declare adds or changes one, and renames one with every use; set_declarations replaces the whole block; find says where a name is used."
+                                   + "\n- get_problems lists everything wrong across the project's drawings; set_text changes the text between an element's tags."
+                                   + "\n- get_history says what undo and redo would take now, and whose each step is."
+                                   + "\n- get_changes says what changed since the last commit, for a commit message; git_history lists the commits, and get_drawing with a revision reads a drawing as one of them had it.";
 
     /// <summary>Only for a model that has the save, export, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>
     private const string Confirming = "\n- Saving, exporting, removing and committing ask the person first, and so does a step that would throw away edits not saved; don't ask again in words.";
@@ -98,7 +102,7 @@ public sealed class AssistantSession : IDisposable
     public static string SystemPrompt(bool small)
         => small
             ? $"{Instructions}\nThe documentation, by section id (read one with read_doc):\n{AssistantDocs.Contents}"
-            : $"{Instructions}{Confirming}\nThe documentation:\n\n{AssistantDocs.Whole}";
+            : $"{Instructions}{Tooled}{Confirming}\nThe documentation:\n\n{AssistantDocs.Whole}";
 
     /// <summary>Sends what the person typed, with what is open, and streams the reply's text.</summary>
     public async IAsyncEnumerable<string> SendAsync(string text, [EnumeratorCancellation] CancellationToken cancellation)

@@ -71,9 +71,10 @@ public sealed class StudioMcpServer : IAsyncDisposable
         + "- read_doc with an empty id lists the documentation's sections; read one before answering how Studio works.\n"
         + "- Every client connected to this Studio shares one undo and redo: undo takes back the newest edit any of them made, and redo what any of them took back, so check the label each names.\n"
         + "- Studio does not watch the disk: after a file it has open is changed outside it, by an edit or by git in a terminal, call reload before going on, or Studio's next save writes its copy over the change.\n"
-        + "- A step that would throw away edits the person has not saved, or export text its C# cannot write out, asks them through your client and goes on as they answer; where your client cannot ask, the step is refused and says why, or the text is baked.\n"
+        + "- A step that would throw away edits the person has not saved, or export text its C# cannot write out where they have not chosen for good how to lay it out, asks them through your client and goes on as they answer; where your client cannot ask, the step is refused and says why, or the text is baked.\n"
         + "- Resources: each drawing as svg-studio://drawing/<path>.svg, .png and .cs, the drawing in front as svg-studio://front.svg, .png and .cs, and the docs' sections; a drawing's path is a position, as get_project's are.\n"
-        + AssistantSession.Rules;
+        + AssistantSession.Rules
+        + AssistantSession.Tooled;
 
     private readonly AssistantTools _tools;
 
@@ -434,10 +435,10 @@ public sealed class StudioMcpServer : IAsyncDisposable
         return $"""
             Make {what} a parameter of {(named is null ? "the drawing in front" : $"the drawing at node path {node!.Trim()}")} in Svg Studio, so code can set it, keeping how the drawing looks.
 
-            1. Read the drawing with get_drawing{named}, and get_node{named} for the names it inherits; read_doc svg-expressions#1-2-the-declaration-block and svg-expressions#2-where-an-expression-can-go.
+            1. Read the drawing with get_drawing{named}, which lists the names it inherits; read_doc svg-expressions#1-2-the-declaration-block and svg-expressions#2-where-an-expression-can-go.
             2. Use an inherited parameter where one fits. Otherwise declare one with declare, giving it a type and, as its default, the value the drawing has now.
             3. Write {Written} in the value's place with set_attributes.
-            4. Render it{named} with values giving the parameter two other settings, and once with none, which must look as it did before; then run get_problems on it.
+            4. Render it{named} with values giving the parameter two other settings, and once with none, which must look as it did before; then read get_drawing{named} again for its problems.
             """;
     }
 

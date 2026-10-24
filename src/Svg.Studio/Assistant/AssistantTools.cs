@@ -273,17 +273,17 @@ public sealed class AssistantTools
         Add(Move, "move", "Moves a group or drawing into another group.");
         Add(GetDeclarations, "get_declarations", "Reads the declarations block a group, or the project, gives every drawing under it.");
         Add(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step.");
-        Add(Declare, "declare", "Adds one parameter or let to a drawing, a group or the project, or changes one, as a single undo step: what is left out stays as it is, and to renames it with every use, through every drawing and group under a group or the project (not the project's templates). A new parameter needs a type, a new let an expression; a name a group above declares is changed on that group.");
+        Add(Declare, "declare", "Adds one parameter or let to a drawing, a group or the project, or changes one, as a single undo step: what is left out stays as it is, and to renames it with every use, through every drawing and group under a group or the project (not the project's templates). A new parameter needs a type, a new let an expression; a name a group above declares is refused, naming the group to declare it on.");
         Add(Find, "find", "Finds where something is in the project, each drawing as it stands: group and drawing names, element ids, attribute values and text between tags containing the words given, and the {{ }} expressions and lets naming a declared name, matched whole. Does not search the project's templates.");
         Add(SetNode, "set_node", "Changes one setting of a group, a drawing or the project, as a single undo step. cache, helperScope and skiaSharp are the project's alone, and name, x and y a group's or drawing's; a width or height clears a scale, and a scale both.");
         Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Given a path, saves a project never saved, or a drawing of no project's, there: the drawing's tab then saves to it, and its undo history starts again.");
         Add(Export, "export", "Writes what is open to a file outside the project: with a project open, every drawing of it as one C# file, as Export in the File menu does, after taking in the edits of the tab in front; with none, the drawing in front, as C# where the path ends .cs and as SVG where it ends .svg. Text the project's C# cannot write out is laid out as the person chooses where they can be asked, and baked where not, unless they chose for good.");
         Add(NewProject, "new_project", "Starts a new, empty project in place of the one open, closing its tabs; where it or a tab of it holds changes not saved, asks the person whether to throw them away, and is refused where they cannot be asked. Nothing is written until save is given a path.");
         Add(OpenFile, "open_file", "Opens a file by its full path: a drawing (.svg) in a tab of its own, or a project (.svgstudio) in place of the one open, closing its tabs, which over changes not saved in it or a tab of it asks the person whether to throw them away, and is refused where they cannot be asked. An svgc project (.svgcproj) or a PaintCode document (.pcvd) is converted into a new project, held in Studio until save is given a path.");
-        Add(Reload, "reload", "Reads the open project again from its file, or the drawing of no project's in front from its own, after it was changed outside Studio, which does not watch the disk. Over edits not saved, asks the person whether to throw them away, and is refused where they cannot be asked. The project's tabs open again where their path still names the same node; the undo history starts again.");
+        Add(Reload, "reload", "Reads the open project again from its file after it was changed outside Studio, which does not watch the disk; while a drawing of no project's is in front, reads that drawing from its own file instead, and says the project was not read. Over edits not saved, asks the person whether to throw them away, and is refused where they cannot be asked. The project's tabs open again where their path still names the same node; the undo history starts again.");
         Add(Remove, "remove", "Removes a group or drawing from the project; where a tab under it holds edits not yet saved into the project, asks the person whether to throw them away, and is refused where they cannot be asked.");
         Add(GetChanges, "get_changes", "Lists what has changed in the project since its last commit, edits not yet saved included, as Studio's Changes pane compares it: each group or drawing added, removed, changed, moved or given new settings, and what about it changed, for a commit message; with since, against another commit, branch or tag. Edits held in a tab are left out until saved into the project.");
-        Add(GitHistory, "git_history", "Lists the commits that touched the project's file, newest first, each with the hash get_drawing, render and get_changes take as a revision.");
+        Add(GitHistory, "git_history", "Lists the commits that touched the project's file, newest first, each with the hash get_drawing and get_changes take as a revision.");
         Add(GitCommit, "git_commit", "Saves and commits the project to its git repository.");
 
         return tools;
@@ -2013,9 +2013,10 @@ public sealed class AssistantTools
                 return "The person said no; nothing was saved.";
             }
 
-            if (Front() != shown)
+            // A project the person saved meanwhile is written where it is, whatever path is given.
+            if (Front() != shown || target is { } && alone is null && _window.Workspace?.Document.Path is { })
             {
-                return "What is in front changed while the person was asked, so nothing was saved; get_context says what is in front now.";
+                return Changed("Nothing was saved");
             }
 
             var replacing = target is { } && File.Exists(target);
@@ -2163,7 +2164,7 @@ public sealed class AssistantTools
 
             var held = _window.HoldingEdits();
             var footer = (held.Count > 0 ? $"Not in it: edits held in the tabs of {string.Join(", ", held.Select(Named))}, until each is saved into the project.\n" : null)
-                         + $"get_drawing or render with revision \"{revision}\" shows a drawing as git has it there.";
+                         + $"get_drawing with revision \"{revision}\" reads a drawing as git has it there.";
 
             if (changes.Count == 0)
             {
@@ -2422,9 +2423,9 @@ public sealed class AssistantTools
             SvgTextLayout? layout = null;
             var remember = false;
 
-            // As the File menu's export asks it, and worked out only where it can be asked; otherwise the
-            // text is baked, as get_code builds it. The survey does not hold the window, so what it read
-            // is read again before asking, and after.
+            // As the File menu's export asks it, and worked out only where it can be asked; otherwise as the
+            // person chose for good, or baked, as get_code builds it. The survey does not hold the window,
+            // so what it read is read again before asking, and after.
             var surveying = _window.Workspace is { } && StudioSettings.RelaxedText == RelaxedTextAnswer.Ask && CanAsk();
             var surveyed = surveying ? _window.Surveyed() : default;
             var frozen = surveying ? await _window.FrozenAsync().ConfigureAwait(true) : Array.Empty<string>();
@@ -2455,7 +2456,7 @@ public sealed class AssistantTools
 
             if (Front() != shown)
             {
-                return "What is in front changed while the person was asked, so nothing was written; get_context says what is in front now.";
+                return Changed("Nothing was written");
             }
 
             // Read once asked: the person can bring another of the project's tabs forward before answering.
@@ -2554,9 +2555,12 @@ public sealed class AssistantTools
     {
         if (_window.FrontNode is null && _window.FrontViewer is { } alone)
         {
+            // A client reloading after git changed the project would otherwise take it for read.
+            var besides = _window.Workspace is { } open ? $" The project {open.Name} was not read again: open brings a tab of it forward, and reload then reads it." : null;
+
             if (alone.DocumentPath is not { } drawing)
             {
-                return "The drawing in front has no file to read again.";
+                return "The drawing in front has no file to read again." + besides;
             }
 
             var (answer, changed) = await Choose("Nothing was reloaded", () => ReferenceEquals(_window.FrontViewer, alone) && alone.IsSourceModified
@@ -2580,13 +2584,13 @@ public sealed class AssistantTools
 
             if (File.Exists(drawing) && string.Equals(File.ReadAllText(drawing), alone.Source, StringComparison.Ordinal))
             {
-                return Report("Nothing changed: the file holds what Studio has.", null);
+                return Report($"Nothing changed: {drawing} holds what Studio has.{besides}", null);
             }
 
             var faults = new List<string>();
 
             return await _window.LoadAsync(alone, drawing, faults).ConfigureAwait(true)
-                ? Report($"Read {drawing} again. Its undo history started again.", "reload")
+                ? Report($"Read {drawing} again. Its undo history started again.{besides}", "reload")
                 : string.Join("\n", faults.Append("The tab still shows what it had."));
         }
 
@@ -2629,15 +2633,17 @@ public sealed class AssistantTools
             return kept;
         }
 
-        if (held.Count > 0 && agreed is null)
+        // Nobody is asked while icons are on their way in, and taking the edits back would not let the
+        // reload through, so closing says why instead.
+        if (held.Count > 0 && agreed is null && !_window.Streamline.Busy)
         {
             return $"Nothing was reloaded: changes not saved are held in {string.Join(", ", held)}. Saving them writes Studio's copy over what changed on disk; take them back first, or close the project unsaved in Studio.";
         }
 
-        // Read again all the same once the person has said to throw away what is held.
-        if (agreed is null && string.Equals(read, workspace.Document.ToXml(), StringComparison.Ordinal))
+        // Over what is held it is read again all the same: the person has said to throw it away, or closing says why not.
+        if (held.Count == 0 && string.Equals(read, workspace.Document.ToXml(), StringComparison.Ordinal))
         {
-            return Report("Nothing changed: the file holds what Studio has.", null);
+            return Report($"Nothing changed: {path} holds what Studio has.", null);
         }
 
         var front = _window.FrontNode;

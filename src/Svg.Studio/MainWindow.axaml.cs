@@ -470,7 +470,7 @@ public partial class MainWindow : Window
 
             // Opening one converts it, which is a different thing from opening a drawing and is
             // asked about rather than done. Where it goes is not asked here: a conversion is held in
-            // the window until it is saved, and the save panel is what asks that.
+            // the window until it is saved.
             if (IsPaintCode(path))
             {
                 var asked = notes is null
@@ -624,7 +624,7 @@ public partial class MainWindow : Window
     /// <remarks>
     /// One project, with the drawings in it: what the document has to say is what a project is made
     /// of now, so nothing is written beside it and nothing is named — the conversion is held in the
-    /// window until somebody has looked at it and been asked where it goes.
+    /// window until it is saved.
     /// </remarks>
     /// <param name="integers">
     /// Whether a whole-valued number variable becomes an <c>integer</c> parameter -- a guess the
@@ -1069,7 +1069,7 @@ public partial class MainWindow : Window
             return null;
         }
 
-        var unsaved = _tabs.Items.OfType<TabItem>().Where(Owned).Select(Unsaved).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+        var unsaved = Unsaved(owned: true);
 
         return unsaved.Count > 0 || Unwritten is { } ? Describe(unsaved, Unwritten) : null;
     }
@@ -3925,12 +3925,12 @@ public partial class MainWindow : Window
     /// <summary>The project's node in front, or null for a drawing of its own or nothing.</summary>
     internal ProjectNode? FrontNode => (_tabs.SelectedItem as TabItem)?.Tag as ProjectNode;
 
-    /// <summary>The tabs holding changes that are not on disk.</summary>
-    private IReadOnlyList<string> Unsaved()
+    /// <summary>The tabs holding changes that are not on disk: every one, or only the project's.</summary>
+    private IReadOnlyList<string> Unsaved(bool owned = false)
         => _tabs.Items.OfType<TabItem>()
+            .Where(item => !owned || Owned(item))
             .Select(Unsaved)
-            .Where(name => name is { })
-            .Select(name => name!)
+            .OfType<string>()
             .Distinct(StringComparer.Ordinal)
             .ToList();
 

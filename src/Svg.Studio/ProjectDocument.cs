@@ -988,7 +988,7 @@ public sealed class ProjectDocument
     /// <summary>The file this project is, or null while it is not one yet.</summary>
     /// <remarks>
     /// Null is the ordinary state of a project nobody has saved: a conversion and a new project are
-    /// both made in the window and are not named until somebody is asked where to put them.
+    /// both made in the window and are not named until they are saved.
     /// </remarks>
     public string? Path { get; private set; }
 

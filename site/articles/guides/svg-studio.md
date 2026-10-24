@@ -328,34 +328,35 @@ project, its drawings and each node's own and inherited settings, lists every pr
 the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
 reads and changes a group's declarations, declares or renames one parameter or let with every use of
 it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
-Before a commit, `get_changes` tells it what has changed since the last one, edits not yet saved
-included, as the Changes panel would; `git_history` lists the project's commits, and `get_drawing` and
-`render` take any of them as a revision to show a drawing as it was there. It lists the project's
-templates and how an import would rank them for a drawing, makes one from a drawing, and brings a
-drawing in through one when it names it. It can also see a drawing, which the panel cannot: `render`
-draws one as an image, at several sizes side by side and on light and dark, with parameter values of
-its own, or as a replacement or a new drawing would look before either is applied. With a Streamline
-key set in Settings, `streamline_search` shows it a sheet of Streamline's icons and
-`streamline_import` brings them in through the project's templates, both with your key and against
-your plan's quota.
+Before a commit, `get_changes` tells it what has changed since the last one, as the Changes panel
+would, counting what the project holds unsaved but not edits still held in a tab; `git_history` lists
+the project's commits, and `get_drawing` and `render` take any of them as a revision to show a
+drawing as it was there. It lists the project's templates and how an import would rank them for a
+drawing, makes one from a drawing, and brings a drawing in through one when it names it. It can also
+see a drawing, which the panel cannot: `render` draws one as an image, at several sizes side by side
+and on light and dark, with parameter values of its own, or as a replacement or a new drawing would
+look before either is applied. With a Streamline key set in Settings, `streamline_search` shows it a
+sheet of Streamline's icons and `streamline_import` brings them in through the project's templates,
+both with your key and against your plan's quota.
 
 It works with files by their full paths: `save` writes a project that was never saved, or a drawing
 of no project's, to a path it names; `export` writes the project as one C# file, or with no project
 open the drawing in front as SVG or C#; `new_project` starts an empty one; `open_file` opens a drawing,
 a project, or an svgc project or PaintCode document to convert; and `reload` reads the open project
-or drawing again from its file. Studio does not watch the disk, so after a file it has open is changed
-elsewhere — by another editor, or a `git pull` in a terminal — Claude Code is told to call `reload`,
-or Studio's next save would write its copy back over the change. Where Studio would stop to ask you
-something, a tool never opens a dialog. Removing a node whose tab holds edits you have not saved,
-starting or opening a project, or reloading, over unsaved work, asks you in Claude Code whether to
-throw that work away, and exporting text the C# cannot write out asks whether to bake it or relax it,
-this once or from now on; each goes on as you answer, and does nothing where what it asked about
-changed before you answered. Where the client cannot ask, the first are refused, saying why, and the
-choice stays yours in Studio, as it does over a recovery copy waiting to be restored. Otherwise a tool
-goes on as you chose before and says what it did: a PaintCode document is converted on the terms you
-last picked, and text an export cannot ask about is baked unless you chose to relax it for good. A
-project part way through a merge still opens if its file reads, and Studio offers you the merge when
-you next come back to it; one whose file holds the conflict is refused.
+again from its file, or, while a drawing of no project's is in front, that drawing instead. Studio
+does not watch the disk, so after a file it has open is changed elsewhere — by another editor, or a
+`git pull` in a terminal — Claude Code is told to call `reload`, or Studio's next save would write
+its copy back over the change. Where Studio would stop to ask you something, a tool never opens a
+dialog. Removing a node whose tab holds edits you have not saved, starting or opening a project, or
+reloading, over unsaved work, asks you in Claude Code whether to throw that work away, and exporting
+text the C# cannot write out asks whether to bake it or relax it, this once or from now on; each goes
+on as you answer, and does nothing where what it asked about changed before you answered. Where the
+client cannot ask, the first are refused, saying why, and the choice stays yours in Studio, as it
+does over a recovery copy waiting to be restored. Otherwise a tool goes on as you chose before and
+says what it did: a PaintCode document is converted on the terms you last picked, and text an export
+cannot ask about is baked unless you chose to relax it for good. A project part way through a merge
+still opens if its file reads, and Studio offers you the merge when you next come back to it; one
+whose file holds the conflict is refused.
 
 You can hand Claude Code a drawing yourself, as a resource: `@svg-studio:svg-studio://front.png`
 attaches the drawing in front as an image, `front.svg` its source and `front.cs` its C#, and
@@ -381,14 +382,14 @@ back and says so, and the next is the one that reaches yours. Its `redo` puts ba
 took, the same way: while a step you took back since is in front of one, it puts nothing back and
 names yours; once it makes a new edit, or has nothing of its undo's left, it puts back what **Redo**
 in the Edit menu would, and if you have put back or built over all its undo took, the first `redo`
-after puts nothing back and says so. `get_history` tells it what each would do now, and names every
-step of the drawing in front and of the project, newest first. Neither takes back or puts back a step
-that could close a tab holding edits you have not saved, which Studio would do without asking: one of
-its own that adds or removes what the tab is on, or, with none of its own left, any step of the
-project's. Nor does either step a drawing's text in the project under a tab you have since opened on
-it and typed in, whose next save would write over it. It names the tab instead. Saving, exporting,
-removing a node and committing are marked as destructive, so Claude Code asks you before it does them;
-Studio does not ask again.
+after puts nothing back and says so. `get_history` tells it what each would do now, and names the
+steps of the drawing in front and of the project, newest first, up to fifty each way. Neither takes
+back or puts back a step that could close a tab holding edits you have not saved, which Studio would
+do without asking: one of its own that adds or removes what the tab is on, or, with none of its own
+left, any step of the project's. Nor does either step a drawing's text in the project under a tab you
+have since opened on it and typed in, whose next save would write over it. It names the tab instead.
+Saving, exporting, removing a node and committing are marked as destructive, so Claude Code asks you
+before it does them; Studio does not ask again.
 
 Only one Studio can hold a port. A second one open at the same time says in Settings that the port is
 taken; give it another and copy its command separately.

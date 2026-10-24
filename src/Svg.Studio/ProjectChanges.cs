@@ -325,7 +325,7 @@ public static class ProjectChanges
     /// </summary>
     /// <remarks>
     /// x/y are one entry because a place is both or neither — merged one at a time they could come out
-    /// half of each side. Text is compared without its indentation, which a move to another depth changes.
+    /// half of each side.
     /// </remarks>
     internal static Dictionary<string, string?> Aspects(ProjectNode? node)
     {

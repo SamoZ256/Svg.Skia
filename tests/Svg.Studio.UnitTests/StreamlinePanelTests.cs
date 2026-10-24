@@ -1410,10 +1410,13 @@ public class StreamlinePanelTests : IDisposable
 
     /// <remarks>
     /// Closing the project ends the import going into it, which the person started and a tool has no say
-    /// over; so the person is not asked whether to throw away work for a close that will not happen.
+    /// over; so the person is not asked whether to throw away work for a close that will not happen,
+    /// and a reload is not refused for that work, as taking it back would not let the reload through.
     /// </remarks>
-    [AvaloniaFact]
-    public async Task A_New_Project_From_A_Tool_Waits_For_A_Family_On_Its_Way_Into_The_Open_One()
+    [AvaloniaTheory]
+    [InlineData("new_project")]
+    [InlineData("reload")]
+    public async Task A_Tool_Closing_The_Project_Waits_For_A_Family_On_Its_Way_Into_It(string closing)
     {
         var streamline = Catalogue();
         var held = new TaskCompletionSource();
@@ -1431,7 +1434,7 @@ public class StreamlinePanelTests : IDisposable
                 return Task.FromResult<AssistantTools.Answer?>(new AssistantTools.Answer(question.Choices[0]));
             }
         };
-        var tool = tools.For(small: false, docs: false).OfType<Microsoft.Extensions.AI.AIFunction>().Single(function => function.Name == "new_project");
+        var tool = tools.For(small: false, docs: false).OfType<Microsoft.Extensions.AI.AIFunction>().Single(function => function.Name == closing);
 
         window.Streamline.ConfirmFamily = _ => Task.FromResult(false);
         workspace.Edit();

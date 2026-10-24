@@ -362,6 +362,35 @@ public class AssistantTests : IDisposable
         Assert.Contains("Paths are positions", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
     }
 
+    /// <remarks>
+    /// The rules are in every model's prompt, and named the large set's tools to the small one. Those of
+    /// one word are words too, so declare and find are looked for alone; move, remove and redo are the
+    /// person's as well as tools.
+    /// </remarks>
+    [AvaloniaFact]
+    public void A_Small_Model_Is_Told_Of_No_Tool_It_Has_Not_Got()
+    {
+        var window = new MainWindow();
+        var small = new AssistantTools(window).For(small: true, docs: true).Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+        var told = AssistantSession.SystemPrompt(small: true);
+
+        Assert.All(Regex.Matches(told, @"\b[a-z]+_[a-z_]+\b").Select(match => match.Value), named => Assert.Contains(named, small));
+        Assert.DoesNotMatch(@"\b(declare|find)\b", told);
+        Assert.Contains("get_changes says what changed since the last commit", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
+    }
+
+    /// <remarks>get_context and render are the MCP server's alone, which a panel model told to call one could not.</remarks>
+    [AvaloniaFact]
+    public void The_Panels_Tools_Name_No_Tool_Only_Claude_Code_Has()
+    {
+        var window = new MainWindow();
+        var panel = new AssistantTools(window).For(small: false, docs: false).OfType<AIFunction>().ToList();
+        var absent = AssistantTools.Titles.Keys.Except(panel.Select(tool => tool.Name), StringComparer.Ordinal).ToList();
+
+        Assert.Contains("render", absent);
+        Assert.All(panel, tool => Assert.DoesNotMatch($@"\b({string.Join("|", absent)})\b", tool.Description + tool.JsonSchema.GetRawText()));
+    }
+
     [AvaloniaFact]
     public async Task A_Small_Model_Is_Not_Told_There_Is_Anything_To_Save()
     {
@@ -2967,11 +2996,39 @@ public class AssistantTests : IDisposable
             return result?.ToString();
         }
 
-        Assert.Equal("What is in front changed while the person was asked, so nothing was saved; get_context says what is in front now.", await Asked("save", copy));
-        Assert.Equal("What is in front changed while the person was asked, so nothing was written; get_context says what is in front now.", await Asked("export", exported));
+        Assert.Equal("Nothing was saved: what the person was asked about changed while they answered; call it again to go on from things as they are now.", await Asked("save", copy));
+        Assert.Equal("Nothing was written: what the person was asked about changed while they answered; call it again to go on from things as they are now.", await Asked("export", exported));
         Assert.False(File.Exists(copy));
         Assert.False(File.Exists(exported));
         Assert.Equal(dot, Assert.IsType<SvgViewer>(items[1].Content).DocumentPath);
+    }
+
+    /// <remarks>
+    /// Saved meanwhile with ⌘S, the project is written where it is from then on, and a path no longer
+    /// applies: the save answered "Saved as" the path it was given, where nothing was written.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Project_Saved_While_The_Person_Is_Asked_Is_Not_Said_To_Be_Saved_At_The_Path_Given()
+    {
+        var window = await Host(Write("star.svg", Drawing));
+        var given = Path.Combine(_directory, "Icons.svgstudio");
+        var chosen = Path.Combine(_directory, "Mine.svgstudio");
+
+        await window.NewProjectAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        window.AskWhereToSave = _ => Task.FromResult<string?>(chosen);
+
+        var tools = new AssistantTools(window)
+        {
+            Confirm = async _ => await window.SaveAsync()
+        };
+        var result = await tools.For(small: false, docs: false).OfType<AIFunction>().Single(function => function.Name == "save")
+            .InvokeAsync(new AIFunctionArguments { ["path"] = given });
+
+        Assert.Equal("Nothing was saved: what the person was asked about changed while they answered; call it again to go on from things as they are now.", result?.ToString());
+        Assert.False(File.Exists(given));
+        Assert.Equal(chosen, window.Workspace!.Document.Path);
     }
 
     [AvaloniaFact]

@@ -246,6 +246,7 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.Contains("shares one undo", client.ServerInstructions, StringComparison.Ordinal);
         Assert.Contains("Paths are positions", client.ServerInstructions, StringComparison.Ordinal);
+        Assert.Contains("get_changes says what changed since the last commit", client.ServerInstructions, StringComparison.Ordinal);
         Assert.Contains("asks them through your client", client.ServerInstructions, StringComparison.Ordinal);
         Assert.Contains("svg-studio://front.svg", client.ServerInstructions, StringComparison.Ordinal);
     }
@@ -913,7 +914,7 @@ public class StudioMcpServerTests : IDisposable
             settings (project): namespace "Demo.Icons" → "{named[..60]}…"; its templates changed, adding New; dropping Gone; editing Tinted
             settings 0 group Badges: its declarations changed, adding edge and dropping tint
             moved 0/0 drawing Round: moved among the rows beside it
-            get_drawing or render with revision "HEAD" shows a drawing as git has it there.
+            get_drawing with revision "HEAD" reads a drawing as git has it there.
             """,
             Text(changes));
         Assert.Empty(_announced);
@@ -2412,7 +2413,7 @@ public class StudioMcpServerTests : IDisposable
             Tabs(window).Items.OfType<TabItem>().Select(item => item.Tag));
         Assert.Same(now.Children[0], ((TabItem)Tabs(window).SelectedItem!).Tag);
         Assert.NotEqual(true, again.IsError);
-        Assert.Equal("Nothing changed: the file holds what Studio has.", Text(again));
+        Assert.Equal($"Nothing changed: {path} holds what Studio has.", Text(again));
         Assert.Same(now, window.Workspace.Document.Root);
         Assert.Empty(_announced);
     }
@@ -2541,7 +2542,7 @@ public class StudioMcpServerTests : IDisposable
         var refused = await Call(client, "reload", new());
 
         Assert.NotEqual(true, same.IsError);
-        Assert.Equal("Nothing changed: the file holds what Studio has.", Text(same));
+        Assert.Equal($"Nothing changed: {path} holds what Studio has.", Text(same));
         Assert.NotEqual(true, reloaded.IsError);
         Assert.Equal($"Read {path} again. Its undo history started again.", Text(reloaded));
         Assert.True(unloadable.IsError);
@@ -2550,6 +2551,39 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(refused.IsError);
         Assert.StartsWith("Nothing was reloaded: the drawing in front holds edits not saved. ", Text(refused), StringComparison.Ordinal);
         Assert.Contains("#ff0000", viewer.Source, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// The drawing in front is read in place of the project, which was said as "the file" alone; a client
+    /// reloading after git changed the project was told nothing changed, and the next save wrote it back.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Reload_With_A_Drawing_Of_No_Project_In_Front_Names_Its_File_And_Says_The_Project_Was_Not_Read()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var drawing = Path.Combine(_directory, "dot.svg");
+
+        File.WriteAllText(path, Project);
+        File.WriteAllText(drawing, Drawing);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        await Call(client, "open_file", new() { ["path"] = drawing });
+        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+
+        var alone = await Call(client, "reload", new());
+
+        await Call(client, "open", new() { ["node"] = "0" });
+
+        var project = await Call(client, "reload", new());
+
+        Assert.NotEqual(true, alone.IsError);
+        Assert.Equal($"Nothing changed: {drawing} holds what Studio has. The project icons.svgstudio was not read again: open brings a tab of it forward, and reload then reads it.", Text(alone));
+        Assert.NotEqual(true, project.IsError);
+        Assert.StartsWith($"Read {path} again; ", Text(project), StringComparison.Ordinal);
+        Assert.Contains("#0000ff", ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).Text, StringComparison.Ordinal);
         Assert.Empty(_announced);
     }
 
@@ -3198,6 +3232,12 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.Contains("(project)", top, StringComparison.Ordinal);
         Assert.Contains("svg-expressions#2-where-an-expression-can-go", Assert.IsType<TextContentBlock>(Assert.Single((await client.GetPromptAsync("add_parameter", new Dictionary<string, object?> { ["what"] = "x" })).Messages).Content).Text, StringComparison.Ordinal);
+
+        // Left out, a node is the drawing in front, which get_node and get_problems read as the project.
+        foreach (var (name, arguments) in new[] { ("review_drawing", new Dictionary<string, object?>()), ("add_parameter", new Dictionary<string, object?> { ["what"] = "x" }) })
+        {
+            Assert.DoesNotMatch(@"\b(get_node|get_problems)\b(?! with node)", Assert.IsType<TextContentBlock>(Assert.Single((await client.GetPromptAsync(name, arguments)).Messages).Content).Text);
+        }
 
         // What the pattern above cannot see: tools named in one word, and the arguments and values the
         // prompts give them, which a rename would leave them naming.
