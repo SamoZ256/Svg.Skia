@@ -2863,6 +2863,49 @@ public class MainWindowProjectTests : IDisposable
         Assert.True(window.Workspace!.IsEdited);
     }
 
+    /// <remarks>
+    /// What a tool had the person agree to, handed down: it closes unasked only while that is all it would
+    /// throw away, as a conversion runs for seconds between the question and the close.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Close_Agreed_To_Asks_Again_Where_More_Would_Be_Lost_Than_Was_Agreed()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var asked = new List<string>();
+        var notes = new List<string>();
+
+        window.ConfirmDiscard = message =>
+        {
+            asked.Add(message);
+
+            return Task.FromResult(false);
+        };
+
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+        Panel(window, "Large").Edit("scale", "4");
+
+        // The window's own words for it, as the question put them.
+        Assert.False(await window.CloseProjectAsync());
+
+        var agreed = Assert.Single(asked);
+
+        Assert.True(window.Move(workspace.Document.Root.Children[0], workspace.Document.Root.Children[1]));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(await window.CloseProjectAsync(notes, agreed));
+        Assert.StartsWith("icons.svgstudio and Large have changes that have not been saved. Nothing was closed", Assert.Single(notes), StringComparison.Ordinal);
+        Assert.False(await window.CloseProjectAsync(null, agreed));
+        Assert.Equal(new[] { agreed, "icons.svgstudio and Large have changes that have not been saved." }, asked);
+        Assert.Same(workspace, window.Workspace);
+
+        Assert.True(await window.CloseProjectAsync(notes, asked[1]));
+        Assert.Equal(2, asked.Count);
+        Assert.Null(window.Workspace);
+    }
+
     /// <remarks>The panels are rearranged for the tree and again for the changes panel, and the drawing in front before was put back over the project's tab.</remarks>
     [AvaloniaFact]
     public async Task A_Project_Opened_Over_A_Drawing_Of_Its_Own_Comes_Up_On_Its_Settings()

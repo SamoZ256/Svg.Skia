@@ -1056,12 +1056,13 @@ public sealed class ProjectDocument
     /// Where the build writes is not among what this carries: the project names no file, so the
     /// caller that asked for one lays it over these settings.
     /// </remarks>
-    /// <param name="one">A drawing to build alone, from its text as it stands, such as a tab's buffer; every drawing, each from its text in the project, where none is given.</param>
-    public SvgcProject Flatten((ProjectDrawing Drawing, string Text)? one = null)
+    /// <param name="one">A drawing to build from its text as it stands, such as a tab's buffer; every drawing, each from its text in the project, where none is given.</param>
+    /// <param name="alone">Whether <paramref name="one"/> is built alone, or with every other drawing from its text in the project.</param>
+    public SvgcProject Flatten((ProjectDrawing Drawing, string Text)? one = null, bool alone = true)
     {
         var items = new List<SvgcProjectItem>();
 
-        foreach (var drawing in one is { } only ? new[] { only.Drawing } : Root.Drawings)
+        foreach (var drawing in one is { } only && alone ? new[] { only.Drawing } : Root.Drawings)
         {
             var size = drawing.ScopedSizeOwner;
 
@@ -1082,7 +1083,7 @@ public sealed class ProjectDocument
                 // What it is built from rather than what it is: the groups above it declare into it
                 // on the way, and a build that read the drawing alone would generate a Draw with
                 // none of those parameters on it.
-                ProjectDeclarations.Built(drawing, one?.Text ?? drawing.Text)));
+                ProjectDeclarations.Built(drawing, one is { } given && ReferenceEquals(given.Drawing, drawing) ? given.Text : drawing.Text)));
         }
 
         return new SvgcProject(

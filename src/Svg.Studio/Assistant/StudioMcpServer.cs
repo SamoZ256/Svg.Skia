@@ -4,13 +4,14 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -33,8 +34,9 @@ namespace Svg.Studio;
 /// </summary>
 /// <remarks>
 /// Asking before a save, an export, a removal or a commit is the client's: those tools are marked
-/// destructive and Studio does not ask again. Every other edit is one step on the window's history,
-/// labelled "Claude Code: …" in the Edit menu.
+/// destructive and Studio does not ask again. What Studio asks itself, whether to throw away work not
+/// saved or how to lay out text an export cannot write out, it asks through the client. Every other
+/// edit is one step on the window's history, labelled "Claude Code: …" in the Edit menu.
 /// </remarks>
 public sealed class StudioMcpServer : IAsyncDisposable
 {
@@ -45,23 +47,43 @@ public sealed class StudioMcpServer : IAsyncDisposable
 
     public const string TokenAccount = "Studio MCP token";
 
+    private const string Scheme = "svg-studio://";
+
+    /// <summary>An expression as a prompt shows one, which an interpolated raw string cannot hold as it is.</summary>
+    private const string Written = "{{ name }}";
+
+    /// <summary>How many drawings a page of the resource list holds; VectorIconsResource's project has over a thousand.</summary>
+    private const int Page = 200;
+
+    /// <summary>What a drawing is read as, by the extension ending its resource's URI.</summary>
+    private static readonly (string Extension, string Mime, string Noun, string Description)[] s_kinds =
+    {
+        ("svg", "image/svg+xml", "source", "The drawing's SVG source as get_drawing gives it: the text in its tab where one holds it."),
+        ("png", "image/png", "image", "The drawing as render draws it given nothing but the drawing: at the size it is built at, on transparent."),
+        ("cs", "text/x-csharp", "C#", "The C# get_code generates for the drawing alone, whole.")
+    };
+
+    private static readonly Regex s_drawing = new(@"^svg-studio://(?:drawing/(?<path>\d+(?:/\d+)*)|front)\.(?<kind>svg|png|cs)$", RegexOptions.CultureInvariant);
+
     private const string Instructions =
         "These tools read and edit what is open in Svg Studio, a desktop editor for SVG drawings that are built into C# (SkiaSharp) code.\n"
         + "- Call get_context before acting, to see the project, the tab in front and what is selected.\n"
         + "- read_doc with an empty id lists the documentation's sections; read one before answering how Studio works.\n"
         + "- Every client connected to this Studio shares one undo and redo: undo takes back the newest edit any of them made, and redo what any of them took back, so check the label each names.\n"
         + "- Studio does not watch the disk: after a file it has open is changed outside it, by an edit or by git in a terminal, call reload before going on, or Studio's next save writes its copy over the change.\n"
+        + "- A step that would throw away edits the person has not saved, or export text its C# cannot write out, asks them through your client and goes on as they answer; where your client cannot ask, the step is refused and says why, or the text is baked.\n"
+        + "- Resources: each drawing as svg-studio://drawing/<path>.svg, .png and .cs, the drawing in front as svg-studio://front.svg, .png and .cs, and the docs' sections; a drawing's path is a position, as get_project's are.\n"
         + AssistantSession.Rules;
 
     private readonly AssistantTools _tools;
 
-    /// <summary>Whether the call in flight reported success, which every tool that did what it was asked does and a refusal does not.</summary>
+    /// <summary>The call in flight.</summary>
     /// <remarks>
     /// Flowing with the call rather than one field, because a client can make calls in parallel and
     /// they interleave on the UI thread; Avalonia's dispatcher runs each under the context it was
     /// invoked from.
     /// </remarks>
-    private readonly AsyncLocal<StrongBox<bool>?> _reported = new();
+    private readonly AsyncLocal<Call?> _call = new();
 
     private readonly SemaphoreSlim _applying = new(1, 1);
     private WebApplication? _app;
@@ -69,12 +91,19 @@ public sealed class StudioMcpServer : IAsyncDisposable
 
     public StudioMcpServer(MainWindow window)
     {
-        _tools = new AssistantTools(window) { Confirm = _ => Task.FromResult(true), Who = "Claude Code" };
+        _tools = new AssistantTools(window)
+        {
+            Confirm = _ => Task.FromResult(true),
+            Ask = Ask,
+            CanAsk = CanAsk,
+            Answered = () => _call.Value?.Request?.Params?.InputResponses is { Count: > 0 },
+            Who = "Claude Code"
+        };
         _tools.Called += (_, _) =>
         {
-            if (_reported.Value is { } reported)
+            if (_call.Value is { } call)
             {
-                reported.Value = true;
+                call.Reported = true;
             }
         };
     }
@@ -229,7 +258,44 @@ public sealed class StudioMcpServer : IAsyncDisposable
                 options.ServerInstructions = Instructions;
             })
             .WithHttpTransport()
-            .WithTools(Tools());
+            .WithTools(Tools())
+
+            // Handlers rather than resources: a collection of them would be advertised as changing, and
+            // no notification says when a drawing does.
+            .WithListResourcesHandler(ListResources)
+            .WithListResourceTemplatesHandler((_, _) => new ValueTask<ListResourceTemplatesResult>(new ListResourceTemplatesResult
+            {
+                ResourceTemplates = s_kinds.Select(kind => new ResourceTemplate
+                {
+                    UriTemplate = $"{Scheme}drawing/{{+path}}.{kind.Extension}",
+                    Name = $"drawing.{kind.Extension}",
+                    Title = $"A drawing's {kind.Noun}",
+                    Description = kind.Description + " The path is a node path as get_project lists it, such as 1/0, and it is a position: a move, a remove or an undo of one renumbers the nodes after it, so list again rather than keep one.",
+                    MimeType = kind.Mime
+                }).ToList()
+            }))
+            .WithReadResourceHandler(ReadResource)
+            .WithPrompts(new[]
+            {
+                McpServerPrompt.Create(NewDrawing, new McpServerPromptCreateOptions
+                {
+                    Name = "new_drawing",
+                    Title = "Draw a new drawing",
+                    Description = "Draws a drawing on the grid of the group it goes into, tries it at small sizes, and adds it."
+                }),
+                McpServerPrompt.Create(ReviewDrawing, new McpServerPromptCreateOptions
+                {
+                    Name = "review_drawing",
+                    Title = "Review a drawing",
+                    Description = "Reads a drawing and draws it small, and says what is wrong with it and how to fix each, changing nothing."
+                }),
+                McpServerPrompt.Create(AddParameter, new McpServerPromptCreateOptions
+                {
+                    Name = "add_parameter",
+                    Title = "Add a parameter",
+                    Description = "Turns a value of a drawing into a parameter code can set, declared with a default that keeps its look."
+                })
+            });
 
         var app = builder.Build();
 
@@ -281,8 +347,9 @@ public sealed class StudioMcpServer : IAsyncDisposable
                 Name = "streamline_import",
                 Description = "Downloads icons from Streamline by the hashes streamline_search lists and adds them at the end of a group through the project's templates, as one undo step, and opens the last; each is one download from the person's plan, and an icon the group already came from is skipped."
             }))
-            .Select(function => McpServerTool.Create(new Plain(function, _reported), new McpServerToolCreateOptions
+            .Select(function => McpServerTool.Create(new Plain(function, _call), new McpServerToolCreateOptions
             {
+                Title = AssistantTools.Titles[function.Name],
                 ReadOnly = AssistantTools.Reading.Contains(function.Name),
                 Destructive = AssistantTools.Confirming.Contains(function.Name),
                 Idempotent = AssistantTools.Repeatable.Contains(function.Name),
@@ -326,33 +393,229 @@ public sealed class StudioMcpServer : IAsyncDisposable
             : new CallToolResult { IsError = found.Refused, Content = [said] };
     }
 
+    private static string NewDrawing(
+        [Description("What to draw, in words.")] string what,
+        [Description("The node path of the group it goes into, from get_project; left out, the project itself.")] string? group = null)
+    {
+        // render reads an empty node as the drawing in front, and (project) as the project.
+        var into = string.IsNullOrWhiteSpace(group) ? "(project)" : group.Trim();
+
+        return $"""
+            Draw {what} as a new drawing in Svg Studio, in {(into == "(project)" ? "the project itself" : $"the group at node path {into}")}.
+
+            1. Call get_context; then get_node with node {into}, for the size a drawing there is built at, and get_declarations with node {into}, for the parameters and lets it can use. read_doc svg-expressions#1-2-the-declaration-block says how they are written.
+            2. Write the SVG on the grid of that size, painting through the declared parameters where they fit, as {Written}.
+            3. Try it with render, node {into}, svg the drawing, size [16, 24, 48] and background both. Change what reads badly at 16 px, and render again.
+            4. Add it with add_drawing, parent {(into == "(project)" ? "empty" : into)}; render the drawing it added, and run get_problems on it. Save nothing.
+            """;
+    }
+
+    private static string ReviewDrawing(
+        [Description("The drawing's node path, from get_project; left out, the drawing in front.")] string? node = null)
+    {
+        var named = string.IsNullOrWhiteSpace(node) ? null : $" with node {node.Trim()}";
+
+        return $"""
+            Review {(named is null ? "the drawing in front" : $"the drawing at node path {node!.Trim()}")} in Svg Studio, and change nothing.
+
+            1. Read it with get_drawing{named}, which lists its problems, and render it{named} at size [16, 24, 48] on background both.
+            2. Read get_code{named}, for the warnings building it gives.
+            3. Say what is wrong: its problems; what is lost, or runs together, at the small sizes; ids nothing refers to, and declarations nothing uses (find with kind uses says where a name is used); and get_code's warnings.
+            4. Give the edit that would fix each, and make none until asked.
+            """;
+    }
+
+    private static string AddParameter(
+        [Description("The value to make a parameter, in words, such as the fill of the dial.")] string what,
+        [Description("The drawing's node path, from get_project; left out, the drawing in front.")] string? node = null)
+    {
+        var named = string.IsNullOrWhiteSpace(node) ? null : $" with node {node.Trim()}";
+
+        return $"""
+            Make {what} a parameter of {(named is null ? "the drawing in front" : $"the drawing at node path {node!.Trim()}")} in Svg Studio, so code can set it, keeping how the drawing looks.
+
+            1. Read the drawing with get_drawing{named}, and get_node{named} for the names it inherits; read_doc svg-expressions#1-2-the-declaration-block and svg-expressions#2-where-an-expression-can-go.
+            2. Use an inherited parameter where one fits. Otherwise declare one with declare, giving it a type and, as its default, the value the drawing has now.
+            3. Write {Written} in the value's place with set_attributes.
+            4. Render it{named} with values giving the parameter two other settings, and once with none, which must look as it did before; then run get_problems on it.
+            """;
+    }
+
+    /// <summary>The docs and the drawing in front, then the project's drawings a page at a time, as their sources: what a person attaches with @ in Claude Code.</summary>
+    private async ValueTask<ListResourcesResult> ListResources(RequestContext<ListResourcesRequestParams> request, CancellationToken cancellationToken)
+    {
+        var from = 0;
+
+        // The client's to send back, so read as nothing more than the index of the next drawing.
+        if (request.Params?.Cursor is { } cursor && !int.TryParse(cursor, NumberStyles.None, CultureInfo.InvariantCulture, out from))
+        {
+            throw new McpProtocolException($"'{cursor}' is not a cursor this server gave.", McpErrorCode.InvalidParams);
+        }
+
+        var drawings = await _tools.Drawings().ConfigureAwait(false);
+        var listed = new ListResourcesResult { NextCursor = from + Page < drawings.Count ? (from + Page).ToString(CultureInfo.InvariantCulture) : null };
+
+        if (from == 0)
+        {
+            foreach (var section in AssistantDocs.Sections)
+            {
+                listed.Resources.Add(new Resource { Uri = $"{Scheme}docs/{section.Id.Replace('#', '/')}", Name = section.Id, Title = section.Title, MimeType = "text/markdown" });
+            }
+
+            foreach (var kind in s_kinds)
+            {
+                listed.Resources.Add(new Resource { Uri = $"{Scheme}front.{kind.Extension}", Name = $"front.{kind.Extension}", Title = $"The {kind.Noun} of the drawing in front", Description = kind.Description, MimeType = kind.Mime });
+            }
+        }
+
+        foreach (var (path, title) in drawings.Skip(from).Take(Page))
+        {
+            listed.Resources.Add(new Resource { Uri = $"{Scheme}drawing/{path}.svg", Name = path + ".svg", Title = title, MimeType = "image/svg+xml" });
+        }
+
+        return listed;
+    }
+
+    /// <summary>A section of the docs, or a drawing as get_drawing, render or get_code would give it, whole or not at all.</summary>
+    /// <remarks>A path that names no drawing is the client's mistake, so invalid; one that names a drawing the tool cannot answer for is said as the tool says it.</remarks>
+    private async ValueTask<ReadResourceResult> ReadResource(RequestContext<ReadResourceRequestParams> request, CancellationToken cancellationToken)
+    {
+        var uri = request.Params?.Uri ?? string.Empty;
+
+        if (uri.StartsWith(Scheme + "docs/", StringComparison.Ordinal))
+        {
+            // A section's id is the article's and a fragment, which a URI cannot carry as one.
+            var id = uri[(Scheme.Length + "docs/".Length)..];
+            var at = id.IndexOf('/', StringComparison.Ordinal);
+
+            id = at < 0 ? id : id[..at] + "#" + id[(at + 1)..];
+
+            return Text(AssistantDocs.Read(id) ?? throw Missing($"There is no section {id} in the docs; read_doc with an empty id lists them."), "text/markdown");
+        }
+
+        if (s_drawing.Match(uri) is not { Success: true } match)
+        {
+            throw Missing($"There is no resource {uri}: Studio's are svg-studio://drawing/<path>.svg, .png and .cs, svg-studio://front.svg, .png and .cs, and the docs' sections.");
+        }
+
+        var node = match.Groups["path"].Value;
+        var (source, about) = await _tools.Source(node).ConfigureAwait(false);
+
+        if (source is null)
+        {
+            throw Missing(about);
+        }
+
+        switch (match.Groups["kind"].Value)
+        {
+            case "png":
+                var (png, said) = await _tools.Render(node, null, AssistantTools.Ground.Transparent, null, null, null).ConfigureAwait(false);
+
+                return png is null ? throw new McpException(said)
+                    : png.Length > 1_000_000 ? throw new McpException($"{about} comes to an image of {png.Length} bytes, more than the 1,000,000 a resource holds; render with a size draws it smaller.")
+                    : new ReadResourceResult { Contents = [BlobResourceContents.FromBytes(png, uri, "image/png")] };
+            case "cs":
+                var (code, head, _, _) = await _tools.Code(node).ConfigureAwait(false);
+
+                return Whole(code ?? throw new McpException(head), "text/x-csharp", "C#", "get_code reads");
+            default:
+                return Whole(source, "image/svg+xml", "source", "get_drawing and get_element read");
+        }
+
+        // Claude Code cuts what it is handed at 100,000 characters, and a source cut short is no drawing.
+        ReadResourceResult Whole(string text, string mime, string what, string parts)
+            => text.Length > 100_000
+                ? throw new McpException($"{about}: its {what} is {text.Length} characters, more than the 100,000 a resource holds; {parts} it in parts.")
+                : Text(text, mime);
+
+        ReadResourceResult Text(string text, string mime) => new() { Contents = [new TextResourceContents { Uri = uri, MimeType = mime, Text = text }] };
+
+        static McpProtocolException Missing(string why) => new(why, McpErrorCode.InvalidParams);
+    }
+
+    /// <summary>Puts a question to the person through the client, as one the call takes its answer to when it runs again; null where the client cannot be asked.</summary>
+    /// <remarks>The client asks, and calls again from the start with the answer, which is why a tool asks before it changes anything.</remarks>
+    private Task<AssistantTools.Answer?> Ask(AssistantTools.Question question)
+    {
+        if (_call.Value?.Request is not { } request)
+        {
+            return Task.FromResult<AssistantTools.Answer?>(null);
+        }
+
+        if (request.Params?.InputResponses?.TryGetValue(question.Key, out var given) is true)
+        {
+            var answered = given.Deserialize(InputResponse.ElicitResultJsonTypeInfo);
+            var choice = answered is { IsAccepted: true, Content: { } content } && content.TryGetValue("choice", out var chosen) && chosen.ValueKind == JsonValueKind.String ? chosen.GetString() : null;
+
+            return Task.FromResult<AssistantTools.Answer?>(new AssistantTools.Answer(choice is { } && question.Choices.Contains(choice) ? choice : null));
+        }
+
+        if (!CanAsk())
+        {
+            return Task.FromResult<AssistantTools.Answer?>(null);
+        }
+
+        throw new InputRequiredException(new Dictionary<string, InputRequest>
+        {
+            [question.Key] = InputRequest.ForElicitation(new ElicitRequestParams
+            {
+                Message = question.Text,
+                RequestedSchema = new ElicitRequestParams.RequestSchema
+                {
+                    Properties = { ["choice"] = new ElicitRequestParams.UntitledSingleSelectEnumSchema { Enum = question.Choices.ToList() } },
+                    Required = ["choice"]
+                }
+            })
+        });
+    }
+
+    /// <summary>Whether the client of the call in flight can be asked, or has answered already.</summary>
+    /// <remarks>
+    /// A request on 2026-07-28 says what its client can do in itself, which is all a server without
+    /// sessions knows of it, and its client takes a question in the call's answer. On an older revision
+    /// such a server knows nothing of its client and so never asks, as the SDK would fail the call; with
+    /// sessions it would know, and put the question to such a client itself.
+    /// </remarks>
+    private bool CanAsk()
+        => _call.Value?.Request is { } request
+           && (request.Params?.InputResponses is { Count: > 0 } || (request.JsonRpcRequest.Context?.ClientCapabilities ?? request.Server.ClientCapabilities)?.Elicitation?.Form is { });
+
+    /// <summary>A call: whether it reported success, which every tool that did what it was asked does and a refusal does not, and its request, to ask the person through.</summary>
+    private sealed class Call
+    {
+        public bool Reported { get; set; }
+
+        public RequestContext<CallToolRequestParams>? Request { get; init; }
+    }
+
     /// <summary>A function whose string answer reaches the client as text, not as a JSON string in quotes, and a refusal as an error.</summary>
     /// <remarks>
     /// The factory's functions answer with the JSON of their result, and the server writes a JSON
     /// string out as it is: every reply came quoted, with its newlines spelled <c>\n</c>. The SDK
     /// passes on the message only of an <see cref="McpException"/>: a missing argument came back as
-    /// "An error occurred invoking 'set_node'." and nothing more.
+    /// "An error occurred invoking 'set_node'." and nothing more. A question is let through as it is,
+    /// for the SDK to put to the client: wrapped, it came back as that error.
     /// </remarks>
     private sealed class Plain : DelegatingAIFunction
     {
-        private readonly AsyncLocal<StrongBox<bool>?> _reported;
+        private readonly AsyncLocal<Call?> _call;
 
-        public Plain(AIFunction inner, AsyncLocal<StrongBox<bool>?> reported)
+        public Plain(AIFunction inner, AsyncLocal<Call?> call)
             : base(inner)
         {
-            _reported = reported;
+            _call = call;
         }
 
         protected override async ValueTask<object?> InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
         {
-            var reported = _reported.Value = new StrongBox<bool>();
+            var call = _call.Value = new Call { Request = arguments.Services?.GetService(typeof(RequestContext<CallToolRequestParams>)) as RequestContext<CallToolRequestParams> };
             object? result;
 
             try
             {
                 result = await base.InvokeCoreAsync(arguments, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception failure) when (failure is not OperationCanceledException and not McpException)
+            catch (Exception failure) when (failure is not (OperationCanceledException or McpException or InputRequiredException))
             {
                 throw new McpException(failure.Message, failure);
             }
@@ -362,7 +625,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
                 return result;
             }
 
-            return reported.Value || AssistantTools.Reading.Contains(Name)
+            return call.Reported || AssistantTools.Reading.Contains(Name)
                 ? json.GetString()
                 : new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = json.GetString()! }] };
         }

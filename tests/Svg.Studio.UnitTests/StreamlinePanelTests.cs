@@ -1408,7 +1408,10 @@ public class StreamlinePanelTests : IDisposable
         await first;
     }
 
-    /// <remarks>Closing the project ends the import going into it, which the person started and a tool has no say over.</remarks>
+    /// <remarks>
+    /// Closing the project ends the import going into it, which the person started and a tool has no say
+    /// over; so the person is not asked whether to throw away work for a close that will not happen.
+    /// </remarks>
     [AvaloniaFact]
     public async Task A_New_Project_From_A_Tool_Waits_For_A_Family_On_Its_Way_Into_The_Open_One()
     {
@@ -1418,16 +1421,28 @@ public class StreamlinePanelTests : IDisposable
         streamline.Holding = request => request.RequestUri!.AbsolutePath == "/v1/family-groups" ? held.Task : Task.CompletedTask;
 
         var window = await Host(streamline);
-        var workspace = window.Workspace;
-        var tool = new AssistantTools(window).For(small: false, docs: false).OfType<Microsoft.Extensions.AI.AIFunction>().Single(function => function.Name == "new_project");
+        var workspace = window.Workspace!;
+        var asked = new List<AssistantTools.Question>();
+        var tools = new AssistantTools(window)
+        {
+            Ask = question =>
+            {
+                asked.Add(question);
+                return Task.FromResult<AssistantTools.Answer?>(new AssistantTools.Answer(question.Choices[0]));
+            }
+        };
+        var tool = tools.For(small: false, docs: false).OfType<Microsoft.Extensions.AI.AIFunction>().Single(function => function.Name == "new_project");
 
         window.Streamline.ConfirmFamily = _ => Task.FromResult(false);
+        workspace.Edit();
 
         var family = window.Streamline.ImportFamilyAsync(Parsed(Icon("ico_a", "a")));
         var refused = (await tool.InvokeAsync(new Microsoft.Extensions.AI.AIFunctionArguments()))?.ToString();
 
         Assert.Equal("Icons are on their way into the project from the Streamline panel; wait for them, or cancel the family import, then try again.", refused);
+        Assert.Empty(asked);
         Assert.Same(workspace, window.Workspace);
+        Assert.True(workspace.IsEdited);
         Assert.False(family.IsCompleted);
 
         held.SetResult();

@@ -11,6 +11,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -352,7 +353,10 @@ public class AssistantTests : IDisposable
         // And is not told about saving at all, having no tool to do it: told it asks first, a 3B
         // on-device model asked to save after every edit.
         Assert.DoesNotContain("Saving", AssistantSession.SystemPrompt(small: true), StringComparison.Ordinal);
-        Assert.Contains("Saving, exporting, removing and committing ask the person first", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
+        Assert.Contains("Saving, exporting, removing and committing ask the person first, and so does a step that would throw away edits not saved; don't ask again in words.", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
+        Assert.All(
+            new AssistantTools(window).For(small: false, docs: false).Where(tool => tool.Name is "remove" or "new_project" or "open_file" or "reload"),
+            tool => Assert.Contains("asks the person whether to throw them away", tool.Description, StringComparison.Ordinal));
 
         // A path is a position: removing 0 and then 1 by one read of the project removed what was 2.
         Assert.Contains("Paths are positions", AssistantSession.SystemPrompt(small: false), StringComparison.Ordinal);
@@ -3162,6 +3166,240 @@ public class AssistantTests : IDisposable
         Assert.Equal(2, ((ProjectGroup)root.Children[1]).Children.Count);
     }
 
+    /// <remarks>The question stands in for the yes or no a remove asks for, as throwing the edits away is to remove the node.</remarks>
+    [AvaloniaFact]
+    public async Task A_Remove_Over_A_Tab_Holding_Edits_Asks_Which_And_Goes_On_As_Answered_Without_Asking_Twice()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = window.Workspace!.Document.Root;
+        var home = root.Children[0];
+        var discards = 0;
+        var questions = new List<AssistantTools.Question>();
+        var confirmed = new List<string>();
+
+        window.ConfirmDiscard = _ =>
+        {
+            discards++;
+            return Task.FromResult(true);
+        };
+
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+        Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
+
+        Func<AssistantTools.Question, Task<AssistantTools.Answer?>> Choosing(int choice) => question =>
+        {
+            questions.Add(question);
+            return Task.FromResult<AssistantTools.Answer?>(new AssistantTools.Answer(question.Choices[choice]));
+        };
+
+        var kept = new ScriptedChat(Call("remove", new() { ["node"] = "0" }), Say("Kept."));
+        var removed = new ScriptedChat(Call("remove", new() { ["node"] = "0" }), Say("Removed."));
+
+        await Send(window, kept, "remove home", allow: true, asked: confirmed, ask: Choosing(1));
+
+        Assert.Equal("Nothing was removed: the person kept the edits held in the tab of 0 home.", kept.Results[0]);
+        Assert.Same(home, root.Children[0]);
+
+        await Send(window, removed, "remove home", allow: true, asked: confirmed, ask: Choosing(0));
+
+        Assert.Equal("Removed home, throwing away the edits held in the tab of 0 home. It is one undo step.", removed.Results[0]);
+        Assert.DoesNotContain(home, root.Children);
+        Assert.Equal(2, questions.Count);
+        Assert.Equal(questions[0].Key, questions[1].Key);
+        Assert.StartsWith("Removing home closes the tab of 0 home", questions[0].Text, StringComparison.Ordinal);
+        Assert.Empty(confirmed);
+        Assert.Equal(0, discards);
+    }
+
+    /// <remarks>The panel asks without holding the window, so an answer is to the question as it was put, and a tab taking edits meanwhile was asked about by nobody.</remarks>
+    [AvaloniaFact]
+    public async Task A_Remove_Answered_After_Another_Tab_Under_It_Took_Edits_Does_Nothing_And_Says_What_Changed()
+    {
+        var window = await Host(Write("pair.svgstudio", $"""<studio namespace="Demo.Icons"><group name="Badges"><drawing name="A">{Drawing}</drawing><drawing name="B">{Drawing}</drawing></group></studio>"""));
+        var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+        var chat = new ScriptedChat(Call("remove", new() { ["node"] = "0" }), Say("Refused."));
+        var discards = 0;
+
+        window.ConfirmDiscard = _ =>
+        {
+            discards++;
+            return Task.FromResult(false);
+        };
+
+        await window.ShowAsync(badges.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
+
+        await Send(window, chat, "remove Badges", ask: async question =>
+        {
+            await window.ShowAsync(badges.Children[1]);
+            Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
+
+            return new AssistantTools.Answer(question.Choices[0]);
+        }).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal("Nothing was removed: what the person was asked about changed while they answered; call it again to go on from things as they are now.", chat.Results[0]);
+        Assert.Equal(0, discards);
+        Assert.Same(badges, Assert.Single(window.Workspace.Document.Root.Children));
+        Assert.Equal(2, window.GetVisualDescendants().OfType<TabControl>().Single().Items.OfType<TabItem>().Count(item => item.Content is SvgViewer { IsSourceModified: true }));
+    }
+
+    /// <remarks>
+    /// Saved while the person answers, there is nothing left to throw away, and so nothing the question
+    /// was about: an answer to keep the work, taken for no answer, opened a new project over it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Answer_Given_After_What_It_Asked_About_Was_Saved_Does_Nothing_And_Says_So()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var home = workspace.Document.Root.Children[0];
+        var chat = new ScriptedChat(
+            Call("remove", new() { ["node"] = "0" }),
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" }),
+            Call("new_project", new()),
+            Say("Kept."));
+        var questions = new List<AssistantTools.Question>();
+
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+        Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
+
+        await Send(window, chat, "remove home, then start again", allow: true, ask: async question =>
+        {
+            questions.Add(question);
+            await window.SaveAsync();
+
+            return new AssistantTools.Answer(question.Choices[1]);
+        }).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(
+            new[]
+            {
+                "Nothing was removed: what the person was asked about changed while they answered; call it again to go on from things as they are now.",
+                "No new project was opened: what the person was asked about changed while they answered; call it again to go on from things as they are now."
+            },
+            new[] { chat.Results[0], chat.Results[2] });
+        Assert.Equal(new[] { "Keep the edits; remove nothing", "Keep them; do nothing" }, questions.Select(question => question.Choices[1]));
+        Assert.Same(workspace, window.Workspace);
+        Assert.Same(home, workspace.Document.Root.Children[0]);
+    }
+
+    /// <remarks>Every save, export, commit and plain remove in the panel asks through this card, as the tools' Confirm is the panel's question of two answers.</remarks>
+    [AvaloniaFact]
+    public async Task A_Remove_In_The_Panel_Asks_Allow_Or_Deny_And_Goes_On_Only_When_Allowed()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = window.Workspace!.Document.Root;
+        var home = root.Children[0];
+        var chat = new ScriptedChat(
+            Call("remove", new() { ["node"] = "0" }),
+            Say("Denied."),
+            Call("remove", new() { ["node"] = "0" }),
+            Say("Removed."));
+        var providers = AssistantProviders.All;
+
+        try
+        {
+            AssistantProviders.All = new IAssistantProvider[] { new ScriptedProvider(chat) };
+
+            var panel = new AssistantPanel(new AssistantTools(window));
+            var host = new Window { Content = panel };
+
+            host.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            foreach (var (choice, round) in new[] { ("Deny", 0), ("Allow", 1) })
+            {
+                var sent = panel.SendAsync("remove home");
+
+                await Gestures.Until(() => panel.Transcript.Count(row => row.Role == "ask") > round);
+
+                var buttons = panel.GetVisualDescendants().OfType<Button>().Where(button => button.IsEnabled && button.Content is not ("Send" or "Stop" or "New")).ToList();
+
+                Assert.Equal(new[] { "Allow", "Deny" }, buttons.Select(button => button.Content));
+                Assert.Same(home, root.Children[0]);
+
+                buttons.Single(button => Equals(button.Content, choice)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await sent.WaitAsync(TimeSpan.FromSeconds(30));
+            }
+
+            Assert.Equal("The person said no; nothing was removed.", chat.Results[0]);
+            Assert.StartsWith("Removed home.", chat.Results[1], StringComparison.Ordinal);
+            Assert.DoesNotContain(home, root.Children);
+            Assert.All(panel.Transcript.Where(row => row.Role == "ask"), row => Assert.Equal("Remove home from the project?", row.Text));
+        }
+        finally
+        {
+            AssistantProviders.All = providers;
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task The_Panel_Puts_A_Question_As_A_Button_For_Each_Answer_And_Stop_Answers_None()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var root = window.Workspace!.Document.Root;
+        var badges = (ProjectGroup)root.Children[1];
+        var chat = new ScriptedChat(
+            Call("remove", new() { ["node"] = "0" }),
+            Say("Removed."),
+            Call("remove", new() { ["node"] = "0" }),
+            Say("Kept."));
+        var providers = AssistantProviders.All;
+
+        try
+        {
+            AssistantProviders.All = new IAssistantProvider[] { new ScriptedProvider(chat) };
+
+            var panel = new AssistantPanel(new AssistantTools(window));
+            var host = new Window { Content = panel };
+
+            host.Show();
+            Dispatcher.UIThread.RunJobs();
+
+            async Task<(Task Sent, List<Button> Choices)> Asked(string text, int round)
+            {
+                await window.ShowAsync(round == 0 ? root.Children[0] : badges.Children[0]);
+                Dispatcher.UIThread.RunJobs();
+                Viewer(window).SetSource(Viewer(window).Source + "<!-- typed -->");
+
+                var sent = panel.SendAsync(text);
+
+                await Gestures.Until(() => panel.Transcript.Count(row => row.Role == "ask") > round);
+
+                return (sent, panel.GetVisualDescendants().OfType<Button>().Where(button => button.IsEnabled && button.Content is not ("Send" or "Stop" or "New")).ToList());
+            }
+
+            var (removing, first) = await Asked("remove home", 0);
+
+            Assert.Equal(new[] { "Throw the edits away and remove it", "Keep the edits; remove nothing" }, first.Select(button => button.Content));
+
+            first[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await removing.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Same(badges, Assert.Single(root.Children));
+            Assert.All(first, button => Assert.False(button.IsEnabled));
+
+            var (stopping, second) = await Asked("remove Badges", 1);
+
+            Assert.Equal(2, second.Count);
+
+            // The reply's own button, which reads Stop while it runs.
+            panel.GetVisualDescendants().OfType<Button>().Single(button => button.Content is "Stop").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await stopping.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Same(badges, Assert.Single(root.Children));
+            Assert.All(second, button => Assert.False(button.IsEnabled));
+            Assert.Equal(2, panel.Transcript.Count(row => row.Role == "ask"));
+        }
+        finally
+        {
+            AssistantProviders.All = providers;
+        }
+    }
+
     [AvaloniaFact]
     public async Task A_Setting_Is_Not_Written_Under_One_Typed_For_The_Same_Node()
     {
@@ -3617,7 +3855,16 @@ public class AssistantTests : IDisposable
     /// <param name="asked">Where each question the tools put to the person goes.</param>
     /// <param name="small">Whether the model is one with a context too small for the docs, and so the core tools only.</param>
     /// <param name="tools">Tools kept from an earlier send, whose undo remembers what they did there.</param>
-    private static async Task<string> Send(MainWindow window, ScriptedChat chat, string text, bool allow = false, List<string>? asked = null, bool small = false, AssistantTools? tools = null)
+    /// <param name="ask">How the person answers a question with choices; left out, nobody can be asked one.</param>
+    private static async Task<string> Send(
+        MainWindow window,
+        ScriptedChat chat,
+        string text,
+        bool allow = false,
+        List<string>? asked = null,
+        bool small = false,
+        AssistantTools? tools = null,
+        Func<AssistantTools.Question, Task<AssistantTools.Answer?>>? ask = null)
     {
         tools ??= new AssistantTools(window);
         tools.Confirm = question =>
@@ -3625,6 +3872,7 @@ public class AssistantTests : IDisposable
             asked?.Add(question);
             return Task.FromResult(allow);
         };
+        tools.Ask = ask ?? (_ => Task.FromResult<AssistantTools.Answer?>(null));
         var session = new AssistantSession(tools);
 
         session.Use(new ScriptedProvider(chat), new AssistantModel("scripted", "Scripted", small ? 4096 : 1_000_000));

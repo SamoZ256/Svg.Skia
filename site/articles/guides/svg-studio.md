@@ -346,12 +346,24 @@ a project, or an svgc project or PaintCode document to convert; and `reload` rea
 or drawing again from its file. Studio does not watch the disk, so after a file it has open is changed
 elsewhere — by another editor, or a `git pull` in a terminal — Claude Code is told to call `reload`,
 or Studio's next save would write its copy back over the change. Where Studio would stop to ask you
-something, a tool never does. Over unsaved work, or a recovery copy waiting to be restored, it refuses
-and says why, and the choice stays yours in Studio. Otherwise it goes on as you chose before and says
-what it did: a PaintCode document is converted on the terms you last picked, and text an export would
-ask about is baked unless you chose to relax it for good. A project part way through a merge still
-opens if its file reads, and Studio offers you the merge when you next come back to it; one whose
-file holds the conflict is refused.
+something, a tool never opens a dialog. Removing a node whose tab holds edits you have not saved,
+starting or opening a project, or reloading, over unsaved work, asks you in Claude Code whether to
+throw that work away, and exporting text the C# cannot write out asks whether to bake it or relax it,
+this once or from now on; each goes on as you answer, and does nothing where what it asked about
+changed before you answered. Where the client cannot ask, the first are refused, saying why, and the
+choice stays yours in Studio, as it does over a recovery copy waiting to be restored. Otherwise a tool
+goes on as you chose before and says what it did: a PaintCode document is converted on the terms you
+last picked, and text an export cannot ask about is baked unless you chose to relax it for good. A
+project part way through a merge still opens if its file reads, and Studio offers you the merge when
+you next come back to it; one whose file holds the conflict is refused.
+
+You can hand Claude Code a drawing yourself, as a resource: `@svg-studio:svg-studio://front.png`
+attaches the drawing in front as an image, `front.svg` its source and `front.cs` its C#, and
+`svg-studio://drawing/1/0.svg` the drawing at that path in the project, which is a position, so a move
+renumbers it; each section of this documentation is there too. Three prompts start a common job:
+`/mcp__svg-studio__new_drawing` draws one on its group's grid and tries it at small sizes before adding
+it, `/mcp__svg-studio__review_drawing` says what is wrong with one and changes nothing, and
+`/mcp__svg-studio__add_parameter` turns a value into a parameter whose default keeps the look.
 
 1. In **Settings**, on the **Accounts** tab, turn on **Let Claude Code connect to this Studio**. Studio then listens on
    `127.0.0.1` only, on port 7337 unless you choose another.

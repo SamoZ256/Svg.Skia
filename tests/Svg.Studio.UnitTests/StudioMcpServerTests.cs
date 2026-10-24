@@ -8,6 +8,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -16,6 +18,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using SkiaSharp;
@@ -243,6 +246,38 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.Contains("shares one undo", client.ServerInstructions, StringComparison.Ordinal);
         Assert.Contains("Paths are positions", client.ServerInstructions, StringComparison.Ordinal);
+        Assert.Contains("asks them through your client", client.ServerInstructions, StringComparison.Ordinal);
+        Assert.Contains("svg-studio://front.svg", client.ServerInstructions, StringComparison.Ordinal);
+    }
+
+    /// <remarks>Read off the indexer, so a tool given no title fails every test here at the server's start.</remarks>
+    [AvaloniaFact]
+    public async Task Every_Tool_Has_A_Short_Title_Of_Its_Own_As_Studios_Menus_Would_Name_It()
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port);
+
+        var tools = await client.ListToolsAsync();
+        var titles = tools.Select(tool => tool.ProtocolTool.Title).ToList();
+
+        Assert.Equal(AssistantTools.Titles.Keys.Order(StringComparer.Ordinal), tools.Select(tool => tool.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(titles.Count, titles.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(tools, tool =>
+        {
+            var title = tool.ProtocolTool.Title;
+
+            Assert.False(string.IsNullOrWhiteSpace(title), tool.Name);
+            Assert.Equal(title, tool.ProtocolTool.Annotations?.Title);
+
+            var words = title!.Split(' ');
+
+            // Sentence case, where only a name keeps its capitals.
+            Assert.InRange(words.Length, 1, 4);
+            Assert.True(char.IsUpper(title[0]), title);
+            Assert.All(words.Skip(1), word => Assert.True(word is "C#" or "Streamline" || word == word.ToLowerInvariant(), title));
+            Assert.DoesNotContain("_", title, StringComparison.Ordinal);
+            Assert.False(title.EndsWith('.'), title);
+        });
     }
 
     /// <remarks>
@@ -2300,7 +2335,10 @@ public class StudioMcpServerTests : IDisposable
         Assert.Empty(_announced);
     }
 
-    /// <remarks>Opening would close the project open and then ask whether to restore the copy, which a client cannot answer.</remarks>
+    /// <remarks>
+    /// Opening would close the project open and then ask whether to restore the copy, which a client
+    /// cannot answer; nor is the person asked whether to throw away the open one's work for it.
+    /// </remarks>
     [AvaloniaFact]
     public async Task Open_File_Leaves_A_Copy_Of_Unsaved_Work_For_The_Person_And_Closes_Nothing()
     {
@@ -2317,15 +2355,20 @@ public class StudioMcpServerTests : IDisposable
             File.WriteAllText(ProjectRecovery.For(kept), Nested.Replace("\"Dot\"", "\"Spot\"", StringComparison.Ordinal));
 
             var (window, port) = await Serving(open);
-            await using var client = await Client(port);
-            var workspace = window.Workspace;
+            var asked = new List<ElicitRequestParams>();
+            await using var client = await Client(port, elicit: Answering(asked, question => Task.FromResult(Chose(question, 0))));
+            var workspace = window.Workspace!;
+
+            Assert.NotEqual(true, (await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" })).IsError);
 
             var refused = await Call(client, "open_file", new() { ["path"] = kept });
 
             Assert.True(refused.IsError);
             Assert.StartsWith("Svg Studio kept a copy of nested.svgstudio from ", Text(refused), StringComparison.Ordinal);
             Assert.EndsWith(" Nothing was opened: open it from Studio's File menu, which asks whether to restore the copy.", Text(refused), StringComparison.Ordinal);
+            Assert.Empty(asked);
             Assert.Same(workspace, window.Workspace);
+            Assert.True(workspace.IsEdited);
             Assert.True(File.Exists(ProjectRecovery.For(kept)));
             Assert.Empty(_announced);
         }
@@ -2407,7 +2450,10 @@ public class StudioMcpServerTests : IDisposable
         Assert.Empty(_announced);
     }
 
-    /// <remarks>Opened again, a file that does not parse goes to git's merge resolution, which says what it found in a dialog.</remarks>
+    /// <remarks>
+    /// Opened again, a file that does not parse goes to git's merge resolution, which says what it found
+    /// in a dialog; read first, before the person is asked to throw away work for a reload that cannot be.
+    /// </remarks>
     [AvaloniaFact]
     public async Task Reload_Refuses_A_Project_File_That_No_Longer_Reads_And_Keeps_What_Is_Open()
     {
@@ -2416,16 +2462,20 @@ public class StudioMcpServerTests : IDisposable
         File.WriteAllText(path, Project);
 
         var (window, port) = await Serving(path);
-        await using var client = await Client(port);
-        var workspace = window.Workspace;
+        var asked = new List<ElicitRequestParams>();
+        await using var client = await Client(port, elicit: Answering(asked, question => Task.FromResult(Chose(question, 0))));
+        var workspace = window.Workspace!;
 
+        Assert.NotEqual(true, (await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" })).IsError);
         File.WriteAllText(path, "<studio><drawing /></studio>");
 
         var refused = await Call(client, "reload", new());
 
         Assert.True(refused.IsError);
         Assert.StartsWith($"{path} no longer reads as a project: ", Text(refused), StringComparison.Ordinal);
+        Assert.Empty(asked);
         Assert.Same(workspace, window.Workspace);
+        Assert.True(workspace.IsEdited);
         Assert.Empty(_announced);
     }
 
@@ -2503,6 +2553,433 @@ public class StudioMcpServerTests : IDisposable
         Assert.Empty(_announced);
     }
 
+    /// <remarks>
+    /// Asked through the client where it can be. On the revision Claude Code falls back to, a server
+    /// without sessions has no way to ask, so a client that would answer gets the refusal one that
+    /// cannot gets, and no error of the protocol's.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(null)]
+    [InlineData("2025-11-25")]
+    public async Task Remove_Asks_Whether_To_Throw_Away_The_Edits_A_Tab_Under_It_Holds_And_Goes_On_As_Answered(string? protocol)
+    {
+        var path = Path.Combine(_directory, "templated.svgstudio");
+
+        File.WriteAllText(path, Templated);
+
+        var (window, port) = await Serving(path);
+        var root = window.Workspace!.Document.Root;
+        var badges = (ProjectGroup)root.Children[0];
+        var square = badges.Children[0];
+        var discarded = new List<string>();
+        var asked = new List<ElicitRequestParams>();
+        var answers = new Queue<Func<ElicitRequestParams, ElicitResult>>(new Func<ElicitRequestParams, ElicitResult>[]
+        {
+            question => Chose(question, 1),
+            _ => new ElicitResult { Action = "decline" },
+            _ => new ElicitResult { Action = "cancel" },
+            _ => Chose("Throw away whatever is in the way"),
+            question => Chose(question, 0)
+        });
+
+        window.ConfirmDiscard = message =>
+        {
+            discarded.Add(message);
+            return Task.FromResult(true);
+        };
+
+        await using var person = await Client(port, protocol, Answering(asked, question => Task.FromResult(answers.Dequeue()(question))));
+        await using var unasked = await Client(port, protocol);
+
+        await window.ShowAsync(square);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        viewer.SetSource(viewer.Source + "<!-- typed -->");
+
+        var refused = await Call(unasked, "remove", new() { ["node"] = "0" });
+        var kept = new List<CallToolResult>();
+
+        for (var round = 0; round < 4; round++)
+        {
+            kept.Add(await Call(person, "remove", new() { ["node"] = "0" }));
+        }
+
+        Assert.True(refused.IsError);
+        Assert.Equal("0/0 Square has edits in its tab not yet saved into the project; open it and save them first.", Text(refused));
+        Assert.All(kept, result => Assert.True(result.IsError, Text(result)));
+        Assert.Same(badges, root.Children[0]);
+        Assert.True(viewer.IsSourceModified);
+        Assert.False(window.Workspace.CanUndo);
+
+        var removed = await Call(person, "remove", new() { ["node"] = "0" });
+
+        if (protocol is null)
+        {
+            Assert.All(kept, result => Assert.Equal("Nothing was removed: the person kept the edits held in the tab of 0/0 Square.", Text(result)));
+            Assert.Equal(5, asked.Count);
+            Assert.All(asked, question => Assert.Contains("closes the tab of 0/0 Square", question.Message, StringComparison.Ordinal));
+            Assert.Equal(2, Choices(asked[0]).Count);
+            Assert.NotEqual(true, removed.IsError);
+            Assert.Equal("Removed Badges, throwing away the edits held in the tab of 0/0 Square. It is one undo step.", Text(removed));
+            Assert.Empty(root.Children);
+            Assert.DoesNotContain(Tabs(window).Items.OfType<TabItem>(), item => ReferenceEquals(item.Tag, square));
+        }
+        else
+        {
+            Assert.All(kept.Append(removed), result => Assert.Equal(Text(refused), Text(result)));
+            Assert.Empty(asked);
+            Assert.Same(badges, root.Children[0]);
+        }
+
+        Assert.Empty(discarded);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>An answer is to the question as it was put: a tab taking edits while the person answers is asked about again.</remarks>
+    [AvaloniaFact]
+    public async Task A_Question_Whose_Situation_Changed_While_It_Was_Answered_Is_Asked_Again()
+    {
+        var path = Path.Combine(_directory, "templated.svgstudio");
+
+        File.WriteAllText(path, Templated);
+
+        var (window, port) = await Serving(path);
+        var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+        var asked = new List<ElicitRequestParams>();
+
+        SvgViewer Front() => (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        await using var person = await Client(port, elicit: Answering(asked, async question =>
+        {
+            if (asked.Count > 1)
+            {
+                return Chose(question, 1);
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                await window.ShowAsync(badges.Children[1]);
+                Front().SetSource(Front().Source + "<!-- typed -->");
+            });
+
+            return Chose(question, 0);
+        }));
+
+        await window.ShowAsync(badges.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Front().SetSource(Front().Source + "<!-- typed -->");
+
+        var result = await Call(person, "remove", new() { ["node"] = "0" });
+
+        Assert.Equal(2, asked.Count);
+        Assert.DoesNotContain("0/1 Round", asked[0].Message, StringComparison.Ordinal);
+        Assert.Contains("0/1 Round", asked[1].Message, StringComparison.Ordinal);
+        Assert.True(result.IsError);
+        Assert.Same(badges, window.Workspace.Document.Root.Children[0]);
+        Assert.Equal(2, Tabs(window).Items.OfType<TabItem>().Count(item => item.Content is SvgViewer { IsSourceModified: true }));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// The client calls again with the answer, and by then the work it was about was saved, or the
+    /// setting it was about chosen: taken for a call with nothing to ask, an answer to keep the edits
+    /// removed the node, and one to keep the work opened a new project over it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task An_Answer_To_A_Question_The_Call_No_Longer_Asks_Is_Refused_And_Does_Nothing()
+    {
+        var path = Path.Combine(_directory, "badge.svgstudio");
+        var target = Path.Combine(_directory, "Icons.cs");
+
+        File.WriteAllText(path, Badge);
+
+        var (window, port) = await Serving(path);
+        var workspace = window.Workspace!;
+        var badge = workspace.Document.Root.Children[0];
+        var asked = new List<ElicitRequestParams>();
+        var meanwhile = new Queue<Func<Task>>(new Func<Task>[]
+        {
+            () => window.SaveAsync(),
+            () => window.SaveAsync(),
+            () =>
+            {
+                StudioSettings.RelaxedText = RelaxedTextAnswer.Never;
+                return Task.CompletedTask;
+            }
+        });
+
+        await using var person = await Client(port, elicit: Answering(asked, async question =>
+        {
+            await Dispatcher.UIThread.InvokeAsync(meanwhile.Dequeue());
+
+            return Chose(question, 1);
+        }));
+
+        await window.ShowAsync(badge);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        viewer.SetSource(viewer.Source + "<!-- typed -->");
+
+        var removed = await Call(person, "remove", new() { ["node"] = "0" });
+
+        Assert.NotEqual(true, (await Call(person, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" })).IsError);
+
+        var opened = await Call(person, "new_project", new());
+
+        StudioSettings.RelaxedText = RelaxedTextAnswer.Ask;
+
+        var exported = await Call(person, "export", new() { ["path"] = target });
+
+        StudioSettings.RelaxedText = RelaxedTextAnswer.Ask;
+
+        Assert.Equal(3, asked.Count);
+        Assert.Equal(
+            new[] { "Nothing was removed", "No new project was opened", "Nothing was written" }.Select(nothing => $"{nothing}: what the person was asked about changed while they answered; call it again to go on from things as they are now."),
+            new[] { removed, opened, exported }.Select(Text));
+        Assert.All(new[] { removed, opened, exported }, result => Assert.True(result.IsError));
+        Assert.Same(workspace, window.Workspace);
+        Assert.Same(badge, workspace.Document.Root.Children[0]);
+        Assert.False(File.Exists(target));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>Each closes the project open, over an edit of its own; the drawing of no project's in front is reloaded over its tab's.</remarks>
+    [AvaloniaTheory]
+    [InlineData(null)]
+    [InlineData("2025-11-25")]
+    public async Task New_Project_Open_File_And_Reload_Ask_Whether_To_Throw_Away_Work_Not_Saved_And_Go_On_As_Answered(string? protocol)
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var other = Path.Combine(_directory, "nested.svgstudio");
+        var star = Path.Combine(_directory, "star.svg");
+
+        File.WriteAllText(path, Project);
+        File.WriteAllText(other, Nested);
+        File.WriteAllText(star, Drawing);
+
+        var (window, port) = await Serving(path);
+        var discarded = new List<string>();
+        var asked = new List<ElicitRequestParams>();
+        var keep = true;
+
+        window.ConfirmDiscard = message =>
+        {
+            discarded.Add(message);
+            return Task.FromResult(true);
+        };
+
+        await using var person = await Client(port, protocol, Answering(asked, question => Task.FromResult(Chose(question, keep ? 1 : 0))));
+
+        foreach (var (tool, arguments, named) in new[]
+                 {
+                     ("reload", new Dictionary<string, object?>(), "icons.svgstudio"),
+                     ("open_file", new Dictionary<string, object?> { ["path"] = other }, "icons.svgstudio"),
+                     ("new_project", new Dictionary<string, object?>(), "nested.svgstudio")
+                 })
+        {
+            Assert.NotEqual(true, (await Call(person, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" })).IsError);
+
+            var workspace = window.Workspace!;
+            var count = asked.Count;
+
+            keep = true;
+            var kept = await Call(person, tool, arguments);
+
+            Assert.True(kept.IsError, Text(kept));
+            Assert.Same(workspace, window.Workspace);
+            Assert.True(workspace.IsEdited);
+
+            keep = false;
+            var done = await Call(person, tool, arguments);
+
+            if (protocol is { })
+            {
+                Assert.True(done.IsError);
+                Assert.Equal(Text(kept), Text(done));
+                Assert.Same(workspace, window.Workspace);
+                Assert.Empty(asked);
+                continue;
+            }
+
+            Assert.Contains("the person kept the changes not saved", Text(kept), StringComparison.Ordinal);
+            Assert.NotEqual(true, done.IsError);
+            Assert.NotSame(workspace, window.Workspace);
+            Assert.False(window.Workspace!.IsEdited);
+            Assert.Equal(2, asked.Count - count);
+            Assert.All(asked.Skip(count), question => Assert.Contains($"{named} has changes that have not been saved.", question.Message, StringComparison.Ordinal));
+        }
+
+        Assert.Equal(Project, File.ReadAllText(path));
+
+        // A drawing of no project's, reloaded over the edits in its tab.
+        await window.OpenAsync(new[] { star });
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        Assert.NotEqual(true, (await Call(person, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "red" })).IsError);
+
+        keep = true;
+        var unloaded = await Call(person, "reload", new());
+        keep = false;
+        var reloaded = await Call(person, "reload", new());
+
+        Assert.True(unloaded.IsError);
+
+        if (protocol is null)
+        {
+            Assert.NotEqual(true, reloaded.IsError);
+            Assert.False(viewer.IsSourceModified);
+            Assert.DoesNotContain("#ff0000", viewer.Source, StringComparison.Ordinal);
+            Assert.Contains("star.svg", asked[^1].Message, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.StartsWith("Nothing was reloaded: the drawing in front holds edits not saved. ", Text(reloaded), StringComparison.Ordinal);
+            Assert.Contains("#ff0000", viewer.Source, StringComparison.Ordinal);
+        }
+
+        Assert.Empty(discarded);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>A remembered answer is Settings' own, and asks nothing the next time; only a choice to remember writes it.</remarks>
+    [AvaloniaTheory]
+    [InlineData(null)]
+    [InlineData("2025-11-25")]
+    public async Task Export_Asks_How_To_Lay_Out_Text_It_Cannot_Write_Out_And_Remembers_Only_When_Told(string? protocol)
+    {
+        var path = Path.Combine(_directory, "badge.svgstudio");
+        var target = Path.Combine(_directory, "Icons.cs");
+
+        File.WriteAllText(path, Badge);
+
+        var (window, port) = await Serving(path);
+        var asked = new List<ElicitRequestParams>();
+        var answers = new Queue<Func<ElicitRequestParams, ElicitResult>>(new Func<ElicitRequestParams, ElicitResult>[]
+        {
+            _ => new ElicitResult { Action = "decline" },
+            _ => Chose("Relaxed, for ever"),
+            question => Chose(question, 1),
+            question => Chose(question, 0),
+            question => Chose(question, 3),
+            question => Chose(question, 2)
+        });
+
+        await using var person = await Client(port, protocol, Answering(asked, question => Task.FromResult(answers.Dequeue()(question))));
+
+        // Built as svgc builds it, to a file of the same name, which names the helper class.
+        string Svgc(SvgTextLayout layout)
+        {
+            var flat = window.Workspace!.Document.Flatten();
+            var settings = SvgcBuildSettings.For(flat);
+            var built = Path.Combine(Directory.CreateDirectory(Path.Combine(_directory, layout.ToString())).FullName, "Icons.cs");
+
+            settings.SingleFile = built;
+            settings.TextLayout = layout;
+            SvgcProjectBuild.Run(flat, settings, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())));
+
+            return File.ReadAllText(built);
+        }
+
+        var (baked, relaxed) = (Svgc(SvgTextLayout.Baked), Svgc(SvgTextLayout.Relaxed));
+
+        async Task<(CallToolResult Result, string? Written, RelaxedTextAnswer Setting)> Export()
+        {
+            File.Delete(target);
+
+            var result = await Call(person, "export", new() { ["path"] = target });
+
+            return (result, File.Exists(target) ? File.ReadAllText(target) : null, StudioSettings.RelaxedText);
+        }
+
+        StudioSettings.RelaxedText = RelaxedTextAnswer.Ask;
+
+        var declined = await Export();
+        var unoffered = await Export();
+        var relaxing = await Export();
+        var baking = await Export();
+        var relaxedForGood = await Export();
+        var unasked = await Export();
+
+        StudioSettings.RelaxedText = RelaxedTextAnswer.Ask;
+
+        var bakedForGood = await Export();
+
+        Assert.NotEqual(baked, relaxed);
+
+        if (protocol is { })
+        {
+            Assert.Empty(asked);
+            Assert.All(new[] { declined, unoffered, relaxing, baking, relaxedForGood, unasked, bakedForGood }, export => Assert.Equal((false, baked, RelaxedTextAnswer.Ask), (export.Result.IsError == true, export.Written, export.Setting)));
+            Assert.Empty(_announced);
+
+            return;
+        }
+
+        Assert.Equal(6, asked.Count);
+        Assert.All(asked, question => Assert.Contains("is frozen at its default", question.Message, StringComparison.Ordinal));
+        Assert.Equal(4, Choices(asked[0]).Count);
+
+        // A choice the question did not offer is no answer to it.
+        Assert.All(new[] { declined, unoffered }, export =>
+        {
+            Assert.True(export.Result.IsError);
+            Assert.Equal("Nothing was written: the person did not say how to lay out the text it cannot write out.", Text(export.Result));
+            Assert.Equal((null, RelaxedTextAnswer.Ask), (export.Written, export.Setting));
+        });
+        Assert.Equal((relaxed, RelaxedTextAnswer.Ask), (relaxing.Written, relaxing.Setting));
+        Assert.Equal((baked, RelaxedTextAnswer.Ask), (baking.Written, baking.Setting));
+        Assert.Equal((relaxed, RelaxedTextAnswer.Always), (relaxedForGood.Written, relaxedForGood.Setting));
+        Assert.Equal((relaxed, RelaxedTextAnswer.Always), (unasked.Written, unasked.Setting));
+        Assert.Equal((baked, RelaxedTextAnswer.Never), (bakedForGood.Written, bakedForGood.Setting));
+        Assert.All(new[] { relaxing, baking, relaxedForGood, unasked, bakedForGood }, export => Assert.NotEqual(true, export.Result.IsError));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// Asked of the project with the front tab's text in it, before that is taken in: the call is run
+    /// again with the answer, which takes it in once, and a call answered no has taken in nothing.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Export_Asks_About_Text_The_Front_Tabs_Edits_Freeze_And_Takes_Them_In_Once()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var target = Path.Combine(_directory, "Icons.cs");
+        var badge = Badge[Badge.IndexOf("<svg", StringComparison.Ordinal)..(Badge.IndexOf("</svg>", StringComparison.Ordinal) + "</svg>".Length)];
+
+        File.WriteAllText(path, Project);
+
+        var (window, port) = await Serving(path);
+        var asked = new List<ElicitRequestParams>();
+        var workspace = window.Workspace!;
+
+        await using var person = await Client(port, elicit: Answering(asked, question => Task.FromResult(asked.Count == 1 ? new ElicitResult { Action = "decline" } : Chose(question, 1))));
+
+        await window.ShowAsync(workspace.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        ((SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!).SetSource(badge);
+        StudioSettings.RelaxedText = RelaxedTextAnswer.Ask;
+
+        var declined = await Call(person, "export", new() { ["path"] = target });
+
+        Assert.True(declined.IsError);
+        Assert.False(workspace.CanUndo);
+        Assert.False(File.Exists(target));
+
+        var exported = await Call(person, "export", new() { ["path"] = target });
+
+        Assert.NotEqual(true, exported.IsError);
+        Assert.Equal(2, asked.Count);
+        Assert.Equal(new[] { "save home" }, workspace.UndoLabels);
+        Assert.Contains("relaxed text layout", Text(exported), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
     /// <remarks>In the instructions alone, not the rules every model is given: the panel's small one has no reload to call.</remarks>
     [AvaloniaFact]
     public async Task Claude_Code_Is_Told_Studio_Does_Not_Watch_The_Disk()
@@ -2513,6 +2990,231 @@ public class StudioMcpServerTests : IDisposable
         Assert.Contains("Studio does not watch the disk", client.ServerInstructions, StringComparison.Ordinal);
         Assert.Contains("call reload", client.ServerInstructions, StringComparison.Ordinal);
         Assert.DoesNotContain("reload", AssistantSession.SystemPrompt(small: true), StringComparison.Ordinal);
+    }
+
+    /// <remarks>What a person attaches in Claude Code with @: each read is what the tool reading it answers, a tab's edits included.</remarks>
+    [AvaloniaTheory]
+    [InlineData(null)]
+    [InlineData("2025-11-25")]
+    public async Task The_Drawings_The_One_In_Front_And_The_Docs_Are_Resources_Read_As_The_Tools_Read_Them(string? protocol)
+    {
+        var path = Path.Combine(_directory, "nested.svgstudio");
+
+        File.WriteAllText(path, Nested);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port, protocol);
+        var root = window.Workspace!.Document.Root;
+        var home = (ProjectDrawing)root.Children[0];
+
+        await window.ShowAsync(((ProjectGroup)((ProjectGroup)root.Children[1]).Children[0]).Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
+
+        viewer.SetSource(viewer.Source.Replace("r=\"6\"", "r=\"7\"", StringComparison.Ordinal));
+
+        var listed = await client.ListResourcesAsync();
+        var uris = listed.Select(resource => resource.Uri).ToList();
+        var templates = await client.ListResourceTemplatesAsync();
+
+        Assert.Equal(
+            new[] { "svg-studio://front.svg", "svg-studio://front.png", "svg-studio://front.cs", "svg-studio://drawing/0.svg", "svg-studio://drawing/1/0/0.svg" },
+            uris.Where(uri => !uri.StartsWith("svg-studio://docs/", StringComparison.Ordinal)));
+        Assert.Equal(AssistantDocs.Sections.Select(section => "svg-studio://docs/" + section.Id.Replace('#', '/')), uris.Where(uri => uri.StartsWith("svg-studio://docs/", StringComparison.Ordinal)));
+        Assert.Equal("Badges / Round / Dot", listed.Single(resource => resource.Uri == "svg-studio://drawing/1/0/0.svg").Title);
+        Assert.Equal(
+            new[] { "svg-studio://drawing/{+path}.svg", "svg-studio://drawing/{+path}.png", "svg-studio://drawing/{+path}.cs" },
+            templates.Select(template => template.UriTemplate));
+        Assert.All(templates, template => Assert.Contains("position", template.Description, StringComparison.Ordinal));
+
+        async Task<string> Read(string uri) => Assert.IsType<TextResourceContents>(Assert.Single((await client.ReadResourceAsync(uri)).Contents)).Text;
+
+        var source = await Read("svg-studio://drawing/1/0/0.svg");
+
+        Assert.Equal(viewer.Source, source);
+        Assert.EndsWith("Source:\n" + source, Text(await Call(client, "get_drawing", new() { ["node"] = "1/0/0" })), StringComparison.Ordinal);
+        Assert.Equal(source, await Read("svg-studio://front.svg"));
+
+        var png = Assert.IsType<BlobResourceContents>(Assert.Single((await client.ReadResourceAsync("svg-studio://drawing/0.png")).Contents));
+        var drawn = Assert.Single((await Call(client, "render", new() { ["node"] = "0" })).Content.OfType<ImageContentBlock>());
+
+        Assert.Equal("image/png", png.MimeType);
+        Assert.Equal(drawn.DecodedData.ToArray(), png.DecodedData.ToArray());
+
+        var flat = window.Workspace.Document.Flatten((home, home.Text));
+        var settings = SvgcBuildSettings.For(flat);
+
+        settings.TextLayout = SvgTextLayout.Baked;
+        Assert.Equal(SvgcProjectBuild.Generate(flat.Items.Single(), settings, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()))), await Read("svg-studio://drawing/0.cs"));
+
+        foreach (var section in new[] { AssistantDocs.Sections.First(one => !one.Id.Contains('#', StringComparison.Ordinal)), AssistantDocs.Sections.First(one => one.Id.Contains('#', StringComparison.Ordinal)) })
+        {
+            Assert.Equal(AssistantDocs.Read(section.Id), await Read("svg-studio://docs/" + section.Id.Replace('#', '/')));
+        }
+
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(null)]
+    [InlineData("2025-11-25")]
+    public async Task A_Resource_Naming_No_Drawing_Is_Refused_As_Invalid_With_The_Tools_Sentence(string? protocol)
+    {
+        var path = Path.Combine(_directory, "nested.svgstudio");
+
+        File.WriteAllText(path, Nested.Replace("<circle", "<!-- " + new string('x', 100_000) + " -->\n<circle", StringComparison.Ordinal));
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port, protocol);
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[1]);
+        Dispatcher.UIThread.RunJobs();
+
+        foreach (var (uri, said) in new[]
+                 {
+                     ("svg-studio://drawing/9.svg", "'9' is not a drawing. get_project lists the paths."),
+                     ("svg-studio://drawing/1.png", "'1' is not a drawing. get_project lists the paths."),
+                     ("svg-studio://front.cs", "The tab in front is not a drawing; name one by its node path."),
+                     ("svg-studio://docs/svg-studio/no-such-section", "There is no section svg-studio#no-such-section"),
+                     ("svg-studio://project", "There is no resource svg-studio://project")
+                 })
+        {
+            var refused = await Assert.ThrowsAsync<McpProtocolException>(() => client.ReadResourceAsync(uri).AsTask());
+
+            Assert.Equal(McpErrorCode.InvalidParams, refused.ErrorCode);
+            Assert.Contains(said, refused.Message, StringComparison.Ordinal);
+        }
+
+        // Whole or not at all, as get_drawing gives a source.
+        var whole = await Assert.ThrowsAsync<McpProtocolException>(() => client.ReadResourceAsync("svg-studio://drawing/1/0/0.svg").AsTask());
+
+        Assert.Contains("get_drawing", whole.Message, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>Noise, so the PNG cannot compress under the bound; render draws it given a size.</remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Whose_Image_Comes_To_More_Than_A_Megabyte_Is_Refused_As_A_Resource_And_Render_Named()
+    {
+        var path = Path.Combine(_directory, "noise.svgstudio");
+
+        File.WriteAllText(path, """
+            <studio namespace="Demo.Icons">
+              <drawing name="Noise">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+                  <filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" /></filter>
+                  <rect width="1000" height="1000" filter="url(#noise)" />
+                </svg>
+              </drawing>
+            </studio>
+            """);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var drawn = Assert.Single((await Call(client, "render", new() { ["node"] = "0" })).Content.OfType<ImageContentBlock>());
+        var refused = await Assert.ThrowsAsync<McpProtocolException>(() => client.ReadResourceAsync("svg-studio://drawing/0.png").AsTask());
+
+        Assert.True(drawn.DecodedData.Length > 1_000_000, $"{drawn.DecodedData.Length} bytes");
+        Assert.Contains($" comes to an image of {drawn.DecodedData.Length} bytes, more than the 1,000,000 a resource holds; render with a size draws it smaller.", refused.Message, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(null)]
+    [InlineData("2025-11-25")]
+    public async Task The_Drawings_Are_Listed_Two_Hundred_At_A_Time_And_A_Path_Reads_What_Is_There_Now(string? protocol)
+    {
+        var path = Path.Combine(_directory, "many.svgstudio");
+        var drawing = """<drawing name="d{0}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="{0}" height="24" /></svg></drawing>""";
+
+        File.WriteAllText(path, $"<studio namespace=\"Demo.Icons\"><group name=\"Badges\" />{string.Concat(Enumerable.Range(1, 201).Select(at => string.Format(CultureInfo.InvariantCulture, drawing, at)))}</studio>");
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port, protocol);
+
+        static List<string> Drawings(IEnumerable<string> uris) => uris.Where(uri => uri.StartsWith("svg-studio://drawing/", StringComparison.Ordinal)).ToList();
+
+        var first = await client.ListResourcesAsync(new ListResourcesRequestParams());
+        var second = await client.ListResourcesAsync(new ListResourcesRequestParams { Cursor = first.NextCursor });
+
+        Assert.Equal(Enumerable.Range(1, 200).Select(at => $"svg-studio://drawing/{at}.svg"), Drawings(first.Resources.Select(resource => resource.Uri)));
+        Assert.Equal(new[] { "svg-studio://drawing/201.svg" }, Drawings(second.Resources.Select(resource => resource.Uri)));
+        Assert.DoesNotContain(second.Resources, resource => !resource.Uri.StartsWith("svg-studio://drawing/", StringComparison.Ordinal));
+        Assert.Null(second.NextCursor);
+        Assert.Equal(201, Drawings((await client.ListResourcesAsync()).Select(resource => resource.Uri)).Count);
+
+        var unknown = await Assert.ThrowsAsync<McpProtocolException>(() => client.ListResourcesAsync(new ListResourcesRequestParams { Cursor = "next" }).AsTask());
+
+        Assert.Equal(McpErrorCode.InvalidParams, unknown.ErrorCode);
+
+        async Task<string> Read(string uri) => Assert.IsType<TextResourceContents>(Assert.Single((await client.ReadResourceAsync(uri)).Contents)).Text;
+
+        // A path is a position: d1 moved into Badges, 1 is d2 and d1 is 0/0.
+        Assert.Contains("width=\"1\"", await Read("svg-studio://drawing/1.svg"), StringComparison.Ordinal);
+        Assert.NotEqual(true, (await Call(client, "move", new() { ["node"] = "1", ["into"] = "0" })).IsError);
+        Assert.Contains("width=\"2\"", await Read("svg-studio://drawing/1.svg"), StringComparison.Ordinal);
+        Assert.Contains("width=\"1\"", await Read("svg-studio://drawing/0/0.svg"), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>What a person starts with /mcp__svg-studio__new_drawing in Claude Code: words alone, naming tools that exist and sections of the docs that do.</remarks>
+    [AvaloniaTheory]
+    [InlineData(null)]
+    [InlineData("2025-11-25")]
+    public async Task The_Prompts_Fill_In_What_They_Are_Given_And_Cite_Tools_And_Docs_That_Exist(string? protocol)
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port, protocol);
+
+        var prompts = (await client.ListPromptsAsync()).ToDictionary(prompt => prompt.Name);
+        var schemas = (await client.ListToolsAsync()).ToDictionary(tool => tool.Name, tool => tool.JsonSchema.GetProperty("properties"), StringComparer.Ordinal);
+        var tools = schemas.Keys.ToHashSet(StringComparer.Ordinal);
+
+        Assert.Equal(new[] { "add_parameter", "new_drawing", "review_drawing" }, prompts.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(new[] { ("what", true), ("group", false) }, prompts["new_drawing"].ProtocolPrompt.Arguments!.Select(argument => (argument.Name, argument.Required == true)));
+        Assert.Equal(new[] { ("node", false) }, prompts["review_drawing"].ProtocolPrompt.Arguments!.Select(argument => (argument.Name, argument.Required == true)));
+        Assert.Equal(new[] { ("what", true), ("node", false) }, prompts["add_parameter"].ProtocolPrompt.Arguments!.Select(argument => (argument.Name, argument.Required == true)));
+        Assert.All(prompts.Values, prompt => Assert.InRange(prompt.Title!.Split(' ').Length, 1, 4));
+        Assert.Empty(prompts.Values.Select(prompt => prompt.Title).Intersect(AssistantTools.Titles.Values));
+
+        foreach (var (name, arguments, said) in new[]
+                 {
+                     ("new_drawing", new Dictionary<string, object?> { ["what"] = "a bell", ["group"] = "1/0" }, "a bell"),
+                     ("review_drawing", new Dictionary<string, object?> { ["node"] = "0/2" }, "0/2"),
+                     ("add_parameter", new Dictionary<string, object?> { ["what"] = "the fill of the dial" }, "the fill of the dial")
+                 })
+        {
+            var text = Assert.IsType<TextContentBlock>(Assert.Single((await client.GetPromptAsync(name, arguments)).Messages).Content).Text;
+
+            Assert.Contains(said, text, StringComparison.Ordinal);
+            Assert.All(Regex.Matches(text, @"\b[a-z]+_[a-z_]+\b").Select(match => match.Value), cited => Assert.Contains(cited, tools));
+            Assert.All(Regex.Matches(text, @"\b[a-z0-9-]+#[a-z0-9-]+\b").Select(match => match.Value), cited => Assert.NotNull(AssistantDocs.Read(cited)));
+        }
+
+        // Where to look: the group asked for, and the project where none is.
+        var top = Assert.IsType<TextContentBlock>(Assert.Single((await client.GetPromptAsync("new_drawing", new Dictionary<string, object?> { ["what"] = "a bell" })).Messages).Content).Text;
+
+        Assert.Contains("(project)", top, StringComparison.Ordinal);
+        Assert.Contains("svg-expressions#2-where-an-expression-can-go", Assert.IsType<TextContentBlock>(Assert.Single((await client.GetPromptAsync("add_parameter", new Dictionary<string, object?> { ["what"] = "x" })).Messages).Content).Text, StringComparison.Ordinal);
+
+        // What the pattern above cannot see: tools named in one word, and the arguments and values the
+        // prompts give them, which a rename would leave them naming.
+        foreach (var (tool, argument, value) in new (string, string, string?)[]
+                 {
+                     ("render", "node", null), ("render", "svg", null), ("render", "size", null), ("render", "background", "both"), ("render", "values", null),
+                     ("find", "kind", "uses"), ("declare", "type", null), ("declare", "default", null), ("add_drawing", "parent", null),
+                     ("get_node", "node", null), ("get_declarations", "node", null), ("get_drawing", "node", null), ("get_code", "node", null)
+                 })
+        {
+            Assert.True(schemas[tool].TryGetProperty(argument, out var property), $"{tool} takes no {argument}.");
+
+            if (value is { })
+            {
+                Assert.Contains(value, (property.TryGetProperty("enum", out var named) ? named : property.GetProperty("anyOf")[0].GetProperty("enum")).EnumerateArray().Select(one => one.GetString()?.ToLowerInvariant()));
+            }
+        }
     }
 
     /// <summary>The previews are the CDN's, which the plan does not count: no download, and no icon's details either.</summary>
@@ -3260,12 +3962,16 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(done(), $"Gave up waiting; the status is {StudioMcpServer.Status ?? "null"}.");
     }
 
-    private static Task<McpClient> Client(int port)
-        => McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
-        {
-            Endpoint = new Uri($"http://127.0.0.1:{port}/mcp"),
-            AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + StudioMcpServer.Token(make: false) }
-        }));
+    /// <param name="protocol">The revision to speak: left out, the newest, which Claude Code tries first; "2025-11-25" is the one it falls back to.</param>
+    /// <param name="elicit">How the person answers a question; a client without one says it cannot ask.</param>
+    private static Task<McpClient> Client(int port, string? protocol = null, Func<ElicitRequestParams?, CancellationToken, ValueTask<ElicitResult>>? elicit = null)
+        => McpClient.CreateAsync(
+            new HttpClientTransport(new HttpClientTransportOptions
+            {
+                Endpoint = new Uri($"http://127.0.0.1:{port}/mcp"),
+                AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + StudioMcpServer.Token(make: false) }
+            }),
+            new McpClientOptions { ProtocolVersion = protocol, Handlers = new McpClientHandlers { ElicitationHandler = elicit } });
 
     /// <summary>Calls a tool, giving up after half a minute so a call that never returns fails rather than holds the run.</summary>
     private static async Task<CallToolResult> Call(McpClient client, string name, Dictionary<string, object?> arguments)
@@ -3310,6 +4016,24 @@ public class StudioMcpServerTests : IDisposable
 
     private static string Text(CallToolResult result)
         => string.Concat(result.Content.OfType<TextContentBlock>().Select(block => block.Text));
+
+    /// <summary>A person who answers each question as <paramref name="answer"/> says, kept in <paramref name="asked"/> in the order they were put.</summary>
+    private static Func<ElicitRequestParams?, CancellationToken, ValueTask<ElicitResult>> Answering(List<ElicitRequestParams> asked, Func<ElicitRequestParams, Task<ElicitResult>> answer)
+        => async (question, _) =>
+        {
+            asked.Add(question!);
+
+            return await answer(question!);
+        };
+
+    /// <summary>The answers a question offers, in order.</summary>
+    private static IList<string> Choices(ElicitRequestParams question)
+        => Assert.IsType<ElicitRequestParams.UntitledSingleSelectEnumSchema>(question.RequestedSchema!.Properties["choice"]).Enum;
+
+    private static ElicitResult Chose(ElicitRequestParams question, int choice) => Chose(Choices(question)[choice]);
+
+    private static ElicitResult Chose(string choice)
+        => new() { Action = "accept", Content = new Dictionary<string, JsonElement> { ["choice"] = JsonSerializer.SerializeToElement(choice) } };
 
     private static TabControl Tabs(MainWindow window) => window.FindControl<TabControl>("Tabs")!;
 

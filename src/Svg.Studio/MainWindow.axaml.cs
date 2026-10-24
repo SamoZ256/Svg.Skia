@@ -452,10 +452,11 @@ public partial class MainWindow : Window
     /// Where what went wrong goes, for a caller with nowhere to show a dialog, which converts a
     /// PaintCode document on the terms last chosen and closes the tab of a drawing that will not load.
     /// </param>
+    /// <param name="agreed">What the person agreed a project opened in place of this one may throw away; see <see cref="CloseProjectAsync"/>.</param>
     /// <returns>Whether every path opened.</returns>
-    public Task<bool> OpenAsync(IReadOnlyList<string> paths, List<string>? notes = null) => OpenAsync(null, paths, notes);
+    public Task<bool> OpenAsync(IReadOnlyList<string> paths, List<string>? notes = null, string? agreed = null) => OpenAsync(null, paths, notes, agreed);
 
-    private async Task<bool> OpenAsync(SvgViewer? source, IReadOnlyList<string> paths, List<string>? notes = null)
+    private async Task<bool> OpenAsync(SvgViewer? source, IReadOnlyList<string> paths, List<string>? notes = null, string? agreed = null)
     {
         var opened = true;
 
@@ -463,7 +464,7 @@ public partial class MainWindow : Window
         {
             if (IsProject(path))
             {
-                opened &= await OpenProjectAsync(path, notes).ConfigureAwait(true);
+                opened &= await OpenProjectAsync(path, notes, agreed).ConfigureAwait(true);
                 continue;
             }
 
@@ -476,7 +477,7 @@ public partial class MainWindow : Window
                     ? await ConfirmConvert(path).ConfigureAwait(true)
                     : (StudioSettings.ConvertIntegers, StudioSettings.ConvertOrganizes);
 
-                opened &= asked is { } terms && await ImportPaintCodeAsync(path, terms.Integers, terms.Organize, notes).ConfigureAwait(true);
+                opened &= asked is { } terms && await ImportPaintCodeAsync(path, terms.Integers, terms.Organize, notes, agreed).ConfigureAwait(true);
                 continue;
             }
 
@@ -612,9 +613,10 @@ public partial class MainWindow : Window
     /// their mind. Public for the reason <see cref="ExportAsync"/> is: a way in without the menu.
     /// </remarks>
     /// <param name="notes">Where why the project open stays goes, in place of asking; see <see cref="CloseProjectAsync"/>.</param>
+    /// <param name="agreed">What the person agreed closing it may throw away; see <see cref="CloseProjectAsync"/>.</param>
     /// <returns>Whether it opened, or false when the project open was kept.</returns>
-    public Task<bool> NewProjectAsync(List<string>? notes = null)
-        => OpenProjectAsync(ProjectDocument.Empty(), false, Array.Empty<string>(), null, notes);
+    public Task<bool> NewProjectAsync(List<string>? notes = null, string? agreed = null)
+        => OpenProjectAsync(ProjectDocument.Empty(), false, Array.Empty<string>(), null, notes, agreed);
 
     /// <summary>
     /// Converts <paramref name="source"/> into a project, and opens it.
@@ -629,8 +631,9 @@ public partial class MainWindow : Window
     /// author makes, which is why the dialog asks rather than this deciding.
     /// </param>
     /// <param name="notes">Where what went wrong, and what could not be carried across, goes, for a caller with nowhere to show a dialog.</param>
+    /// <param name="agreed">What the person agreed closing the project open may throw away; see <see cref="CloseProjectAsync"/>.</param>
     /// <returns>Whether the project it made opened.</returns>
-    public async Task<bool> ImportPaintCodeAsync(string source, bool integers = false, bool organize = true, List<string>? notes = null)
+    public async Task<bool> ImportPaintCodeAsync(string source, bool integers = false, bool organize = true, List<string>? notes = null, string? agreed = null)
     {
         if (source is null)
         {
@@ -660,7 +663,7 @@ public partial class MainWindow : Window
         // Opened on what was just built rather than written and read back: nothing goes to disk
         // until the author has seen the conversion and saved it, and a thousand drawings are not
         // serialised and parsed again to show them.
-        if (!await OpenProjectAsync(document, true, Array.Empty<string>(), Named(source), notes).ConfigureAwait(true))
+        if (!await OpenProjectAsync(document, true, Array.Empty<string>(), Named(source), notes, agreed).ConfigureAwait(true))
         {
             return false;
         }
@@ -725,7 +728,7 @@ public partial class MainWindow : Window
     /// </remarks>
     /// <param name="notes">Where what went wrong, and what a conversion lost, goes, for a caller with nowhere to show a dialog.</param>
     /// <returns>Whether it opened.</returns>
-    private async Task<bool> OpenProjectAsync(string path, List<string>? notes = null)
+    private async Task<bool> OpenProjectAsync(string path, List<string>? notes = null, string? agreed = null)
     {
         ProjectDocument document;
         var converted = new List<string>();
@@ -748,7 +751,7 @@ public partial class MainWindow : Window
             return false;
         }
 
-        return await OpenProjectAsync(document, IsSvgc(path), converted, IsSvgc(path) ? Named(path) : null, notes)
+        return await OpenProjectAsync(document, IsSvgc(path), converted, IsSvgc(path) ? Named(path) : null, notes, agreed)
             .ConfigureAwait(true);
     }
 
@@ -764,24 +767,25 @@ public partial class MainWindow : Window
     /// <param name="converted">What a conversion could not carry across, said once it is open.</param>
     /// <param name="suggested">What to call it when it is saved, for a project that has no file.</param>
     /// <param name="notes">Where what would be asked is said instead, for a caller with nowhere to show a dialog, and nothing opened.</param>
+    /// <param name="agreed">What the person agreed closing the project open may throw away; see <see cref="CloseProjectAsync"/>.</param>
     /// <returns>Whether it opened.</returns>
     private async Task<bool> OpenProjectAsync(
         ProjectDocument document,
         bool edited,
         IReadOnlyList<string> converted,
         string? suggested,
-        List<string>? notes = null)
+        List<string>? notes = null,
+        string? agreed = null)
     {
-        // Before anything is closed, so a refusal takes nothing away. Not the open project's own
-        // copy, which closing it throws away on purpose.
-        if (notes is { } && document.Path is { } file && ProjectRecovery.Waiting(file, document.ToXml()) is { } copy && copy != _recovery?.Path)
+        // Before anything is closed, so a refusal takes nothing away.
+        if (notes is { } && document.Path is { } file && Kept(document) is { } copy)
         {
             notes.Add($"{Recovered(file, copy)} Nothing was opened: open it from Studio's File menu, which asks whether to restore the copy.");
 
             return false;
         }
 
-        if (!await CloseProjectAsync(notes).ConfigureAwait(true))
+        if (!await CloseProjectAsync(notes, agreed).ConfigureAwait(true))
         {
             return false;
         }
@@ -999,38 +1003,38 @@ public partial class MainWindow : Window
     /// Where why it stays open goes, in place of asking, for a caller with nowhere to show a dialog:
     /// unsaved work, or icons on their way in from Streamline, which closing would end.
     /// </param>
+    /// <param name="agreed">
+    /// What the person has agreed may be thrown away, as <see cref="WouldLose"/> said it, which is then
+    /// thrown away unasked; anything else is asked about, or said into <paramref name="notes"/>.
+    /// </param>
     /// <returns>Whether it closed, or false when unsaved work was kept.</returns>
-    public async Task<bool> CloseProjectAsync(List<string>? notes = null)
+    public async Task<bool> CloseProjectAsync(List<string>? notes = null, string? agreed = null)
     {
-        if (_workspace is not { } workspace)
+        if (_workspace is null)
         {
             return true;
         }
 
-        // Asked once for all of them rather than tab by tab, since closing the project is one act
-        // and being stopped halfway through it would leave half a workspace open. Only its own:
-        // a drawing of no project's stays open, and so does what it holds.
-        var owned = _tabs.Items.OfType<TabItem>().Where(Owned).ToList();
+        var discarding = WouldLose();
+        var asking = discarding is { } && discarding != agreed;
 
-        var unsaved = owned.Select(Unsaved).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
-        var discarding = unsaved.Count > 0 || Unwritten is { } ? Describe(unsaved, Unwritten) : null;
-
-        if (notes is { } && (_streamline.Busy || discarding is { }))
+        // Icons on their way in are said first, as a tool asks nobody to throw work away while they are.
+        if (notes is { } && (_streamline.Busy || asking))
         {
-            notes.Add(discarding is null
+            notes.Add(_streamline.Busy
                 ? "Icons are on their way into the project from the Streamline panel; wait for them, or cancel the family import, then try again."
                 : $"{discarding} Nothing was closed, as closing the project would throw that away: save first, or ask the person to close it in Studio, which asks whether to.");
 
             return false;
         }
 
-        if (discarding is { } && !await ConfirmDiscard(discarding).ConfigureAwait(true))
+        if (asking && !await ConfirmDiscard(discarding!).ConfigureAwait(true))
         {
             return false;
         }
 
         // The tabs are the project's, so they go with it rather than being left pointing at nothing.
-        foreach (var item in owned)
+        foreach (var item in _tabs.Items.OfType<TabItem>().Where(Owned).ToList())
         {
             CloseTab(item);
         }
@@ -1050,6 +1054,48 @@ public partial class MainWindow : Window
 
         return true;
     }
+
+    /// <summary>What opening <paramref name="path"/>, or a new project where none is given, would throw away, in a sentence; null where nothing.</summary>
+    /// <remarks>
+    /// Asked once for all of it rather than tab by tab, since closing the project is one act and being
+    /// stopped halfway through it would leave half a workspace open. Only its own: a drawing of no
+    /// project's stays open, and so does what it holds, and opening a drawing closes nothing; nor, for
+    /// a caller with nowhere to show a dialog, does opening a project a copy was kept of.
+    /// </remarks>
+    internal string? WouldLose(string? path = null)
+    {
+        if (_workspace is null || path is { } && (!IsProject(path) && !IsPaintCode(path) || Waiting(path)))
+        {
+            return null;
+        }
+
+        var unsaved = _tabs.Items.OfType<TabItem>().Where(Owned).Select(Unsaved).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+
+        return unsaved.Count > 0 || Unwritten is { } ? Describe(unsaved, Unwritten) : null;
+    }
+
+    /// <summary>Whether the project at <paramref name="path"/> has a copy kept of it that opening it would ask about; read only where a copy is on disk.</summary>
+    private bool Waiting(string path)
+    {
+        if (!IsProject(path) || IsSvgc(path) || !File.Exists(ProjectRecovery.For(path)))
+        {
+            return false;
+        }
+
+        try
+        {
+            return Kept(ProjectDocument.Load(path)) is { };
+        }
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
+        {
+            // Opening it says what is wrong with it.
+            return false;
+        }
+    }
+
+    /// <summary>The copy kept of <paramref name="document"/>'s file, holding work never saved into it; null where none is, or it is the open project's own, which closing it throws away on purpose.</summary>
+    private string? Kept(ProjectDocument document)
+        => document.Path is { } file && ProjectRecovery.Waiting(file, document.ToXml()) is { } copy && copy != _recovery?.Path ? copy : null;
 
     /// <summary>Whether a tab belongs to the open project, and goes when the project does.</summary>
     private static bool Owned(TabItem item) => item.Tag is ProjectNode;
@@ -3456,28 +3502,48 @@ public partial class MainWindow : Window
     /// file at all is svgc's answer, for a script that wants a build to stop.
     /// </remarks>
     /// <param name="ask">Whether there is anybody to ask; without, it is baked unless the person chose relaxed for good, as get_code builds.</param>
-    private async Task<SvgTextLayout?> RelaxAsync(SvgcProject project, SvgcBuildSettings settings, Svg.Model.ISvgAssetLoader loader, bool ask)
+    private async Task<SvgTextLayout?> RelaxAsync(bool ask)
     {
         if (!ask || StudioSettings.RelaxedText != RelaxedTextAnswer.Ask)
         {
             return StudioSettings.RelaxedText == RelaxedTextAnswer.Always ? SvgTextLayout.Relaxed : SvgTextLayout.Baked;
         }
 
-        IReadOnlyList<string> frozen;
+        return await FrozenAsync().ConfigureAwait(true) is { Count: > 0 } frozen ? await ConfirmRelax(frozen).ConfigureAwait(true) : SvgTextLayout.Baked;
+    }
+
+    /// <summary>The text an export of the project would freeze at its default, with the front tab's text in it as an export takes it in.</summary>
+    /// <remarks>Read before that is taken in, so a caller can ask before it has changed anything.</remarks>
+    internal async Task<IReadOnlyList<string>> FrozenAsync()
+    {
+        if (_workspace is not { } workspace)
+        {
+            return Array.Empty<string>();
+        }
+
+        // Only where it reads: the export refuses it otherwise, before anything is built.
+        var front = _tabs.SelectedItem is TabItem { Tag: ProjectDrawing drawing, Content: SvgViewer viewer } && ProjectDrawing.Read(viewer.Source, out _) is { }
+            ? (drawing, viewer.Source)
+            : ((ProjectDrawing, string)?)null;
+        var project = workspace.Document.Flatten(front, alone: false);
+        var settings = SvgcBuildSettings.For(project);
+        var loader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
 
         try
         {
-            frozen = await Task.Run(() => SvgcProjectBuild.Survey(project, settings, loader)).ConfigureAwait(true);
+            return await Task.Run(() => SvgcProjectBuild.Survey(project, settings, loader)).ConfigureAwait(true);
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException)
         {
-            // Whatever it is, the build below reports it properly. Asking about text on the way to
-            // a failure would be asking about something that is not going to happen.
-            return SvgTextLayout.Baked;
+            // Whatever it is, the build reports it properly. Asking about text on the way to a
+            // failure would be asking about something that is not going to happen.
+            return Array.Empty<string>();
         }
-
-        return frozen.Count == 0 ? SvgTextLayout.Baked : await ConfirmRelax(frozen).ConfigureAwait(true);
     }
+
+    /// <summary>What <see cref="FrozenAsync"/> reads, to tell whether what it found still holds: the project, and the tab in front with its text.</summary>
+    internal (ProjectWorkspace? Workspace, string? Project, object? Front, string? Text) Surveyed()
+        => (_workspace, _workspace?.Document.ToXml(), _tabs.SelectedItem, (_tabs.SelectedItem as TabItem)?.Content is SvgViewer viewer ? viewer.Source : null);
 
     /// <summary>What to offer the export panel: the project's own file name, made into a class's.</summary>
     /// <remarks>
@@ -3508,11 +3574,12 @@ public partial class MainWindow : Window
     /// Where what went wrong, and a project's warnings, go, for a caller with nowhere to show a
     /// dialog; text a project cannot write out is then laid out without asking.
     /// </param>
-    public async Task<bool> ExportAsync(string target, List<string>? notes = null)
+    /// <param name="layout">How a project lays out that text, which nothing then asks; left out, as the person said for good, or asked where <paramref name="notes"/> are not.</param>
+    public async Task<bool> ExportAsync(string target, List<string>? notes = null, SvgTextLayout? layout = null)
     {
         if (_workspace is { })
         {
-            return await ExportProjectAsync(target, notes).ConfigureAwait(true);
+            return await ExportProjectAsync(target, notes, layout).ConfigureAwait(true);
         }
 
         if (Selected() is not { Document: { } document } viewer)
@@ -3546,7 +3613,7 @@ public partial class MainWindow : Window
     /// the project names no path of its own, so where it goes is the caller's to say.
     /// </remarks>
     /// <returns>Whether anything was written.</returns>
-    private async Task<bool> ExportProjectAsync(string target, List<string>? notes)
+    private async Task<bool> ExportProjectAsync(string target, List<string>? notes, SvgTextLayout? layout)
     {
         if (_workspace is not { } workspace || !await CommitAsync("The project couldn't be exported", notes).ConfigureAwait(true))
         {
@@ -3560,12 +3627,12 @@ public partial class MainWindow : Window
 
         settings.SingleFile = target;
 
-        if (await RelaxAsync(project, settings, loader, ask: notes is null).ConfigureAwait(true) is not { } layout)
+        if ((layout ?? await RelaxAsync(ask: notes is null).ConfigureAwait(true)) is not { } chosen)
         {
             return false;
         }
 
-        settings.TextLayout = layout;
+        settings.TextLayout = chosen;
 
         try
         {
@@ -3910,12 +3977,21 @@ public partial class MainWindow : Window
         => _tabs.Items.OfType<TabItem>().Where(item => Unsaved(item) is { }).Select(item => item.Tag).OfType<ProjectNode>().ToList();
 
     /// <summary>
-    /// The first node whose tab holds edits that removing <paramref name="node"/> would lose: one at or
+    /// The nodes whose tab holds edits that removing <paramref name="node"/> would lose: one at or
     /// under it, which <see cref="RemoveAsync(ProjectNode, string?)"/> closes and so asks about, or a group whose
     /// board has picked one, whose typed settings would fall to the group once it is gone.
     /// </summary>
-    internal ProjectNode? HoldingEdits(ProjectNode node)
-        => HoldingEdits().FirstOrDefault(held => held.DescendsFrom(node) || Tab(held)?.Content is GroupPanel panel && panel.Described.DescendsFrom(node));
+    internal IReadOnlyList<ProjectNode> HoldingEdits(ProjectNode node)
+        => HoldingEdits().Where(held => held.DescendsFrom(node) || Tab(held)?.Content is GroupPanel panel && panel.Described.DescendsFrom(node)).ToList();
+
+    /// <summary>Closes the tab open on <paramref name="node"/> without asking, and with it what it holds, for a caller that has asked already.</summary>
+    internal void Discard(ProjectNode node)
+    {
+        if (Tab(node) is { } item)
+        {
+            CloseTab(item);
+        }
+    }
 
     /// <summary>The node of the tab whose settings pane holds values typed for <paramref name="node"/>, which its next commit writes over the project's.</summary>
     /// <remarks>By what the pane describes rather than by tab: a group's board picks drawings that have no tab of their own.</remarks>
@@ -4078,17 +4154,9 @@ public partial class MainWindow : Window
         var relax = new CheckBox { Content = "Relaxed text layout", IsChecked = false };
         var remember = new CheckBox { Content = "Remember this answer", IsChecked = false };
 
-        var named = frozen.Count <= Listed
-            ? string.Join(Environment.NewLine, frozen)
-            : string.Join(Environment.NewLine, frozen.Take(Listed).Append($"…and {frozen.Count - Listed} more."));
-
         var asked = await Ask(
             "Text this export cannot write out",
-            $"{named}{Environment.NewLine}{Environment.NewLine}"
-            + "The generated code draws each of these at the size and in the place the drawing was measured at, "
-            + "so it cannot be given different words. Relaxing the layout draws the words it is given instead, "
-            + "at the element's own place, giving up the spans, lengths and paths that placed them. "
-            + "Without it the default words are written in and the rest of the project is unaffected.",
+            Freezing(frozen),
             "Export",
             "Cancel",
             new StackPanel
@@ -4111,6 +4179,15 @@ public partial class MainWindow : Window
 
         return layout;
     }
+
+    /// <summary>What an export asks about the text it cannot write out: which, and what relaxing it does.</summary>
+    internal static string Freezing(IReadOnlyList<string> frozen)
+        => (frozen.Count <= Listed ? string.Join(Environment.NewLine, frozen) : string.Join(Environment.NewLine, frozen.Take(Listed).Append($"…and {frozen.Count - Listed} more.")))
+           + Environment.NewLine + Environment.NewLine
+           + "The generated code draws each of these at the size and in the place the drawing was measured at, "
+           + "so it cannot be given different words. Relaxing the layout draws the words it is given instead, "
+           + "at the element's own place, giving up the spans, lengths and paths that placed them. "
+           + "Without it the default words are written in and the rest of the project is unaffected.";
 
     /// <summary>Says what opening a PaintCode document does, and asks the one question it cannot.</summary>
     /// <remarks>

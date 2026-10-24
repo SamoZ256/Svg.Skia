@@ -7,6 +7,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -52,13 +53,22 @@ public sealed class AssistantTools
     private const string Gone = "(no longer in the project)";
 
     /// <summary>About how long an answer grows before it leaves things out, well under the 100,000 characters Claude Code cuts a tool's answer at: a source, a value, rows of a list, or the code past a part.</summary>
-    private const int Answer = 40_000;
+    private const int Longest = 40_000;
 
     /// <summary>How many problems an answer lists before it says how many more.</summary>
     private const int Most = 50;
 
     /// <summary>How far apart the images on a render's or a search's sheet are, and from the sheet's edges.</summary>
     private const int Gap = 8;
+
+    private static readonly string[] s_allow = { "Allow", "Deny" };
+
+    private static readonly string[] s_throw = { "Throw the edits away and remove it", "Keep the edits; remove nothing" };
+
+    private static readonly string[] s_discard = { "Throw them away and go on", "Keep them; do nothing" };
+
+    /// <summary>How an export lays out the text it cannot write out: baked or relaxed, this once or from now on, as the window's checkboxes ask it.</summary>
+    private static readonly string[] s_layouts = { "Baked, for this export", "Relaxed, for this export", "Baked, from now on", "Relaxed, from now on" };
 
     /// <summary>Refuses an argument no parameter takes: dropped, a misspelled node fell back to the drawing in front, which took the edit.</summary>
     private static readonly JsonSerializerOptions s_arguments = new(AIJsonUtilities.DefaultOptions) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
@@ -91,7 +101,21 @@ public sealed class AssistantTools
     public AssistantTools(MainWindow window)
     {
         _window = window ?? throw new ArgumentNullException(nameof(window));
+
+        // Through Ask as it is when asked, which a panel sets after this.
+        Confirm = async question => (await Ask(new Question(question, s_allow)).ConfigureAwait(true))?.Choice == s_allow[0];
     }
+
+    /// <summary>Something to ask the person, and the answers it offers.</summary>
+    /// <param name="Text">Built from the state alone: a client answers by a question's <see cref="Key"/>, and one saying how often it was asked is a new question every time.</param>
+    public sealed record Question(string Text, IReadOnlyList<string> Choices)
+    {
+        /// <summary>The same for the same words and choices, so a call run again once answered finds its answer, and a question about what has since changed is asked again.</summary>
+        public string Key => "q" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Text + "\n" + string.Join("\n", Choices))))[..16];
+    }
+
+    /// <summary>One of a question's choices, or null where the person declined it, cancelled it or stopped the reply.</summary>
+    public sealed record Answer(string? Choice);
 
     /// <summary>What a render draws on.</summary>
     internal enum Ground
@@ -136,11 +160,67 @@ public sealed class AssistantTools
         "streamline_search", "streamline_import"
     };
 
+    /// <summary>What a client shows each tool as: what Studio's own menus would call it.</summary>
+    public static readonly IReadOnlyDictionary<string, string> Titles = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["read_doc"] = "Read the docs",
+        ["get_context"] = "See what is open",
+        ["get_project"] = "List the project",
+        ["get_drawing"] = "Read a drawing",
+        ["get_element"] = "Read an element",
+        ["get_node"] = "Read a node's settings",
+        ["get_problems"] = "List problems",
+        ["get_code"] = "Read the generated C#",
+        ["get_declarations"] = "Read declarations",
+        ["get_templates"] = "List templates",
+        ["get_history"] = "Read the undo history",
+        ["get_changes"] = "List changes",
+        ["git_history"] = "List commits",
+        ["find"] = "Find in the project",
+        ["render"] = "Render a drawing",
+        ["streamline_search"] = "Search Streamline",
+        ["streamline_import"] = "Import from Streamline",
+        ["set_attributes"] = "Set attributes",
+        ["set_text"] = "Set an element's text",
+        ["replace_drawing"] = "Replace a drawing's source",
+        ["insert_element"] = "Insert an element",
+        ["remove_elements"] = "Remove elements",
+        ["move_element"] = "Move an element",
+        ["duplicate_elements"] = "Duplicate elements",
+        ["select"] = "Select elements",
+        ["open"] = "Open a node",
+        ["add_group"] = "Add a group",
+        ["add_drawing"] = "Add a drawing",
+        ["extract_template"] = "Make a template",
+        ["move"] = "Move a node",
+        ["set_declarations"] = "Set declarations",
+        ["declare"] = "Declare a name",
+        ["set_node"] = "Change a node's setting",
+        ["save"] = "Save",
+        ["export"] = "Export",
+        ["new_project"] = "New project",
+        ["open_file"] = "Open a file",
+        ["reload"] = "Reload from disk",
+        ["remove"] = "Remove a node",
+        ["git_commit"] = "Commit",
+        ["undo"] = "Undo",
+        ["redo"] = "Redo"
+    };
+
     /// <summary>Who the Edit menu says made an edit: "Undo Assistant: make it red".</summary>
     public string Who { get; init; } = "Assistant";
 
-    /// <summary>Asks the person before something that cannot be taken back with ⌘Z.</summary>
-    public Func<string, Task<bool>> Confirm { get; set; } = _ => Task.FromResult(false);
+    /// <summary>Asks the person before something that cannot be taken back with ⌘Z: allow or deny, through <see cref="Ask"/> unless set.</summary>
+    public Func<string, Task<bool>> Confirm { get; set; }
+
+    /// <summary>Asks the person to choose, answering null where nobody can be asked.</summary>
+    public Func<Question, Task<Answer?>> Ask { get; set; } = _ => Task.FromResult<Answer?>(null);
+
+    /// <summary>Whether a question could reach the person now, so that one costly to work out, as an export's is, is worked out only then.</summary>
+    public Func<bool> CanAsk { get; set; } = () => true;
+
+    /// <summary>Whether the call carries an answer already, as a client calling again with one does; to a question it no longer asks, it is no yes to anything.</summary>
+    public Func<bool> Answered { get; set; } = () => false;
 
     /// <summary>Raised on the UI thread after each call that did what it was asked, with the line the panel shows for it.</summary>
     /// <remarks>
@@ -197,11 +277,11 @@ public sealed class AssistantTools
         Add(Find, "find", "Finds where something is in the project, each drawing as it stands: group and drawing names, element ids, attribute values and text between tags containing the words given, and the {{ }} expressions and lets naming a declared name, matched whole. Does not search the project's templates.");
         Add(SetNode, "set_node", "Changes one setting of a group, a drawing or the project, as a single undo step. cache, helperScope and skiaSharp are the project's alone, and name, x and y a group's or drawing's; a width or height clears a scale, and a scale both.");
         Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Given a path, saves a project never saved, or a drawing of no project's, there: the drawing's tab then saves to it, and its undo history starts again.");
-        Add(Export, "export", "Writes what is open to a file outside the project: with a project open, every drawing of it as one C# file, as Export in the File menu does, after taking in the edits of the tab in front; with none, the drawing in front, as C# where the path ends .cs and as SVG where it ends .svg.");
-        Add(NewProject, "new_project", "Starts a new, empty project in place of the one open, closing its tabs; refused while it or a tab of it holds changes not saved. Nothing is written until save is given a path.");
-        Add(OpenFile, "open_file", "Opens a file by its full path: a drawing (.svg) in a tab of its own, or a project (.svgstudio) in place of the one open, closing its tabs, which is refused while it or a tab of it holds changes not saved. An svgc project (.svgcproj) or a PaintCode document (.pcvd) is converted into a new project, held in Studio until save is given a path.");
-        Add(Reload, "reload", "Reads the open project again from its file, or the drawing of no project's in front from its own, after it was changed outside Studio, which does not watch the disk. Refused while it holds edits not saved. The project's tabs open again where their path still names the same node; the undo history starts again.");
-        Add(Remove, "remove", "Removes a group or drawing from the project.");
+        Add(Export, "export", "Writes what is open to a file outside the project: with a project open, every drawing of it as one C# file, as Export in the File menu does, after taking in the edits of the tab in front; with none, the drawing in front, as C# where the path ends .cs and as SVG where it ends .svg. Text the project's C# cannot write out is laid out as the person chooses where they can be asked, and baked where not, unless they chose for good.");
+        Add(NewProject, "new_project", "Starts a new, empty project in place of the one open, closing its tabs; where it or a tab of it holds changes not saved, asks the person whether to throw them away, and is refused where they cannot be asked. Nothing is written until save is given a path.");
+        Add(OpenFile, "open_file", "Opens a file by its full path: a drawing (.svg) in a tab of its own, or a project (.svgstudio) in place of the one open, closing its tabs, which over changes not saved in it or a tab of it asks the person whether to throw them away, and is refused where they cannot be asked. An svgc project (.svgcproj) or a PaintCode document (.pcvd) is converted into a new project, held in Studio until save is given a path.");
+        Add(Reload, "reload", "Reads the open project again from its file, or the drawing of no project's in front from its own, after it was changed outside Studio, which does not watch the disk. Over edits not saved, asks the person whether to throw them away, and is refused where they cannot be asked. The project's tabs open again where their path still names the same node; the undo history starts again.");
+        Add(Remove, "remove", "Removes a group or drawing from the project; where a tab under it holds edits not yet saved into the project, asks the person whether to throw them away, and is refused where they cannot be asked.");
         Add(GetChanges, "get_changes", "Lists what has changed in the project since its last commit, edits not yet saved included, as Studio's Changes pane compares it: each group or drawing added, removed, changed, moved or given new settings, and what about it changed, for a commit message; with since, against another commit, branch or tag. Edits held in a tab are left out until saved into the project.");
         Add(GitHistory, "git_history", "Lists the commits that touched the project's file, newest first, each with the hash get_drawing, render and get_changes take as a revision.");
         Add(GitCommit, "git_commit", "Saves and commits the project to its git repository.");
@@ -475,7 +555,7 @@ public sealed class AssistantTools
 
             // Whole or not at all: replace_drawing takes the source back whole, and one cut short
             // and sent back would write the cut into the drawing.
-            if (text.Length + source.Length > Answer)
+            if (text.Length + source.Length > Longest)
             {
                 text.Append("The source, ").Append(source.Length).Append(" characters, is too long for this answer and is left out. ").Append(
                     old is { } ? $"It is git's at {revision}, which no tool changes; the keys above are its, and get_drawing without revision reads the drawing the other tools change."
@@ -554,7 +634,7 @@ public sealed class AssistantTools
             // longer than an answer holds; marked so that, copied back, it is plainly no value.
             string Shown(string value)
                 => value.Length > 1_000 && value.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ? $"(left out: {value[..Math.Max(value.IndexOfAny(new[] { ';', ',' }), 5)]}, {value.Length} characters)"
-                   : text.Length + value.Length > Answer ? $"(left out: {value.Length} characters, more than this answer holds)"
+                   : text.Length + value.Length > Longest ? $"(left out: {value.Length} characters, more than this answer holds)"
                    : value;
         });
 
@@ -650,14 +730,58 @@ public sealed class AssistantTools
     /// model's whole context. Read only: Export first writes the front tab's edits into the project,
     /// and this builds from them where they are.
     /// </remarks>
-    private Task<string> GetCode(
+    private async Task<string> GetCode(
         [Description("The drawing's node path from get_project; empty for the drawing in front.")] string? node = null,
         [Description("Which part to read of code too long for one answer, from 1; the first part says how many there are.")] int part = 1)
-        => UiAsync(async () =>
+    {
+        var (code, head, warnings, problems) = await Code(node).ConfigureAwait(false);
+
+        if (code is null)
+        {
+            return head;
+        }
+
+        // Room left for the header, the warnings, the problems, and "; part 10 of 10, get_code with part 11 reads on".
+        var parts = Parts(code, Math.Max(Longest - head.Length - warnings.Length - (problems?.Length ?? 0) - 100, Longest / 2));
+
+        if (part < 1 || part > parts.Count)
+        {
+            return $"The code comes in {parts.Count} part{(parts.Count == 1 ? null : "s")}; ask for 1 to {parts.Count}.";
+        }
+
+        return head
+               + (parts.Count == 1 ? null : $"; part {part} of {parts.Count}" + (part < parts.Count ? $", get_code with part {part + 1} reads on" : null))
+               + ".\n"
+               + (part == 1 && warnings.Length > 0 ? warnings + "\n" : null)
+               + (part == 1 ? problems : null)
+               + "\n"
+               + parts[part - 1];
+
+        // At the last line end that fits, or mid-line where one line is longer than a part.
+        static List<string> Parts(string text, int most)
+        {
+            var parts = new List<string>();
+
+            for (var at = 0; at < text.Length;)
+            {
+                var end = text.Length - at <= most ? text.Length : text.LastIndexOf('\n', at + most - 1, most) + 1;
+
+                end = end > at ? end : at + most;
+                parts.Add(text[at..end]);
+                at = end;
+            }
+
+            return parts;
+        }
+    }
+
+    /// <summary>The C# get_code generates for a drawing, whole, with what heads its answer; or no code, and why not.</summary>
+    internal Task<(string? Code, string Head, string Warnings, string? Problems)> Code(string? node)
+        => UiAsync<(string?, string, string, string?)>(async () =>
         {
             if (Target(node, out var about) is not { } target)
             {
-                return about;
+                return (null, about, string.Empty, null);
             }
 
             var log = new List<string>();
@@ -697,7 +821,7 @@ public sealed class AssistantTools
                 }
                 else
                 {
-                    return $"{about} has not loaded, so there is nothing to generate from.";
+                    return (null, $"{about} has not loaded, so there is nothing to generate from.", string.Empty, null);
                 }
 
                 code = await Task.Run(generate).ConfigureAwait(true);
@@ -706,12 +830,12 @@ public sealed class AssistantTools
             // for a size or padding the build refuses, which a file can hold since each is read alone.
             catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ExprException or InvalidOperationException or XmlException or ArgumentException)
             {
-                return $"{about} cannot be generated: {failure.Message}";
+                return (null, $"{about} cannot be generated: {failure.Message}", string.Empty, null);
             }
 
             if (code is null)
             {
-                return $"{about} compiled to nothing to generate from.";
+                return (null, $"{about} compiled to nothing to generate from.", string.Empty, null);
             }
 
             var warnings = Cut(log.Where(line => line.StartsWith("warning:", StringComparison.Ordinal)).ToList(), null);
@@ -719,39 +843,34 @@ public sealed class AssistantTools
             // A drawing with errors is generated all the same, drawing nothing of what they are in.
             var problems = found.Count > 0 ? $"Problems:\n{Cut(found.Select(problem => "- " + problem).ToList(), null)}\n" : null;
 
-            // Room left for the header, the warnings, the problems, and "; part 10 of 10, get_code with part 11 reads on".
-            var parts = Parts(code, Math.Max(Answer - about.Length - what.Length - warnings.Length - (problems?.Length ?? 0) - 100, Answer / 2));
-
-            if (part < 1 || part > parts.Count)
-            {
-                return $"The code comes in {parts.Count} part{(parts.Count == 1 ? null : "s")}; ask for 1 to {parts.Count}.";
-            }
-
-            return $"{about}: {what}"
-                   + (parts.Count == 1 ? null : $"; part {part} of {parts.Count}" + (part < parts.Count ? $", get_code with part {part + 1} reads on" : null))
-                   + ".\n"
-                   + (part == 1 && warnings.Length > 0 ? warnings + "\n" : null)
-                   + (part == 1 ? problems : null)
-                   + "\n"
-                   + parts[part - 1];
-
-            // At the last line end that fits, or mid-line where one line is longer than a part.
-            static List<string> Parts(string text, int most)
-            {
-                var parts = new List<string>();
-
-                for (var at = 0; at < text.Length;)
-                {
-                    var end = text.Length - at <= most ? text.Length : text.LastIndexOf('\n', at + most - 1, most) + 1;
-
-                    end = end > at ? end : at + most;
-                    parts.Add(text[at..end]);
-                    at = end;
-                }
-
-                return parts;
-            }
+            return (code, $"{about}: {what}", warnings, problems);
         });
+
+    /// <summary>A drawing's source as get_drawing gives it, the text in its tab where one holds it, and what it is; or no source, and why not.</summary>
+    internal Task<(string? Text, string About)> Source(string? node) => Ui<(string?, string)>(() => (Target(node, out var about)?.Text, about));
+
+    /// <summary>The project's drawings in get_project's order, each by its path and by its name after the groups it is in.</summary>
+    internal Task<IReadOnlyList<(string Path, string Title)>> Drawings() => Ui<IReadOnlyList<(string, string)>>(() =>
+    {
+        if (_window.Workspace is not { } workspace)
+        {
+            return Array.Empty<(string, string)>();
+        }
+
+        return Under(workspace.Document.Root).Select(drawing => (Path(drawing), Chain(drawing))).ToList();
+
+        static string Chain(ProjectNode node)
+        {
+            var names = new List<string>();
+
+            for (var at = node; at.Parent is { } parent; at = parent)
+            {
+                names.Insert(0, ProjectWorkspace.Label(at));
+            }
+
+            return string.Join(" / ", names);
+        }
+    });
 
     /// <summary>A PNG of a drawing, or a sheet of it at several sizes and on light and dark, and what it shows; or no PNG, and why not.</summary>
     /// <remarks>
@@ -1405,7 +1524,7 @@ public sealed class AssistantTools
             return null;
         }
 
-        if (made.Node is { } node && _window.HoldingEdits(node) is { } holding)
+        if (made.Node is { } node && _window.HoldingEdits(node) is [var holding, ..])
         {
             refusal = $"Nothing was {verb} back: {Named(holding)} has edits in its tab not yet saved into the project, and {doing} back \"{made.Label}\" could close it without asking; open it and save them first.";
 
@@ -1587,7 +1706,7 @@ public sealed class AssistantTools
                 // Whole or not at all, as get_drawing gives a source.
                 var block = root.TemplatesText;
 
-                return listed.Length + block.Length > Answer
+                return listed.Length + block.Length > Longest
                     ? listed.Append($"The block, {block.Length} characters, is too long for this answer and is left out.").ToString()
                     : listed.Append("\nThe block:\n").Append(block).ToString();
             }
@@ -1931,18 +2050,42 @@ public sealed class AssistantTools
             return "The project itself cannot be removed.";
         }
 
-        // Removing closes the tabs under the node, and a tab holding edits would ask whether to
-        // keep them, which a client cannot answer.
-        if (_window.HoldingEdits(found) is { } holding)
+        // Removing closes the tabs under the node, and a tab holding edits would ask in a dialog,
+        // which a client cannot answer; asked here, the answer is also the one to removing it.
+        var held = _window.HoldingEdits(found);
+        var (answer, changed) = await Choose("Nothing was removed", () => _window.HoldingEdits(found) is { Count: > 0 } now
+            ? new Question($"Removing {ProjectWorkspace.Label(found)} closes the {Tabs(now)}, which {(now.Count == 1 ? "holds" : "hold")} edits not yet saved into the project, and throws them away.", s_throw)
+            : null).ConfigureAwait(true);
+
+        if (changed is { })
         {
-            return $"{Named(holding)} has edits in its tab not yet saved into the project; open it and save them first.";
+            return changed;
         }
 
-        if (!await Confirm($"Remove {ProjectWorkspace.Label(found)} from the project?").ConfigureAwait(true))
+        if (held.Count > 0)
+        {
+            if (answer is null)
+            {
+                return $"{Named(held[0])} has edits in its tab not yet saved into the project; open it and save them first.";
+            }
+
+            if (answer.Choice != s_throw[0])
+            {
+                return $"Nothing was removed: the person kept the edits held in the {Tabs(held)}.";
+            }
+
+            foreach (var holding in held)
+            {
+                _window.Discard(holding);
+            }
+        }
+        else if (!await Confirm($"Remove {ProjectWorkspace.Label(found)} from the project?").ConfigureAwait(true))
         {
             return "The person said no; nothing was removed.";
         }
 
+        // Named while they are still where they were.
+        var thrown = held.Count > 0 ? $", throwing away the edits held in the {Tabs(held)}" : null;
         var label = Label($"remove {ProjectWorkspace.Label(found)}");
 
         if (!await _window.RemoveAsync(found, label).ConfigureAwait(true))
@@ -1952,7 +2095,9 @@ public sealed class AssistantTools
 
         Undoable(label, node: found);
 
-        return Report($"Removed {ProjectWorkspace.Label(found)}." + Undoes, "remove");
+        return Report($"Removed {ProjectWorkspace.Label(found)}{thrown}." + Undoes, "remove");
+
+        static string Tabs(IReadOnlyList<ProjectNode> nodes) => $"{(nodes.Count == 1 ? "tab" : "tabs")} of {string.Join(", ", nodes.Select(Named))}";
     });
 
     private Task<string> GitCommit([Description("The commit message.")] string message) => UiAsync(async () =>
@@ -2274,6 +2419,40 @@ public sealed class AssistantTools
                 return "The person said no; nothing was written.";
             }
 
+            SvgTextLayout? layout = null;
+            var remember = false;
+
+            // As the File menu's export asks it, and worked out only where it can be asked; otherwise the
+            // text is baked, as get_code builds it. The survey does not hold the window, so what it read
+            // is read again before asking, and after.
+            var surveying = _window.Workspace is { } && StudioSettings.RelaxedText == RelaxedTextAnswer.Ask && CanAsk();
+            var surveyed = surveying ? _window.Surveyed() : default;
+            var frozen = surveying ? await _window.FrozenAsync().ConfigureAwait(true) : Array.Empty<string>();
+
+            if (frozen.Count > 0 && _window.Surveyed() != surveyed)
+            {
+                return Changed("Nothing was written");
+            }
+
+            var (answer, changed) = await Choose("Nothing was written", () => frozen.Count > 0 && _window.Surveyed() == surveyed ? new Question(MainWindow.Freezing(frozen), s_layouts) : null).ConfigureAwait(true);
+
+            if (changed is { })
+            {
+                return changed;
+            }
+
+            if (answer is { Choice: null })
+            {
+                return "Nothing was written: the person did not say how to lay out the text it cannot write out.";
+            }
+
+            if (answer?.Choice is { } choice)
+            {
+                var at = Array.IndexOf(s_layouts, choice);
+
+                (layout, remember) = (at % 2 == 1 ? SvgTextLayout.Relaxed : SvgTextLayout.Baked, at >= 2);
+            }
+
             if (Front() != shown)
             {
                 return "What is in front changed while the person was asked, so nothing was written; get_context says what is in front now.";
@@ -2285,7 +2464,12 @@ public sealed class AssistantTools
             var replacing = File.Exists(target);
             var notes = new List<string>();
 
-            if (!await _window.ExportAsync(target, notes).ConfigureAwait(true))
+            if (remember)
+            {
+                StudioSettings.RelaxedText = layout == SvgTextLayout.Relaxed ? RelaxedTextAnswer.Always : RelaxedTextAnswer.Never;
+            }
+
+            if (!await _window.ExportAsync(target, notes, layout).ConfigureAwait(true))
             {
                 return string.Join("\n", notes.DefaultIfEmpty("Nothing was written."));
             }
@@ -2307,8 +2491,14 @@ public sealed class AssistantTools
     {
         var was = _window.Workspace;
         var notes = new List<string>();
+        var (agreed, kept) = await Losing($"Starting a new project closes {was?.Name}", null, "No new project was opened").ConfigureAwait(true);
 
-        if (!await _window.NewProjectAsync(notes).ConfigureAwait(true))
+        if (kept is { })
+        {
+            return kept;
+        }
+
+        if (!await _window.NewProjectAsync(notes, agreed).ConfigureAwait(true))
         {
             return string.Join("\n", notes.DefaultIfEmpty("No new project was opened."));
         }
@@ -2334,8 +2524,14 @@ public sealed class AssistantTools
         }
 
         var notes = new List<string>();
+        var (agreed, kept) = await Losing($"Opening {file} closes {was?.Name}", file, "Nothing was opened").ConfigureAwait(true);
 
-        if (!await _window.OpenAsync(new[] { file }, notes).ConfigureAwait(true))
+        if (kept is { })
+        {
+            return kept;
+        }
+
+        if (!await _window.OpenAsync(new[] { file }, notes, agreed).ConfigureAwait(true))
         {
             return string.Join("\n", notes.DefaultIfEmpty("Nothing was opened."));
         }
@@ -2363,9 +2559,23 @@ public sealed class AssistantTools
                 return "The drawing in front has no file to read again.";
             }
 
-            if (alone.IsSourceModified)
+            var (answer, changed) = await Choose("Nothing was reloaded", () => ReferenceEquals(_window.FrontViewer, alone) && alone.IsSourceModified
+                ? new Question($"Reloading {drawing} reads it again from its file, throwing away the edits its tab holds, not saved.", s_discard)
+                : null).ConfigureAwait(true);
+
+            if (changed is { })
+            {
+                return changed;
+            }
+
+            if (alone.IsSourceModified && answer is null)
             {
                 return "Nothing was reloaded: the drawing in front holds edits not saved. Saving them writes Studio's copy over what changed on disk; take them back first, or close its tab unsaved in Studio.";
+            }
+
+            if (answer is { } && answer.Choice != s_discard[0])
+            {
+                return "Nothing was reloaded: the person kept the changes not saved.";
             }
 
             if (File.Exists(drawing) && string.Equals(File.ReadAllText(drawing), alone.Source, StringComparison.Ordinal))
@@ -2399,22 +2609,35 @@ public sealed class AssistantTools
             .Concat(_window.HoldingEdits().Select(node => $"the tab of {Named(node)}"))
             .ToList();
 
-        if (held.Count > 0)
-        {
-            return $"Nothing was reloaded: changes not saved are held in {string.Join(", ", held)}. Saving them writes Studio's copy over what changed on disk; take them back first, or close the project unsaved in Studio.";
-        }
+        // Read here first, so a file that no longer parses is said, not taken for a merge to resolve, and
+        // nobody is asked to throw work away for it.
+        string read;
 
-        // Read here first, so a file that no longer parses is said, not taken for a merge to resolve.
         try
         {
-            if (string.Equals(ProjectDocument.Load(path).ToXml(), workspace.Document.ToXml(), StringComparison.Ordinal))
-            {
-                return Report("Nothing changed: the file holds what Studio has.", null);
-            }
+            read = ProjectDocument.Load(path).ToXml();
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
         {
             return $"{path} no longer reads as a project: {failure.Message}";
+        }
+
+        var (agreed, kept) = await Losing($"Reloading {path} closes {workspace.Name} to read it again", null, "Nothing was reloaded").ConfigureAwait(true);
+
+        if (kept is { })
+        {
+            return kept;
+        }
+
+        if (held.Count > 0 && agreed is null)
+        {
+            return $"Nothing was reloaded: changes not saved are held in {string.Join(", ", held)}. Saving them writes Studio's copy over what changed on disk; take them back first, or close the project unsaved in Studio.";
+        }
+
+        // Read again all the same once the person has said to throw away what is held.
+        if (agreed is null && string.Equals(read, workspace.Document.ToXml(), StringComparison.Ordinal))
+        {
+            return Report("Nothing changed: the file holds what Studio has.", null);
         }
 
         var front = _window.FrontNode;
@@ -2424,7 +2647,7 @@ public sealed class AssistantTools
             .ToList();
         var notes = new List<string>();
 
-        if (!await _window.OpenAsync(new[] { path }, notes).ConfigureAwait(true))
+        if (!await _window.OpenAsync(new[] { path }, notes, agreed).ConfigureAwait(true))
         {
             return string.Join("\n", notes.DefaultIfEmpty("Nothing was reloaded."));
         }
@@ -2845,7 +3068,7 @@ public sealed class AssistantTools
     {
         var most = 0;
 
-        while (most < lines.Count && (used += lines[most].Length + 1) <= Answer)
+        while (most < lines.Count && (used += lines[most].Length + 1) <= Longest)
         {
             most++;
         }
@@ -3097,6 +3320,46 @@ public sealed class AssistantTools
 
     /// <summary>What a tool checks before asking, and again once answered: the panel asks without holding the window, so the person can bring another tab forward first.</summary>
     private (ProjectWorkspace? Workspace, SvgViewer? Alone) Front() => (_window.Workspace, _window.FrontNode is null ? _window.FrontViewer : null);
+
+    /// <summary>Asks the question <paramref name="build"/> makes of things as they are, where it makes one.</summary>
+    /// <remarks>Made again once answered, for the reason <see cref="Front"/> is checked again.</remarks>
+    /// <param name="nothing">What a refusal starts with, such as "Nothing was removed".</param>
+    /// <returns>
+    /// The answer; or none, where there is nothing to ask or nobody to ask it; or, where what it asked
+    /// about changed while the person answered, the refusal to give, whatever they chose.
+    /// </returns>
+    private async Task<(Answer? Answer, string? Changed)> Choose(string nothing, Func<Question?> build)
+    {
+        if (build() is not { } question)
+        {
+            return (null, Answered() ? Changed(nothing) : null);
+        }
+
+        var answer = await Ask(question).ConfigureAwait(true);
+
+        return answer is null || build()?.Key == question.Key ? (answer, null) : (null, Changed(nothing));
+    }
+
+    private static string Changed(string nothing) => $"{nothing}: what the person was asked about changed while they answered; call it again to go on from things as they are now.";
+
+    /// <summary>Asks whether closing the project may throw away what is not saved, where it would.</summary>
+    /// <param name="doing">What closes it, which starts the question.</param>
+    /// <param name="opening">The file opened in its place, if one is.</param>
+    /// <param name="nothing">What the answer to a person who keeps it starts with.</param>
+    /// <returns>
+    /// What the person agreed to throw away, as the window says it; or, where they kept it or what they
+    /// were asked about changed, the answer to give; or neither, where nothing would be lost, nobody could
+    /// be asked or icons are on their way in from Streamline, each of which the window refuses.
+    /// </returns>
+    private async Task<(string? Agreed, string? Kept)> Losing(string doing, string? opening, string nothing)
+    {
+        var (answer, changed) = await Choose(nothing, () => !_window.Streamline.Busy && _window.WouldLose(opening) is { } lost ? new Question($"{doing}, throwing away what is not saved. {lost}", s_discard) : null).ConfigureAwait(true);
+
+        return changed is { } ? (null, changed)
+            : answer is null ? (null, null)
+            : answer.Choice == s_discard[0] ? (_window.WouldLose(opening), null)
+            : (null, $"{nothing}: the person kept the changes not saved.");
+    }
 
     private string Label(string summary) => $"{Who}: {summary.Trim()}";
 

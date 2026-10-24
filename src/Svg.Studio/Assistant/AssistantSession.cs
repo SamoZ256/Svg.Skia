@@ -53,7 +53,7 @@ public sealed class AssistantSession : IDisposable
         """;
 
     /// <summary>Only for a model that has the save, export, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>
-    private const string Confirming = "\n- Saving, exporting, removing and committing ask the person first; don't ask again in words.";
+    private const string Confirming = "\n- Saving, exporting, removing and committing ask the person first, and so does a step that would throw away edits not saved; don't ask again in words.";
 
     private readonly AssistantTools _tools;
     private readonly List<ChatMessage> _messages = new();
