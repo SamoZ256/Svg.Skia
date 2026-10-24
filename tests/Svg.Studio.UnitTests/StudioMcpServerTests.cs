@@ -89,6 +89,34 @@ public class StudioMcpServerTests : IDisposable
         </studio>
         """;
 
+    /// <summary>Three templates, one over several lines, and a group declaring tint over 0/0 = Square and 0/1 = Round.</summary>
+    private const string Templated = """
+        <studio namespace="Demo.Icons">
+          <e:templates xmlns:e="https://svg.skia/expr/1.0">
+            <e:recipe name="Tinted">
+              <e:slot name="ink" rest="true">ink</e:slot>
+            </e:recipe>
+            <e:recipe name="Kept" />
+            <e:recipe name="Gone" />
+          </e:templates>
+          <group name="Badges">
+            <e:code xmlns:e="https://svg.skia/expr/1.0">
+              <e:param name="tint" type="color" default="#ff0000" />
+            </e:code>
+            <drawing name="Square">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                <rect width="24" height="24" fill="#00ff00" />
+              </svg>
+            </drawing>
+            <drawing name="Round">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                <circle cx="12" cy="12" r="6" fill="#00ff00" />
+              </svg>
+            </drawing>
+          </group>
+        </studio>
+        """;
+
     /// <summary>Words placed by a span of their own, which a baked build freezes at their default and a relaxed one carries.</summary>
     private const string Badge = """
         <studio namespace="Demo.Icons">
@@ -168,6 +196,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(tools["get_code"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.True(tools["get_templates"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.True(tools["find"].ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.All(new[] { "get_changes", "git_history", "get_history" }, name => Assert.True(tools[name].ProtocolTool.Annotations?.ReadOnlyHint, name));
         Assert.False(tools["set_attributes"].ProtocolTool.Annotations?.DestructiveHint);
 
         // Over MCP alone, since its answer is an image, or what only such an answer gives.
@@ -368,15 +397,8 @@ public class StudioMcpServerTests : IDisposable
     [AvaloniaFact]
     public async Task A_Failed_Commit_Is_Said_Back_And_Opens_Nothing()
     {
-        var work = Path.Combine(_directory, "work");
-        var path = Path.Combine(work, "icons.svgstudio");
-
-        Directory.CreateDirectory(work);
-        Git(work, "init", "-b", "main");
-        Configure(work);
-        File.WriteAllText(path, Project);
-        Git(work, "add", "icons.svgstudio");
-        Git(work, "commit", "-m", "Add the icons");
+        var path = Committed(Project);
+        var work = Path.GetDirectoryName(path)!;
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -437,15 +459,8 @@ public class StudioMcpServerTests : IDisposable
     [AvaloniaFact]
     public async Task A_Commit_Is_Refused_While_A_Tab_Behind_Holds_Edits_It_Would_Leave_Out()
     {
-        var work = Path.Combine(_directory, "work");
-        var path = Path.Combine(work, "icons.svgstudio");
-
-        Directory.CreateDirectory(work);
-        Git(work, "init", "-b", "main");
-        Configure(work);
-        File.WriteAllText(path, Project);
-        Git(work, "add", "icons.svgstudio");
-        Git(work, "commit", "-m", "Add the icons");
+        var path = Committed(Project);
+        var work = Path.GetDirectoryName(path)!;
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -489,6 +504,465 @@ public class StudioMcpServerTests : IDisposable
         // And the tab the commit wrote is no longer said to hold what is now in HEAD.
         Assert.DoesNotContain("Tabs holding edits", Text(await Call(client, "get_context", new())), StringComparison.Ordinal);
         Assert.Contains("0 drawing home class=\"Home\" (open)\n", Text(await Call(client, "get_project", new())), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task Get_Changes_Says_What_Changed_Since_The_Last_Commit_Unsaved_Edits_Included()
+    {
+        var path = Committed(Tinted.Replace(
+            "  <group name=\"Badges\">",
+            """
+              <drawing name="home">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                  <rect width="24" height="24" fill="#00ff00" />
+                </svg>
+              </drawing>
+              <drawing name="old">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" />
+              </drawing>
+              <group name="Badges">
+            """,
+            StringComparison.Ordinal));
+        var head = Git(Path.GetDirectoryName(path)!, "rev-parse", "HEAD").Trim()[..10];
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        await Call(client, "set_attributes", new()
+        {
+            ["node"] = "0",
+            ["key"] = "0",
+            ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } },
+            ["summary"] = "red"
+        });
+        await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" });
+        await Call(client, "remove", new() { ["node"] = "1" });
+        await Call(client, "declare", new() { ["node"] = "1", ["name"] = "edge", ["type"] = "number", ["default"] = "2", ["summary"] = "edge" });
+        await Call(client, "add_drawing", new() { ["parent"] = "1", ["name"] = "Star", ["svg"] = Drawing });
+        await Call(client, "extract_template", new() { ["node"] = "1/0", ["name"] = "Tinted badge" });
+        await Call(client, "set_node", new() { ["node"] = "1/0", ["setting"] = "x", ["value"] = "10" });
+        await Call(client, "set_node", new() { ["node"] = "1/0", ["setting"] = "y", ["value"] = "20" });
+
+        // Typed into Filled's tab, which is not in the project until that tab is saved.
+        await Call(client, "open", new() { ["node"] = "1/0" });
+        await Call(client, "set_attributes", new()
+        {
+            ["node"] = "1/0",
+            ["key"] = "0",
+            ["attributes"] = new[] { new { name = "opacity", value = "0.5" } },
+            ["summary"] = "fade"
+        });
+
+        var changes = await Call(client, "get_changes", new());
+        var text = Text(changes);
+
+        Assert.NotEqual(true, changes.IsError);
+        Assert.True(window.Workspace!.IsEdited);
+        Assert.StartsWith(
+            $"Since HEAD ({head}), edits not yet saved included: 6 changes: 1 added, 1 removed, 1 changed, 1 moved, 2 with new settings.\n",
+            text,
+            StringComparison.Ordinal);
+        Assert.Contains("settings (project): its templates changed, adding Tinted badge\n", text, StringComparison.Ordinal);
+        Assert.Contains("changed 0 drawing home: its drawing changed; class unset → \"Home\"\n", text, StringComparison.Ordinal);
+        Assert.Contains("removed old#0 drawing old\n", text, StringComparison.Ordinal);
+        Assert.Contains("settings 1 group Badges: its declarations changed, adding edge\n", text, StringComparison.Ordinal);
+        Assert.Contains("added 1/1 drawing Star\n", text, StringComparison.Ordinal);
+        Assert.Contains("moved 1/0 drawing Filled: its place unset → 10,20\n", text, StringComparison.Ordinal);
+        Assert.Contains("Not in it: edits held in the tabs of 1/0 Filled", text, StringComparison.Ordinal);
+        Assert.Contains("revision \"HEAD\"", text, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// The commit is made in a terminal while Studio is not in front, so the Changes pane has not
+    /// read it, and left part way through a merge, where a refresh of the pane offers the merge window.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Get_Changes_Reads_A_Commit_Made_Outside_Studio_And_Opens_Nothing()
+    {
+        var path = Committed(Project);
+        var work = Path.GetDirectoryName(path)!;
+        var first = Git(work, "rev-parse", "HEAD").Trim();
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        Git(work, "switch", "-c", "red");
+        File.WriteAllText(path, Project.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
+        Git(work, "commit", "-am", "Red");
+        Git(work, "switch", "main");
+        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        Git(work, "commit", "-am", "Blue");
+        Assert.NotEqual(0, Exit(work, "merge", "--no-edit", "red"));
+
+        var changes = await Call(client, "get_changes", new());
+        var since = await Call(client, "get_changes", new() { ["since"] = first });
+
+        Assert.StartsWith(
+            $"Since HEAD ({Git(work, "rev-parse", "HEAD").Trim()[..10]}), edits not yet saved included: 1 change: 1 changed.\nchanged 0 drawing home: its drawing changed\n",
+            Text(changes),
+            StringComparison.Ordinal);
+        Assert.StartsWith($"Nothing has changed since {first}.\n", Text(since), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task Git_History_Lists_The_Commits_That_Touched_The_Project_With_Their_Hashes()
+    {
+        var path = Committed(Project);
+        var work = Path.GetDirectoryName(path)!;
+
+        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        Git(work, "commit", "-am", "Blue");
+        File.WriteAllText(Path.Combine(work, "README.md"), "Icons");
+        Git(work, "add", "README.md");
+        Git(work, "commit", "-m", "Readme");
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var history = await Call(client, "git_history", new());
+        var last = await Call(client, "git_history", new() { ["count"] = 1 });
+        var none = await Call(client, "git_history", new() { ["count"] = 0 });
+        var many = await Call(client, "git_history", new() { ["count"] = 101 });
+
+        Assert.Equal(
+            $"The last 2 commits of icons.svgstudio, newest first:\n{Row("HEAD~1")}\n{Row("HEAD~2")}",
+            Text(history));
+        Assert.Equal($"The last commit of icons.svgstudio, newest first:\n{Row("HEAD~1")}", Text(last));
+        Assert.All(new[] { none, many }, result => Assert.Equal("count is from 1 to 100.", Text(result)));
+        Assert.DoesNotContain("Readme", Text(history), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+
+        string Row(string revision)
+        {
+            var fields = Git(work, "log", "-1", "--format=%H%x1f%at%x1f%an%x1f%s", revision).Trim().Split('\x1f');
+            var when = DateTimeOffset.FromUnixTimeSeconds(long.Parse(fields[1], CultureInfo.InvariantCulture)).ToLocalTime();
+
+            return $"{fields[0][..10]} {when.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} {fields[2]}: {fields[3]}";
+        }
+    }
+
+    /// <remarks>The group's colour has changed since and the drawing been renamed, which its revision is followed through; the other drawing lost its circle.</remarks>
+    [AvaloniaFact]
+    public async Task A_Drawing_Is_Read_And_Drawn_As_A_Revision_Had_It_Through_That_Revisions_Blocks()
+    {
+        var path = Committed(Tinted.Replace(
+            "  </group>",
+            """
+                <drawing name="Ringed">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <rect width="24" height="24" fill="#ffffff" />
+                    <circle cx="12" cy="12" r="6" fill="{{ tint }}" />
+                  </svg>
+                </drawing>
+              </group>
+            """,
+            StringComparison.Ordinal));
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        await Call(client, "declare", new() { ["node"] = "0", ["name"] = "tint", ["default"] = "#0000ff", ["summary"] = "blue" });
+        await Call(client, "set_node", new() { ["node"] = "0/0", ["setting"] = "name", ["value"] = "Solid" });
+        await Call(client, "remove_elements", new() { ["node"] = "0/1", ["keys"] = new[] { "1" }, ["summary"] = "no ring" });
+
+        var then = await Call(client, "render", new() { ["node"] = "0/0", ["revision"] = "HEAD" });
+        var now = await Call(client, "render", new() { ["node"] = "0/0" });
+        var ringed = await Call(client, "render", new() { ["node"] = "0/1", ["revision"] = "HEAD" });
+        var bare = await Call(client, "render", new() { ["node"] = "0/1" });
+        var read = Text(await Call(client, "get_drawing", new() { ["node"] = "0/0", ["revision"] = "HEAD" }));
+        var lost = Text(await Call(client, "get_drawing", new() { ["node"] = "0/1", ["revision"] = "HEAD" }));
+
+        using (var red = Png(then))
+        using (var blue = Png(now))
+        using (var ring = Png(ringed))
+        using (var white = Png(bare))
+        {
+            Assert.Equal(new SKColor(0xFF, 0x00, 0x00), red.GetPixel(12, 12));
+            Assert.Equal(new SKColor(0x00, 0x00, 0xFF), blue.GetPixel(12, 12));
+            Assert.Equal(new SKColor(0xFF, 0x00, 0x00), ring.GetPixel(12, 12));
+            Assert.Equal(new SKColor(0xFF, 0xFF, 0xFF), white.GetPixel(12, 12));
+        }
+
+        Assert.StartsWith("Drawing 0/0 drawing Solid, as git has it at HEAD, named Filled there, its text the same as now, drawn at 24 px", Text(then), StringComparison.Ordinal);
+        Assert.StartsWith("Drawing 0/0 drawing Solid, as git has it at HEAD, named Filled there, its text the same as now\n", read, StringComparison.Ordinal);
+        Assert.DoesNotContain("Inherited from", read, StringComparison.Ordinal);
+        Assert.DoesNotContain("Problem:", read, StringComparison.Ordinal);
+        Assert.StartsWith("Drawing 0/1 drawing Ringed, as git has it at HEAD\n", lost, StringComparison.Ordinal);
+        Assert.Contains("<circle cx=\"12\" cy=\"12\" r=\"6\" fill=\"{{ tint }}\" />", lost, StringComparison.Ordinal);
+
+        // With tint no longer declared, its use is a problem now and none in the revision, which its own blocks declare.
+        await Call(client, "set_declarations", new() { ["node"] = "0", ["code"] = "<e:code xmlns:e=\"https://svg.skia/expr/1.0\" />", ["summary"] = "undeclare" });
+
+        var declared = Text(await Call(client, "get_drawing", new() { ["node"] = "0/0", ["revision"] = "HEAD" }));
+        var undeclared = Text(await Call(client, "get_drawing", new() { ["node"] = "0/0" }));
+
+        Assert.DoesNotContain("Problem:", declared, StringComparison.Ordinal);
+        Assert.Contains("Problem:", undeclared, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Revision_That_Is_No_Revision_Or_Has_No_Such_Drawing_Says_So()
+    {
+        var path = Committed(Project);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        await Call(client, "add_drawing", new() { ["parent"] = "", ["name"] = "Star", ["svg"] = Drawing });
+
+        var option = await Call(client, "get_drawing", new() { ["node"] = "0", ["revision"] = "-n" });
+        var nope = await Call(client, "get_drawing", new() { ["node"] = "0", ["revision"] = "nope" });
+        var since = await Call(client, "get_drawing", new() { ["node"] = "1", ["revision"] = "HEAD" });
+        var drawn = await Call(client, "render", new() { ["node"] = "1", ["revision"] = "HEAD" });
+        var unreadable = await Call(client, "render", new() { ["node"] = "0", ["revision"] = "-n" });
+        var both = await Call(client, "render", new() { ["node"] = "0", ["revision"] = "HEAD", ["svg"] = Drawing });
+        var compared = await Call(client, "get_changes", new() { ["since"] = "--output=x" });
+        var nowhere = await Call(client, "get_changes", new() { ["since"] = "nope" });
+
+        // Renamed and changed, so nothing in HEAD is it any more.
+        await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "name", ["value"] = "house" });
+        await Call(client, "set_attributes", new()
+        {
+            ["node"] = "0",
+            ["key"] = "0",
+            ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } },
+            ["summary"] = "red"
+        });
+
+        var renamed = await Call(client, "get_drawing", new() { ["node"] = "0", ["revision"] = "HEAD" });
+
+        Assert.Equal("'-n' is not a revision; name a commit, a branch or a tag, such as HEAD~1.", Text(option));
+        Assert.Equal("Git has no icons.svgstudio at nope.", Text(nope));
+        Assert.Equal("1 Star is not in the project at HEAD: it was added since, or renamed and changed.", Text(since));
+        Assert.Equal(Text(since), Text(drawn));
+        Assert.Equal(Text(option), Text(unreadable));
+        Assert.Equal("revision draws the drawing as git had it, and svg one in its place; give one of them.", Text(both));
+        Assert.Equal("'--output=x' is not a revision; name a commit, a branch or a tag, such as HEAD~1.", Text(compared));
+        Assert.Equal(Text(nope), Text(nowhere));
+        Assert.Equal("0 house is not in the project at HEAD: it was added since, or renamed and changed.", Text(renamed));
+        Assert.All(new[] { option, nope, since, compared, nowhere, renamed }, result => Assert.NotEqual(true, result.IsError));
+        Assert.All(new[] { drawn, unreadable, both }, result => Assert.True(result.IsError));
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(path)!, "x")));
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Git_Tools_Say_Why_Where_The_Project_Is_In_No_Repository()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        File.WriteAllText(path, Project);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var history = await Call(client, "git_history", new());
+        var changes = await Call(client, "get_changes", new());
+        var read = await Call(client, "get_drawing", new() { ["node"] = "0", ["revision"] = "HEAD" });
+        var drawn = await Call(client, "render", new() { ["node"] = "0", ["revision"] = "HEAD" });
+        var committed = await Call(client, "git_commit", new() { ["message"] = "Icons" });
+
+        await Call(client, "new_project", new());
+
+        var unsaved = await Call(client, "git_history", new());
+        var uncommitted = await Call(client, "git_commit", new() { ["message"] = "Icons" });
+
+        Assert.All(new[] { history, changes, read, drawn, committed }, result => Assert.Equal("The project is not in a git repository.", Text(result)));
+        Assert.All(new[] { drawn, committed, uncommitted }, result => Assert.True(result.IsError));
+        Assert.All(new[] { unsaved, uncommitted }, result => Assert.Equal("The project has never been saved, so it is in no git repository.", Text(result)));
+        Assert.Empty(_announced);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Revision_Holding_No_Project_A_Broken_One_Or_A_Drawing_Too_Long_To_Show_Says_So()
+    {
+        var work = Path.Combine(_directory, "work");
+        var path = Path.Combine(work, "icons.svgstudio");
+
+        Directory.CreateDirectory(work);
+        Git(work, "init", "-b", "main");
+        Configure(work);
+        File.WriteAllText(path, Project.Replace(
+            "</studio>",
+            $"""
+              <drawing name="Long">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0{string.Concat(Enumerable.Repeat(" h0", 14_000))}" /></svg>
+              </drawing>
+            </studio>
+            """,
+            StringComparison.Ordinal));
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var changes = await Call(client, "get_changes", new());
+        var history = await Call(client, "git_history", new());
+        var none = await Call(client, "get_drawing", new() { ["node"] = "0", ["revision"] = "HEAD" });
+
+        Git(work, "add", "icons.svgstudio");
+        Git(work, "commit", "-m", "Add the icons");
+
+        var whole = Text(await Call(client, "get_drawing", new() { ["node"] = "1", ["revision"] = "HEAD" }));
+
+        File.WriteAllText(path, "<studio><drawing name=\"home\"></studio>");
+        Git(work, "commit", "-am", "Break the icons");
+
+        var broken = await Call(client, "get_changes", new());
+
+        Assert.Equal("No commit has icons.svgstudio yet, so all of it is new.", Text(changes));
+        Assert.Equal("No commit has touched icons.svgstudio yet.", Text(history));
+        Assert.Equal("Git has no icons.svgstudio at HEAD.", Text(none));
+
+        // Its keys are git's, which the tools that change a drawing would look for in the one open.
+        Assert.StartsWith("Drawing 1 drawing Long, as git has it at HEAD, its text the same as now\n", whole, StringComparison.Ordinal);
+        Assert.EndsWith(
+            "is too long for this answer and is left out. It is git's at HEAD, which no tool changes; the keys above are its, and get_drawing without revision reads the drawing the other tools change.",
+            whole,
+            StringComparison.Ordinal);
+        Assert.StartsWith("icons.svgstudio at HEAD does not read as a project: ", Text(broken), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// The file changed on disk since the commit, as a save would have changed it: a template edited,
+    /// one dropped and one added, a declaration swapped for another, and Round written above Square.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Get_Changes_Names_The_Declarations_And_Templates_That_Came_Or_Went_And_A_Row_That_Only_Moved()
+    {
+        const string named = "Demo.Icons.Generated.For.The.Dashboard.Of.The.Building.Management.System";
+        var path = Committed(Templated);
+        var head = Git(Path.GetDirectoryName(path)!, "rev-parse", "HEAD").Trim()[..10];
+
+        File.WriteAllText(path, $"""
+            <studio namespace="{named}">
+              <e:templates xmlns:e="https://svg.skia/expr/1.0">
+                <e:recipe name="Tinted">
+                  <e:match colors="1" />
+                  <e:slot name="ink" rest="true">ink</e:slot>
+                </e:recipe>
+                <e:recipe name="Kept" />
+                <e:recipe name="New" />
+              </e:templates>
+              <group name="Badges">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="edge" type="number" default="2" />
+                </e:code>
+                <drawing name="Round">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="6" fill="#00ff00" />
+                  </svg>
+                </drawing>
+                <drawing name="Square">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <rect width="24" height="24" fill="#00ff00" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+            """);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        var changes = await Call(client, "get_changes", new());
+
+        // The namespace cut at 60 characters.
+        Assert.Equal(
+            $"""
+            Since HEAD ({head}), edits not yet saved included: 3 changes: 1 moved, 2 with new settings.
+            settings (project): namespace "Demo.Icons" → "{named[..60]}…"; its templates changed, adding New; dropping Gone; editing Tinted
+            settings 0 group Badges: its declarations changed, adding edge and dropping tint
+            moved 0/0 drawing Round: moved among the rows beside it
+            get_drawing or render with revision "HEAD" shows a drawing as git has it there.
+            """,
+            Text(changes));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>As core.autocrlf can leave it: git has the file written CRLF, and Studio has written it LF since.</remarks>
+    [AvaloniaFact]
+    public async Task Get_Changes_Sets_Aside_The_Line_Endings_Git_Has_The_Project_In()
+    {
+        var path = Committed(Templated.ReplaceLineEndings("\r\n"));
+
+        File.WriteAllText(path, Templated.ReplaceLineEndings("\n"));
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        Assert.StartsWith("Nothing has changed since HEAD.\n", Text(await Call(client, "get_changes", new())), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// Called straight rather than through a client, with git slowed, so the move lands while the
+    /// call waits on it, as one made at the same time does: the path is read once git has answered.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Revision_Is_Read_For_The_Drawing_A_Path_Names_Once_Git_Has_Answered()
+    {
+        var window = await Open(Slowed(Committed("""
+            <studio namespace="Demo.Icons">
+              <group name="Badges">
+                <drawing name="Filled">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <rect width="24" height="24" fill="#ff0000" />
+                  </svg>
+                </drawing>
+                <drawing name="Ringed">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <circle cx="12" cy="12" r="6" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+            """)));
+        var root = window.Workspace!.Document.Root;
+        var filled = ((ProjectGroup)root.Children[0]).Children[0];
+        var reading = Started(window, "get_drawing", new() { ["node"] = "0/0", ["revision"] = "HEAD" });
+
+        Assert.False(reading.IsCompleted);
+
+        // Out to the project's own rows, which leaves Ringed at 0/0.
+        Assert.True(window.Move(filled, root));
+
+        var at = root.Children.ToList().IndexOf(filled).ToString(CultureInfo.InvariantCulture);
+        var read = (await reading)?.ToString();
+        var moved = (await Started(window, "get_drawing", new() { ["node"] = at, ["revision"] = "HEAD" }))?.ToString();
+
+        Assert.StartsWith("Drawing 0/0 drawing Ringed, as git has it at HEAD, its text the same as now\n", read, StringComparison.Ordinal);
+        Assert.Contains("<circle cx=\"12\" cy=\"12\" r=\"6\" />", read, StringComparison.Ordinal);
+
+        // A level up, so written indented less than git has it.
+        Assert.StartsWith($"Drawing {at} drawing Filled, as git has it at HEAD, its text the same as now\n", moved, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>Called straight, as above, so another project is open by the time git answers each.</remarks>
+    [AvaloniaFact]
+    public async Task A_Git_Read_Answered_After_Another_Project_Opened_Says_So_And_Pairs_Nothing()
+    {
+        var window = await Open(Slowed(Committed(Project)));
+        var opened = window.Workspace;
+        var calls = new[]
+        {
+            Started(window, "get_changes", new()),
+            Started(window, "get_changes", new() { ["since"] = "HEAD" }),
+            Started(window, "get_drawing", new() { ["node"] = "0", ["revision"] = "HEAD" })
+        };
+
+        Assert.All(calls, call => Assert.False(call.IsCompleted));
+
+        var replacing = window.NewProjectAsync();
+
+        Assert.NotSame(opened, window.Workspace);
+        Assert.All(await Task.WhenAll(calls), answer => Assert.Equal("Another project was opened while git was being read; ask again.", answer?.ToString()));
+        Assert.True(await replacing);
         Assert.Empty(_announced);
     }
 
@@ -2671,6 +3145,41 @@ public class StudioMcpServerTests : IDisposable
 
         return (window, StudioSettings.McpPort);
     }
+
+    /// <summary>The path of icons.svgstudio holding <paramref name="text"/>, committed on main in a repository of its own.</summary>
+    private string Committed(string text)
+    {
+        var work = Path.Combine(_directory, "work");
+        var path = Path.Combine(work, "icons.svgstudio");
+
+        Directory.CreateDirectory(work);
+        Git(work, "init", "-b", "main");
+        Configure(work);
+        File.WriteAllText(path, text);
+        Git(work, "add", "icons.svgstudio");
+        Git(work, "commit", "-m", "Add the icons");
+
+        return path;
+    }
+
+    /// <summary><paramref name="path"/>, which git now takes half a second to hand back from a commit.</summary>
+    /// <remarks>Through a smudge filter, which cat-file runs and git runs through its own sh, Windows included.</remarks>
+    private static string Slowed(string path)
+    {
+        var info = Path.Combine(Path.GetDirectoryName(path)!, ".git", "info");
+
+        Directory.CreateDirectory(info);
+        File.WriteAllText(Path.Combine(info, "attributes"), "icons.svgstudio filter=slow\n");
+        Git(Path.GetDirectoryName(path)!, "config", "filter.slow.smudge", "sleep 0.5; cat");
+
+        return path;
+    }
+
+    /// <summary>A tool of <paramref name="window"/>'s called straight, which hands the test back where it first awaits, as a call made at the same time would get the UI thread.</summary>
+    /// <remarks>Git can answer before it is awaited, which <see cref="Slowed"/> keeps it from.</remarks>
+    private static Task<object?> Started(MainWindow window, string name, Dictionary<string, object?> arguments)
+        => new AssistantTools(window).For(small: false, docs: false).OfType<Microsoft.Extensions.AI.AIFunction>().Single(tool => tool.Name == name)
+            .InvokeAsync(new Microsoft.Extensions.AI.AIFunctionArguments(arguments)).AsTask();
 
     /// <summary>A window serving <paramref name="text"/>, whose Streamline panel answers from <paramref name="streamline"/> with <paramref name="key"/>.</summary>
     private async Task<(MainWindow Window, int Port)> Streaming(Streamline streamline, string? key = "sk_test", string text = StreamlinePanelTests.Project)

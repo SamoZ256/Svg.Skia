@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Svg.SourceEditing;
 
@@ -84,6 +85,12 @@ public sealed class SvgSourceWorkspace
 
     /// <inheritdoc cref="UndoLabel"/>
     public string? RedoLabel => CanRedo ? _labels[_at + 1] : null;
+
+    /// <summary>What each undo would take back in turn, the next first.</summary>
+    public IReadOnlyList<string> UndoLabels => Enumerable.Range(1, _at).Reverse().Select(at => _labels[at]!).ToList();
+
+    /// <summary>What each redo would put back in turn, the next first.</summary>
+    public IReadOnlyList<string> RedoLabels => _labels.Skip(_at + 1).Select(label => label!).ToList();
 
     /// <summary>The step <see cref="Undo"/> would take back, for whoever made it to know it again.</summary>
     /// <remarks>The state the step left, which each commit writes afresh, so no two steps share one whatever they are labelled.</remarks>

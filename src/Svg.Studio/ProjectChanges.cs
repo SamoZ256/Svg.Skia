@@ -36,9 +36,9 @@ public sealed record ProjectChange(string Key, ProjectChangeKind Kind, ProjectNo
 /// </remarks>
 public static class ProjectChanges
 {
-    private const string SvgAspect = "<svg>";
-    private const string CodeAspect = "<code>";
-    private const string PlaceAspect = "<place>";
+    internal const string SvgAspect = "<svg>";
+    internal const string CodeAspect = "<code>";
+    internal const string PlaceAspect = "<place>";
 
     /// <summary>
     /// The group path to <paramref name="node"/>, each step its name and its position among
@@ -364,10 +364,11 @@ public static class ProjectChanges
         }
 
         return aspects;
-
-        // Line endings too: with core.autocrlf, HEAD reads back CRLF while Studio writes the file LF.
-        static string Dedented(string text) => string.Join('\n', text.Split('\n').Select(line => line.TrimStart().TrimEnd('\r')));
     }
+
+    /// <summary>Text as an aspect compares it: without its indentation, which a move to another depth changes.</summary>
+    /// <remarks>Line endings too: with core.autocrlf, HEAD reads back CRLF while Studio writes the file LF.</remarks>
+    internal static string Dedented(string text) => string.Join('\n', text.Split('\n').Select(line => line.TrimStart().TrimEnd('\r')));
 
     internal static string? Value(Dictionary<string, string?> aspects, string aspect)
         => aspects.TryGetValue(aspect, out var value) ? value : null;
@@ -927,7 +928,7 @@ public sealed class ProjectMerge
     }
 
     /// <summary>Which base node each node of one side continues, where it stayed or where it was moved.</summary>
-    private sealed class Side
+    internal sealed class Side
     {
         /// <summary>Each node of the side that continues a base node, with that node.</summary>
         public readonly Dictionary<ProjectNode, ProjectNode> BaseOf = new();

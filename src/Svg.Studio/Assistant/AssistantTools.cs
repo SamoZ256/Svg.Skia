@@ -114,7 +114,8 @@ public sealed class AssistantTools
     /// <summary>The tools that read and change nothing, for a client to call without asking.</summary>
     public static readonly IReadOnlySet<string> Reading = new HashSet<string>(StringComparer.Ordinal)
     {
-        "read_doc", "get_project", "get_drawing", "get_element", "get_node", "get_context", "get_declarations", "get_problems", "get_code", "get_templates", "find", "render", "streamline_search"
+        "read_doc", "get_project", "get_drawing", "get_element", "get_node", "get_context", "get_declarations", "get_problems", "get_code", "get_templates", "find", "render", "streamline_search",
+        "get_changes", "git_history", "get_history"
     };
 
     /// <summary>The tools that write past the history - to disk, to git, or a node away - which a client should ask about.</summary>
@@ -162,7 +163,7 @@ public sealed class AssistantTools
         }
 
         Add(GetProject, "get_project", "Lists the open project's groups and drawings with their node paths, and which one is in front.");
-        Add(GetDrawing, "get_drawing", "Reads a drawing: its elements with their address keys, any problems, and its SVG source.");
+        Add(GetDrawing, "get_drawing", "Reads a drawing: its elements with their address keys, any problems, and its SVG source, as it stands or as a git revision has it.");
         Add(SetAttributes, "set_attributes", "Sets or removes attributes on one element of a drawing, as a single undo step.");
         Add(Undo, "undo", "Takes back the last edit these tools made, whichever drawing or the project it went to, and names it. Takes nothing back while another edit is on top of it in its tab or the project, and names that one. With no edit of these tools' left, takes back the person's last and names it; where the person has taken back every one already, the first call takes nothing and says so.");
 
@@ -172,6 +173,7 @@ public sealed class AssistantTools
         }
 
         Add(Redo, "redo", "Puts back what undo last took back, and names it. Puts nothing back while a step taken back since is in front of it, and names that one. Once these tools make a newer edit, or with nothing of undo's left, puts back what Studio's own Redo would, and names it; where all undo took has been put back already or built over, the first call puts nothing back and says so.");
+        Add(GetHistory, "get_history", "Reads the undo history: what undo and redo would take or put back if called now, or why they would refuse; what Cmd/Ctrl+Z in Studio would take; and the steps of the drawing in front and of the project, newest first, each named as the Edit menu names it, which says whose it is. Changes nothing.");
         Add(GetElement, "get_element", "Reads every attribute of one element of a drawing, and the text set_text changes, as the file writes them.");
         Add(GetNode, "get_node", "Reads the settings of a group, a drawing or the project: each one it gives itself, or the value it inherits and the path of the node giving it, the size it is built at, and what it declares and inherits.");
         Add(GetProblems, "get_problems", "Lists every problem in a drawing, in the drawings under a group, or in the whole project: the one call that finds what is wrong.");
@@ -200,6 +202,8 @@ public sealed class AssistantTools
         Add(OpenFile, "open_file", "Opens a file by its full path: a drawing (.svg) in a tab of its own, or a project (.svgstudio) in place of the one open, closing its tabs, which is refused while it or a tab of it holds changes not saved. An svgc project (.svgcproj) or a PaintCode document (.pcvd) is converted into a new project, held in Studio until save is given a path.");
         Add(Reload, "reload", "Reads the open project again from its file, or the drawing of no project's in front from its own, after it was changed outside Studio, which does not watch the disk. Refused while it holds edits not saved. The project's tabs open again where their path still names the same node; the undo history starts again.");
         Add(Remove, "remove", "Removes a group or drawing from the project.");
+        Add(GetChanges, "get_changes", "Lists what has changed in the project since its last commit, edits not yet saved included, as Studio's Changes pane compares it: each group or drawing added, removed, changed, moved or given new settings, and what about it changed, for a commit message; with since, against another commit, branch or tag. Edits held in a tab are left out until saved into the project.");
+        Add(GitHistory, "git_history", "Lists the commits that touched the project's file, newest first, each with the hash get_drawing, render and get_changes take as a revision.");
         Add(GitCommit, "git_commit", "Saves and commits the project to its git repository.");
 
         return tools;
@@ -382,16 +386,42 @@ public sealed class AssistantTools
 
     private Task<string> GetDrawing(
         [Description("The drawing's node path from get_project; empty for the drawing in front.")] string? node = null,
-        [Description("An element's address key to list only the elements inside it; empty for all of them.")] string? key = null)
-        => Ui(() =>
+        [Description("An element's address key to list only the elements inside it; empty for all of them.")] string? key = null,
+        [Description("A commit, branch or tag, such as HEAD or a hash from git_history, to read the drawing as git has it there, through that revision's declarations; empty for as it stands.")] string? revision = null)
+        => UiAsync(async () =>
         {
+            ProjectDocument? then = null;
+
+            if (!string.IsNullOrEmpty(revision))
+            {
+                (then, var why) = await Committed(revision).ConfigureAwait(true);
+
+                if (then is null)
+                {
+                    return why;
+                }
+            }
+
             if (Target(node, out var about) is not { } target)
             {
                 return about;
             }
 
+            var drawing = Drawing(node);
+            ProjectDrawing? old = null;
+
+            if (then is { })
+            {
+                if ((old = Was(then, drawing, target.Text, revision!, out var said)) is null)
+                {
+                    return said;
+                }
+
+                about += said;
+            }
+
             var text = new StringBuilder(about).Append('\n');
-            var source = target.Text;
+            var source = old?.Text ?? target.Text;
             var read = SvgSourceDocument.Read(source, out var unreadable);
             var root = read?.Document.Root;
             var under = Key(key);
@@ -401,12 +431,11 @@ public sealed class AssistantTools
                 return $"There is no element {under}. get_drawing lists the keys.";
             }
 
-            // Read first, for the outline to leave them room.
-            var drawing = Drawing(node);
-            var after = new StringBuilder(drawing is { } ? Inherits(drawing) : null);
+            // Read first, for the outline to leave them room; no blocks above an old one, whose paths are its project's.
+            var after = new StringBuilder(drawing is { } && old is null ? Inherits(drawing) : null);
             var rows = new List<string>();
 
-            if (Problems(drawing, source) is { Count: > 0 } problems)
+            if (Problems(old ?? drawing, source) is { Count: > 0 } problems)
             {
                 after.Append(Cut(problems.Select(problem => "Problem: " + problem).ToList(), null)).Append('\n');
             }
@@ -448,8 +477,9 @@ public sealed class AssistantTools
             // and sent back would write the cut into the drawing.
             if (text.Length + source.Length > Answer)
             {
-                text.Append("The source, ").Append(source.Length).Append(" characters, is too long for this answer and is left out. ").Append(root is { }
-                    ? "get_element reads one element's attributes and text, and set_attributes and set_text change them; replace_drawing needs the whole source, so it cannot be used from this answer."
+                text.Append("The source, ").Append(source.Length).Append(" characters, is too long for this answer and is left out. ").Append(
+                    old is { } ? $"It is git's at {revision}, which no tool changes; the keys above are its, and get_drawing without revision reads the drawing the other tools change."
+                    : root is { } ? "get_element reads one element's attributes and text, and set_attributes and set_text change them; replace_drawing needs the whole source, so it cannot be used from this answer."
                     : "Until it reads, no tool can change it, replace_drawing included; the reason is above.");
             }
             else
@@ -728,9 +758,26 @@ public sealed class AssistantTools
     /// The MCP server's alone, as only it answers with an image. Loaded as the board loads a drawing,
     /// so it is drawn with the values its panel opens with, not ones the person has set in its tab.
     /// </remarks>
-    internal Task<(byte[]? Png, string Text)> Render(string? node, int[]? size, Ground background, IReadOnlyDictionary<string, JsonElement>? values, string? svg)
-        => Ui<(byte[]?, string)>(() =>
+    internal Task<(byte[]? Png, string Text)> Render(string? node, int[]? size, Ground background, IReadOnlyDictionary<string, JsonElement>? values, string? svg, string? revision)
+        => UiAsync<(byte[]?, string)>(async () =>
         {
+            ProjectDocument? then = null;
+
+            if (!string.IsNullOrEmpty(revision))
+            {
+                if (svg is { })
+                {
+                    return (null, "revision draws the drawing as git had it, and svg one in its place; give one of them.");
+                }
+
+                (then, var why) = await Committed(revision).ConfigureAwait(true);
+
+                if (then is null)
+                {
+                    return (null, why);
+                }
+            }
+
             // A group draws only an svg given, as add_drawing would add it there.
             var into = string.IsNullOrEmpty(node) ? null : Resolve(node) as ProjectGroup;
             ISvgViewerDeclarationTarget? target = null;
@@ -768,6 +815,17 @@ public sealed class AssistantTools
             var at = into ?? (ProjectNode?)Drawing(node);
             var text = svg ?? target!.Text;
             SvgViewerDocument document;
+
+            // Loaded below through the old drawing's own project, so its blocks and size are that revision's.
+            if (then is { })
+            {
+                if (Was(then, at, text, revision!, out var said) is not { } old)
+                {
+                    return (null, said);
+                }
+
+                (at, text, about) = (old, old.Text, about + said);
+            }
 
             try
             {
@@ -1204,6 +1262,49 @@ public sealed class AssistantTools
     /// <summary>Puts back what <see cref="Undo"/> took, known by its step as undo knows it.</summary>
     private Task<string> Redo() => Ui(() => Step(back: false));
 
+    private Task<string> GetHistory() => Ui(() =>
+    {
+        var text = new StringBuilder();
+        var front = _window.FrontViewer;
+        var workspace = _window.Workspace;
+
+        foreach (var back in new[] { true, false })
+        {
+            text.Append(Next(back, out var refusal, out _) is { } made
+                ? $"{(back ? "undo would take" : "redo would put")} back \"{made.Label}\" from "
+                  + (made.Viewer is null ? "the project's history" : ReferenceEquals(made.Viewer, front) ? "the front tab's history" : "the history of a tab not in front")
+                  + ".\n"
+                : $"{(back ? "undo" : "redo")} would answer: {refusal}\n");
+        }
+
+        // As the window's own undo goes: the drawing in front while it has a step, then the project.
+        var (keyed, from) = front is { CanUndo: true } ? (front.UndoLabel, "the front tab")
+            : workspace is { CanUndo: true } ? (workspace.UndoLabel, "the project")
+            : (null, null);
+
+        text.Append(keyed is null ? "Cmd/Ctrl+Z in Studio would take nothing back" : $"Cmd/Ctrl+Z in Studio would take back \"{keyed}\" from {from}")
+            .Append("; a text box with the caret in it takes the keystroke first.\n");
+
+        if (front is { })
+        {
+            text.Append("The front tab, ").Append(_window.FrontNode is { } node ? Named(node) : front.DocumentPath ?? "Untitled").Append(", newest first:\n")
+                .Append(Steps("undo", front.UndoLabels))
+                .Append(Steps("redo", front.RedoLabels));
+        }
+
+        if (workspace is { })
+        {
+            text.Append("The project, newest first:\n")
+                .Append(Steps("undo", workspace.UndoLabels))
+                .Append(Steps("redo", workspace.RedoLabels));
+        }
+
+        return text.Append($"Steps named \"{Who}: …\" are these tools', for whichever client called them; another \"Name: …\" is another assistant's; the rest are the person's.").ToString();
+
+        static string Steps(string way, IReadOnlyList<string> labels)
+            => labels.Count == 0 ? $"{way}: none\n" : $"{way}:\n{Cut(labels.Select(label => "- " + label).ToList(), null)}\n";
+    });
+
     /// <summary>
     /// Takes back the newest edit these tools made, or puts back the newest they took back, known by
     /// the step its history handed out; with none, the window's next, remembered for the other way.
@@ -1216,9 +1317,42 @@ public sealed class AssistantTools
     /// </remarks>
     private string Step(bool back)
     {
+        var made = Next(back, out var refusal, out var passed);
         var (from, to) = back ? (_undos, _redos) : (_redos, _undos);
-        var (verb, doing, done) = back ? ("taken", "taking", "Took") : ("put", "putting", "Put");
+
+        // Here and not in Next, which get_history asks: a reading that dropped them would turn the
+        // refusal it gave, once every edit was stepped already, into a step of the person's.
+        for (; passed > 0; passed--)
+        {
+            from.Pop();
+        }
+
+        if (made is null)
+        {
+            return refusal;
+        }
+
+        if (from.TryPeek(out var mine) && ReferenceEquals(mine, made))
+        {
+            from.Pop();
+        }
+
+        _ = Way(made.Viewer, made.Workspace, back).Take();
+        to.Push(made);
+
+        return Report($"{(back ? "Took" : "Put")} back \"{made.Label}\".", back ? "undo" : "redo");
+    }
+
+    /// <summary>The edit <see cref="Step"/> would take back or put back now, or null and its refusal.</summary>
+    /// <param name="passed">How many of these tools' entries on top no history holds any more, for Step to drop.</param>
+    private Made? Next(bool back, out string refusal, out int passed)
+    {
+        var from = back ? _undos : _redos;
+        var (verb, doing) = back ? ("taken", "taking") : ("put", "putting");
         Made? made = null;
+
+        refusal = string.Empty;
+        passed = 0;
 
         if (from.Count == 0)
         {
@@ -1229,43 +1363,53 @@ public sealed class AssistantTools
 
             if (Way(front, workspace, back) is not ({ } step, var label, _, _))
             {
-                return $"There is nothing to {(back ? "take" : "put")} back.";
+                refusal = $"There is nothing to {(back ? "take" : "put")} back.";
+
+                return null;
             }
 
             made = new Made(label ?? string.Empty, step, front, workspace, workspace?.Document.Root);
         }
 
-        while (made is null && from.TryPeek(out var top))
+        // Top first, as a stack enumerates.
+        foreach (var top in from)
         {
             var (next, on, has, _) = Way(top.Viewer, ReferenceEquals(top.Workspace, _window.Workspace) ? top.Workspace : null, back);
 
             if (!has(top.Step))
             {
-                from.Pop();
+                passed++;
             }
             else if (!ReferenceEquals(next, top.Step))
             {
-                return $"Nothing was {verb} back: \"{on}\" "
-                       + (back ? "is on top of" : "was taken back after")
-                       + $" \"{top.Label}\" in {(top.Viewer is { } ? "its tab's" : "the project's")} history, and only the step "
-                       + (back ? "on top can be taken back." : "taken back last can be put back.");
+                refusal = $"Nothing was {verb} back: \"{on}\" "
+                          + (back ? "is on top of" : "was taken back after")
+                          + $" \"{top.Label}\" in {(top.Viewer is { } ? "its tab's" : "the project's")} history, and only the step "
+                          + (back ? "on top can be taken back." : "taken back last can be put back.");
+
+                return null;
             }
             else
             {
                 made = top;
+                break;
             }
         }
 
         if (made is null)
         {
-            return back
+            refusal = back
                 ? $"Nothing was taken back: every edit {Who} made has been taken back already, or was in a tab or a project since closed."
                 : $"Nothing was put back: what {Who} took back has been put back already, been built over by a newer edit, or was in a tab or a project since closed.";
+
+            return null;
         }
 
         if (made.Node is { } node && _window.HoldingEdits(node) is { } holding)
         {
-            return $"Nothing was {verb} back: {Named(holding)} has edits in its tab not yet saved into the project, and {doing} back \"{made.Label}\" could close it without asking; open it and save them first.";
+            refusal = $"Nothing was {verb} back: {Named(holding)} has edits in its tab not yet saved into the project, and {doing} back \"{made.Label}\" could close it without asking; open it and save them first.";
+
+            return null;
         }
 
         var rewritten = made.Text switch
@@ -1277,18 +1421,12 @@ public sealed class AssistantTools
 
         if (rewritten.FirstOrDefault(one => _window.TabOf(one)?.Content is SvgViewer { IsSourceModified: true }) is { } drawing)
         {
-            return $"Nothing was {verb} back: {Named(drawing)} has edits in its tab not yet saved into the project, made over \"{made.Label}\"; {doing} it back in the project would not reach the tab, whose next save writes over it. Open it and save or undo them first.";
+            refusal = $"Nothing was {verb} back: {Named(drawing)} has edits in its tab not yet saved into the project, made over \"{made.Label}\"; {doing} it back in the project would not reach the tab, whose next save writes over it. Open it and save or undo them first.";
+
+            return null;
         }
 
-        if (from.TryPeek(out var mine) && ReferenceEquals(mine, made))
-        {
-            from.Pop();
-        }
-
-        _ = Way(made.Viewer, made.Workspace, back).Take();
-        to.Push(made);
-
-        return Report($"{done} back \"{made.Label}\".", back ? "undo" : "redo");
+        return made;
     }
 
     /// <summary>A history's next step one way, its label, whether it still has a given step to take that way, and the call taking it.</summary>
@@ -1819,9 +1957,9 @@ public sealed class AssistantTools
 
     private Task<string> GitCommit([Description("The commit message.")] string message) => UiAsync(async () =>
     {
-        if (_window.Changes.Git is null)
+        if (Repository(out var why) is null)
         {
-            return "The project is not in a git repository.";
+            return why;
         }
 
         // The commit saves the front tab's edits first, and no other tab's.
@@ -1841,6 +1979,251 @@ public sealed class AssistantTools
             ? Report("Committed.", "commit")
             : string.Join("\n", notes.DefaultIfEmpty("Nothing was committed."));
     });
+
+    /// <remarks>
+    /// Compared as the Changes pane compares, so a rename reads as one removed and one added; but
+    /// against what git has now, where the pane's HEAD is as old as the window's last time in front.
+    /// </remarks>
+    private Task<string> GetChanges(
+        [Description("A commit, branch or tag to compare with, such as HEAD~1 or a hash from git_history; empty for the last commit.")] string? since = null)
+        => UiAsync(async () =>
+        {
+            var asked = _window.Workspace;
+
+            if (Repository(out var why) is not { } git)
+            {
+                return why;
+            }
+
+            var latest = string.IsNullOrEmpty(since);
+            var revision = latest ? "HEAD" : since!;
+            (var then, why) = await Committed(revision).ConfigureAwait(true);
+
+            if (then is null)
+            {
+                // Before the first commit HEAD names nothing, which leaves all of it new rather than unreadable.
+                return latest && await git.Head().ConfigureAwait(true) is null ? $"No commit has {git.Name} yet, so all of it is new." : why;
+            }
+
+            // The project Committed found still open once git answered.
+            var now = asked!.Document;
+            var changes = ProjectChanges.Compare(then, now).ToList();
+            var templates = Templates(then.Root, now.Root);
+
+            // No node holds the templates, so Compare has no row for them where the project's own settings are the same.
+            if (templates is { } && changes.FirstOrDefault()?.After is not ProjectRoot)
+            {
+                changes.Insert(0, new ProjectChange(string.Empty, ProjectChangeKind.Settings, then.Root, now.Root));
+            }
+
+            var held = _window.HoldingEdits();
+            var footer = (held.Count > 0 ? $"Not in it: edits held in the tabs of {string.Join(", ", held.Select(Named))}, until each is saved into the project.\n" : null)
+                         + $"get_drawing or render with revision \"{revision}\" shows a drawing as git has it there.";
+
+            if (changes.Count == 0)
+            {
+                return $"Nothing has changed since {revision}.\n{footer}";
+            }
+
+            var rows = changes.Select(Row).ToList();
+
+            // After the rows, as it names no node: the header's hash alone.
+            var head = latest ? await git.Head().ConfigureAwait(true) : null;
+            var counts = changes.GroupBy(change => change.Kind).OrderBy(kind => kind.Key)
+                .Select(kind => $"{kind.Count()} {(kind.Key == ProjectChangeKind.Settings ? "with new settings" : kind.Key.ToString().ToLowerInvariant())}");
+            var header = $"Since {revision}{(head is { } ? $" ({head[..10]})" : null)}, edits not yet saved included: "
+                         + $"{changes.Count} change{(changes.Count == 1 ? null : "s")}: {string.Join(", ", counts)}.\n";
+
+            return header + Fit(rows, "the counts above take in every one", header.Length + footer.Length) + "\n" + footer;
+
+            string Row(ProjectChange change)
+            {
+                var node = change.After ?? change.Before!;
+                var row = new StringBuilder(change.Kind.ToString().ToLowerInvariant()).Append(' ').Append(node is ProjectRoot
+                    ? "(project)"
+                    : $"{(change.After is { } ? Path(change.After) : change.Key)} {(node is ProjectGroup ? "group" : "drawing")} {ProjectWorkspace.Label(node)}");
+                var differs = Differs(change.Before, change.After).Append(node is ProjectRoot ? templates : null).OfType<string>().ToList();
+
+                if (change.Kind == ProjectChangeKind.Moved && differs.Count == 0)
+                {
+                    differs.Add("moved among the rows beside it");
+                }
+
+                return (differs.Count > 0 ? row.Append(": ").AppendJoin("; ", differs) : row).ToString();
+            }
+        });
+
+    /// <summary>What differs between two versions of a node, an entry for each of <see cref="ProjectChanges.Aspects"/>; nothing where either is missing.</summary>
+    private static IEnumerable<string> Differs(ProjectNode? before, ProjectNode? after)
+    {
+        if (before is null || after is null)
+        {
+            yield break;
+        }
+
+        var (was, now) = (ProjectChanges.Aspects(before), ProjectChanges.Aspects(after));
+
+        foreach (var aspect in was.Keys.Union(now.Keys))
+        {
+            var (old, @new) = (ProjectChanges.Value(was, aspect), ProjectChanges.Value(now, aspect));
+
+            if (old == @new)
+            {
+                continue;
+            }
+
+            yield return aspect switch
+            {
+                ProjectChanges.SvgAspect => "its drawing changed",
+                ProjectChanges.CodeAspect => Declarations((ProjectGroup)before, (ProjectGroup)after),
+                ProjectChanges.PlaceAspect => $"its place {old ?? "unset"} → {@new ?? "unset"}",
+                _ => $"{aspect} {Quoted(old)} → {Quoted(@new)}"
+            };
+        }
+
+        static string Quoted(string? value) => value is null ? "unset" : $"\"{(value.Length > 60 ? value[..60] + "…" : value)}\"";
+
+        static string Declarations(ProjectGroup before, ProjectGroup after)
+        {
+            var adding = Names(after).Except(Names(before)).ToList();
+            var dropping = Names(before).Except(Names(after)).ToList();
+
+            return "its declarations changed"
+                   + (adding.Count > 0 ? ", adding " + string.Join(", ", adding) : null)
+                   + (dropping.Count > 0 ? (adding.Count > 0 ? " and" : ",") + " dropping " + string.Join(", ", dropping) : null);
+        }
+    }
+
+    /// <summary>How the project's templates differ between two versions, by name, or null where they do not, compared as a drawing's text is.</summary>
+    private static string? Templates(ProjectRoot before, ProjectRoot after)
+    {
+        var was = before.Templates.Select(one => (one.Name, Text: ProjectChanges.Dedented(one.Text))).ToList();
+        var now = after.Templates.Select(one => (one.Name, Text: ProjectChanges.Dedented(one.Text))).ToList();
+
+        if (was.SequenceEqual(now))
+        {
+            return null;
+        }
+
+        var (had, has) = (was.Select(one => one.Name).ToList(), now.Select(one => one.Name).ToList());
+        var parts = new[]
+        {
+            Part("adding", has.Except(had)),
+            Part("dropping", had.Except(has)),
+            Part("editing", now.Where(one => !was.Contains(one) && had.Contains(one.Name)).Select(one => one.Name).Distinct())
+        }.OfType<string>().ToList();
+
+        return "its templates changed" + (parts.Count > 0 ? ", " + string.Join("; ", parts) : null);
+
+        static string? Part(string verb, IEnumerable<string> names)
+            => names.ToList() is { Count: > 0 } some ? $"{verb} {string.Join(", ", some)}" : null;
+    }
+
+    private Task<string> GitHistory([Description("How many to list, from 1 to 100.")] int count = 20) => UiAsync(async () =>
+    {
+        if (count is < 1 or > 100)
+        {
+            return "count is from 1 to 100.";
+        }
+
+        if (Repository(out var why) is not { } git)
+        {
+            return why;
+        }
+
+        var commits = await git.History(count).ConfigureAwait(true);
+
+        if (commits.Count == 0)
+        {
+            return $"No commit has touched {git.Name} yet.";
+        }
+
+        var header = $"The last {(commits.Count == 1 ? "commit" : $"{commits.Count} commits")} of {git.Name}, newest first:\n";
+        var rows = commits
+            .Select(commit => $"{commit.Hash[..10]} {commit.When.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} {commit.Author}: {commit.Subject}")
+            .ToList();
+
+        return header + Fit(rows, "git log in a terminal lists the rest", header.Length);
+    });
+
+    /// <summary>The repository the open project is in, or null and why there is none to ask.</summary>
+    private ProjectGit? Repository(out string why)
+    {
+        why = _window.Workspace is not { } workspace ? "No project is open."
+            : workspace.Document.Path is null ? "The project has never been saved, so it is in no git repository."
+            : ProjectGit.Installed is null ? "Studio found no git on this machine."
+            : _window.Changes.Git is null ? "The project is not in a git repository."
+            : string.Empty;
+
+        return why.Length == 0 ? _window.Changes.Git : null;
+    }
+
+    /// <summary>The project as git has it at <paramref name="revision"/>, or null and why not.</summary>
+    /// <remarks>
+    /// Read from git itself and never through the Changes pane, whose refresh can offer the merge
+    /// window, which no client can answer. Awaiting git lets other calls run, so a caller awaits
+    /// nothing before this, and resolves its nodes only once this has answered.
+    /// </remarks>
+    private async Task<(ProjectDocument? Project, string Why)> Committed(string revision)
+    {
+        var asked = _window.Workspace;
+
+        if (Repository(out var why) is not { } git)
+        {
+            return (null, why);
+        }
+
+        // Git would take one starting with - for an option.
+        if (string.IsNullOrWhiteSpace(revision) || revision.StartsWith('-'))
+        {
+            return (null, $"'{revision}' is not a revision; name a commit, a branch or a tag, such as HEAD~1.");
+        }
+
+        var text = await git.At(revision).ConfigureAwait(true);
+
+        // One of those calls can open another project, whose nodes would then be read against this one's revision.
+        if (!ReferenceEquals(_window.Workspace, asked))
+        {
+            return (null, "Another project was opened while git was being read; ask again.");
+        }
+
+        if (text is null)
+        {
+            return (null, $"Git has no {git.Name} at {revision}.");
+        }
+
+        try
+        {
+            return (ProjectDocument.Parse(text, System.IO.Path.Combine(git.Directory, git.Name)), string.Empty);
+        }
+        catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
+        {
+            return (null, $"{git.Name} at {revision} does not read as a project: {failure.Message}");
+        }
+    }
+
+    /// <summary><paramref name="now"/> as <paramref name="then"/> has it, paired as a merge pairs it, so through a move or a rename.</summary>
+    /// <param name="current">The drawing's text as it stands, where it is held: in its tab when it has one.</param>
+    /// <param name="said">Why there is none; or, where there is, what to say of it after the drawing's name.</param>
+    private static ProjectDrawing? Was(ProjectDocument then, ProjectNode? now, string current, string revision, out string said)
+    {
+        if (now is not ProjectDrawing drawing)
+        {
+            said = "revision reads a drawing of the project's, and the drawing in front is in none.";
+
+            return null;
+        }
+
+        var was = new ProjectMerge.Side(then, drawing.Owner).BaseOf.TryGetValue(drawing, out var node) ? node as ProjectDrawing : null;
+
+        // The same as get_changes judges it, so a move to another depth since reads as no change.
+        said = was is null ? $"{Named(drawing)} is not in the project at {revision}: it was added since, or renamed and changed."
+            : $", as git has it at {revision}"
+              + (was.Name == drawing.Name ? null : $", named {was.Name} there")
+              + (ProjectChanges.Dedented(was.Text) == ProjectChanges.Dedented(current) ? ", its text the same as now" : null);
+
+        return was;
+    }
 
     /// <remarks>
     /// Repeatable, since a second writes the same file again; destructive, since it replaces one.
@@ -2814,6 +3197,6 @@ public sealed class AssistantTools
     private static Task<T> Ui<T>(Func<T> call)
         => Dispatcher.UIThread.CheckAccess() ? Task.FromResult(call()) : Dispatcher.UIThread.InvokeAsync(call).GetTask();
 
-    private static Task<string> UiAsync(Func<Task<string>> call)
+    private static Task<T> UiAsync<T>(Func<Task<T>> call)
         => Dispatcher.UIThread.CheckAccess() ? call() : Dispatcher.UIThread.InvokeAsync(call);
 }

@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Svg.Skia;
 
 namespace Svg.Studio;
@@ -107,6 +108,12 @@ public sealed class ProjectWorkspace
 
     /// <inheritdoc cref="UndoLabel"/>
     public string? RedoLabel => CanRedo ? _steps[_at].Label : null;
+
+    /// <summary>What each undo would take back in turn, the next first.</summary>
+    public IReadOnlyList<string> UndoLabels => _steps.Take(_at).Reverse().Select(step => step.Label).ToList();
+
+    /// <summary>What each redo would put back in turn, the next first.</summary>
+    public IReadOnlyList<string> RedoLabels => _steps.Skip(_at).Select(step => step.Label).ToList();
 
     /// <summary>The step <see cref="Undo"/> would take back, for whoever made it to know it again.</summary>
     public object? UndoStep => CanUndo ? _steps[_at - 1] : null;

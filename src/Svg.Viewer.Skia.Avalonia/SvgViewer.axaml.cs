@@ -3062,6 +3062,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <inheritdoc cref="UndoLabel"/>
     public string? RedoLabel => _workspace?.RedoLabel;
 
+    /// <inheritdoc cref="SvgSourceWorkspace.UndoLabels"/>
+    public IReadOnlyList<string> UndoLabels => _workspace?.UndoLabels ?? Array.Empty<string>();
+
+    /// <inheritdoc cref="SvgSourceWorkspace.RedoLabels"/>
+    public IReadOnlyList<string> RedoLabels => _workspace?.RedoLabels ?? Array.Empty<string>();
+
     /// <inheritdoc cref="SvgSourceWorkspace.UndoStep"/>
     public object? UndoStep => _workspace?.UndoStep;
 

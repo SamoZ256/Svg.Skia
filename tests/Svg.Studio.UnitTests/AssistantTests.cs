@@ -1598,8 +1598,11 @@ public class AssistantTests : IDisposable
         Assert.Equal("remove home", workspace.UndoLabel);
     }
 
-    [AvaloniaFact]
-    public async Task An_Undo_Leaves_The_Persons_Work_Alone_Once_They_Took_Its_Edit_Back()
+    /// <param name="read">Whether get_history is read first: it says undo would refuse, which undo then must.</param>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_Undo_Leaves_The_Persons_Work_Alone_Once_They_Took_Its_Edit_Back(bool read)
     {
         var window = await Host(Write("icons.svgstudio", Project));
         var workspace = window.Workspace!;
@@ -1612,15 +1615,18 @@ public class AssistantTests : IDisposable
         // The person takes the rename back by hand.
         Assert.True(workspace.Undo());
 
-        var chat = new ScriptedChat(Call("undo", new()), Call("undo", new()), Say("Undone."));
+        var chat = new ScriptedChat([.. History(read), Call("undo", new()), Call("undo", new()), Say("Undone.")]);
 
         await Send(window, chat, "undo that", tools: tools);
 
-        Assert.StartsWith("Nothing was taken back", chat.Results[0], StringComparison.Ordinal);
+        var results = chat.Results.Skip(read ? 1 : 0).ToList();
+
+        Assert.All(chat.Results.Take(read ? 1 : 0), history => Assert.StartsWith("undo would answer: Nothing was taken back", history, StringComparison.Ordinal));
+        Assert.StartsWith("Nothing was taken back", results[0], StringComparison.Ordinal);
         Assert.Equal("Badges", workspace.Document.Root.Children[1].Name);
 
         // With nothing of its own left, the next undo is the person's, and it says which.
-        Assert.Equal("Took back \"mine\".", chat.Results[1]);
+        Assert.Equal("Took back \"mine\".", results[1]);
     }
 
     [AvaloniaFact]
@@ -1826,8 +1832,11 @@ public class AssistantTests : IDisposable
         Assert.Equal("Tags", badges.Name);
     }
 
-    [AvaloniaFact]
-    public async Task A_Redo_The_Person_Built_Over_Puts_Nothing_Back_And_Then_The_Persons_Is_Next()
+    /// <param name="read">Whether get_history is read first: it says redo would refuse, which redo then must.</param>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_Redo_The_Person_Built_Over_Puts_Nothing_Back_And_Then_The_Persons_Is_Next(bool read)
     {
         var window = await Host(Write("icons.svgstudio", Project));
         var workspace = window.Workspace!;
@@ -1839,11 +1848,12 @@ public class AssistantTests : IDisposable
         // A new edit of the person's drops the rename from the history.
         workspace.Edit("mine");
 
-        var chat = new ScriptedChat(Call("redo", new()), Say("Nothing."));
+        var chat = new ScriptedChat([.. History(read), Call("redo", new()), Say("Nothing.")]);
 
         await Send(window, chat, "redo", tools: tools);
 
-        Assert.StartsWith("Nothing was put back", chat.Results[0], StringComparison.Ordinal);
+        Assert.All(chat.Results.Take(read ? 1 : 0), history => Assert.Contains("\nredo would answer: Nothing was put back", history, StringComparison.Ordinal));
+        Assert.StartsWith("Nothing was put back", chat.Results.Last(), StringComparison.Ordinal);
         Assert.Equal("mine", workspace.UndoLabel);
         Assert.Equal("Badges", badges.Name);
 
@@ -1905,6 +1915,166 @@ public class AssistantTests : IDisposable
         // Not refused for "mine" being on top of the rename: this put it there.
         Assert.Equal(new[] { "Put back \"mine\".", "Took back \"mine\".", "Took back \"Assistant: change name\"." }, chat.Results);
         Assert.Equal("Badges", workspace.Document.Root.Children[1].Name);
+    }
+
+    [AvaloniaFact]
+    public async Task The_History_Names_Each_Step_And_What_Undo_And_Redo_Would_Do_Now()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var tools = new AssistantTools(window);
+
+        workspace.Edit("mine");
+        await window.ShowAsync(workspace.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+
+        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "typed");
+
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }),
+            Call("get_history", new()),
+            Say("Read."));
+
+        await Send(window, chat, "rename Badges, then read the history", tools: tools);
+
+        Assert.Equal(
+            """
+            undo would take back "Assistant: change name" from the project's history.
+            redo would answer: There is nothing to put back.
+            Cmd/Ctrl+Z in Studio would take back "typed" from the front tab; a text box with the caret in it takes the keystroke first.
+            The front tab, 0 home, newest first:
+            undo:
+            - typed
+            redo: none
+            The project, newest first:
+            undo:
+            - Assistant: change name
+            - mine
+            redo: none
+            Steps named "Assistant: …" are these tools', for whichever client called them; another "Name: …" is another assistant's; the rest are the person's.
+            """,
+            chat.Results[1]);
+
+        // A newer step of the person's on top of the rename, which undo leaves where it is.
+        workspace.Edit("theirs");
+
+        var again = new ScriptedChat(Call("get_history", new()), Say("Read."));
+
+        await Send(window, again, "read the history", tools: tools);
+
+        Assert.StartsWith(
+            "undo would answer: Nothing was taken back: \"theirs\" is on top of \"Assistant: change name\" in the project's history",
+            again.Results[0],
+            StringComparison.Ordinal);
+        Assert.Contains("The project, newest first:\nundo:\n- theirs\n- Assistant: change name\n- mine\nredo: none\n", again.Results[0], StringComparison.Ordinal);
+
+        // A step of its own in the front tab, read there and then from behind another tab.
+        var red = new ScriptedChat(
+            Call("set_attributes", new() { ["node"] = "0", ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "red" }),
+            Call("get_history", new()),
+            Say("Reddened."));
+
+        await Send(window, red, "redden home, then read the history", tools: tools);
+        await window.ShowAsync(((ProjectGroup)workspace.Document.Root.Children[1]).Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var behind = new ScriptedChat(Call("get_history", new()), Say("Read."));
+
+        await Send(window, behind, "read the history", tools: tools);
+
+        Assert.StartsWith("undo would take back \"Assistant: red\" from the front tab's history.\n", red.Results[1], StringComparison.Ordinal);
+        Assert.Contains("The front tab, 0 home, newest first:\nundo:\n- Assistant: red\n- typed\nredo: none\n", red.Results[1], StringComparison.Ordinal);
+        Assert.StartsWith("undo would take back \"Assistant: red\" from the history of a tab not in front.\n", behind.Results[0], StringComparison.Ordinal);
+        Assert.Contains("\nCmd/Ctrl+Z in Studio would take back \"theirs\" from the project;", behind.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Reading_The_History_Leaves_Undo_As_It_Was()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var badges = workspace.Document.Root.Children[1];
+        var tools = new AssistantTools(window);
+        var fresh = new ScriptedChat(Call("get_history", new()), Say("Read."));
+
+        await Send(window, fresh, "read the history", tools: tools);
+
+        Assert.StartsWith(
+            """
+            undo would answer: There is nothing to take back.
+            redo would answer: There is nothing to put back.
+            Cmd/Ctrl+Z in Studio would take nothing back; a text box with the caret in it takes the keystroke first.
+
+            """,
+            fresh.Results[0],
+            StringComparison.Ordinal);
+
+        workspace.Edit("mine");
+
+        // With none of its own, what undo would take is the person's, which reading neither takes nor keeps.
+        var read = new ScriptedChat(Call("get_history", new()), Call("get_history", new()), Say("Read."));
+
+        await Send(window, read, "read the history", tools: tools);
+
+        // No tab in front can take a step, so the window's own undo is the project's.
+        Assert.StartsWith(
+            """
+            undo would take back "mine" from the project's history.
+            redo would answer: There is nothing to put back.
+            Cmd/Ctrl+Z in Studio would take back "mine" from the project; a text box with the caret in it takes the keystroke first.
+
+            """,
+            read.Results[0],
+            StringComparison.Ordinal);
+        Assert.Equal(read.Results[0], read.Results[1]);
+        Assert.Equal("mine", workspace.UndoLabel);
+        Assert.False(workspace.CanRedo);
+
+        // Read with the rename on top, then under a step of the person's: had a reading dropped the
+        // rename, the undo would take the person's step in place of refusing for it.
+        var renamed = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "name", ["value"] = "Tags" }),
+            Call("get_history", new()),
+            Call("get_history", new()),
+            Say("Renamed."));
+
+        await Send(window, renamed, "rename Badges, and read the history", tools: tools);
+
+        workspace.Edit("theirs");
+
+        var under = new ScriptedChat(Call("get_history", new()), Call("get_history", new()), Call("undo", new()), Say("Not undone."));
+
+        await Send(window, under, "read the history, and undo", tools: tools);
+
+        Assert.StartsWith("undo would take back \"Assistant: change name\" from the project's history.\n", renamed.Results[1], StringComparison.Ordinal);
+        Assert.Equal(renamed.Results[1], renamed.Results[2]);
+        Assert.Equal(under.Results[0], under.Results[1]);
+        Assert.StartsWith("Nothing was taken back: \"theirs\" is on top of \"Assistant: change name\"", under.Results[2], StringComparison.Ordinal);
+        Assert.Equal("theirs", workspace.UndoLabel);
+
+        // Once the person takes theirs back, the rename is on top again.
+        Assert.True(workspace.Undo());
+
+        var chat = new ScriptedChat(
+            Call("undo", new()),
+            Call("get_history", new()),
+            Call("redo", new()),
+            Call("undo", new()),
+            Call("undo", new()),
+            Say("As it was."));
+
+        await Send(window, chat, "step the history about", tools: tools);
+
+        Assert.Equal("Took back \"Assistant: change name\".", chat.Results[0]);
+        Assert.StartsWith(
+            "undo would take back \"mine\" from the project's history.\nredo would put back \"Assistant: change name\" from the project's history.\n",
+            chat.Results[1],
+            StringComparison.Ordinal);
+        Assert.Equal(new[] { "Put back \"Assistant: change name\".", "Took back \"Assistant: change name\".", "Took back \"mine\"." }, chat.Results.Skip(2));
+        Assert.Equal("Badges", badges.Name);
+        Assert.False(workspace.CanUndo);
     }
 
     [AvaloniaFact]
@@ -3475,6 +3645,9 @@ public class AssistantTests : IDisposable
         => new(new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(Guid.NewGuid().ToString("N"), name, arguments.ToDictionary(pair => pair.Key, pair => (object?)JsonSerializer.SerializeToElement(pair.Value)))]));
 
     private static ChatResponse Say(string text) => new(new ChatMessage(ChatRole.Assistant, text));
+
+    /// <summary>A get_history call where <paramref name="read"/>, to make ahead of the calls a test is about.</summary>
+    private static ChatResponse[] History(bool read) => read ? [Call("get_history", new())] : [];
 
     /// <summary>A model that answers with what it was given, in order, and remembers what came back.</summary>
     private sealed class ScriptedChat : IChatClient

@@ -252,6 +252,28 @@ public class SvgSourceWorkspaceTests
     }
 
     [Fact]
+    public void Every_Step_Is_Named_In_The_Order_Undo_And_Redo_Would_Take_Them()
+    {
+        var workspace = Open();
+
+        Assert.Empty(workspace.UndoLabels);
+        Assert.Empty(workspace.RedoLabels);
+
+        workspace.Commit("one", source => Fill(source, "red"));
+        workspace.Commit("two", source => Fill(source, "green"));
+        workspace.Commit("three", source => Fill(source, "blue"));
+
+        Assert.Equal(new[] { "three", "two", "one" }, workspace.UndoLabels);
+        Assert.Empty(workspace.RedoLabels);
+
+        workspace.Undo();
+        workspace.Undo();
+
+        Assert.Equal(new[] { "one" }, workspace.UndoLabels);
+        Assert.Equal(new[] { "two", "three" }, workspace.RedoLabels);
+    }
+
+    [Fact]
     public void A_Step_Is_Known_Again_By_What_It_Handed_Out_Under_Any_Label()
     {
         var workspace = Open();

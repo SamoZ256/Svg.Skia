@@ -48,7 +48,8 @@ public sealed class AssistantSession : IDisposable
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
         - A group's or the project's declarations are inherited by every drawing under it; get_declarations reads them; declare adds or changes one, and renames one with every use; set_declarations replaces the whole block; find says where a name is used.
         - get_problems lists everything wrong across the project's drawings; set_text changes the text between an element's tags.
-        - Every edit is one step the person can undo with Cmd/Ctrl+Z.
+        - Every edit is one step the person can undo with Cmd/Ctrl+Z; get_history says what undo and redo would take now, and whose each step is.
+        - get_changes says what changed since the last commit, for a commit message; git_history lists the commits, and get_drawing with a revision reads a drawing as one of them had it.
         """;
 
     /// <summary>Only for a model that has the save, export, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>
