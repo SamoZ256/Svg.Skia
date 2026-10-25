@@ -429,6 +429,13 @@ internal sealed class PaintCodeExpressionTranslator
             return new Typed(name, PaintCodeSort.Other);
         }
 
+        // As written first, then as declared: PaintCode's expression may spell an item the way its
+        // library does, where the declaration is spelled the way its generated code does.
+        if (!_declarations.ByName.ContainsKey(name) && !(_overrides?.ContainsKey(name) ?? false))
+        {
+            name = PaintCodeSlug.Identifier(name);
+        }
+
         if (_overrides is { } overrides && overrides.TryGetValue(name, out var substituted))
         {
             return new Typed(Bracketed(substituted), SortOf(substituted));
