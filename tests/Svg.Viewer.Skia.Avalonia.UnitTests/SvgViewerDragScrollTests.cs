@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -25,8 +26,15 @@ namespace Svg.Viewer.Skia.Avalonia.UnitTests;
 /// Injected drags, as the tree's and the panel's suites make them, and real time passing: the scroll
 /// that matters is the one kept up while the pointer is held still, with no update arriving.
 /// </remarks>
-public class SvgViewerDragScrollTests
+public class SvgViewerDragScrollTests : IDisposable
 {
+    /// <summary>The clock where <see cref="Hand"/> holds it.</summary>
+    private long _hand;
+
+    /// <summary>Real time, which the scroll is kept up through; every other test holds the clock still.</summary>
+    public SvgViewerDragScrollTests() => SvgViewerDragScroll.Now = Stopwatch.GetTimestamp;
+
+    public void Dispose() => TestClock.Stop();
     /// <summary>Sixty shapes, so the tree has far more rows than its pane.</summary>
     private static readonly string s_long =
         """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10">"""
@@ -141,6 +149,15 @@ public class SvgViewerDragScrollTests
             Dispatcher.UIThread.RunJobs();
         }
     }
+
+    /// <summary>Holds the clock where it is, so only what <see cref="Pass"/> lets pass can scroll.</summary>
+    private void Hand()
+    {
+        _hand = Stopwatch.GetTimestamp();
+        SvgViewerDragScroll.Now = () => _hand;
+    }
+
+    private void Pass(double milliseconds) => _hand += (long)(Stopwatch.Frequency * milliseconds / 1000d);
 
     /// <summary>Long enough for a scroll to show, so that none showing means none happened.</summary>
     private static async Task Pause()
@@ -347,11 +364,26 @@ public class SvgViewerDragScrollTests
 
         Assert.NotSame(box, BoxAt(window, at));
 
+        // Time let pass a step at a time, so the list stops the moment the box is found: on a loaded
+        // runner a real clock could move it on again between finding the box and the drop.
+        Hand();
         Hold(window, at, carried);
+        Pass(150d);
 
         TextBox? under = null;
 
-        await Until(() => ReferenceEquals(under = BoxAt(window, at), box));
+        for (var step = 0; step < 100 && !ReferenceEquals(under = BoxAt(window, at), box); step++)
+        {
+            var was = scroller.Offset.Y;
+
+            Pass(50d);
+            await Until(() => scroller.Offset.Y != was);
+
+            if (scroller.Offset.Y == was)
+            {
+                break;
+            }
+        }
 
         Assert.Same(box, under);
 
@@ -542,10 +574,14 @@ public class SvgViewerDragScrollTests
         left = 0;
         Let(window, at, RawDragEventType.DragOver, carried);
 
+        // 60 ms let pass by hand rather than waited: a starved UI thread could sit out a real wait
+        // without the timer running once, and an update that restarted the dwell owes nothing yet.
+        Hand();
+
         var updated = scroller.Offset.Y;
 
-        await Task.Delay(60);
-        Dispatcher.UIThread.RunJobs();
+        Pass(60d);
+        await Until(() => scroller.Offset.Y > updated + 8d);
 
         Assert.Equal(1, left);
         Assert.True(scroller.Offset.Y > updated + 8d, $"{updated} -> {scroller.Offset.Y}");

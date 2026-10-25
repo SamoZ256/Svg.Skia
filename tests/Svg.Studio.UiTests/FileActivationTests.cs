@@ -14,8 +14,9 @@ public class FileActivationTests
 
         studio.Find("WelcomeOpen");
 
-        // What Finder does with a package whose type Studio owns, as Info.plist declares it.
-        using (var open = Process.Start("/usr/bin/open", ["-b", "com.svgskia.studio", project]))
+        // What Finder does with a package whose type Studio owns, as Info.plist declares it. By the
+        // bundle's path, as Appium launched it: by its identifier, any other copy registered could take it.
+        using (var open = Process.Start("/usr/bin/open", ["-a", Studio.App!, project]))
         {
             open.WaitForExit();
             Assert.Equal(0, open.ExitCode);

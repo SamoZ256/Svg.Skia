@@ -37,6 +37,10 @@ public static class SvgViewerDragScroll
 
     private static DispatcherTimer? s_timer;
 
+    /// <summary>What the clock reads, in <see cref="Stopwatch"/> ticks.</summary>
+    /// <remarks>Settable so a test decides when time passes; a drop test is not about scrolling, and a slow machine made it one.</remarks>
+    public static Func<long> Now { get; set; } = Stopwatch.GetTimestamp;
+
     /// <summary>What the last update was over, whose scrolling ancestors are the views that could move.</summary>
     private static Visual? s_over;
 
@@ -197,7 +201,7 @@ public static class SvgViewerDragScroll
             return false;
         }
 
-        var now = Stopwatch.GetTimestamp();
+        var now = Now();
         var seconds = Math.Min((now - (s_owed ??= now + s_dwell)) / (double)Stopwatch.Frequency, CatchUp);
         var step = new Vector(Math.Round(speed.X * Math.Max(seconds, 0d)), Math.Round(speed.Y * Math.Max(seconds, 0d)));
 

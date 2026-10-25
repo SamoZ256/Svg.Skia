@@ -18,6 +18,8 @@ namespace Svg.Studio.UnitTests;
 /// Both are one way, and the svgc one is deliberately lossy: a recipe is baked into the drawings it
 /// painted, and a file named twice becomes two drawings. The tests say so rather than guarding it.
 /// </remarks>
+// Its git runs through ProjectGit.Installed, which ChangesPanelTests empties for a while.
+[Collection("settings")]
 public class ProjectImportTests : IDisposable
 {
     private readonly string _directory = Directory.CreateTempSubdirectory().FullName;
