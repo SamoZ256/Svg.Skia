@@ -68,6 +68,28 @@ public class PaintCodeReaderTests
         Assert.Equal(1d, color.Alpha);
     }
 
+    [Theory]
+    [InlineData("NSRGB", "0.8078431373 0.637881765 0.4253564657", 206, 163, 108, 1d)]
+    [InlineData("NSRGB", "1 1 1 0.5", 255, 255, 255, 0.5d)]
+    [InlineData("NSWhite", "0.2", 51, 51, 51, 1d)]
+    public void A_Colour_An_Older_PaintCode_Saved_Is_Read_From_The_Field_It_Saved_It_In(string field, string components, int red, int green, int blue, double alpha)
+    {
+        var archive = new KeyedArchiveBuilder();
+        var colour = ScopeDocument.Color(archive, "baseColor", components, field: field);
+        var document = PaintCodeDocument.Parse(archive.ToBytes(
+            ("styleKitName", archive.Text("Legacy")),
+            ("desks", archive.Array()),
+            ("library", archive.Object(
+                "PPLibrary",
+                ("colors", archive.Array(colour)),
+                ("gradients", archive.Array()),
+                ("variables", archive.Array())))));
+
+        var read = Assert.Single(document.Colors).Value;
+
+        Assert.Equal((red, green, blue, alpha), ((int)read.Red, (int)read.Green, (int)read.Blue, read.Alpha));
+    }
+
     [Fact]
     public void A_Derived_Colour_Takes_Its_Parents_Channels_And_The_Operations_Alpha()
     {

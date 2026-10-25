@@ -377,16 +377,45 @@ internal static class PaintCodeReader
     // NSComponents holds the colour in its own colour space as ASCII floats. Every drawing colour in
     // the sample document is space 1 (sRGB), where those floats are exactly the bytes PaintCode's own
     // generated code emits; the 946 colours in space 3 are canvas grid chrome, which nothing reads.
+    //
+    // A document from an older PaintCode has no NSComponents at all, only NSRGB ("r g b [a]") or
+    // NSWhite ("w [a]") with the alpha left out where it is opaque. Reading neither drew every colour
+    // of such a document black: SampleStyleKit holds 37 and 11 of them.
     private static PaintCodeColor? Components(PaintCodeNode node, string name)
     {
-        if (node["NSComponents"].Data is not { } data)
+        if (Numbers(node["NSComponents"]) is { } components)
+        {
+            var space = (int)node["NSColorSpace"].NumberOr(0);
+
+            return components.Length switch
+            {
+                >= 4 when space == 1 => new PaintCodeColor(name, Byte(components[0]), Byte(components[1]), Byte(components[2]), components[3]),
+                >= 2 => new PaintCodeColor(name, Byte(components[0]), Byte(components[0]), Byte(components[0]), components[1], true),
+                _ => null
+            };
+        }
+
+        if (Numbers(node["NSRGB"]) is { Length: >= 3 } rgb)
+        {
+            return new PaintCodeColor(name, Byte(rgb[0]), Byte(rgb[1]), Byte(rgb[2]), rgb.Length > 3 ? rgb[3] : 1);
+        }
+
+        if (Numbers(node["NSWhite"]) is { Length: >= 1 } white)
+        {
+            return new PaintCodeColor(name, Byte(white[0]), Byte(white[0]), Byte(white[0]), white.Length > 1 ? white[1] : 1, true);
+        }
+
+        return null;
+    }
+
+    private static double[]? Numbers(PaintCodeNode node)
+    {
+        if (node.Data is not { } data)
         {
             return null;
         }
 
-        var space = (int)node["NSColorSpace"].NumberOr(0);
-        var text = Encoding.ASCII.GetString(data).TrimEnd('\0').Trim();
-        var parts = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var parts = Encoding.ASCII.GetString(data).TrimEnd('\0').Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         var numbers = new double[parts.Length];
 
         for (var index = 0; index < parts.Length; index++)
@@ -397,12 +426,7 @@ internal static class PaintCodeReader
             }
         }
 
-        return numbers.Length switch
-        {
-            >= 4 when space == 1 => new PaintCodeColor(name, Byte(numbers[0]), Byte(numbers[1]), Byte(numbers[2]), numbers[3]),
-            >= 2 => new PaintCodeColor(name, Byte(numbers[0]), Byte(numbers[0]), Byte(numbers[0]), numbers[1], true),
-            _ => null
-        };
+        return numbers;
     }
 
     private static byte Byte(double channel)
