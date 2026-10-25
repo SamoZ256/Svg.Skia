@@ -200,7 +200,7 @@ internal sealed class PaintCodeDeclarations
             declarations._gradients[PaintCodeSlug.Identifier(gradient.Name)] = gradient;
         }
 
-        foreach (var color in document.Colors)
+        foreach (var color in ParentsFirst(document.Colors))
         {
             declarations.Add(declarations.Color(color));
         }
@@ -759,6 +759,51 @@ internal sealed class PaintCodeDeclarations
         }
 
         return PaintCodeDeclaration.Constant(name, "color", Literal(color.Value), color.Value.IsApproximate);
+    }
+
+    /// <summary>The library's colours with each one after the colour it is derived from.</summary>
+    /// <remarks>
+    /// A derived colour is written as an expression only once its parent is declared, and the library
+    /// lists them as they were made: SampleStyleKit's light and highlighted button colours come before
+    /// the base they derive from, so binding the base changed neither.
+    /// </remarks>
+    private static IEnumerable<PaintCodeLibraryColor> ParentsFirst(IReadOnlyList<PaintCodeLibraryColor> colors)
+    {
+        var byName = new Dictionary<string, PaintCodeLibraryColor>(StringComparer.Ordinal);
+
+        foreach (var color in colors)
+        {
+            if (!byName.ContainsKey(color.Name))
+            {
+                byName[color.Name] = color;
+            }
+        }
+
+        var placed = new HashSet<PaintCodeLibraryColor>();
+        var ordered = new List<PaintCodeLibraryColor>(colors.Count);
+
+        void Place(PaintCodeLibraryColor color)
+        {
+            // Marked before its parent is placed, so a cycle stops rather than recursing for ever.
+            if (!placed.Add(color))
+            {
+                return;
+            }
+
+            if (color.ParentName is { } parent && byName.TryGetValue(parent, out var placedFirst))
+            {
+                Place(placedFirst);
+            }
+
+            ordered.Add(color);
+        }
+
+        foreach (var color in colors)
+        {
+            Place(color);
+        }
+
+        return ordered;
     }
 
     /// <summary>

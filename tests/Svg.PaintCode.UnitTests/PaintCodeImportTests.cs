@@ -196,6 +196,27 @@ public class PaintCodeImportTests
         Assert.Equal(body, declaration.Body);
     }
 
+    /// <summary>A derived colour the library lists before its parent still follows a caller's parent.</summary>
+    [Fact]
+    public void A_Colour_Derived_From_One_Listed_After_It_Is_Still_Written_As_What_Derives_It()
+    {
+        var document = Library(archive =>
+        {
+            var tone = ScopeDocument.Color(archive, "tone", "0.4 0.2 0 1", usage: 1);
+            var light = archive.Object(
+                "PPColor",
+                new[] { ("name", archive.Text("toneLight")), ("parentColor", tone) },
+                ("isDerived", true), ("operation", 0), ("operationAmount", 0.5d));
+
+            return archive.Array(light, tone);
+        });
+
+        var declaration = PaintCodeDeclarations.Of(document).ByName["toneLight"];
+
+        Assert.Equal(PaintCodeDeclarationKind.Local, declaration.Kind);
+        Assert.Equal("mix(tone, #ffffffff, 0.5)", declaration.Body);
+    }
+
     [Fact]
     public void A_Fraction_Carries_The_Range_Its_Type_Implies()
     {
