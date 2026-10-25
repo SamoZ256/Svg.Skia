@@ -27,7 +27,7 @@ public class FilePanelTests
         studio.Press(path);
         // Return goes to the file and selects it; a second Return did not open it on macos-26.
         studio.Press(Keys.Return);
-        studio.Click("OKButton");
+        studio.Click(studio.Enabled("OKButton"));
 
         studio.Until(() => studio.Title == "square.svg — SVG Studio", "the picked drawing's title");
     }
@@ -50,7 +50,7 @@ public class FilePanelTests
         studio.Command("g", shift: true);
         studio.Press(studio.Data);
         studio.Press(Keys.Return);
-        studio.Click("OKButton");
+        studio.Click(studio.Enabled("OKButton"));
 
         studio.Until(() => File.Exists(copy), "copy.svg on disk");
         studio.Until(() => studio.Title == "copy.svg — SVG Studio", "the copy's title");

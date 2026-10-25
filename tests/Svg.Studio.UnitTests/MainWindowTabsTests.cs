@@ -30,13 +30,16 @@ namespace Svg.Studio.UnitTests;
 /// left the tab, and that the close button is not a drag handle. Calling the handlers directly would
 /// assert none of it.
 /// </remarks>
-public class MainWindowTabsTests
+public class MainWindowTabsTests : IDisposable
 {
     private const string Drawing = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
           <rect width="24" height="24" fill="#00ff00" />
         </svg>
         """;
+
+    /// <summary>Still again after the one test here that lets the drag scroll run on real time.</summary>
+    public void Dispose() => TestClock.Stop();
 
     /// <summary>Opens a window holding <paramref name="count"/> drawings.</summary>
     private static async Task<(MainWindow Window, TabControl Tabs)> Host(int count)
@@ -580,6 +583,8 @@ public class MainWindowTabsTests
     [AvaloniaFact]
     public async Task A_Tab_Held_At_The_Edge_Of_An_Overflowing_Strip_Scrolls_It_Past_The_Tabs_Out_Of_Sight()
     {
+        SvgViewerDragScroll.Now = System.Diagnostics.Stopwatch.GetTimestamp;
+
         var (window, tabs) = await Host(25);
 
         var strip = tabs.GetVisualDescendants().OfType<ScrollViewer>().First(v => v.Name == "PART_TabStrip");

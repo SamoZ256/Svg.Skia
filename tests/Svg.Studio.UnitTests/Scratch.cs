@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 
@@ -10,22 +11,28 @@ internal static class Scratch
     /// <remarks>
     /// Windows refuses to delete a read-only file, which is how git writes its objects, and a directory
     /// that is a live process's working directory — the git a drop starts without anything to await it.
+    /// That git can still be writing objects, so the read-only flags are cleared again on every try.
     /// </remarks>
     public static void Delete(string directory)
     {
-        foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
-        {
-            File.SetAttributes(file, FileAttributes.Normal);
-        }
-
         for (var attempt = 0; ; attempt++)
         {
             try
             {
+                if (!Directory.Exists(directory))
+                {
+                    return;
+                }
+
+                foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+
                 Directory.Delete(directory, recursive: true);
                 return;
             }
-            catch (IOException) when (attempt < 40)
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException && attempt < 40)
             {
                 Thread.Sleep(50);
             }

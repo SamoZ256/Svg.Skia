@@ -611,7 +611,9 @@ public class AssistantTests : IDisposable
         Assert.Null(untitled.Workspace?.Document.Path);
     }
 
-    [Fact]
+    // Headless only for the queue headless tests run on one at a time: the key it swaps is the one
+    // AnthropicKeyTests reads, and as a plain fact it ran beside it.
+    [AvaloniaFact]
     public void Claude_Needs_A_Key()
     {
         var was = ClaudeProvider.ApiKey;
