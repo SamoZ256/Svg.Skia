@@ -28,6 +28,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       is-prerelease: ${{ steps.version.outputs.is-prerelease }}
+      version-suffix: ${{ steps.version.outputs.version-suffix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,7 +57,15 @@ jobs:
               IS_PRERELEASE="false"
             fi
           fi
+          # Only the suffix reaches the packages; the prefixes stay in Directory.Build.props. A fork
+          # release without one would be 5.2.2, which upstream owns on nuget.org, and whichever of the
+          # two a machine cached first silently wins.
+          if [[ "$VERSION" != *"-"* ]]; then
+            echo "::error::Tag a fork release with a suffix, e.g. v5.2.2-samoz.1"
+            exit 1
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version-suffix=${VERSION#*-}" >> $GITHUB_OUTPUT
           echo "is-prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION (prerelease: $IS_PRERELEASE)"
 
@@ -127,7 +136,7 @@ jobs:
         run: dotnet restore Svg.Skia.slnx
 
       - name: Pack
-        run: dotnet pack Svg.Skia.slnx -c Release --no-restore -o artifacts/packages
+        run: dotnet pack Svg.Skia.slnx -c Release --no-restore -p:VersionSuffix="${{ needs.build.outputs.version-suffix }}" -o artifacts/packages
 
       - name: Verify Linux package dependencies
         run: bash scripts/verify_linux_package_dependencies.sh artifacts/packages
@@ -170,14 +179,14 @@ jobs:
       - name: Build libraries
         working-directory: src/SvgML.Maui
         run: |
-          dotnet build SvgML.Maui.csproj -c Release --no-restore
-          dotnet build ../Svg.Controls.Skia.Maui/Svg.Controls.Skia.Maui.csproj -c Release --no-restore
+          dotnet build SvgML.Maui.csproj -c Release --no-restore -p:VersionSuffix="${{ needs.build.outputs.version-suffix }}"
+          dotnet build ../Svg.Controls.Skia.Maui/Svg.Controls.Skia.Maui.csproj -c Release --no-restore -p:VersionSuffix="${{ needs.build.outputs.version-suffix }}"
 
       - name: Pack
         working-directory: src/SvgML.Maui
         run: |
-          dotnet pack SvgML.Maui.csproj -c Release --no-restore -o ../../artifacts/maui-packages
-          dotnet pack ../Svg.Controls.Skia.Maui/Svg.Controls.Skia.Maui.csproj -c Release --no-restore -o ../../artifacts/maui-packages
+          dotnet pack SvgML.Maui.csproj -c Release --no-restore -p:VersionSuffix="${{ needs.build.outputs.version-suffix }}" -o ../../artifacts/maui-packages
+          dotnet pack ../Svg.Controls.Skia.Maui/Svg.Controls.Skia.Maui.csproj -c Release --no-restore -p:VersionSuffix="${{ needs.build.outputs.version-suffix }}" -o ../../artifacts/maui-packages
 
       - name: Build sample
         working-directory: src/SvgML.Maui
@@ -194,10 +203,11 @@ jobs:
           retention-days: 90
 
   publish-nuget:
-    name: Publish to NuGet
+    name: Publish to GitHub Packages
     runs-on: ubuntu-latest
     needs: [build, pack, pack-maui]
-    environment: nuget
+    permissions:
+      packages: write
     steps:
       - name: Download NuGet packages
         uses: actions/download-artifact@v4
@@ -216,14 +226,16 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Publish to NuGet
+      # Not nuget.org: upstream owns most of these IDs there. GitHub Packages takes no .snupkg, and
+      # none are made — SourceLink.props embeds the PDBs instead.
+      - name: Publish to GitHub Packages
         run: |
           shopt -s nullglob
-          for package in packages/*.nupkg packages/*.snupkg; do
+          for package in packages/*.nupkg; do
             echo "Publishing $package..."
             dotnet nuget push "$package" \
-              --api-key ${{ secrets.NUGET_API_KEY }} \
-              --source https://api.nuget.org/v3/index.json \
+              --api-key ${{ secrets.GITHUB_TOKEN }} \
+              --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json \
               --skip-duplicate
           done
 
