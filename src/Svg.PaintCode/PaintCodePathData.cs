@@ -494,9 +494,22 @@ internal static class PaintCodePathData
         var end = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.EndAngle);
         var data = new StringBuilder();
 
-        data.Append('M').Append(Pair(start))
-            .Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 ")
-            .Append(turn > 180 ? '1' : '0').Append(" 1 ")
+        // Within a rounding of a whole turn the two ends are written as one point, and an arc from a
+        // point to itself draws nothing: SampleStyleKit's pac-man, open by 0.00002 degrees, did. Two
+        // halves through the point halfway round are the same arc.
+        var halved = Pair(start) == Pair(end);
+
+        data.Append('M').Append(Pair(start));
+
+        if (halved)
+        {
+            var middle = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.StartAngle + (turn / 2));
+
+            data.Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 0 1 ").Append(Pair(middle));
+        }
+
+        data.Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 ")
+            .Append(turn > 180 && !halved ? '1' : '0').Append(" 1 ")
             .Append(Pair(end));
 
         // Through the middle, not straight back: PaintCode closes an arc with LineTo(MidX, MidY),

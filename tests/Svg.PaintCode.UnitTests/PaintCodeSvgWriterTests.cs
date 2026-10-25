@@ -154,6 +154,18 @@ public class PaintCodeSvgWriterTests
         Assert.Equal(empty, PaintCodePathData.For(shape)!.Length == 0);
     }
 
+    /// <summary>
+    /// An arc a hair short of a turn still goes round: its two ends are written as the same point,
+    /// and one arc between them would draw nothing at all.
+    /// </summary>
+    [Fact]
+    public void An_Arc_A_Hair_Short_Of_A_Turn_Is_Written_In_Two_Halves()
+    {
+        var shape = Box(PaintCodeShapeKind.Oval, new PaintCodeShapeMetrics(0, true, true, true, true, -0.00001, 0.00001, true, 0, 0));
+
+        Assert.Equal("M9,7A4.5 7 0 0 1 0,7A4.5 7 0 0 1 9,7L4.5,7Z", PaintCodePathData.For(shape));
+    }
+
     [Fact]
     public void A_Gradient_Fill_Becomes_A_Gradient_Laid_Along_The_Angle_It_Was_Given()
     {
