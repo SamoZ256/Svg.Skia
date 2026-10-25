@@ -1,5 +1,6 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -56,6 +57,85 @@ public class PaintCodeImportTests
         Assert.Equal("_2State", PaintCodeSlug.Pascal("2-state"));
     }
 
+    /// <summary>
+    /// A library item is named the way PaintCode's generated code names it, which is how a caller
+    /// passing it by name spells it. Not the canvas methods' rule: those keep a lowercase word as it is.
+    /// </summary>
+    [Theory]
+    [InlineData("Tint Color", "tintColor")]
+    [InlineData("White bottom", "whiteBottom")]
+    [InlineData("Black Opacity 15%", "blackOpacity15")]
+    [InlineData("GradientTemperature", "gradientTemperature")]
+    [InlineData("whiteColor_", "whiteColor_")]
+    [InlineData("level-17", "level17")]
+    public void A_Library_Item_Is_Spelled_As_PaintCodes_Code_Spells_It(string name, string identifier)
+        => Assert.Equal(identifier, PaintCodeSlug.Identifier(name));
+
+    /// <summary>
+    /// A name that lowers onto a word the expression language or C# keeps for itself, or onto a
+    /// parameter the generated API takes first, gets an underscore rather than refusing the import
+    /// or the build.
+    /// </summary>
+    [Theory]
+    [InlineData("Mix", "mix_")]
+    [InlineData("Round", "round_")]
+    [InlineData("Base", "base_")]
+    [InlineData("Canvas", "canvas_")]
+    [InlineData("True", "true_")]
+    public void A_Name_That_Lowers_Onto_A_Reserved_Word_Keeps_Out_Of_Its_Way(string name, string identifier)
+        => Assert.Equal(identifier, PaintCodeSlug.Identifier(name));
+
+    [Fact]
+    public void A_Parameter_Named_After_A_Function_Still_Imports()
+    {
+        var document = Library(archive => archive.Array(ScopeDocument.Color(archive, "Mix", "0 0 0 1", usage: 1)));
+
+        Assert.Equal(PaintCodeDeclarationKind.Parameter, PaintCodeDeclarations.Of(document).ByName["mix_"].Kind);
+        Assert.Equal(new[] { "mix_" }, PaintCodeImport.ParameterOrder(document));
+    }
+
+    /// <summary>Two items that come to share a name: the first keeps it, so a parameter is never dropped for a constant.</summary>
+    [Fact]
+    public void Of_Two_Items_That_Share_A_Name_The_First_Keeps_It()
+    {
+        var document = Library(archive => archive.Array(
+            ScopeDocument.Color(archive, "Accent", "1 0 0 1", usage: 1),
+            ScopeDocument.Color(archive, "accent", "0 0 1 1")));
+
+        Assert.Equal(PaintCodeDeclarationKind.Parameter, PaintCodeDeclarations.Of(document).ByName["accent"].Kind);
+    }
+
+    /// <summary>An expression may name an item the way the library spells it; it reaches the declaration all the same.</summary>
+    [Fact]
+    public void An_Expression_Naming_An_Item_As_The_Library_Spells_It_Reaches_Its_Declaration()
+        => Assert.Equal(
+            "tint",
+            PaintCodeDeclarations.Of(PaintCodeDocument.Parse(ScopeDocument.Bytes(derived: "Tint", derivedType: 5))).ByName["bad"].Body);
+
+    private static PaintCodeDocument Library(Func<KeyedArchiveBuilder, int> colors)
+    {
+        var archive = new KeyedArchiveBuilder();
+        var array = colors(archive);
+
+        return PaintCodeDocument.Parse(archive.ToBytes(
+            ("styleKitName", archive.Text("Library")),
+            ("desks", archive.Array()),
+            ("library", archive.Object(
+                "PPLibrary",
+                ("colors", array),
+                ("gradients", archive.Array()),
+                ("variables", archive.Array())))));
+    }
+
+    [Fact]
+    public void A_Parameter_Colour_Is_Declared_Under_The_Name_PaintCodes_Method_Takes_It_By()
+    {
+        var document = Library(archive => archive.Array(ScopeDocument.Color(archive, "Tint Color", "0 0 0 1", usage: 1)));
+
+        Assert.Equal(PaintCodeDeclarationKind.Parameter, PaintCodeDeclarations.Of(document).ByName["tintColor"].Kind);
+        Assert.Equal(new[] { "tintColor" }, PaintCodeImport.ParameterOrder(document));
+    }
+
     [Theory]
     [InlineData("overlay-error", "drawOverlayerror")]
     [InlineData("overlay-error_big", "drawOverlayerror_big")]
@@ -104,6 +184,8 @@ public class PaintCodeImportTests
     [InlineData("purpleFade", "withAlpha(colorPurple, 0.7)")]
     [InlineData("purpleGrey", "withSaturation(colorPurple, 0.002)")]
     [InlineData("purpleShade", "mix(colorPurple, #000000ff, 0.2)")]
+    [InlineData("purpleLight", "mix(colorPurple, #ffffffff, 0.5)")]
+    [InlineData("purpleAlias", "colorPurple")]
     public void A_Derived_Colour_Is_Written_As_What_Derives_It(string name, string body)
     {
         var declaration = PaintCodeDeclarations
@@ -112,6 +194,27 @@ public class PaintCodeImportTests
 
         Assert.Equal(PaintCodeDeclarationKind.Local, declaration.Kind);
         Assert.Equal(body, declaration.Body);
+    }
+
+    /// <summary>A derived colour the library lists before its parent still follows a caller's parent.</summary>
+    [Fact]
+    public void A_Colour_Derived_From_One_Listed_After_It_Is_Still_Written_As_What_Derives_It()
+    {
+        var document = Library(archive =>
+        {
+            var tone = ScopeDocument.Color(archive, "tone", "0.4 0.2 0 1", usage: 1);
+            var light = archive.Object(
+                "PPColor",
+                new[] { ("name", archive.Text("toneLight")), ("parentColor", tone) },
+                ("isDerived", true), ("operation", 0), ("operationAmount", 0.5d));
+
+            return archive.Array(light, tone);
+        });
+
+        var declaration = PaintCodeDeclarations.Of(document).ByName["toneLight"];
+
+        Assert.Equal(PaintCodeDeclarationKind.Local, declaration.Kind);
+        Assert.Equal("mix(tone, #ffffffff, 0.5)", declaration.Body);
     }
 
     [Fact]

@@ -200,7 +200,7 @@ internal sealed class PaintCodeDeclarations
             declarations._gradients[PaintCodeSlug.Identifier(gradient.Name)] = gradient;
         }
 
-        foreach (var color in document.Colors)
+        foreach (var color in ParentsFirst(document.Colors))
         {
             declarations.Add(declarations.Color(color));
         }
@@ -724,9 +724,14 @@ internal sealed class PaintCodeDeclarations
         }
     }
 
+    /// <remarks>
+    /// The first item to take a name keeps it. Two items can come to share one, "Accent" and
+    /// "accent" both being accent, and the later overwriting the earlier dropped a parameter from
+    /// every drawing that used it.
+    /// </remarks>
     private void Add(PaintCodeDeclaration declaration)
     {
-        if (declaration.Name.Length > 0)
+        if (declaration.Name.Length > 0 && !_byName.ContainsKey(declaration.Name))
         {
             _byName[declaration.Name] = declaration;
         }
@@ -756,17 +761,62 @@ internal sealed class PaintCodeDeclarations
         return PaintCodeDeclaration.Constant(name, "color", Literal(color.Value), color.Value.IsApproximate);
     }
 
+    /// <summary>The library's colours with each one after the colour it is derived from.</summary>
+    /// <remarks>
+    /// A derived colour is written as an expression only once its parent is declared, and the library
+    /// lists them as they were made: SampleStyleKit's light and highlighted button colours come before
+    /// the base they derive from, so binding the base changed neither.
+    /// </remarks>
+    private static IEnumerable<PaintCodeLibraryColor> ParentsFirst(IReadOnlyList<PaintCodeLibraryColor> colors)
+    {
+        var byName = new Dictionary<string, PaintCodeLibraryColor>(StringComparer.Ordinal);
+
+        foreach (var color in colors)
+        {
+            if (!byName.ContainsKey(color.Name))
+            {
+                byName[color.Name] = color;
+            }
+        }
+
+        var placed = new HashSet<PaintCodeLibraryColor>();
+        var ordered = new List<PaintCodeLibraryColor>(colors.Count);
+
+        void Place(PaintCodeLibraryColor color)
+        {
+            // Marked before its parent is placed, so a cycle stops rather than recursing for ever.
+            if (!placed.Add(color))
+            {
+                return;
+            }
+
+            if (color.ParentName is { } parent && byName.TryGetValue(parent, out var placedFirst))
+            {
+                Place(placedFirst);
+            }
+
+            ordered.Add(color);
+        }
+
+        foreach (var color in colors)
+        {
+            Place(color);
+        }
+
+        return ordered;
+    }
+
     /// <summary>
     /// The derived colour written as what it is derived by, or null where nothing can say it.
     /// </summary>
     /// <remarks>
-    /// All three of PaintCode's operations have a name in the expression language now, so a whole
+    /// Every operation PaintCode has a name for in the expression language follows here, so a whole
     /// chain of them follows the colour a caller passes: accentColorOff is accentColorOn
     /// desaturated, shadowed and given an alpha, and each step is one declaration reading the one
     /// below it. Worked out at import before this, it followed the canvas instead -- so a symbol
     /// handed another accent drew the shade the document was saved with.
     ///
-    /// A shade is a blend towards black that leaves the alpha alone, and mix moves all four
+    /// A shade or a highlight is a blend towards black or white that leaves the alpha alone, and mix moves all four
     /// channels -- so it is only the same thing where the colour is opaque. A translucent one keeps
     /// the shade the reader worked out, since mix would make it more opaque as well as darker.
     /// </remarks>
@@ -774,6 +824,8 @@ internal sealed class PaintCodeDeclarations
     {
         PaintCodeReader.OperationAlpha when color.Alpha is { } alpha => $"withAlpha({parent}, {Number(alpha)})",
         PaintCodeReader.OperationShadow when color.Value.Alpha >= 1 => $"mix({parent}, #000000ff, {Number(color.Amount)})",
+        PaintCodeReader.OperationHighlight when color.Value.Alpha >= 1 => $"mix({parent}, #ffffffff, {Number(color.Amount)})",
+        PaintCodeReader.OperationAlias => parent,
 
         // A percentage, as PaintCode stores it, against a fraction as the language takes it.
         PaintCodeReader.OperationSaturation => $"withSaturation({parent}, {Number(color.Amount / 100)})",

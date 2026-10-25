@@ -41,10 +41,13 @@ internal static class PaintCodeReader
     // PPColor.operation, for a colour derived from another. Read off PaintCode's own generated code,
     // which writes the chain out: accentColorGray is colorByChangingSaturation(accentColorOn, 0.2),
     // accentColorGrayShadow is colorByApplyingShadow of that, and accentColorOff an alpha over it.
-    // Those three are the only operations the sample's 29 derived colours use.
+    // Those three are the only operations the sample's 29 derived colours use; SampleStyleKit adds
+    // highlight, colorByApplyingHighlight, and 6, which its code writes as the parent itself.
+    internal const int OperationHighlight = 0;
     internal const int OperationShadow = 1;
     internal const int OperationAlpha = 2;
     internal const int OperationSaturation = 3;
+    internal const int OperationAlias = 6;
 
     internal static PaintCodeDocument Load(string path)
     {
@@ -351,18 +354,25 @@ internal static class PaintCodeReader
 
         var parent = Color(node["parentColor"]);
 
+        // Its own components are a snapshot from when it was made, and go stale: SampleStyleKit's
+        // light base is saved as (200,217,247) and drawn as (230,209,181).
         if (parent is null)
         {
-            return Components(node["basicNSColor"], name) ?? new PaintCodeColor(name, 0, 0, 0, 1, true);
+            return Components(node["basicNSColor"], name) is { } saved
+                ? new PaintCodeColor(name, saved.Red, saved.Green, saved.Blue, saved.Alpha, true)
+                : new PaintCodeColor(name, 0, 0, 0, 1, true);
         }
 
-        var operation = (int)node["operation"].NumberOr(0);
+        // Missing is unknown rather than 0, which is a highlight: read as one, it went to white.
+        var operation = (int)node["operation"].NumberOr(-1);
         var amount = node["operationAmount"].NumberOr(1);
 
         return operation switch
         {
             OperationAlpha => new PaintCodeColor(name, parent.Red, parent.Green, parent.Blue, amount, parent.IsApproximate),
+            OperationHighlight => Named(PaintCodeColorOperations.Highlight(parent, amount), name),
             OperationShadow => Named(PaintCodeColorOperations.Shadow(parent, amount), name),
+            OperationAlias => Named(parent, name),
             OperationSaturation => Named(PaintCodeColorOperations.Saturation(parent, amount), name),
 
             // Anything else keeps the parent's own colour and says so, rather than guessing at a
@@ -377,16 +387,59 @@ internal static class PaintCodeReader
     // NSComponents holds the colour in its own colour space as ASCII floats. Every drawing colour in
     // the sample document is space 1 (sRGB), where those floats are exactly the bytes PaintCode's own
     // generated code emits; the 946 colours in space 3 are canvas grid chrome, which nothing reads.
+    //
+    // A document from an older PaintCode has no NSComponents at all, only NSRGB ("r g b [a]") or
+    // NSWhite ("w [a]") with the alpha left out where it is opaque. Reading neither drew every colour
+    // of such a document black: SampleStyleKit holds 37 and 11 of them.
     private static PaintCodeColor? Components(PaintCodeNode node, string name)
     {
-        if (node["NSComponents"].Data is not { } data)
+        if (Numbers(node["NSComponents"]) is { } components)
+        {
+            var space = (int)node["NSColorSpace"].NumberOr(0);
+
+            return components.Length switch
+            {
+                >= 4 when space == 1 => new PaintCodeColor(name, Byte(components[0]), Byte(components[1]), Byte(components[2]), components[3]),
+                >= 2 => new PaintCodeColor(name, Byte(components[0]), Byte(components[0]), Byte(components[0]), components[1], true),
+                _ => null
+            };
+        }
+
+        if (Numbers(node["NSRGB"]) is { Length: >= 3 } rgb)
+        {
+            return new PaintCodeColor(name, Byte(rgb[0]), Byte(rgb[1]), Byte(rgb[2]), rgb.Length > 3 ? rgb[3] : 1);
+        }
+
+        if (Numbers(node["NSWhite"]) is { Length: >= 1 } white)
+        {
+            return new PaintCodeColor(name, Byte(white[0]), Byte(white[0]), Byte(white[0]), white.Length > 1 ? white[1] : 1, true);
+        }
+
+        // Close rather than exact: a CMYK colour converted without its profile, and a catalog (system)
+        // colour as it resolved when the document was saved, which it carries beside its name.
+        if (Numbers(node["NSCMYK"]) is { Length: >= 4 } cmyk)
+        {
+            var key = 1 - cmyk[3];
+
+            return new PaintCodeColor(name, Byte((1 - cmyk[0]) * key), Byte((1 - cmyk[1]) * key), Byte((1 - cmyk[2]) * key), cmyk.Length > 4 ? cmyk[4] : 1, true);
+        }
+
+        if (node["NSColor"].ClassName is "NSColor" && Components(node["NSColor"], name) is { } resolved)
+        {
+            return new PaintCodeColor(name, resolved.Red, resolved.Green, resolved.Blue, resolved.Alpha, true);
+        }
+
+        return null;
+    }
+
+    private static double[]? Numbers(PaintCodeNode node)
+    {
+        if (node.Data is not { } data)
         {
             return null;
         }
 
-        var space = (int)node["NSColorSpace"].NumberOr(0);
-        var text = Encoding.ASCII.GetString(data).TrimEnd('\0').Trim();
-        var parts = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var parts = Encoding.ASCII.GetString(data).TrimEnd('\0').Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         var numbers = new double[parts.Length];
 
         for (var index = 0; index < parts.Length; index++)
@@ -397,12 +450,7 @@ internal static class PaintCodeReader
             }
         }
 
-        return numbers.Length switch
-        {
-            >= 4 when space == 1 => new PaintCodeColor(name, Byte(numbers[0]), Byte(numbers[1]), Byte(numbers[2]), numbers[3]),
-            >= 2 => new PaintCodeColor(name, Byte(numbers[0]), Byte(numbers[0]), Byte(numbers[0]), numbers[1], true),
-            _ => null
-        };
+        return numbers;
     }
 
     private static byte Byte(double channel)
@@ -552,7 +600,7 @@ internal static class PaintCodeReader
                 (int)color["usage"].NumberOr(0) == 1,
                 parent,
                 alpha,
-                derived ? (int)color["operation"].NumberOr(0) : 0,
+                derived ? (int)color["operation"].NumberOr(-1) : 0,
                 derived ? color["operationAmount"].NumberOr(1) : 0));
         }
 

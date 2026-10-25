@@ -51,6 +51,8 @@ public class PaintCodeColorOperationsTests
     [InlineData(0xfb, 0x3e, 0x72, 0.2)]
     [InlineData(0x4e, 0xc3, 0x6b, 0.5)]
     [InlineData(0xff, 0xff, 0xff, 1)]
+    // 0.2 as a document stores it, single precision widened.
+    [InlineData(0xfa, 0x0a, 0x64, 0.20000000298023224)]
     public void A_Shadow_Agrees_With_Skia(byte red, byte green, byte blue, double amount)
     {
         var ours = PaintCodeColorOperations.Shadow(Colour(red, green, blue, 0.5), amount);
@@ -60,6 +62,25 @@ public class PaintCodeColorOperationsTests
             (byte)((1f - (float)amount) * red),
             (byte)((1f - (float)amount) * green),
             (byte)((1f - (float)amount) * blue));
+
+        Assert.Equal(expected, (ours.Red, ours.Green, ours.Blue));
+        Assert.Equal(0.5, ours.Alpha);
+    }
+
+    /// <summary>A highlight only lightens, blending towards white the way a shadow blends towards black.</summary>
+    [Theory]
+    [InlineData(0xce, 0xa3, 0x6c, 0.5)]
+    [InlineData(0xce, 0xa3, 0x6c, 0.8)]
+    [InlineData(0x00, 0x00, 0x00, 1)]
+    public void A_Highlight_Agrees_With_PaintCode(byte red, byte green, byte blue, double amount)
+    {
+        var ours = PaintCodeColorOperations.Highlight(Colour(red, green, blue, 0.5), amount);
+
+        // colorByBlendingColors, against white at the colour's own alpha.
+        var expected = (
+            (byte)(((1f - (float)amount) * red) + ((float)amount * 255)),
+            (byte)(((1f - (float)amount) * green) + ((float)amount * 255)),
+            (byte)(((1f - (float)amount) * blue) + ((float)amount * 255)));
 
         Assert.Equal(expected, (ours.Red, ours.Green, ours.Blue));
         Assert.Equal(0.5, ours.Alpha);
