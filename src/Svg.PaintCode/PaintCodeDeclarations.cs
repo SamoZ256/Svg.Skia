@@ -724,9 +724,14 @@ internal sealed class PaintCodeDeclarations
         }
     }
 
+    /// <remarks>
+    /// The first item to take a name keeps it. Two items can come to share one, "Accent" and
+    /// "accent" both being accent, and the later overwriting the earlier dropped a parameter from
+    /// every drawing that used it.
+    /// </remarks>
     private void Add(PaintCodeDeclaration declaration)
     {
-        if (declaration.Name.Length > 0)
+        if (declaration.Name.Length > 0 && !_byName.ContainsKey(declaration.Name))
         {
             _byName[declaration.Name] = declaration;
         }
