@@ -14,6 +14,10 @@ asking. Do not stop to confirm each step.
 
 Stop at the first thing that looks wrong. Never force, never `-D`, never merge past a red build.
 
+**Never push with `--no-verify`.** A pre-push hook that blocks is a gate like the build. Stop and
+show me what it said. Where you think it should be skipped, because it fails on something this
+branch cannot have caused, say why and ask me. Skip it only on a yes, and only for that push.
+
 **Always wait for CI.** The gates `/push` runs here cover one operating system. CI also runs Windows
 and Linux, and those are where platform-specific bugs show up: a branch once passed every local test
 and failed 32 on Windows, because git writes read-only files and ships `core.autocrlf=true` there. A
