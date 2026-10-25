@@ -187,11 +187,11 @@ document,</li>
 </tr>
 <tr>
 <td><code>SvgSourceWorkspace</code></td>
-<td>That drawing and its history: <code>Commit</code>, <code>Undo</code>, <code>Redo</code>, <code>IsModified</code>, <code>MarkSaved</code></td>
+<td>That drawing and its history: <code>Commit</code>, <code>Undo</code>, <code>Redo</code>, <code>IsModified</code>, <code>MarkSaved</code>, and <code>UndoStep</code>, <code>RedoStep</code>, <code>Holds</code> and <code>Undone</code> for a caller to know its own steps again</td>
 </tr>
 <tr>
 <td><code>SvgElementEditor</code></td>
-<td><code>Move</code> an element to where a drop puts it, and <code>NewGroup</code> to put things in</td>
+<td><code>Move</code> an element to where a drop puts it, <code>Insert</code> a new one there, <code>Remove</code> and <code>Duplicate</code> several; each that places one says the key it lands at</td>
 </tr>
 </tbody>
 </table>
