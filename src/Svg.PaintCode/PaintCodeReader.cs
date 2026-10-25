@@ -354,12 +354,17 @@ internal static class PaintCodeReader
 
         var parent = Color(node["parentColor"]);
 
+        // Its own components are a snapshot from when it was made, and go stale: SampleStyleKit's
+        // light base is saved as (200,217,247) and drawn as (230,209,181).
         if (parent is null)
         {
-            return Components(node["basicNSColor"], name) ?? new PaintCodeColor(name, 0, 0, 0, 1, true);
+            return Components(node["basicNSColor"], name) is { } saved
+                ? new PaintCodeColor(name, saved.Red, saved.Green, saved.Blue, saved.Alpha, true)
+                : new PaintCodeColor(name, 0, 0, 0, 1, true);
         }
 
-        var operation = (int)node["operation"].NumberOr(0);
+        // Missing is unknown rather than 0, which is a highlight: read as one, it went to white.
+        var operation = (int)node["operation"].NumberOr(-1);
         var amount = node["operationAmount"].NumberOr(1);
 
         return operation switch
@@ -408,6 +413,20 @@ internal static class PaintCodeReader
         if (Numbers(node["NSWhite"]) is { Length: >= 1 } white)
         {
             return new PaintCodeColor(name, Byte(white[0]), Byte(white[0]), Byte(white[0]), white.Length > 1 ? white[1] : 1, true);
+        }
+
+        // Close rather than exact: a CMYK colour converted without its profile, and a catalog (system)
+        // colour as it resolved when the document was saved, which it carries beside its name.
+        if (Numbers(node["NSCMYK"]) is { Length: >= 4 } cmyk)
+        {
+            var key = 1 - cmyk[3];
+
+            return new PaintCodeColor(name, Byte((1 - cmyk[0]) * key), Byte((1 - cmyk[1]) * key), Byte((1 - cmyk[2]) * key), cmyk.Length > 4 ? cmyk[4] : 1, true);
+        }
+
+        if (node["NSColor"].ClassName is "NSColor" && Components(node["NSColor"], name) is { } resolved)
+        {
+            return new PaintCodeColor(name, resolved.Red, resolved.Green, resolved.Blue, resolved.Alpha, true);
         }
 
         return null;
@@ -581,7 +600,7 @@ internal static class PaintCodeReader
                 (int)color["usage"].NumberOr(0) == 1,
                 parent,
                 alpha,
-                derived ? (int)color["operation"].NumberOr(0) : 0,
+                derived ? (int)color["operation"].NumberOr(-1) : 0,
                 derived ? color["operationAmount"].NumberOr(1) : 0));
         }
 

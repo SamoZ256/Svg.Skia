@@ -1,6 +1,8 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Linq;
+using System.Text;
 using Xunit;
 
 namespace Svg.PaintCode.UnitTests;
@@ -89,6 +91,70 @@ public class PaintCodeReaderTests
 
         Assert.Equal((red, green, blue, alpha), ((int)read.Red, (int)read.Green, (int)read.Blue, read.Alpha));
     }
+
+    /// <summary>
+    /// A colour that is close rather than exact says so: CMYK converted without its profile, a system
+    /// colour as it resolved when saved, and a derived colour with nothing but its own stale snapshot.
+    /// </summary>
+    [Fact]
+    public void A_CMYK_Colour_Is_Read_Approximately()
+        => Assert.Equal((255, 0, 0, true), Read(archive => Plain(archive, archive.Object(
+            "NSColor",
+            new[] { ("NSCMYK", Ascii(archive, "0 1 1 0")) },
+            ("NSColorSpace", 5)))));
+
+    [Fact]
+    public void A_System_Colour_Is_Read_As_It_Resolved_When_Saved()
+        => Assert.Equal((170, 170, 170, true), Read(archive => Plain(archive, archive.Object(
+            "NSColor",
+            new[]
+            {
+                ("NSCatalogName", archive.Text("System")),
+                ("NSColorName", archive.Text("controlColor")),
+                ("NSColor", archive.Object("NSColor", new[] { ("NSWhite", Ascii(archive, "0.6666666667 1")) }, ("NSColorSpace", 3)))
+            },
+            ("NSColorSpace", 6)))));
+
+    [Fact]
+    public void A_Derived_Colour_With_No_Parent_Is_Its_Saved_Snapshot_Marked_Approximate()
+        => Assert.Equal((200, 217, 247, true), Read(archive => archive.Object(
+            "PPColor",
+            new[]
+            {
+                ("name", archive.Text("light")),
+                ("basicNSColor", archive.Object("NSColor", new[] { ("NSRGB", Ascii(archive, "0.785 0.851 0.970")) }, ("NSColorSpace", 1)))
+            },
+            ("isDerived", true), ("operation", 0), ("operationAmount", 0.5d))));
+
+    /// <summary>A derivation with no operation is unknown, not a highlight: read as one, it went to white.</summary>
+    [Fact]
+    public void A_Derived_Colour_With_No_Operation_Keeps_Its_Parent_Marked_Approximate()
+        => Assert.Equal((102, 51, 0, true), Read(archive => archive.Object(
+            "PPColor",
+            new[] { ("name", archive.Text("light")), ("parentColor", ScopeDocument.Color(archive, "tone", "0.4 0.2 0", field: "NSRGB")) },
+            ("isDerived", true))));
+
+    /// <summary>The first colour of a library holding only <paramref name="color"/> and what it derives from.</summary>
+    private static (int Red, int Green, int Blue, bool Approximate) Read(Func<KeyedArchiveBuilder, int> color)
+    {
+        var archive = new KeyedArchiveBuilder();
+        var only = color(archive);
+        var read = PaintCodeDocument.Parse(archive.ToBytes(
+            ("styleKitName", archive.Text("Colours")),
+            ("desks", archive.Array()),
+            ("library", archive.Object(
+                "PPLibrary",
+                ("colors", archive.Array(only)),
+                ("gradients", archive.Array()),
+                ("variables", archive.Array()))))).Colors.First().Value;
+
+        return (read.Red, read.Green, read.Blue, read.IsApproximate);
+    }
+
+    private static int Plain(KeyedArchiveBuilder archive, int basic)
+        => archive.Object("PPColor", new[] { ("name", archive.Text("colour")), ("basicNSColor", basic) }, ("isDerived", false), ("operation", 0));
+
+    private static int Ascii(KeyedArchiveBuilder archive, string text) => archive.Data(Encoding.ASCII.GetBytes(text));
 
     [Fact]
     public void A_Derived_Colour_Takes_Its_Parents_Channels_And_The_Operations_Alpha()
