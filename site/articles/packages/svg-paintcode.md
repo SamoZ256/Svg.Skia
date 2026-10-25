@@ -164,100 +164,26 @@ renders wrong, and what was lost is a list rather than a surprise.
 
 ## How it is verified
 
-PaintCode generates drawing code as well as documents, so the same icons can be drawn twice — once
-from the Studio project the document was imported into, once through PaintCode's own generated
-output — and the two compared as pixels. `tests/Svg.PaintCode.UnitTests/Oracle` does that for every
-drawing, at every combination of the booleans PaintCode varies it on, and again with every colour it
-takes swapped for another.
+The importer's structure is checked in `tests/Svg.PaintCode.UnitTests`: the archive reads, the markup
+it writes is asserted shape by shape, and every drawing loads and binds. Its pixels are checked
+against PaintCode itself. PaintCode generates drawing code as well as documents, so the same icons
+can be drawn twice, once through the import and once through PaintCode's own generated output, and
+compared. A drawing is held to **0.03** in the metric the W3C rows use, at every combination of the
+booleans it takes and with every colour swapped.
 
-It reads the project rather than the document because the project is what gets edited after the
-import: a drawing corrected there to match what the app draws is measured as corrected, which an
-import of the unchanged document never could be. The project is flattened the way Studio's build
-flattens it, so each drawing carries the declarations its groups give it.
+That comparison needs a document and PaintCode's generated code for it, so it lives in a separate
+repository. On the production document it was written against, 985 of 1014 drawings meet the bound.
+Each of the other 29 has a named cause: 16 place text from the shape's box where PaintCode measures
+it, and 13 are artefacts of the reference itself, such as rounding to two decimals, unantialiased
+clips, and a gradient its runtime can't draw.
 
-That comparison needs the project, the generated code and its fonts, none of which belongs in this
-repository, so it runs only where they are:
-
-```bash
-PaintCodeResourcesDir=/path/to/generated \
-SVG_PAINTCODE_PROJECT=/path/to/Icons.svgstudio \
-SVG_PAINTCODE_FONTS=/path/to/fonts \
-  dotnet test tests/Svg.PaintCode.UnitTests/Svg.PaintCode.UnitTests.csproj -c Release
-```
-
-`PaintCodeResourcesDir` is what compiles the comparison in at all. Unset — which is what continuous
-integration does — the suite builds and runs without it, and the drawings committed with the raster
-PaintCode produced for them are compared instead, on every platform.
-
-## Pointing it at another document
-
-Nothing above names a particular PaintCode file. The three variables select one, and everything the
-suite knows about it lives in `TestAssets/Oracle/<the project folder's name>/` — what it holds, what
-the importer says about it, which canvases do not yet match and why, and the handful committed with
-their rasters. A second document is a second folder.
-
-For one nobody has measured, those files do not exist yet, and the suite says so once rather than
-failing per canvas: the comparison stands aside and asks for the report. Run it —
-
-```bash
-SVG_PAINTCODE_ORACLE_REPORT=1 dotnet test … --filter PaintCodeOracleReport
-```
-
-— and it writes what it found into `tests/Tests`, ready to read and commit. From then on the numbers
-are pinned and a change to any of them is a test result.
-
-Two things are worth knowing before trying it. The comparison needs PaintCode's *generated code* for
-the same document and at the same vintage, which is the actual gate — without it there is nothing to
-compare against. And the drawing class is found by asking which one accounts for the document's
-canvases, so a folder holding several style kits sorts itself out; `SVG_PAINTCODE_ORACLE_TYPE` names
-one outright where two genuinely overlap, and `PaintCodeOracleSources` overrides which files are
-compiled.
-
-Every canvas is drawn at each combination of the booleans PaintCode varies it on, at the ends and
-middle of each number, and with every colour it takes swapped, and must come within **0.03** of
-PaintCode. The swap is what catches a colour read from the wrong place, which at the document's own
-colours is usually the same colour. The ones that cannot are listed in
-`TestAssets/Oracle/exceptions.csv` with the reason each cannot — an entry without a cause is refused,
-so a canvas cannot join the list by having a number written beside it, and one that starts meeting
-the bound has to be taken out rather than left sitting there. The counts per cause are asserted too,
-so a class cannot quietly grow.
-
-**The conversion is not at parity and the list says where it is not.** Of 1014 drawings, 985 meet the
-bound, and **every one of the 29 that do not names a reason**. 16 draw text, which SVG anchors where
-PaintCode measures; **13 are the reference rather than the drawing** — 9 where it is the rounded one,
-3 where it clips without antialiasing and 1 where its runtime cannot draw the two-circle gradient the
-document asks for.
-
-One caution about the reference itself, and it is the largest single thing on the list. It is
-generated from the document and falls behind it: four canvases — including the two that measured
-furthest from PaintCode of all 1014 — draw shapes the archive plainly holds and PaintCode's own
-export has no trace of, in neither the SkiaSharp it was transliterated to nor the Android export it
-came from. Where the conversion and the reference disagree, check which is older before assuming
-which is wrong; regenerating the reference closes those four on its own.
-
-Two things put a floor under the bound and neither is the conversion's. The two sides reach Skia
-through different models, where a single axis-aligned rect costs about 0.0045 and an icon is many;
-and PaintCode's generated code rounds every literal to two decimals, so what is compared against is
-itself a rounded drawing — of the 24 canvases it rounds nothing in, 23 match outright. For scale,
-this repository's own W3C rows sit at 0.022 for whole rendered pages.
-
-That second floor is higher than it sounds where the rounding lands on a group's **scale**, because
-a scale is a ratio and its error grows with distance from the group's origin: two decimals on 0.7428
-is four tenths of a pixel by the far end of a 26-unit shape. Nine canvases are on the list for that
-alone — each matches to about 0.001 the moment the emitted numbers are rounded the same way. Emitting
-two decimals ourselves would close them and would be the wrong thing to do, since the drawing being
-compared against is the approximate one.
-
-It is also worth knowing that the comparison is not colour-neutral. It weighs premultiplied channels,
-so the same half-pixel edge reads about six times worse in opaque white than in the 30%-alpha dark
-these icons take at their defaults — which is why so much of the list is worst at
-`state=true enabled=true isLight=true` and unremarkable everywhere else.
-
-Seventeen canvases draw text, and they are compared only when `SVG_PAINTCODE_FONTS` names the folder
-holding the faces PaintCode asks for. Nothing sets `TypefaceManager.FontNamePrefix` of its own
-accord, so PaintCode's lookup otherwise falls back to whatever family the system lists first without
-reporting it — which is worse than failing. Given the faces, both sides draw the same words in the
-same one; without them these rows stand aside rather than compare against an arbitrary font.
+What runs here on every platform is a slice of it, in `tests/Svg.PaintCode.UnitTests/TestAssets/PaintCode`:
+freely licensed documents committed with the raster PaintCode's own code drew for each canvas. Each
+document is imported afresh and every canvas is compared within its own threshold, so the slice
+covers the import as well as the drawing. The first, SampleStyleKit, exposed four import faults that
+the production document never had: colours saved in an older form read as black, a highlight and an
+alias derived as their parent, parameters named unlike PaintCode's, and a nearly whole arc that drew
+nothing.
 
 ## Related docs
 

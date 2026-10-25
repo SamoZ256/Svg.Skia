@@ -37,19 +37,4 @@
     <Compile Include="..\Svg.Skia.UnitTests\Common\ImageHelper.cs" Link="Common\ImageHelper.cs" />
   </ItemGroup>
 
-  <!--
-    The oracle is PaintCode's own generated drawing code, which lives outside the repository. Point
-    PaintCodeResourcesDir at it to compile the render comparison in; with it unset this project
-    builds and runs exactly as it does without it, which is what CI does.
-  -->
-  <ItemGroup Condition="'$(PaintCodeResourcesDir)' != '' And Exists('$(PaintCodeResourcesDir)')">
-    <ProjectReference Include="..\Svg.PaintCode.Oracle\Svg.PaintCode.Oracle.csproj" />
-    <!-- What the comparison draws is a Studio project, read the way Studio's own build reads it. -->
-    <ProjectReference Include="..\..\src\Svg.Studio\Svg.Studio.csproj" />
-  </ItemGroup>
-
-  <PropertyGroup Condition="'$(PaintCodeResourcesDir)' != '' And Exists('$(PaintCodeResourcesDir)')">
-    <DefineConstants>$(DefineConstants);PAINTCODE_ORACLE</DefineConstants>
-  </PropertyGroup>
-
 </Project>
