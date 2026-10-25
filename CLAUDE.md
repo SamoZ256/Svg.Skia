@@ -14,7 +14,8 @@ Add only what someone could not find by reading the code.
 ## Rules
 
 - **Never push, branch, or make or enter a worktree unasked, nor touch another agent's desk.** Ask
-  to branch before editing on a detached head or `master`. Commit unasked only to split a change.
+  to branch before editing on a detached head or `master`, and branch off the latest: `git fetch`,
+  then `git switch --no-track -c <name> origin/master`. Commit unasked only to split a change.
 - **Prefer removing code to adding it.** Before adding a helper, a type or an option, widen the one
   already doing that job; before adding a branch, see whether the case can be stopped from arising.
   A net addition is worth a sentence saying what was reused and what could not be.
@@ -74,8 +75,7 @@ ShimSkiaSharp.SKPicture   flat list of CanvasCommand — the renderer-independen
 
 - **ShimSkiaSharp is the hinge.** It mirrors SkiaSharp's surface but records rather than draws, so
   the model can be inspected, cloned, diffed and code-generated without a GPU. Anything added there
-  must be handled by all three consumers above, and `CloneCoverageTests` fails a new public type
-  until it clones.
+  must be handled by all three consumers; `CloneCoverageTests` fails a public type until it clones.
 - **`Svg.SceneGraph` is the live path, not `Svg.Model`.** Both hold a near-identical
   `PaintingService`; everything that decides a colour goes through `SvgScenePaintingService`, and
   the `Svg.Model` copy survives for small helpers beside it — `IsAntialias`, `CombineWithOpacity`,
