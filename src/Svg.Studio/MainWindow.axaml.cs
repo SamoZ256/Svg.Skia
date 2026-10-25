@@ -798,6 +798,8 @@ public partial class MainWindow : Window
             }
             else if (Restored(named, waiting) is { } recovered)
             {
+                // As read with the file, so a pull after the restore is a change to it.
+                recovered.Disk = document.Disk;
                 document = recovered;
 
                 // Given back, not saved: the file is still what it was, and the window says so
@@ -901,11 +903,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Writes what the window holds of the project, so a commit is of what is on screen.</summary>
-    private async Task<bool> SaveForCommitAsync(List<string>? notes)
+    private async Task<bool> SaveForCommitAsync(List<string>? notes, string? label)
     {
         var selected = _tabs.SelectedItem as TabItem;
 
-        if (_workspace is not { } workspace || !await CommitAsync("The drawing couldn't be saved", notes).ConfigureAwait(true))
+        if (_workspace is not { } workspace || !await CommitAsync("The drawing couldn't be saved", notes, label).ConfigureAwait(true))
         {
             return false;
         }
@@ -3575,11 +3577,12 @@ public partial class MainWindow : Window
     /// dialog; text a project cannot write out is then laid out without asking.
     /// </param>
     /// <param name="layout">How a project lays out that text, which nothing then asks; left out, as the person said for good, or asked where <paramref name="notes"/> are not.</param>
-    public async Task<bool> ExportAsync(string target, List<string>? notes = null, SvgTextLayout? layout = null)
+    /// <param name="label">What the step taking in the front tab's edits is called, as <see cref="CommitAsync"/> takes it.</param>
+    public async Task<bool> ExportAsync(string target, List<string>? notes = null, SvgTextLayout? layout = null, string? label = null)
     {
         if (_workspace is { })
         {
-            return await ExportProjectAsync(target, notes, layout).ConfigureAwait(true);
+            return await ExportProjectAsync(target, notes, layout, label).ConfigureAwait(true);
         }
 
         if (Selected() is not { Document: { } document } viewer)
@@ -3613,9 +3616,9 @@ public partial class MainWindow : Window
     /// the project names no path of its own, so where it goes is the caller's to say.
     /// </remarks>
     /// <returns>Whether anything was written.</returns>
-    private async Task<bool> ExportProjectAsync(string target, List<string>? notes, SvgTextLayout? layout)
+    private async Task<bool> ExportProjectAsync(string target, List<string>? notes, SvgTextLayout? layout, string? label)
     {
-        if (_workspace is not { } workspace || !await CommitAsync("The project couldn't be exported", notes).ConfigureAwait(true))
+        if (_workspace is not { } workspace || !await CommitAsync("The project couldn't be exported", notes, label).ConfigureAwait(true))
         {
             return false;
         }
@@ -4520,8 +4523,9 @@ public partial class MainWindow : Window
     /// </remarks>
     /// <param name="notes">Where what went wrong goes, for a caller with nowhere to show a dialog; null announces it.</param>
     /// <param name="target">Where a project never saved is written, in place of asking where.</param>
+    /// <param name="label">What the step taking in the tab's edits is called, as <see cref="CommitAsync"/> takes it.</param>
     /// <returns>Whether everything that needed writing was written.</returns>
-    public async Task<bool> SaveAsync(List<string>? notes = null, string? target = null)
+    public async Task<bool> SaveAsync(List<string>? notes = null, string? target = null, string? label = null)
     {
         var selected = _tabs.SelectedItem as TabItem;
 
@@ -4545,7 +4549,7 @@ public partial class MainWindow : Window
                 alone.ErrorRaised -= said;
             }
         }
-        else if (!await CommitAsync("The drawing couldn't be saved", notes).ConfigureAwait(true))
+        else if (!await CommitAsync("The drawing couldn't be saved", notes, label).ConfigureAwait(true))
         {
             return false;
         }
@@ -4577,8 +4581,9 @@ public partial class MainWindow : Window
     /// rather than what it last wrote.
     /// </remarks>
     /// <param name="title">What a drawing the project will not take is reported under.</param>
+    /// <param name="label">What the step taking in the tab's text is called in place of "save" and the drawing's name, for a caller that says who made it.</param>
     /// <returns>Whether the tab could be committed; false is a refusal already said.</returns>
-    private async Task<bool> CommitAsync(string title, List<string>? notes = null)
+    private async Task<bool> CommitAsync(string title, List<string>? notes = null, string? label = null)
     {
         var selected = _tabs.SelectedItem as TabItem;
 
@@ -4604,7 +4609,7 @@ public partial class MainWindow : Window
                 }
 
                 holder.Do(
-                    $"save {ProjectWorkspace.Label(drawing)}",
+                    label ?? $"save {ProjectWorkspace.Label(drawing)}",
                     () => ProjectSnapshot.Text(drawing),
                     () => drawing.SetText(viewer.Source));
             }

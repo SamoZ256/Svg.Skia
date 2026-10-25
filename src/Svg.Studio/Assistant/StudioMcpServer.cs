@@ -70,7 +70,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
         + "- Call get_context before acting, to see the project, the tab in front and what is selected.\n"
         + "- read_doc with an empty id lists the documentation's sections; read one before answering how Studio works.\n"
         + "- Every client connected to this Studio shares one undo and redo: undo takes back the newest edit any of them made, and redo what any of them took back, so check the label each names.\n"
-        + "- Studio does not watch the disk: after a file it has open is changed outside it, by an edit or by git in a terminal, call reload before going on, or Studio's next save writes its copy over the change.\n"
+        + "- Studio does not watch the disk: after a file it has open is changed outside it, by an edit or by git in a terminal, call reload before going on. Until then save and git_commit refuse to write a project file that changed, but a save of a drawing of no project's still writes Studio's copy over a change to its own file.\n"
         + "- A step that would throw away edits the person has not saved, or export text its C# cannot write out where they have not chosen for good how to lay it out, asks them through your client and goes on as they answer; where your client cannot ask, the step is refused and says why, or the text is baked.\n"
         + "- Resources: each drawing as svg-studio://drawing/<path>.svg, .png and .cs, the drawing in front as svg-studio://front.svg, .png and .cs, and the docs' sections; a drawing's path is a position, as get_project's are.\n"
         + AssistantSession.Rules
@@ -296,7 +296,16 @@ public sealed class StudioMcpServer : IAsyncDisposable
                     Title = "Add a parameter",
                     Description = "Turns a value of a drawing into a parameter code can set, declared with a default that keeps its look."
                 })
-            });
+            })
+
+            // The binding throws for a missing one, which the SDK answers as an internal error that names nothing.
+            .WithRequestFilters(filters => filters.AddGetPromptFilter(next => (request, cancellationToken) =>
+                request.MatchedPrimitive is McpServerPrompt { ProtocolPrompt: { Arguments: { } arguments } prompt }
+                && arguments.FirstOrDefault(argument => argument.Required == true
+                                                        && !(request.Params?.Arguments?.TryGetValue(argument.Name, out var given) == true
+                                                             && given.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(given.GetString()))) is { } missing
+                    ? throw new McpProtocolException($"The prompt {prompt.Name} needs '{missing.Name}': {missing.Description}", McpErrorCode.InvalidParams)
+                    : next(request, cancellationToken)));
 
         var app = builder.Build();
 
@@ -548,7 +557,8 @@ public sealed class StudioMcpServer : IAsyncDisposable
             var answered = given.Deserialize(InputResponse.ElicitResultJsonTypeInfo);
             var choice = answered is { IsAccepted: true, Content: { } content } && content.TryGetValue("choice", out var chosen) && chosen.ValueKind == JsonValueKind.String ? chosen.GetString() : null;
 
-            return Task.FromResult<AssistantTools.Answer?>(new AssistantTools.Answer(choice is { } && question.Choices.Contains(choice) ? choice : null));
+            // As given, whether or not it was offered, for the tool to say which it was.
+            return Task.FromResult<AssistantTools.Answer?>(new AssistantTools.Answer(choice));
         }
 
         if (!CanAsk())

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Xml.Linq;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
@@ -992,15 +993,36 @@ public sealed class ProjectDocument
     /// </remarks>
     public string? Path { get; private set; }
 
+    /// <summary>A hash of what was last read from <see cref="Path"/> or written to it here, or null where neither was.</summary>
+    /// <remarks>Set for a copy recovered over the file, which stands in for what was read from it.</remarks>
+    internal byte[]? Disk { get; set; }
+
+    /// <summary>Whether the file holds something other than what was last read from it or written to it here, as after a pull in a terminal.</summary>
+    /// <remarks>Studio does not watch the disk; this is asked by what would otherwise write its copy over the change.</remarks>
+    public bool ChangedOnDisk()
+    {
+        try
+        {
+            return Path is { } path && Disk is { } disk && File.Exists(path) && !SHA256.HashData(File.ReadAllBytes(path)).AsSpan().SequenceEqual(disk);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     public static ProjectDocument Load(string path)
     {
         var full = System.IO.Path.GetFullPath(path);
+        var bytes = File.ReadAllBytes(full);
 
         // Decoded rather than read as text, which strips a byte order mark: the mark is a character
         // of the document here, and the file would lose three bytes on the first save.
-        var text = new System.Text.UTF8Encoding(false).GetString(File.ReadAllBytes(full));
+        var document = Parse(new System.Text.UTF8Encoding(false).GetString(bytes), full);
 
-        return Parse(text, full);
+        document.Disk = SHA256.HashData(bytes);
+
+        return document;
     }
 
     public static ProjectDocument Parse(string xml) => Parse(xml, null);
@@ -1110,9 +1132,12 @@ public sealed class ProjectDocument
     public void Save(string path)
     {
         // Written without a mark of its own: ToText carries the file's own, where it had one.
-        File.WriteAllText(path, ToXml(), new System.Text.UTF8Encoding(false));
+        var bytes = new System.Text.UTF8Encoding(false).GetBytes(ToXml());
+
+        File.WriteAllBytes(path, bytes);
 
         Path = System.IO.Path.GetFullPath(path);
+        Disk = SHA256.HashData(bytes);
     }
 
     /// <summary>One element as the file writes it, readable on its own.</summary>

@@ -138,7 +138,8 @@ public sealed class ChangesPanel : UserControl
     public event EventHandler? Compared;
 
     /// <summary>Writes the project so what is committed is what the window shows; false is a refusal already said, into the notes when given them.</summary>
-    public Func<List<string>?, Task<bool>> Saving { get; set; } = _ => Task.FromResult(true);
+    /// <remarks>Given what the step taking in the front tab's edits is called, or null for the window's own name for it.</remarks>
+    public Func<List<string>?, string?, Task<bool>> Saving { get; set; } = (_, _) => Task.FromResult(true);
 
     /// <summary>Whether the window holds anything not on disk, which a pull would be written under.</summary>
     public Func<bool> Unsaved { get; set; } = () => false;
@@ -342,8 +343,9 @@ public sealed class ChangesPanel : UserControl
 
     /// <summary>Saves the project and commits it with <paramref name="message"/>.</summary>
     /// <param name="notes">Where what went wrong goes, for a caller with nowhere to show a dialog; null announces it.</param>
+    /// <param name="label">What the save calls the step taking in the front tab's edits, as <see cref="Saving"/> takes it.</param>
     /// <returns>Whether it was committed.</returns>
-    public async Task<bool> Commit(string message, List<string>? notes = null)
+    public async Task<bool> Commit(string message, List<string>? notes = null, string? label = null)
     {
         if (_git is not { } git)
         {
@@ -363,7 +365,7 @@ public sealed class ChangesPanel : UserControl
             return false;
         }
 
-        if (!await Saving(notes).ConfigureAwait(true))
+        if (!await Saving(notes, label).ConfigureAwait(true))
         {
             return false;
         }

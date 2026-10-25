@@ -300,7 +300,10 @@ public class AssistantTests : IDisposable
     {
         var whole = AssistantDocs.Whole;
 
-        Assert.DoesNotContain("{%{", whole, StringComparison.Ordinal);
+        // Any number of percent signs, as a block holding another is written: svg-expressions' first
+        // example was served between {%%{ and }%%}.
+        Assert.All(AssistantDocs.Sections, section => Assert.DoesNotMatch(@"\{%+\{|\}%+\}", section.Text));
+        Assert.Contains("visibility=\"{{ alert }}\"", AssistantDocs.Read("svg-expressions"), StringComparison.Ordinal);
         Assert.DoesNotContain("title: \"Svg Studio\"", whole, StringComparison.Ordinal);
         Assert.Contains("{{ tint }}", whole, StringComparison.Ordinal);
         Assert.Contains("# Svg Studio", whole, StringComparison.Ordinal);
@@ -1030,7 +1033,7 @@ public class AssistantTests : IDisposable
         Assert.Equal(101, chat.Results[3].Split('\n').Count(line => line.TrimStart().StartsWith("5", StringComparison.Ordinal)));
         Assert.DoesNotContain("\n  4", chat.Results[3], StringComparison.Ordinal);
         Assert.Contains($"d=(left out: {scribble.Length} characters", chat.Results[4], StringComparison.Ordinal);
-        Assert.Equal("'0' is not a group. get_project lists the paths.", chat.Results[5]);
+        Assert.Equal("'0' is a drawing, not a group. get_project lists the paths.", chat.Results[5]);
         Assert.Equal("There is no element 31. get_drawing lists the keys.", chat.Results[6]);
     }
 
@@ -1066,7 +1069,7 @@ public class AssistantTests : IDisposable
         Assert.Equal("The project itself cannot be removed.", named.Results[0]);
         Assert.Equal("The project itself cannot be removed.", named.Results[1]);
         Assert.Equal("There is no node '9'. get_project lists the paths.", named.Results[2]);
-        Assert.Equal("'0' is not a group. get_project lists the paths.", named.Results[3]);
+        Assert.Equal("'0' is a drawing, not a group. get_project lists the paths.", named.Results[3]);
         Assert.Equal(named.Results[3], named.Results[4]);
         Assert.Equal(2, window.Workspace!.Document.Root.Children.Count);
     }
@@ -1238,7 +1241,11 @@ public class AssistantTests : IDisposable
         Assert.Equal(("2", "1", "10"), (a.DefaultExpression, a.MinExpression, a.MaxExpression));
     }
 
-    /// <remarks>Rewritten in the project under a tab holding edits, the drawing's next save would put the old name back.</remarks>
+    /// <remarks>
+    /// Rewritten in the project under a tab holding edits, the drawing's next save would put the old
+    /// name back. The refusal named the first such tab alone, and told the client to close it, which
+    /// no tool does.
+    /// </remarks>
     [AvaloniaFact]
     public async Task A_Rename_Is_Refused_Whole_While_A_Drawing_Under_The_Group_Holds_Edits_In_Its_Tab()
     {
@@ -1247,22 +1254,88 @@ public class AssistantTests : IDisposable
         var filled = (ProjectDrawing)badges.Children[0];
         var round = (ProjectGroup)badges.Children[1];
 
-        await window.ShowAsync(filled);
-        Dispatcher.UIThread.RunJobs();
+        foreach (var drawing in new[] { filled, (ProjectDrawing)round.Children[0] })
+        {
+            await window.ShowAsync(drawing);
+            Dispatcher.UIThread.RunJobs();
 
-        var viewer = Viewer(window);
+            var viewer = Viewer(window);
 
-        viewer.SetSource(viewer.Source.Replace("<rect ", "<rect stroke=\"black\" ", StringComparison.Ordinal), "mine");
+            viewer.SetSource(viewer.Source.Replace(" fill=", " stroke=\"black\" fill=", StringComparison.Ordinal), "mine");
+        }
 
         var chat = new ScriptedChat(Call("declare", new() { ["node"] = "0", ["name"] = "tint", ["to"] = "hue", ["summary"] = "rename tint" }), Say("Refused."));
 
         await Send(window, chat, "rename tint");
 
-        Assert.Equal("'Filled' has edits open in its tab that saving would write over the rename, so 'tint' was not renamed. Save or close that tab first.", chat.Results[0]);
+        Assert.Equal(
+            "Nothing was renamed: the tabs of 0/0 Filled, 0/1/0 Dot hold edits not yet in the project, which saving would write back over the rename. Open each and save, or undo those edits, then rename.",
+            chat.Results[0]);
         Assert.Contains("name=\"tint\"", badges.CodeText, StringComparison.Ordinal);
         Assert.Contains(">tint</e:let>", round.CodeText, StringComparison.Ordinal);
         Assert.Contains("fill=\"{{ tint }}\"", filled.Text, StringComparison.Ordinal);
         Assert.False(window.Workspace.IsEdited);
+    }
+
+    /// <remarks>The tab in front reads the renamed text in after the rename has answered, and its problems were listed from the text it had before.</remarks>
+    [AvaloniaFact]
+    public async Task A_Rename_Lists_The_Problems_Of_The_Drawing_In_Front_As_The_Rename_Left_It()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var filled = (ProjectDrawing)((ProjectGroup)window.Workspace!.Document.Root.Children[1]).Children[0];
+
+        await window.ShowAsync(filled);
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(Call("declare", new() { ["node"] = "1", ["name"] = "tint", ["to"] = "hue", ["summary"] = "rename tint" }), Say("Renamed."));
+
+        await Send(window, chat, "rename tint");
+
+        Assert.Equal("Done. Every drawing and group under it that named tint now names hue. It is one undo step. No problems in the 1 drawing(s) under it.", chat.Results[0]);
+        Assert.Contains("fill=\"{{ hue }}\"", filled.Text, StringComparison.Ordinal);
+    }
+
+    /// <remarks>Held there, it is in no save of another tab's and blocks a rename through its group, which the answer said nothing of.</remarks>
+    [AvaloniaFact]
+    public async Task An_Edit_A_Tab_Holds_Says_Once_That_A_Save_Of_That_Tab_Takes_It_Into_The_Project()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } }, ["summary"] = "red" }),
+            Call("set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = "#0000ff" } }, ["summary"] = "blue" }),
+            Call("set_attributes", new() { ["node"] = "1/0", ["key"] = "0", ["attributes"] = new[] { new { name = "opacity", value = "0.5" } }, ["summary"] = "fade" }),
+            Say("Done."));
+
+        await Send(window, chat, "recolour");
+
+        Assert.Equal(
+            "Done. It is one undo step. It is held in the tab of 0 home, not yet in the project: save with that tab in front takes it in, and until then a rename through its group, or a commit with another tab in front, is refused. No problems.",
+            chat.Results[0]);
+        Assert.Equal("Done. It is one undo step. No problems.", chat.Results[1]);
+        Assert.Equal("Done. It is one undo step. No problems.", chat.Results[2]);
+    }
+
+    [AvaloniaFact]
+    public async Task Set_Node_Says_It_Cleared_A_Setting_And_Its_Padding_Reads_As_A_Fraction_Of_The_Size()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var chat = new ScriptedChat(
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "class", ["value"] = "Badge" }),
+            Call("set_node", new() { ["node"] = "1", ["setting"] = "class", ["value"] = "" }),
+            Say("Done."));
+
+        await Send(window, chat, "give Badges a class, then take it off");
+
+        var setting = new AssistantTools(window).For(small: false, docs: false).OfType<AIFunction>().Single(tool => tool.Name == "set_node")
+            .JsonSchema.GetProperty("properties").GetProperty("setting").GetProperty("description").GetString();
+
+        Assert.Equal("Set class on 1. It is one undo step.", chat.Results[0]);
+        Assert.Equal("Cleared class on 1. It is one undo step.", chat.Results[1]);
+        Assert.Contains("padding is a fraction of the drawing's size", setting, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
@@ -1343,14 +1416,16 @@ public class AssistantTests : IDisposable
             Call("extract_template", new() { ["node"] = "1" }),
             Call("extract_template", new() { ["node"] = "1/0" }),
             Call("extract_template", new() { ["node"] = "1/0", ["name"] = "Filled" }),
+            Call("extract_template", new() { ["node"] = "(project)" }),
             Say("Done."));
 
         await Send(window, chat, "make templates");
 
         Assert.Equal("0 home: Nothing here is painted through an expression, so there is nothing for a template to write.", chat.Results[0]);
-        Assert.Equal("'1' is not a drawing. get_project lists the paths.", chat.Results[1]);
+        Assert.Equal("'1' is a group, not a drawing. get_project lists the paths.", chat.Results[1]);
         Assert.StartsWith("Added the template 'Filled' to the project.", chat.Results[2], StringComparison.Ordinal);
         Assert.Equal("The project already has a template called 'Filled'.", chat.Results[3]);
+        Assert.Equal("'(project)' is the project, not a drawing. get_project lists the paths.", chat.Results[4]);
         Assert.Single(window.Workspace!.Document.Root.Templates);
 
         var lone = await Host(Write("home.svg", Drawing));
@@ -2437,7 +2512,7 @@ public class AssistantTests : IDisposable
 
         Assert.StartsWith("Drawing 0 drawing Boxed cannot be generated: ", refused.Results[0], StringComparison.Ordinal);
         Assert.Contains("'Draw'", refused.Results[0], StringComparison.Ordinal);
-        Assert.Equal("'1' is not a drawing. get_project lists the paths.", group.Results[0]);
+        Assert.Equal("'1' is a group, not a drawing. get_project lists the paths.", group.Results[0]);
         Assert.Equal("'9' is not a drawing. get_project lists the paths.", group.Results[1]);
         Assert.StartsWith("Drawing 0 drawing home cannot be generated: ", emptied.Results[0], StringComparison.Ordinal);
     }
@@ -3606,7 +3681,7 @@ public class AssistantTests : IDisposable
 
         await Send(window, chat, "darken and commit", allow: true, asked: asked).WaitAsync(TimeSpan.FromSeconds(30));
 
-        Assert.StartsWith("Nothing was committed: the tabs of 0 home", chat.Results[1], StringComparison.Ordinal);
+        Assert.StartsWith("Nothing was committed: the tab of 0 home holds edits", chat.Results[1], StringComparison.Ordinal);
         Assert.Empty(asked);
         Assert.Equal("1", ProjectGitTests.Git(work, "rev-list", "--count", "HEAD").Trim());
     }

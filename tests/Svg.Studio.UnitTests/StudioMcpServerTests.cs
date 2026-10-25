@@ -474,7 +474,7 @@ public class StudioMcpServerTests : IDisposable
         var committed = await Call(client, "git_commit", new() { ["message"] = "Redden" });
 
         Assert.NotEqual(true, committed.IsError);
-        Assert.Equal("Committed.", Text(committed));
+        Assert.Equal($"Committed {Git(work, "rev-parse", "HEAD").Trim()[..10]}.", Text(committed));
         Assert.Equal("2", Git(work, "rev-list", "--count", "HEAD").Trim());
 
         await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
@@ -527,19 +527,118 @@ public class StudioMcpServerTests : IDisposable
         var saved = await Call(client, "save", new());
 
         Assert.NotEqual(true, saved.IsError);
-        Assert.StartsWith("Saved, except 0 home", Text(saved), StringComparison.Ordinal);
+        Assert.Equal("Saved, except 0 home: a save takes only the front tab's edits, so open it and save again.", Text(saved));
         Assert.DoesNotContain("#123456", File.ReadAllText(path), StringComparison.Ordinal);
 
         await Call(client, "open", new() { ["node"] = "0" });
 
         var committed = await Call(client, "git_commit", new() { ["message"] = "Darken" });
 
-        Assert.Equal("Committed.", Text(committed));
+        Assert.Equal($"Committed {Git(work, "rev-parse", "HEAD").Trim()[..10]}.", Text(committed));
         Assert.Contains("#123456", Git(work, "show", "HEAD:icons.svgstudio"), StringComparison.Ordinal);
 
         // And the tab the commit wrote is no longer said to hold what is now in HEAD.
         Assert.DoesNotContain("Tabs holding edits", Text(await Call(client, "get_context", new())), StringComparison.Ordinal);
         Assert.Contains("0 drawing home class=\"Home\" (open)\n", Text(await Call(client, "get_project", new())), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>Taken in through the window's own save, the step was named as the person's, and get_history and undo took it for theirs.</remarks>
+    [AvaloniaFact]
+    public async Task A_Save_Or_A_Commit_Takes_The_Front_Tabs_Edits_In_As_A_Step_Of_The_Tools()
+    {
+        var path = Committed(Project);
+        var work = Path.GetDirectoryName(path)!;
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        foreach (var (tool, arguments, colour) in new[] { ("save", new Dictionary<string, object?>(), "#ff0000"), ("git_commit", new Dictionary<string, object?> { ["message"] = "Blue" }, "#0000ff") })
+        {
+            await Call(client, "set_attributes", new() { ["key"] = "0", ["attributes"] = new[] { new { name = "fill", value = colour } }, ["summary"] = "recolour" });
+
+            Assert.NotEqual(true, (await Call(client, tool, arguments)).IsError);
+            Assert.Equal("Claude Code: save home", window.Workspace.UndoLabel);
+        }
+
+        var history = Text(await Call(client, "get_history", new()));
+
+        Assert.Equal(2, Regex.Matches(history, "^- Claude Code: save home$", RegexOptions.Multiline).Count);
+        Assert.DoesNotMatch("^- save home$", history);
+        Assert.Contains("#0000ff", Git(work, "show", "HEAD:icons.svgstudio"), StringComparison.Ordinal);
+        Assert.Equal("Took back \"Claude Code: save home\".", Text(await Call(client, "undo", new())));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// Studio does not watch the disk: after a pull in a terminal, its copy was listed as edits against
+    /// the pulled commit, and a save or a commit wrote it back over the pull, the save from a drawing
+    /// of no project's in front too, which writes the project with it while the project holds edits.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Once_The_Project_File_Changed_On_Disk_Save_And_Commit_Refuse_And_Get_Changes_Says_So()
+    {
+        var path = Committed(Project);
+        var work = Path.GetDirectoryName(path)!;
+        var drawing = Path.Combine(_directory, "dot.svg");
+        var pulled = Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal);
+        var said = "icons.svgstudio changed on disk since Studio last read or wrote it, as a pull in a terminal changes it; reload reads it again, and a save before that would write Studio's copy over the change.";
+
+        File.WriteAllText(drawing, Drawing);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        // What a save or a commit would write over the pull.
+        await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Mine" });
+
+        // As a pull leaves it: on disk, and committed.
+        File.WriteAllText(path, pulled);
+        Git(work, "commit", "-am", "Blue");
+
+        var changes = await Call(client, "get_changes", new());
+        var saved = await Call(client, "save", new());
+        var committed = await Call(client, "git_commit", new() { ["message"] = "Mine" });
+
+        Assert.NotEqual(true, changes.IsError);
+        Assert.StartsWith(said + "\n", Text(changes), StringComparison.Ordinal);
+        Assert.True(saved.IsError);
+        Assert.Equal("Nothing was saved: " + said, Text(saved));
+        Assert.True(committed.IsError);
+        Assert.Equal("Nothing was committed: " + said, Text(committed));
+        Assert.Equal(pulled, File.ReadAllText(path));
+        Assert.Equal("2", Git(work, "rev-list", "--count", "HEAD").Trim());
+
+        // Where reload would read the drawing in front, it is pointed past it.
+        await Call(client, "open_file", new() { ["path"] = drawing });
+
+        var alone = await Call(client, "save", new());
+
+        Assert.True(alone.IsError);
+        Assert.Equal(
+            "Nothing was saved, the drawing in front included, as the save would write the project's edits too: "
+            + said.Replace("reload reads it again", "open_file with its path, or open with a node path, brings a tab of it forward, and reload then reads it", StringComparison.Ordinal),
+            Text(alone));
+        Assert.Equal(pulled, File.ReadAllText(path));
+
+        // With nothing to write of the project's, the drawing saves alone.
+        Assert.Equal("Took back \"Claude Code: change class\".", Text(await Call(client, "undo", new())));
+        Assert.Equal("Saved.", Text(await Call(client, "save", new())));
+        Assert.Equal(pulled, File.ReadAllText(path));
+
+        // Read again, the file is what Studio has; written by Studio, it is again, until something else writes it.
+        await Call(client, "open_file", new() { ["path"] = path });
+        Assert.NotEqual(true, (await Call(client, "reload", new())).IsError);
+        Assert.NotEqual(true, (await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" })).IsError);
+        Assert.Equal("Saved.", Text(await Call(client, "save", new())));
+        Assert.DoesNotContain("changed on disk", Text(await Call(client, "get_changes", new())), StringComparison.Ordinal);
+
+        File.WriteAllText(path, pulled);
+
+        Assert.Equal("Nothing was saved: " + said, Text(await Call(client, "save", new())));
+        Assert.Equal(pulled, File.ReadAllText(path));
         Assert.Empty(_announced);
     }
 
@@ -605,7 +704,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.Contains("settings 1 group Badges: its declarations changed, adding edge\n", text, StringComparison.Ordinal);
         Assert.Contains("added 1/1 drawing Star\n", text, StringComparison.Ordinal);
         Assert.Contains("moved 1/0 drawing Filled: its place unset → 10,20\n", text, StringComparison.Ordinal);
-        Assert.Contains("Not in it: edits held in the tabs of 1/0 Filled", text, StringComparison.Ordinal);
+        Assert.Contains("Not in it: edits held in the tab of 1/0 Filled, until it is saved into the project.\n", text, StringComparison.Ordinal);
         Assert.Contains("revision \"HEAD\"", text, StringComparison.Ordinal);
         Assert.Empty(_announced);
     }
@@ -635,11 +734,14 @@ public class StudioMcpServerTests : IDisposable
         var changes = await Call(client, "get_changes", new());
         var since = await Call(client, "get_changes", new() { ["since"] = first });
 
+        // What is compared is Studio's copy, which the commits and the merge have since left behind on disk; reload refuses mid-merge, so the line points at finishing it.
+        var outdated = "icons.svgstudio is part way through a merge or a rebase, which left its file other than Studio's copy compared here; finish it, or abort it, then reload.\n";
+
         Assert.StartsWith(
-            $"Since HEAD ({Git(work, "rev-parse", "HEAD").Trim()[..10]}), edits not yet saved included: 1 change: 1 changed.\nchanged 0 drawing home: its drawing changed\n",
+            $"{outdated}Since HEAD ({Git(work, "rev-parse", "HEAD").Trim()[..10]}), edits not yet saved included: 1 change: 1 changed.\nchanged 0 drawing home: its drawing changed\n",
             Text(changes),
             StringComparison.Ordinal);
-        Assert.StartsWith($"Nothing has changed since {first}.\n", Text(since), StringComparison.Ordinal);
+        Assert.StartsWith($"{outdated}Nothing has changed since {first}.\n", Text(since), StringComparison.Ordinal);
         Assert.Empty(_announced);
     }
 
@@ -1713,7 +1815,7 @@ public class StudioMcpServerTests : IDisposable
 
         // A read tool's answer is never an error, whatever it says: what it read is no refusal.
         Assert.NotEqual(true, group.IsError);
-        Assert.Equal("'0' is not a drawing. get_project lists the paths.", Text(group));
+        Assert.Equal("'0' is a group, not a drawing. get_project lists the paths.", Text(group));
     }
 
     /// <remarks>A file can hold a size the build refuses, since each setting is read on its own; render already said why in plain text.</remarks>
@@ -1947,7 +2049,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.Equal(
             $"Wrote {target}: every drawing of the project as one C# file.\n"
             + "It took in the edits held in the tab of 1/0/0 Dot, as Export does; the project holds them unsaved.\n"
-            + "Left out: the edits held in the tabs of 0 home; open each and save, then export again.",
+            + "Left out: the edits held in the tab of 0 home; open it and save, then export again.",
             Text(exported));
         Assert.Contains("#654321", dot.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("#123456", home.Text, StringComparison.Ordinal);
@@ -1955,6 +2057,61 @@ public class StudioMcpServerTests : IDisposable
         Assert.NotEqual(true, again.IsError);
         Assert.Equal(Text(exported).Replace($"Wrote {target}:", $"Wrote {target}, replacing the file there:", StringComparison.Ordinal), Text(again));
         Assert.Equal(edits, window.Workspace.Edits);
+
+        // Taken in as the tools' step, which undo takes back as theirs.
+        Assert.Equal("Claude Code: save Dot", window.Workspace.UndoLabel);
+
+        // Remembered only where it took one: taken for an edit, an export of nothing to take in ended
+        // what redo had, which then fell to the window's own step, refused for home's tab.
+        await Call(client, "set_node", new() { ["node"] = "1", ["setting"] = "class", ["value"] = "Badges" });
+        await Call(client, "undo", new());
+        await Call(client, "export", new() { ["path"] = target });
+
+        Assert.Equal("Put back \"Claude Code: change class\".", Text(await Call(client, "redo", new())));
+        Assert.Equal("Took back \"Claude Code: change class\".", Text(await Call(client, "undo", new())));
+        Assert.Equal("Took back \"Claude Code: save Dot\".", Text(await Call(client, "undo", new())));
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// An empty project wrote a file holding usings and nothing else, said to be every drawing of it;
+    /// and a drawing of no project's in front, which the window's Export leaves out, was not said to be.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Export_Refuses_A_Project_With_No_Drawings_And_Says_A_Drawing_Of_No_Project_In_Front_Is_Not_In_It()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var drawing = Path.Combine(_directory, "dot.svg");
+        var target = Path.Combine(_directory, "Icons.cs");
+        var copy = Path.Combine(_directory, "copy.svg");
+        var aside = $"The drawing in front, {drawing}, is of no project's, and is not exported while a project is open: export writes the project whatever tab is in front, as File > Export does.";
+
+        File.WriteAllText(path, Project);
+        File.WriteAllText(drawing, Drawing);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        await Call(client, "open_file", new() { ["path"] = drawing });
+
+        var project = await Call(client, "export", new() { ["path"] = target });
+        var svg = await Call(client, "export", new() { ["path"] = copy });
+
+        Assert.NotEqual(true, project.IsError);
+        Assert.Equal($"Wrote {target}: every drawing of the project as one C# file.\n{aside}", Text(project));
+        Assert.True(svg.IsError);
+        Assert.Equal($"A project exports as one C# file; give a path ending .cs. {aside}", Text(svg));
+        Assert.False(File.Exists(copy));
+
+        File.Delete(target);
+        await Call(client, "new_project", new());
+        await Call(client, "open_file", new() { ["path"] = drawing });
+
+        var empty = await Call(client, "export", new() { ["path"] = target });
+
+        Assert.True(empty.IsError);
+        Assert.Equal($"The project has no drawings, so nothing was written; add_drawing adds one. {aside}", Text(empty));
+        Assert.False(File.Exists(target));
         Assert.Empty(_announced);
     }
 
@@ -2240,6 +2397,40 @@ public class StudioMcpServerTests : IDisposable
         Assert.Empty(_announced);
     }
 
+    /// <remarks>
+    /// With a drawing of no project's in front, open_file of the project said only that it was open, and
+    /// reload read the drawing and sent the client back to open: each pointed at the other.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Open_File_Of_The_Open_Project_Brings_Its_Tab_Forward_From_A_Drawing_Of_No_Project()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var drawing = Path.Combine(_directory, "dot.svg");
+
+        File.WriteAllText(path, Project);
+        File.WriteAllText(drawing, Drawing);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var home = window.Workspace!.Document.Root.Children[0];
+
+        await window.ShowAsync(home);
+        Dispatcher.UIThread.RunJobs();
+        await Call(client, "open_file", new() { ["path"] = drawing });
+
+        var forward = await Call(client, "open_file", new() { ["path"] = path });
+
+        Assert.NotEqual(true, forward.IsError);
+        Assert.Equal($"The project at {path} is open already, and 0 drawing home is in front now; reload reads it again from its file.", Text(forward));
+        Assert.Same(home, ((TabItem)Tabs(window).SelectedItem!).Tag);
+        Assert.False(window.Workspace.CanUndo);
+
+        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+
+        Assert.StartsWith($"Read {path} again; ", Text(await Call(client, "reload", new())), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
     /// <remarks>A project that would not read was said in a dialog, which nobody closes for a client.</remarks>
     [AvaloniaFact]
     public async Task Open_File_Refuses_A_Relative_Or_Missing_Path_And_A_Drawing_That_Will_Not_Load_Leaves_No_Tab()
@@ -2405,7 +2596,7 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.NotEqual(true, reloaded.IsError);
         Assert.Equal(
-            $"Read {path} again; get_project lists it now. The tabs of 1/0/0 Dot were not opened again, as their paths now name other nodes or none. Its undo history started again.",
+            $"Read {path} again; get_project lists it now. The tab of 1/0/0 Dot was not opened again, as its path now names another node or none. Its undo history started again.",
             Text(reloaded));
         Assert.Contains("#0000ff", ((ProjectDrawing)now.Children[0]).Text, StringComparison.Ordinal);
         Assert.Equal(
@@ -2580,7 +2771,7 @@ public class StudioMcpServerTests : IDisposable
         var project = await Call(client, "reload", new());
 
         Assert.NotEqual(true, alone.IsError);
-        Assert.Equal($"Nothing changed: {drawing} holds what Studio has. The project icons.svgstudio was not read again: open brings a tab of it forward, and reload then reads it.", Text(alone));
+        Assert.Equal($"Nothing changed: {drawing} holds what Studio has. The project icons.svgstudio was not read again: open_file with its path, or open with a node path, brings a tab of it forward, and reload then reads it.", Text(alone));
         Assert.NotEqual(true, project.IsError);
         Assert.StartsWith($"Read {path} again; ", Text(project), StringComparison.Ordinal);
         Assert.Contains("#0000ff", ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).Text, StringComparison.Ordinal);
@@ -2651,7 +2842,16 @@ public class StudioMcpServerTests : IDisposable
 
         if (protocol is null)
         {
-            Assert.All(kept, result => Assert.Equal("Nothing was removed: the person kept the edits held in the tab of 0/0 Square.", Text(result)));
+            // Each said as it was answered: only the keep choice reads as kept.
+            Assert.Equal(
+                new[]
+                {
+                    "Nothing was removed: the person kept the edits held in the tab of 0/0 Square.",
+                    "Nothing was removed: the person declined the question, or did not answer it.",
+                    "Nothing was removed: the person declined the question, or did not answer it.",
+                    "Nothing was removed: 'Throw away whatever is in the way' is not one of the choices, which are 'Throw the edits away and remove it', 'Keep the edits; remove nothing'."
+                },
+                kept.Select(Text));
             Assert.Equal(5, asked.Count);
             Assert.All(asked, question => Assert.Contains("closes the tab of 0/0 Square", question.Message, StringComparison.Ordinal));
             Assert.Equal(2, Choices(asked[0]).Count);
@@ -2959,13 +3159,16 @@ public class StudioMcpServerTests : IDisposable
         Assert.All(asked, question => Assert.Contains("is frozen at its default", question.Message, StringComparison.Ordinal));
         Assert.Equal(4, Choices(asked[0]).Count);
 
-        // A choice the question did not offer is no answer to it.
+        // A choice the question did not offer is no answer to it, and is said as one.
         Assert.All(new[] { declined, unoffered }, export =>
         {
             Assert.True(export.Result.IsError);
-            Assert.Equal("Nothing was written: the person did not say how to lay out the text it cannot write out.", Text(export.Result));
             Assert.Equal((null, RelaxedTextAnswer.Ask), (export.Written, export.Setting));
         });
+        Assert.Equal("Nothing was written: the person declined the question, or did not answer it.", Text(declined.Result));
+        Assert.Equal(
+            "Nothing was written: 'Relaxed, for ever' is not one of the choices, which are 'Baked, for this export', 'Relaxed, for this export', 'Baked, from now on', 'Relaxed, from now on'.",
+            Text(unoffered.Result));
         Assert.Equal((relaxed, RelaxedTextAnswer.Ask), (relaxing.Written, relaxing.Setting));
         Assert.Equal((baked, RelaxedTextAnswer.Ask), (baking.Written, baking.Setting));
         Assert.Equal((relaxed, RelaxedTextAnswer.Always), (relaxedForGood.Written, relaxedForGood.Setting));
@@ -3009,7 +3212,7 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.NotEqual(true, exported.IsError);
         Assert.Equal(2, asked.Count);
-        Assert.Equal(new[] { "save home" }, workspace.UndoLabels);
+        Assert.Equal(new[] { "Claude Code: save home" }, workspace.UndoLabels);
         Assert.Contains("relaxed text layout", Text(exported), StringComparison.Ordinal);
         Assert.Empty(_announced);
     }
@@ -3108,7 +3311,7 @@ public class StudioMcpServerTests : IDisposable
         foreach (var (uri, said) in new[]
                  {
                      ("svg-studio://drawing/9.svg", "'9' is not a drawing. get_project lists the paths."),
-                     ("svg-studio://drawing/1.png", "'1' is not a drawing. get_project lists the paths."),
+                     ("svg-studio://drawing/1.png", "'1' is a group, not a drawing. get_project lists the paths."),
                      ("svg-studio://front.cs", "The tab in front is not a drawing; name one by its node path."),
                      ("svg-studio://docs/svg-studio/no-such-section", "There is no section svg-studio#no-such-section"),
                      ("svg-studio://project", "There is no resource svg-studio://project")
@@ -3191,6 +3394,29 @@ public class StudioMcpServerTests : IDisposable
         Assert.Contains("width=\"2\"", await Read("svg-studio://drawing/1.svg"), StringComparison.Ordinal);
         Assert.Contains("width=\"1\"", await Read("svg-studio://drawing/0/0.svg"), StringComparison.Ordinal);
         Assert.Empty(_announced);
+    }
+
+    /// <remarks>The SDK's binding threw for one, which reached the client as an internal error saying nothing of what was missing.</remarks>
+    [AvaloniaTheory]
+    [InlineData(null)]
+    [InlineData("2025-11-25")]
+    public async Task A_Prompt_Asked_For_Without_An_Argument_It_Requires_Is_Invalid_And_Names_It(string? protocol)
+    {
+        var (_, port) = await Serving();
+        await using var client = await Client(port, protocol);
+
+        foreach (var (name, arguments) in new[]
+                 {
+                     ("add_parameter", new Dictionary<string, object?>()),
+                     ("new_drawing", new Dictionary<string, object?> { ["group"] = "1" }),
+                     ("new_drawing", new Dictionary<string, object?> { ["what"] = " " })
+                 })
+        {
+            var refused = await Assert.ThrowsAsync<McpProtocolException>(() => client.GetPromptAsync(name, arguments).AsTask());
+
+            Assert.Equal(McpErrorCode.InvalidParams, refused.ErrorCode);
+            Assert.Contains($"The prompt {name} needs 'what': ", refused.Message, StringComparison.Ordinal);
+        }
     }
 
     /// <remarks>What a person starts with /mcp__svg-studio__new_drawing in Claude Code: words alone, naming tools that exist and sections of the docs that do.</remarks>

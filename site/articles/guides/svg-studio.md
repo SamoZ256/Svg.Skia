@@ -342,11 +342,13 @@ both with your key and against your plan's quota.
 It works with files by their full paths: `save` writes a project that was never saved, or a drawing
 of no project's, to a path it names; `export` writes the project as one C# file, or with no project
 open the drawing in front as SVG or C#; `new_project` starts an empty one; `open_file` opens a drawing,
-a project, or an svgc project or PaintCode document to convert; and `reload` reads the open project
-again from its file, or, while a drawing of no project's is in front, that drawing instead. Studio
-does not watch the disk, so after a file it has open is changed elsewhere — by another editor, or a
-`git pull` in a terminal — Claude Code is told to call `reload`, or Studio's next save would write
-its copy back over the change. Where Studio would stop to ask you something, a tool never opens a
+a project, or an svgc project or PaintCode document to convert, and brings the project open already
+forward; and `reload` reads the open project again from its file, or, while a drawing of no project's
+is in front, that drawing instead. Studio does not watch the disk, so after a file it has open is
+changed elsewhere — by another editor, or a `git pull` in a terminal — Claude Code is told to call
+`reload`. Until it does, `save` and `git_commit` refuse to write the project once its file is not
+what Studio last read or wrote, and `get_changes` says so first, rather than take Studio's copy for
+edits and write it back over the change. Where Studio would stop to ask you something, a tool never opens a
 dialog. Removing a node whose tab holds edits you have not saved, starting or opening a project, or
 reloading, over unsaved work, asks you in Claude Code whether to throw that work away, and exporting
 text the C# cannot write out asks whether to bake it or relax it, this once or from now on; each goes

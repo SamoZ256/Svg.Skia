@@ -199,6 +199,28 @@ public class MainWindowAutosaveTests : IDisposable
         Assert.True(File.Exists(ProjectRecovery.For(path)));
     }
 
+    /// <remarks>Parsed from the copy, it had read nothing from the file, so a pull after the restore went unseen and the tools' save wrote over it.</remarks>
+    [AvaloniaFact]
+    public async Task A_Restored_Copy_Still_Sees_The_File_Change_Under_It()
+    {
+        var path = Write("icons.svgstudio", Project);
+
+        Kept(path, Project.Replace("scale=\"2\"", "scale=\"6\"", StringComparison.Ordinal));
+
+        var window = Empty();
+
+        window.ConfirmDiscardRecovery = _ => Task.FromResult(false);
+
+        await window.OpenAsync(new[] { path });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(window.Workspace!.Document.ChangedOnDisk());
+
+        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+
+        Assert.True(window.Workspace.Document.ChangedOnDisk());
+    }
+
     [AvaloniaFact]
     public async Task A_Copy_That_Is_Discarded_Is_Gone_And_The_File_Opens()
     {

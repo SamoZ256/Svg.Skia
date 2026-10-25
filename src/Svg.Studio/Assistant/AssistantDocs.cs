@@ -20,7 +20,7 @@ public sealed record AssistantDocSection(string Id, string Title, string Text);
 /// </remarks>
 public static class AssistantDocs
 {
-    private static readonly Regex ScribanEscape = new(@"\{%\{(.*?)\}%\}", RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex ScribanEscape = new(@"\{(%+)\{(.*?)\}\1\}", RegexOptions.Compiled | RegexOptions.Singleline);
 
     private static readonly Lazy<IReadOnlyList<AssistantDocSection>> Loaded = new(Load);
 
@@ -39,7 +39,8 @@ public static class AssistantDocs
     /// <summary>The article as a reader sees it: no front matter, and <c>{{ }}</c> as it is typed.</summary>
     /// <remarks>
     /// The site writes <c>{%{{{ x }}}%}</c> so Lunet leaves the braces alone. Handed over like that, a
-    /// model learns the escape as the syntax and suggests it back.
+    /// model learns the escape as the syntax and suggests it back. A block can hold another with more
+    /// percent signs, as svg-expressions' first example does, so each is taken off until none is left.
     /// </remarks>
     internal static string Clean(string markdown)
     {
@@ -50,7 +51,13 @@ public static class AssistantDocs
             text = text[(end + 5)..];
         }
 
-        return ScribanEscape.Replace(text, match => match.Groups[1].Value).Trim();
+        for (var was = string.Empty; was != text;)
+        {
+            was = text;
+            text = ScribanEscape.Replace(text, match => match.Groups[2].Value);
+        }
+
+        return text.Trim();
     }
 
     /// <summary>Cuts an article at its <c>##</c> and <c>###</c> headings, leaving fenced code alone.</summary>
