@@ -40,21 +40,30 @@ internal static class PaintCodeSlug
     }
 
     /// <summary>
-    /// The name as an expression may spell it: letters, digits and underscores only.
+    /// The name as PaintCode's own generated code spells it, and so as its expressions do: letters,
+    /// digits and underscores, the first letter lowered and a word after a space capitalised.
     /// </summary>
     /// <remarks>
     /// PaintCode lets a variable be called "level-17" and then writes "level17" in the expressions
-    /// that use it, so a name and the identifier standing for it are two different strings.
+    /// that use it, so a name and the identifier standing for it are two different strings. The
+    /// library colour "Tint Color" is the parameter tintColor of the methods it generates; spelled
+    /// TintColor here, a caller passing it by name had nothing to pass it to.
     /// </remarks>
     internal static string Identifier(string name)
     {
         var builder = new StringBuilder(name.Length);
+        var capitalise = false;
 
         foreach (var character in name)
         {
             if (char.IsLetterOrDigit(character) || character == '_')
             {
-                builder.Append(character);
+                builder.Append(builder.Length == 0 ? char.ToLowerInvariant(character) : capitalise ? char.ToUpperInvariant(character) : character);
+                capitalise = false;
+            }
+            else if (char.IsWhiteSpace(character) && builder.Length > 0)
+            {
+                capitalise = true;
             }
         }
 

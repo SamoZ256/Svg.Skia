@@ -56,6 +56,38 @@ public class PaintCodeImportTests
         Assert.Equal("_2State", PaintCodeSlug.Pascal("2-state"));
     }
 
+    /// <summary>
+    /// A library item is named the way PaintCode's generated code names it, which is how a caller
+    /// passing it by name spells it. Not the canvas methods' rule: those keep a lowercase word as it is.
+    /// </summary>
+    [Theory]
+    [InlineData("Tint Color", "tintColor")]
+    [InlineData("White bottom", "whiteBottom")]
+    [InlineData("Black Opacity 15%", "blackOpacity15")]
+    [InlineData("GradientTemperature", "gradientTemperature")]
+    [InlineData("whiteColor_", "whiteColor_")]
+    [InlineData("level-17", "level17")]
+    public void A_Library_Item_Is_Spelled_As_PaintCodes_Code_Spells_It(string name, string identifier)
+        => Assert.Equal(identifier, PaintCodeSlug.Identifier(name));
+
+    [Fact]
+    public void A_Parameter_Colour_Is_Declared_Under_The_Name_PaintCodes_Method_Takes_It_By()
+    {
+        var archive = new KeyedArchiveBuilder();
+        var tint = ScopeDocument.Color(archive, "Tint Color", "0 0 0 1", usage: 1);
+        var document = PaintCodeDocument.Parse(archive.ToBytes(
+            ("styleKitName", archive.Text("Tinted")),
+            ("desks", archive.Array()),
+            ("library", archive.Object(
+                "PPLibrary",
+                ("colors", archive.Array(tint)),
+                ("gradients", archive.Array()),
+                ("variables", archive.Array())))));
+
+        Assert.Equal(PaintCodeDeclarationKind.Parameter, PaintCodeDeclarations.Of(document).ByName["tintColor"].Kind);
+        Assert.Equal(new[] { "tintColor" }, PaintCodeImport.ParameterOrder(document));
+    }
+
     [Theory]
     [InlineData("overlay-error", "drawOverlayerror")]
     [InlineData("overlay-error_big", "drawOverlayerror_big")]
