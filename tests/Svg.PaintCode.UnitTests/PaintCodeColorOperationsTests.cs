@@ -51,6 +51,8 @@ public class PaintCodeColorOperationsTests
     [InlineData(0xfb, 0x3e, 0x72, 0.2)]
     [InlineData(0x4e, 0xc3, 0x6b, 0.5)]
     [InlineData(0xff, 0xff, 0xff, 1)]
+    // 0.2 as a document stores it, single precision widened.
+    [InlineData(0xfa, 0x0a, 0x64, 0.20000000298023224)]
     public void A_Shadow_Agrees_With_Skia(byte red, byte green, byte blue, double amount)
     {
         var ours = PaintCodeColorOperations.Shadow(Colour(red, green, blue, 0.5), amount);
