@@ -494,9 +494,20 @@ internal static class PaintCodePathData
         var end = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.EndAngle);
         var data = new StringBuilder();
 
-        data.Append('M').Append(Pair(start))
-            .Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 ")
-            .Append(turn > 180 ? '1' : '0').Append(" 1 ")
+        // Past half a turn, in two halves through the point halfway round. One arc puts its centre
+        // where its ends say, and near a whole turn the ends are a rounding apart: SampleStyleKit's
+        // pac-man, open by 0.00002 degrees, wrote both as one point and drew nothing, and at other
+        // angles its disc landed tens of units away. Each half is under half a turn, ends far apart.
+        data.Append('M').Append(Pair(start));
+
+        if (turn > 180)
+        {
+            var middle = OnEllipse(centerX, centerY, radiusX, radiusY, -metrics.StartAngle + (turn / 2));
+
+            data.Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 0 1 ").Append(Pair(middle));
+        }
+
+        data.Append('A').Append(Number(radiusX)).Append(' ').Append(Number(radiusY)).Append(" 0 0 1 ")
             .Append(Pair(end));
 
         // Through the middle, not straight back: PaintCode closes an arc with LineTo(MidX, MidY),
@@ -550,9 +561,12 @@ internal static class PaintCodePathData
 
     private static string Pair(PaintCodePoint point) => Number(point.X) + "," + Number(point.Y);
 
+    /// <summary>A value at the precision every number is written in.</summary>
+    internal static double Rounded(double value) => Math.Round(value, 4, MidpointRounding.AwayFromZero);
+
     internal static string Number(double value)
     {
-        var rounded = Math.Round(value, 4, MidpointRounding.AwayFromZero);
+        var rounded = Rounded(value);
 
         // Negative zero prints as "-0", a needless difference between two identical drawings.
         return (rounded == 0 ? 0 : rounded).ToString("0.####", CultureInfo.InvariantCulture);

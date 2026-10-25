@@ -53,11 +53,12 @@ public class ChangesPanelTests : IDisposable
 
     private string File => Path.Combine(Work, "icons.svgstudio");
 
+    private string Home => Path.Combine(File, "home.svg");
+
     [AvaloniaFact]
     public async Task The_Panel_Is_Arranged_For_A_Saved_Project_Whenever_There_Is_A_Git()
     {
-        Directory.CreateDirectory(Work);
-        System.IO.File.WriteAllText(File, Project);
+        Put(Project);
 
         var window = await Host();
 
@@ -86,10 +87,9 @@ public class ChangesPanelTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task Creating_A_Repository_Commits_The_Project_And_Its_Attributes()
+    public async Task Creating_A_Repository_Commits_The_Project()
     {
-        Directory.CreateDirectory(Work);
-        System.IO.File.WriteAllText(File, Project);
+        Put(Project);
         System.IO.File.WriteAllText(Path.Combine(Work, "notes.txt"), "not part of it");
 
         var window = await Host();
@@ -101,7 +101,7 @@ public class ChangesPanelTests : IDisposable
         Configure(Work);
         await window.Changes.Commit("Add the icons");
 
-        Assert.Equal(".gitattributes\nicons.svgstudio", Git(Work, "ls-tree", "--name-only", "HEAD").Trim());
+        Assert.Equal("icons.svgstudio", Git(Work, "ls-tree", "--name-only", "HEAD").Trim());
         Assert.Empty(window.Changes.Changes);
         Assert.Empty(_announced);
 
@@ -116,8 +116,8 @@ public class ChangesPanelTests : IDisposable
 
         var window = await Host();
 
-        Assert.Contains("\r\n", await window.Changes.Git!.At("HEAD"), StringComparison.Ordinal);
-        Assert.DoesNotContain("\r\n", System.IO.File.ReadAllText(File), StringComparison.Ordinal);
+        Assert.Contains("\r\n", (await window.Changes.Git!.Files("HEAD"))!["home.svg"], StringComparison.Ordinal);
+        Assert.DoesNotContain("\r\n", System.IO.File.ReadAllText(Home), StringComparison.Ordinal);
         Assert.Empty(window.Changes.Changes);
 
         window.Close();
@@ -158,8 +158,9 @@ public class ChangesPanelTests : IDisposable
     {
         Committed();
         Git(Work, "switch", "-c", "other");
-        System.IO.File.WriteAllText(File, Added(Project, "star"));
-        Git(Work, "commit", "-am", "Add a star");
+        Put(Added(Project, "star"));
+        Git(Work, "add", "-A");
+        Git(Work, "commit", "-m", "Add a star");
         Git(Work, "switch", "main");
 
         var window = await Host();
@@ -175,7 +176,7 @@ public class ChangesPanelTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task Two_Drawings_Added_At_The_End_Merge_Without_Asking_And_Commit()
+    public async Task Two_Drawings_Added_On_Two_Branches_Merge_Without_Asking()
     {
         Diverged(Added(Project, "moon"), Added(Project, "star"));
 
@@ -189,12 +190,9 @@ public class ChangesPanelTests : IDisposable
 
         await window.Changes.Merge("other");
 
+        // Git's own merge is the whole of it: a drawing each is a file each, so nothing is left to settle.
         Assert.Equal(0, asked);
         Assert.Equal(new[] { "home", "moon", "star" }, window.Workspace!.Document.Root.Drawings.Select(drawing => drawing.Name));
-        Assert.True(await window.Changes.Git!.InMerge());
-
-        await window.Changes.Commit("Merge other");
-
         Assert.False(await window.Changes.Git!.InMerge());
         Assert.Equal(3, Git(Work, "rev-list", "--parents", "-n1", "HEAD").Trim().Split(' ').Length);
         Assert.Empty(_announced);
@@ -236,6 +234,35 @@ public class ChangesPanelTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_Drawing_Both_Sides_Added_Under_One_Name_Can_Be_Kept_Twice()
+    {
+        Diverged(Added(Project, "star"), Added(Project, "star").Replace("height=\"24\" />", "height=\"48\" />", StringComparison.Ordinal));
+
+        var window = await Host();
+        window.ResolveConflicts = merge =>
+        {
+            var conflict = merge.Conflicts.Single();
+
+            Assert.True(conflict.IsAddition);
+            conflict.Choice = ProjectSide.Both;
+
+            return Task.FromResult<bool?>(true);
+        };
+
+        await window.Changes.Merge("other");
+
+        Assert.True(System.IO.File.Exists(Path.Combine(File, "star~2.svg")));
+        Assert.Equal(new[] { "home", "star", "star" }, window.Workspace!.Document.Root.Drawings.Select(drawing => drawing.Name));
+
+        await window.Changes.Commit("Merge other");
+
+        Assert.Equal(3, Git(Work, "rev-list", "--parents", "-n1", "HEAD").Trim().Split(' ').Length);
+        Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task A_Save_Is_Refused_While_Conflicted_And_Aborting_Puts_The_File_Back()
     {
         Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
@@ -250,7 +277,7 @@ public class ChangesPanelTests : IDisposable
         await window.SaveAsync();
 
         Assert.Equal(new[] { "Resolve the merge first" }, _announced);
-        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(File), StringComparison.Ordinal);
+        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(Home), StringComparison.Ordinal);
 
         // Resolving would write the file under the unsaved edit, which a save would then put back.
         var asked = 0;
@@ -288,14 +315,14 @@ public class ChangesPanelTests : IDisposable
         var committing = await Call(window, "git_commit", new() { ["message"] = "Merge other" });
 
         Assert.Contains("in conflict", committing, StringComparison.Ordinal);
-        Assert.DoesNotContain("<<<<<<<", Git(Work, "show", "HEAD:icons.svgstudio"), StringComparison.Ordinal);
+        Assert.DoesNotContain("<<<<<<<", Git(Work, "show", "HEAD:icons.svgstudio/home.svg"), StringComparison.Ordinal);
         Assert.True(await window.Changes.Git!.InMerge());
 
         // Unedited, so nothing would be written, and the window is still not what the file holds.
         var saving = await Call(window, "save", new());
 
         Assert.Contains("in conflict", saving, StringComparison.Ordinal);
-        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(File), StringComparison.Ordinal);
+        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(Home), StringComparison.Ordinal);
         Assert.Empty(_announced);
 
         window.Close();
@@ -402,7 +429,7 @@ public class ChangesPanelTests : IDisposable
 
         Assert.Equal(0, asked);
         Assert.Equal(new[] { "A rebase is in progress" }, _announced);
-        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(File), StringComparison.Ordinal);
+        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(Home), StringComparison.Ordinal);
 
         window.Close();
     }
@@ -472,7 +499,7 @@ public class ChangesPanelTests : IDisposable
         Assert.Equal(0, asked());
         Assert.Equal("icons.svgstudio is part way through a merge or a rebase, and can't be opened until it is finished or aborted: open it in Studio, which offers to resolve a merge, or finish it with git.", opened);
         Assert.Null(window.Workspace);
-        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(File), StringComparison.Ordinal);
+        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(Home), StringComparison.Ordinal);
         Assert.Empty(_announced);
 
         window.Close();
@@ -484,7 +511,7 @@ public class ChangesPanelTests : IDisposable
     {
         Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
         Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
-        System.IO.File.WriteAllText(File, Recoloured("#ff0000"));
+        System.IO.File.WriteAllText(Home, TestPackage.From(Recoloured("#ff0000"))["home.svg"]);
 
         var window = Empty();
         var asked = Asked(window);
@@ -542,7 +569,7 @@ public class ChangesPanelTests : IDisposable
         var saved = await Call(window, "save", new() { ["path"] = File });
 
         Assert.Equal(0, asked());
-        Assert.Equal($"Saved as {File}, replacing the file there.\nicons.svgstudio is part way through a merge: resolve it from Studio's Changes panel, or with git; save and git_commit refuse until then.", saved);
+        Assert.Equal($"Saved as {File}, replacing the project there.\nicons.svgstudio is part way through a merge: resolve it from Studio's Changes panel, or with git; save and git_commit refuse until then.", saved);
         Assert.Equal(File, window.Workspace!.Document.Path);
 
         await window.Changes.Refresh();
@@ -565,12 +592,14 @@ public class ChangesPanelTests : IDisposable
         var other = Path.Combine(_directory, "other");
         Git(_directory, "clone", "--config", "core.autocrlf=false", remote, other);
         Configure(other);
-        System.IO.File.WriteAllText(Path.Combine(other, "icons.svgstudio"), Added(Project, "star"));
-        Git(other, "commit", "-am", "Add a star");
+        TestPackage.Write(Path.Combine(other, "icons.svgstudio"), Added(Project, "star"));
+        Git(other, "add", "-A");
+        Git(other, "commit", "-m", "Add a star");
         Git(other, "push");
 
-        System.IO.File.WriteAllText(File, Added(Project, "moon"));
-        Git(Work, "commit", "-am", "Add a moon");
+        Put(Added(Project, "moon"));
+        Git(Work, "add", "-A");
+        Git(Work, "commit", "-m", "Add a moon");
 
         var window = await Host();
         var offered = new List<string>();
@@ -584,7 +613,7 @@ public class ChangesPanelTests : IDisposable
 
         Assert.Equal(new[] { "The branches have diverged" }, offered);
         Assert.Equal(new[] { "home", "moon", "star" }, window.Workspace!.Document.Root.Drawings.Select(drawing => drawing.Name));
-        Assert.True(await window.Changes.Git!.InMerge());
+        Assert.False(await window.Changes.Git!.InMerge());
         Assert.Empty(_announced);
 
         window.Close();
@@ -593,8 +622,8 @@ public class ChangesPanelTests : IDisposable
     [AvaloniaFact]
     public void Compare_And_Merge_Draw_Both_Sides()
     {
-        var before = ProjectDocument.Parse(Recoloured("#ff0000"), "icons.svgstudio");
-        var after = ProjectDocument.Parse(Recoloured("#0000ff"), "icons.svgstudio");
+        var before = TestPackage.Parse(Recoloured("#ff0000"), "icons.svgstudio");
+        var after = TestPackage.Parse(Recoloured("#0000ff"), "icons.svgstudio");
 
         var compare = new ProjectCompareWindow(Assert.Single(ProjectChanges.Compare(before, after)));
         compare.Show();
@@ -603,7 +632,14 @@ public class ChangesPanelTests : IDisposable
         Assert.Equal(2, Pictures(compare).Count(picture => picture.Picture is { }));
         compare.Close();
 
-        var merging = new ProjectMergeWindow(ProjectMerge.Of(ProjectDocument.Parse(Project, "icons.svgstudio"), before, after));
+        var merging = new ProjectMergeWindow(new ProjectMerge(new[]
+        {
+            new ProjectConflict(
+                "home.svg",
+                TestPackage.From(Recoloured("#ff0000"))["home.svg"],
+                TestPackage.From(Recoloured("#0000ff"))["home.svg"],
+                added: false)
+        }));
         merging.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -629,8 +665,7 @@ public class ChangesPanelTests : IDisposable
             Assert.Equal("star.svg — SVG Studio (dev: master @ c48512f55)", window.Title);
             window.Close();
 
-            Directory.CreateDirectory(Work);
-            System.IO.File.WriteAllText(File, Project);
+            Put(Project);
 
             window = await Host();
             Assert.Equal("Project — icons.svgstudio — SVG Studio (dev: master @ c48512f55)", window.Title);
@@ -653,8 +688,9 @@ public class ChangesPanelTests : IDisposable
             var other = Path.Combine(_directory, "other");
             Git(_directory, "clone", "--config", "core.autocrlf=false", remote, other);
             Configure(other);
-            System.IO.File.WriteAllText(Path.Combine(other, "icons.svgstudio"), Added(Project, "star"));
-            Git(other, "commit", "-am", "Add a star");
+            TestPackage.Write(Path.Combine(other, "icons.svgstudio"), Added(Project, "star"));
+            Git(other, "add", "-A");
+            Git(other, "commit", "-m", "Add a star");
             Git(other, "push");
 
             System.IO.File.WriteAllText(Path.Combine(Work, "notes.txt"), "ahead");
@@ -683,9 +719,10 @@ public class ChangesPanelTests : IDisposable
     [AvaloniaFact]
     public async Task The_Title_Says_A_Merge_Is_Under_Way()
     {
-        Diverged(Added(Project, "moon"), Added(Project, "star"));
+        Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
 
         var window = await Host();
+        window.ResolveConflicts = _ => Task.FromResult<bool?>(true);
         await window.Changes.Merge("other");
 
         Assert.EndsWith(" — icons.svgstudio [main, merging] — " + Studio(), window.Title, StringComparison.Ordinal);
@@ -727,7 +764,7 @@ public class ChangesPanelTests : IDisposable
         Directory.CreateDirectory(Work);
         Git(Work, "init", "-b", "main");
         Configure(Work);
-        System.IO.File.WriteAllText(File, Project);
+        Put(Project);
         Git(Work, "add", "icons.svgstudio");
         Git(Work, "commit", "-m", "Add the icons");
     }
@@ -737,11 +774,24 @@ public class ChangesPanelTests : IDisposable
     {
         Committed();
         Git(Work, "switch", "-c", "other");
-        System.IO.File.WriteAllText(File, theirs);
-        Git(Work, "commit", "-am", "Theirs");
+        Put(theirs);
+        Git(Work, "add", "-A");
+        Git(Work, "commit", "-m", "Theirs");
         Git(Work, "switch", "main");
-        System.IO.File.WriteAllText(File, ours);
-        Git(Work, "commit", "-am", "Ours");
+        Put(ours);
+        Git(Work, "add", "-A");
+        Git(Work, "commit", "-m", "Ours");
+    }
+
+    /// <summary>The project folder as <paramref name="xml"/> describes it, with nothing left over from before.</summary>
+    private void Put(string xml)
+    {
+        if (Directory.Exists(File))
+        {
+            Scratch.Delete(File);
+        }
+
+        TestPackage.Write(File, xml);
     }
 
     private static string Recoloured(string fill) => Project.Replace("#00ff00", fill, StringComparison.Ordinal);

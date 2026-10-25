@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text;
 using Svg.CodeGen.Skia;
 using Svg.Skia;
 using Svg.SourceEditing;
@@ -13,7 +12,7 @@ namespace Svg.Studio;
 /// </summary>
 /// <remarks>
 /// A drawing of its own, never a project's: a project is exported as one build, through
-/// <c>SvgcProjectBuild</c>, which is the one svgc runs.
+/// <see cref="ProjectDocument.Export"/>.
 ///
 /// The name says which form. That is not a guess about what the author meant: the save panel
 /// appends the extension belonging to the type chosen in it, so by the time a path reaches here the
@@ -119,27 +118,5 @@ public static class SvgExport
     }
 
     /// <summary>The generated class's name: the file's own, made into an identifier.</summary>
-    public static string ClassName(string path) => Identifier(Path.GetFileNameWithoutExtension(path) ?? string.Empty);
-
-    /// <summary>A name as C# will take it: anything else becomes an underscore.</summary>
-    /// <remarks>
-    /// Also what a project's drawing falls back on, which is why this is not simply the tail of
-    /// <see cref="ClassName"/>: a drawing is named rather than filed, and a name is not a path.
-    /// </remarks>
-    public static string Identifier(string text)
-    {
-        var name = new StringBuilder();
-
-        foreach (var c in text)
-        {
-            name.Append(c == '_' || char.IsLetterOrDigit(c) ? c : '_');
-        }
-
-        if (name.Length == 0 || char.IsDigit(name[0]))
-        {
-            name.Insert(0, '_');
-        }
-
-        return name.ToString();
-    }
+    public static string ClassName(string path) => ProjectDrawing.Identifier(Path.GetFileNameWithoutExtension(path) ?? string.Empty);
 }

@@ -463,6 +463,26 @@ public class SvgViewerInvisibleTests
         Assert.Equal((30f, 40f, 50f, 50f), (ring!.Bounds.Left, ring.Bounds.Top, ring.Bounds.Right, ring.Bounds.Bottom));
     }
 
+    /// <summary>A shape in &lt;defs&gt; that only a clip path's &lt;use&gt; draws is ringed where that clips.</summary>
+    [AvaloniaFact]
+    public void A_Defs_Shape_Only_A_Clip_Path_Uses_Is_Ringed_Where_It_Clips()
+    {
+        var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <rect id="r" width="20" height="20" />
+                <clipPath id="c"><use xlink:href="#r" x="30" y="40" /></clipPath>
+              </defs>
+              <g transform="translate(10 0)"><rect width="90" height="100" fill="#3366cc" clip-path="url(#c)" /></g>
+            </svg>
+            """);
+
+        using var ring = SvgViewerOutline.Of(svg, ById(svg, "r"));
+
+        Assert.NotNull(ring);
+        Assert.Equal((40f, 40f, 60f, 60f), (ring!.Bounds.Left, ring.Bounds.Top, ring.Bounds.Right, ring.Bounds.Bottom));
+    }
+
     /// <summary>With something invisible selected, another outline inside its box is still picked.</summary>
     [AvaloniaFact]
     public async Task An_Outline_Inside_A_Selected_One_Is_Still_Picked()

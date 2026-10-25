@@ -278,15 +278,15 @@ public sealed class AssistantTools
         Add(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step.");
         Add(Declare, "declare", "Adds one parameter or let to a drawing, a group or the project, or changes one, as a single undo step: what is left out stays as it is, and to renames it with every use, through every drawing and group under a group or the project (not the project's templates). A new parameter needs a type, a new let an expression; a name a group above declares is refused, naming the group to declare it on.");
         Add(Find, "find", "Finds where something is in the project, each drawing as it stands: group and drawing names, element ids, attribute values and text between tags containing the words given, and the {{ }} expressions and lets naming a declared name, matched whole. Does not search the project's templates.");
-        Add(SetNode, "set_node", "Changes one setting of a group, a drawing or the project, as a single undo step. cache, helperScope and skiaSharp are the project's alone, and name, x and y a group's or drawing's; a width or height clears a scale, and a scale both.");
+        Add(SetNode, "set_node", "Changes one setting of a group, a drawing or the project, as a single undo step. The settings an export reads, cache, helperScope, skiaSharp, body, typeface, api, resizing, context and order, are the project's alone; name, x and y a group's or drawing's; and method and parameters a drawing's. A width or height clears a scale, and a scale both.");
         Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Given a path, saves a project never saved, or a drawing of no project's, there: the drawing's tab then saves to it, and its undo history starts again.");
         Add(Export, "export", "Writes what is open to a file outside the project: with a project open, every drawing of it as one C# file, as Export in the File menu does, after taking in the edits of the tab in front; with none, the drawing in front, as C# where the path ends .cs and as SVG where it ends .svg. Text the project's C# cannot write out is laid out as the person chooses where they can be asked, and baked where not, unless they chose for good.");
         Add(NewProject, "new_project", "Starts a new, empty project in place of the one open, closing its tabs; where it or a tab of it holds changes not saved, asks the person whether to throw them away, and is refused where they cannot be asked. Nothing is written until save is given a path.");
         Add(OpenFile, "open_file", "Opens a file by its full path: a drawing (.svg) in a tab of its own, or a project (.svgstudio) in place of the one open, closing its tabs, which over changes not saved in it or a tab of it asks the person whether to throw them away, and is refused where they cannot be asked. An svgc project (.svgcproj) or a PaintCode document (.pcvd) is converted into a new project, held in Studio until save is given a path. The project open already is not read again, but brought forward from a drawing of no project's.");
-        Add(Reload, "reload", "Reads the open project again from its file after it was changed outside Studio, which does not watch the disk; while a drawing of no project's is in front, reads that drawing from its own file instead, and says the project was not read. Over edits not saved, asks the person whether to throw them away, and is refused where they cannot be asked. The project's tabs open again where their path still names the same node; the undo history starts again.");
+        Add(Reload, "reload", "Reads the open project again from its folder after it was changed outside Studio, which does not watch the disk; while a drawing of no project's is in front, reads that drawing from its own file instead, and says the project was not read. Over edits not saved, asks the person whether to throw them away, and is refused where they cannot be asked. The project's tabs open again where their path still names the same node; the undo history starts again.");
         Add(Remove, "remove", "Removes a group or drawing from the project; where a tab under it holds edits not yet saved into the project, asks the person whether to throw them away, and is refused where they cannot be asked.");
         Add(GetChanges, "get_changes", "Lists what has changed in the project since its last commit, edits not yet saved included, as Studio's Changes pane compares it: each group or drawing added, removed, changed, moved or given new settings, and what about it changed, for a commit message; with since, against another commit, branch or tag. Edits held in a tab are left out until saved into the project.");
-        Add(GitHistory, "git_history", "Lists the commits that touched the project's file, newest first, each with the hash get_drawing and get_changes take as a revision.");
+        Add(GitHistory, "git_history", "Lists the commits that touched the project's folder, newest first, each with the hash get_drawing and get_changes take as a revision.");
         Add(GitCommit, "git_commit", "Saves and commits the project to its git repository.");
 
         return tools;
@@ -655,7 +655,7 @@ public sealed class AssistantTools
 
             foreach (var name in ProjectDocument.Settings(found))
             {
-                if (GroupPanel.Value(found, name) is { } own)
+                if ((found is ProjectRoot root && ExportSettings.Holds(name) ? ExportSettings.Value(root, name) : GroupPanel.Value(found, name)) is { } own)
                 {
                     text.Append(name).Append("=\"").Append(own).Append("\"\n");
                 }
@@ -1655,7 +1655,7 @@ public sealed class AssistantTools
             var had = Names(group).ToHashSet(StringComparer.Ordinal);
             var notes = new List<string>();
             var label = Label($"add {name}");
-            var added = await _window.ImportAsync(group, group.Children.Count, new[] { import }, show: false, notes: notes, label: label).ConfigureAwait(true);
+            var added = await _window.ImportAsync(group, new[] { import }, show: false, notes: notes, label: label).ConfigureAwait(true);
 
             if (added.Count == 0)
             {
@@ -1894,7 +1894,7 @@ public sealed class AssistantTools
 
     private Task<string> SetNode(
         [Description("The node path of the group or drawing; empty for the project itself.")] string node,
-        [Description("A group or drawing takes name, namespace, class, padding, width, height, scale, x and y; the project takes namespace, class, padding, width, height, scale, cache, helperScope and skiaSharp. A padding is a fraction of the drawing's size, 0.1 or 10% for a tenth, given once for every side or two to four times in the order CSS gives them.")] string setting,
+        [Description("A group takes name, namespace, class, padding, width, height, scale, x and y, and a drawing method and parameters as well; the project takes namespace, class, padding, width, height and scale, and the settings an export reads: cache, helperScope, skiaSharp, body, typeface, api, resizing, context and order. A padding is a fraction of the drawing's size, 0.1 or 10% for a tenth, given once for every side or two to four times in the order CSS gives them.")] string setting,
         [Description("The new value; left out or empty, the setting is cleared and inherited again.")] string? value = null)
         => Ui(() =>
         {
@@ -1903,17 +1903,25 @@ public sealed class AssistantTools
                 return NoNode(node);
             }
 
-            // Only what the reader takes back, since Validate never sees the node a value is for.
+            // Only what the reader takes back: refused rather than recorded as a step that changed nothing.
             if (!ProjectDocument.Settings(found).Contains(setting, StringComparer.Ordinal))
             {
-                return $"{Path(found)} has no setting {setting}; {(found is ProjectRoot ? "the project" : "a group or drawing")} takes {string.Join(", ", ProjectDocument.Settings(found))}.";
+                return $"{Path(found)} has no setting called '{setting}'; {(found is ProjectRoot ? "the project" : found is ProjectDrawing ? "a drawing" : "a group")} takes {string.Join(", ", ProjectDocument.Settings(found))}.";
             }
 
             var text = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            var exported = found is ProjectRoot && ExportSettings.Holds(setting);
 
             try
             {
-                GroupPanel.Validate(setting, text);
+                if (exported)
+                {
+                    ExportSettings.Validate(setting, text);
+                }
+                else
+                {
+                    GroupPanel.Validate(found, setting, text);
+                }
             }
             catch (SvgcProjectException refusal)
             {
@@ -1929,7 +1937,7 @@ public sealed class AssistantTools
             // with it: 24.0 for a width of 24 is no step, and the same width beside a scale is one.
             var was = found.Element.Attributes().Select(attribute => new XAttribute(attribute)).ToList();
 
-            GroupPanel.Write(found, setting, text);
+            Write();
 
             var same = string.Concat(found.Element.Attributes()) == string.Concat(was);
 
@@ -1945,7 +1953,7 @@ public sealed class AssistantTools
             // Write can take a size's or a place's partners with it, which a client that reads nothing again would not know.
             var given = ProjectDocument.Settings(found).Where(name => name != setting && found.Setting(name) is { }).ToList();
 
-            workspace.Do(label, () => ProjectSnapshot.Attributes(found), () => GroupPanel.Write(found, setting, text));
+            workspace.Do(label, () => ProjectSnapshot.Attributes(found), Write);
             Undoable(label);
 
             var cleared = given.Where(name => found.Setting(name) is null).ToList();
@@ -1954,6 +1962,18 @@ public sealed class AssistantTools
                 $"{(text is null ? "Cleared" : "Set")} {setting} on {Path(found)}."
                 + (cleared.Count > 0 ? $" It also cleared {string.Join(" and ", cleared)}." : null) + Undoes,
                 $"change {setting}");
+
+            void Write()
+            {
+                if (exported)
+                {
+                    ExportSettings.Write((ProjectRoot)found, setting, text);
+                }
+                else
+                {
+                    GroupPanel.Write(found, setting, text);
+                }
+            }
         });
 
     private Task<string> Save(
@@ -2005,7 +2025,7 @@ public sealed class AssistantTools
                 return "A project saves to a path ending .svgstudio.";
             }
 
-            // Wherever SaveAsync writes the project file, which a drawing of no project's in front does too while the project holds edits.
+            // Wherever SaveAsync writes the project, which a drawing of no project's in front does too while the project holds edits.
             if (_window.Workspace is { Document.Path: { } } project && (alone is null || target is null && project.IsEdited))
             {
                 // WriteAsync asks too, but an unedited project never reaches it and would answer "Saved."
@@ -2032,7 +2052,7 @@ public sealed class AssistantTools
                 return Changed("Nothing was saved");
             }
 
-            var replacing = target is { } && File.Exists(target);
+            var replacing = target is { } && (alone is null ? ProjectPackage.Exists(target) : File.Exists(target));
             var moving = alone is { } && target is { };
             var notes = new List<string>();
 
@@ -2041,7 +2061,7 @@ public sealed class AssistantTools
                 return string.Join("\n", notes.DefaultIfEmpty("Nothing was saved."));
             }
 
-            var saved = target is null ? "Saved" : $"Saved as {target}" + (replacing ? ", replacing the file there" : null);
+            var saved = target is null ? "Saved" : $"Saved as {target}" + (replacing ? $", replacing the {(alone is null ? "project" : "file")} there" : null);
 
             // Moving the drawing writes it alone, so the project's tabs are no exception to it.
             return Report(
@@ -2144,8 +2164,9 @@ public sealed class AssistantTools
     });
 
     /// <remarks>
-    /// Compared as the Changes pane compares, so a rename reads as one removed and one added; but
-    /// against what git has now, where the pane's HEAD is as old as the window's last time in front.
+    /// Compared as the Changes pane compares, so a drawing renamed or filed elsewhere reads as one
+    /// row moved; but against what git has now, where the pane's HEAD is as old as the window's last
+    /// time in front.
     /// </remarks>
     private Task<string> GetChanges(
         [Description("A commit, branch or tag to compare with, such as HEAD~1 or a hash from git_history; empty for the last commit.")] string? since = null)
@@ -2183,9 +2204,9 @@ public sealed class AssistantTools
             var footer = (held.Count > 0 ? $"Not in it: edits held in {Tabs(held)}, until {(held.Count == 1 ? "it is" : "each is")} saved into the project.\n" : null)
                          + $"get_drawing with revision \"{revision}\" reads a drawing as git has it there.";
 
-            // First, as what follows compares Studio's copy, which the file on disk no longer is; reload refuses a merge left part way.
+            // First, as what follows compares Studio's copy, which the folder on disk no longer is; reload refuses a merge left part way.
             var outdated = Outdated() is not { } line ? null
-                : await _window.Changes.Conflicted().ConfigureAwait(true) ? $"{git.Name} is part way through a merge or a rebase, which left its file other than Studio's copy compared here; finish it, or abort it, then reload.\n"
+                : await _window.Changes.Conflicted().ConfigureAwait(true) ? $"{git.Name} is part way through a merge or a rebase, which left its files other than Studio's copy compared here; finish it, or abort it, then reload.\n"
                 : line + "\n";
 
             if (changes.Count == 0)
@@ -2214,14 +2235,14 @@ public sealed class AssistantTools
 
                 if (change.Kind == ProjectChangeKind.Moved && differs.Count == 0)
                 {
-                    differs.Add("moved among the rows beside it");
+                    differs.Add($"moved from {ProjectChanges.KeyOf(change.Before!)}");
                 }
 
                 return (differs.Count > 0 ? row.Append(": ").AppendJoin("; ", differs) : row).ToString();
             }
         });
 
-    /// <summary>What differs between two versions of a node, an entry for each of <see cref="ProjectChanges.Aspects"/>; nothing where either is missing.</summary>
+    /// <summary>What differs between two versions of a node, an entry for each of its <see cref="Aspects"/>; nothing where either is missing.</summary>
     private static IEnumerable<string> Differs(ProjectNode? before, ProjectNode? after)
     {
         if (before is null || after is null)
@@ -2229,11 +2250,11 @@ public sealed class AssistantTools
             yield break;
         }
 
-        var (was, now) = (ProjectChanges.Aspects(before), ProjectChanges.Aspects(after));
+        var (was, now) = (Aspects(before), Aspects(after));
 
         foreach (var aspect in was.Keys.Union(now.Keys))
         {
-            var (old, @new) = (ProjectChanges.Value(was, aspect), ProjectChanges.Value(now, aspect));
+            var (old, @new) = (was.GetValueOrDefault(aspect), now.GetValueOrDefault(aspect));
 
             if (old == @new)
             {
@@ -2242,9 +2263,9 @@ public sealed class AssistantTools
 
             yield return aspect switch
             {
-                ProjectChanges.SvgAspect => "its drawing changed",
-                ProjectChanges.CodeAspect => Declarations((ProjectGroup)before, (ProjectGroup)after),
-                ProjectChanges.PlaceAspect => $"its place {old ?? "unset"} → {@new ?? "unset"}",
+                SvgAspect => "its drawing changed",
+                CodeAspect => Declarations((ProjectGroup)before, (ProjectGroup)after),
+                PlaceAspect => $"its place {old ?? "unset"} → {@new ?? "unset"}",
                 _ => $"{aspect} {Quoted(old)} → {Quoted(@new)}"
             };
         }
@@ -2265,8 +2286,8 @@ public sealed class AssistantTools
     /// <summary>How the project's templates differ between two versions, by name, or null where they do not, compared as a drawing's text is.</summary>
     private static string? Templates(ProjectRoot before, ProjectRoot after)
     {
-        var was = before.Templates.Select(one => (one.Name, Text: ProjectChanges.Dedented(one.Text))).ToList();
-        var now = after.Templates.Select(one => (one.Name, Text: ProjectChanges.Dedented(one.Text))).ToList();
+        var was = before.Templates.Select(one => (one.Name, Text: Lf(one.Text))).ToList();
+        var now = after.Templates.Select(one => (one.Name, Text: Lf(one.Text))).ToList();
 
         if (was.SequenceEqual(now))
         {
@@ -2286,6 +2307,39 @@ public sealed class AssistantTools
         static string? Part(string verb, IEnumerable<string> names)
             => names.ToList() is { Count: > 0 } some ? $"{verb} {string.Join(", ", some)}" : null;
     }
+
+    private const string SvgAspect = "<svg>";
+    private const string CodeAspect = "<code>";
+    private const string PlaceAspect = "<place>";
+
+    /// <summary>What a node is, as one entry each for its settings, its place, and what it draws or declares.</summary>
+    /// <remarks>x and y are one entry because a place is both or neither.</remarks>
+    private static Dictionary<string, string?> Aspects(ProjectNode node)
+    {
+        var aspects = node.Element.Attributes()
+            .Where(attribute => !attribute.IsNamespaceDeclaration && attribute.Name.LocalName is not ("x" or "y"))
+            .ToDictionary(attribute => attribute.Name.ToString(), attribute => (string?)attribute.Value, StringComparer.Ordinal);
+
+        if (node is not ProjectRoot)
+        {
+            aspects[PlaceAspect] = (string?)node.Element.Attribute("x") is { } x ? x + "," + (string?)node.Element.Attribute("y") : null;
+        }
+
+        switch (node)
+        {
+            case ProjectDrawing drawing:
+                aspects[SvgAspect] = Lf(drawing.Text);
+                break;
+            case ProjectGroup { Code: { } } group:
+                aspects[CodeAspect] = Lf(group.CodeText);
+                break;
+        }
+
+        return aspects;
+    }
+
+    /// <summary>Text as <see cref="ProjectChanges"/> compares it: without the CRLF Git for Windows checks a file out with.</summary>
+    private static string Lf(string text) => text.Replace("\r\n", "\n");
 
     private Task<string> GitHistory([Description("How many to list, from 1 to 100.")] int count = 20) => UiAsync(async () =>
     {
@@ -2347,7 +2401,7 @@ public sealed class AssistantTools
             return (null, $"'{revision}' is not a revision; name a commit, a branch or a tag, such as HEAD~1.");
         }
 
-        var text = await git.At(revision).ConfigureAwait(true);
+        var files = await git.Files(revision).ConfigureAwait(true);
 
         // One of those calls can open another project, whose nodes would then be read against this one's revision.
         if (!ReferenceEquals(_window.Workspace, asked))
@@ -2355,14 +2409,14 @@ public sealed class AssistantTools
             return (null, "Another project was opened while git was being read; ask again.");
         }
 
-        if (text is null)
+        if (files is null)
         {
             return (null, $"Git has no {git.Name} at {revision}.");
         }
 
         try
         {
-            return (ProjectDocument.Parse(text, System.IO.Path.Combine(git.Directory, git.Name)), string.Empty);
+            return (ProjectDocument.Read(files, System.IO.Path.Combine(git.Directory, git.Name)), string.Empty);
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
         {
@@ -2370,7 +2424,7 @@ public sealed class AssistantTools
         }
     }
 
-    /// <summary><paramref name="now"/> as <paramref name="then"/> has it, paired as a merge pairs it, so through a move or a rename.</summary>
+    /// <summary><paramref name="now"/> as <paramref name="then"/> has it, paired as get_changes pairs it, so through a move or a rename.</summary>
     /// <param name="current">The drawing's text as it stands, where it is held: in its tab when it has one.</param>
     /// <param name="said">Why there is none; or, where there is, what to say of it after the drawing's name.</param>
     private static ProjectDrawing? Was(ProjectDocument then, ProjectNode? now, string current, string revision, out string said)
@@ -2382,13 +2436,15 @@ public sealed class AssistantTools
             return null;
         }
 
-        var was = new ProjectMerge.Side(then, drawing.Owner).BaseOf.TryGetValue(drawing, out var node) ? node as ProjectDrawing : null;
+        var was = ProjectChanges.Compare(then, drawing.Owner).FirstOrDefault(change => ReferenceEquals(change.After, drawing)) is { } change
+            ? change.Before as ProjectDrawing
+            : then.Root.Drawings.FirstOrDefault(one => ProjectChanges.KeyOf(one) == ProjectChanges.KeyOf(drawing));
 
-        // The same as get_changes judges it, so a move to another depth since reads as no change.
+        // The same as get_changes judges it, so line endings a checkout chose read as no change.
         said = was is null ? $"{Named(drawing)} is not in the project at {revision}: it was added since, or renamed and changed."
             : $", as git has it at {revision}"
               + (was.Name == drawing.Name ? null : $", named {was.Name} there")
-              + (ProjectChanges.Dedented(was.Text) == ProjectChanges.Dedented(current) ? ", its text the same as now" : null);
+              + (Lf(was.Text) == Lf(current) ? ", its text the same as now" : null);
 
         return was;
     }
@@ -2550,7 +2606,8 @@ public sealed class AssistantTools
 
         var was = _window.Workspace;
 
-        if (was?.Document.Path is { } open && Same(open, file))
+        // A project opens from anything inside its folder, its studio.xml among them.
+        if (was?.Document.Path is { } open && Same(open, ProjectPackage.Find(file) ?? file))
         {
             // Past a drawing of no project's, which is what save and reload would otherwise act on.
             var forward = _window.FrontNode is null ? _window.OpenNodes().LastOrDefault() ?? was.Document.Root : null;
@@ -2560,7 +2617,7 @@ public sealed class AssistantTools
                 await _window.ShowAsync(forward).ConfigureAwait(true);
             }
 
-            return Report($"The project at {file} is open already{(forward is { } ? $", and {Describe(forward, _small)} is in front now" : null)}; reload reads it again from its file.", null);
+            return Report($"The project at {file} is open already{(forward is { } ? $", and {Describe(forward, _small)} is in front now" : null)}; reload reads it again from its folder.", null);
         }
 
         var notes = new List<string>();
@@ -2654,11 +2711,11 @@ public sealed class AssistantTools
 
         // Read here first, so a file that no longer parses is said, not taken for a merge to resolve, and
         // nobody is asked to throw work away for it.
-        string read;
+        IReadOnlyDictionary<string, string> read;
 
         try
         {
-            read = ProjectDocument.Load(path).ToXml();
+            read = ProjectDocument.Load(path).Files();
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
         {
@@ -2680,7 +2737,7 @@ public sealed class AssistantTools
         }
 
         // Over what is held it is read again all the same: the person has said to throw it away, or closing says why not.
-        if (held.Count == 0 && string.Equals(read, workspace.Document.ToXml(), StringComparison.Ordinal))
+        if (held.Count == 0 && ProjectPackage.Same(read, workspace.Document.Files()))
         {
             return Report($"Nothing changed: {path} holds what Studio has.", null);
         }
@@ -3214,7 +3271,7 @@ public sealed class AssistantTools
         return done;
     }
 
-    /// <summary>Why the project's file is no longer what Studio last read or wrote, which nothing should write over unread; null while it is.</summary>
+    /// <summary>Why the project's folder is no longer what Studio last read or wrote, which nothing should write over unread; null while it is.</summary>
     private string? Outdated()
         => _window.Workspace is { } workspace && workspace.Document.ChangedOnDisk()
             ? $"{workspace.Name} changed on disk since Studio last read or wrote it, as a pull in a terminal changes it; "
@@ -3345,11 +3402,11 @@ public sealed class AssistantTools
     {
         var segments = new List<string>();
 
-        for (var at = node; at.Parent is { } parent; at = parent)
+        for (var at = node; at is not ProjectRoot; at = at.Parent!)
         {
-            var index = parent.Children.ToList().IndexOf(at);
+            // A node an undo has taken out says it is in no group, or is in its group's Children no longer.
+            var index = at.Parent?.Children.ToList().IndexOf(at) ?? -1;
 
-            // A node an undo has taken out keeps its Parent and is in nobody's Children.
             if (index < 0)
             {
                 return Gone;
@@ -3385,7 +3442,7 @@ public sealed class AssistantTools
             : $"'{path}' is {(Resolve(path) is { } found ? (found is ProjectRoot ? "the project, " : found is ProjectGroup ? "a group, " : "a drawing, ") : null)}not a {kind}. get_project lists the paths.";
 
     /// <summary>The file a tool was given a path to, or null and why that path will not do.</summary>
-    /// <param name="existing">Whether the file has to be there already.</param>
+    /// <param name="existing">Whether the file, or the project's folder, has to be there already.</param>
     private static string? Located(string path, bool existing, out string why)
     {
         var full = System.IO.Path.IsPathFullyQualified(path) ? System.IO.Path.GetFullPath(path) : null;
@@ -3393,7 +3450,7 @@ public sealed class AssistantTools
 
         why = full is null ? $"'{path}' is not a full path; Studio has no folder it is relative to."
             : !Directory.Exists(folder) ? $"There is no folder {folder ?? full}."
-            : existing && !File.Exists(full) ? $"There is no file at {full}."
+            : existing && !File.Exists(full) && !ProjectPackage.Exists(full) ? $"There is no file at {full}."
             : string.Empty;
 
         return why.Length == 0 ? full : null;

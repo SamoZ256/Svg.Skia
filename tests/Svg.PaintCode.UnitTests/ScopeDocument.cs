@@ -73,7 +73,8 @@ internal static class ScopeDocument
     }
 
     /// <summary>A library colour: a parameter where <paramref name="usage"/> marks it used, a constant where not.</summary>
-    internal static int Color(KeyedArchiveBuilder archive, string name, string components, int usage = 0)
+    /// <remarks><paramref name="field"/> is NSRGB or NSWhite for a colour an older PaintCode saved.</remarks>
+    internal static int Color(KeyedArchiveBuilder archive, string name, string components, int usage = 0, string field = "NSComponents")
         => archive.Object(
             "PPColor",
             new[]
@@ -81,8 +82,8 @@ internal static class ScopeDocument
                 ("name", archive.Text(name)),
                 ("basicNSColor", archive.Object(
                     "NSColor",
-                    new[] { ("NSComponents", archive.Data(Encoding.ASCII.GetBytes(components))) },
-                    ("NSColorSpace", 1)))
+                    new[] { (field, archive.Data(Encoding.ASCII.GetBytes(components))) },
+                    ("NSColorSpace", field == "NSWhite" ? 3 : 1)))
             },
             ("isDerived", false), ("operation", 0), ("usage", usage));
 

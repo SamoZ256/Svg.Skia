@@ -689,14 +689,20 @@ public class SvgViewerElementPanelTests
     /// </remarks>
     private static void Carry(Window window, TextBox box, string variable, bool drop = true)
     {
+        var carried = new DataTransfer();
+
+        carried.Add(DataTransferItem.Create(SvgViewerVariableDrag.Format, variable));
+
+        Carry(window, box, carried, drop);
+    }
+
+    /// <inheritdoc cref="Carry(Window, TextBox, string, bool)"/>
+    private static void Carry(Window window, TextBox box, IDataTransfer carried, bool drop = true, DragDropEffects effects = DragDropEffects.Link)
+    {
         // Scrolled to first, as somebody dragging would have to: the rows outrun their region, and
         // a point worked out for one that is still below it lands on whatever is drawn there.
         box.BringIntoView();
         Dispatcher.UIThread.RunJobs();
-
-        var carried = new DataTransfer();
-
-        carried.Add(DataTransferItem.Create(SvgViewerVariableDrag.Format, variable));
 
         var at = box.TranslatePoint(new Point(box.Bounds.Width / 2d, box.Bounds.Height / 2d), window);
 
@@ -708,7 +714,7 @@ public class SvgViewerElementPanelTests
 
         foreach (var stage in stages)
         {
-            window.DragDrop(at!.Value, stage, carried, DragDropEffects.Link, RawInputModifiers.None);
+            window.DragDrop(at!.Value, stage, carried, effects, RawInputModifiers.None);
         }
 
         Dispatcher.UIThread.RunJobs();
@@ -866,6 +872,186 @@ public class SvgViewerElementPanelTests
         window.Close();
     }
 
+    // ---- a tree row dropped on a row ------------------------------------------------------------------
+
+    /// <summary>A clip path, a mask and a spare circle kept in &lt;defs&gt;, and a rect whose boxes they are dropped on.</summary>
+    private const string Kept = """
+        <svg xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <clipPath id="window"><rect width="4" height="4" /></clipPath>
+            <mask id="sweep"><rect width="4" height="4" fill="#ffffff" /></mask>
+            <circle id="spare" r="2" />
+          </defs>
+          <rect width="8" height="8" />
+        </svg>
+        """;
+
+    /// <summary>Records each row the panel asks to apply, with the property, and writes nothing.</summary>
+    private static List<string> Asked(SvgViewerElementPanel panel)
+    {
+        var asked = new List<string>();
+
+        panel.ClipRequested = (row, property) =>
+        {
+            asked.Add($"{row} {property}");
+
+            return true;
+        };
+
+        return asked;
+    }
+
+    /// <summary>Lets go of a drag that was only carried, as leaving the panel does.</summary>
+    private static void Leave(Window window)
+    {
+        window.DragDrop(new Point(1, 1), RawDragEventType.DragLeave, new DataTransfer(), DragDropEffects.None, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>Each lights only the box of its own kind, and is asked for by that box; a panel nobody wired takes neither.</summary>
+    [AvaloniaFact]
+    public void A_Clip_Path_Is_Offered_Only_The_Clip_Box_And_A_Mask_Only_The_Mask_Box()
+    {
+        var held = new Held(Kept);
+        var window = held.Show("1");
+
+        Carry(window, Box(window, "clip-path"), SvgViewerElementTree.Carrying("0/0", "clip-path"), drop: false);
+
+        Assert.Empty(held.Panel.Offered);
+
+        Leave(window);
+
+        var asked = Asked(held.Panel);
+
+        Carry(window, Box(window, "clip-path"), SvgViewerElementTree.Carrying("0/0", "clip-path"), drop: false);
+
+        Assert.Equal(new[] { "clip-path" }, held.Panel.Offered);
+
+        Leave(window);
+
+        Carry(window, Box(window, "mask"), SvgViewerElementTree.Carrying("0/1", "mask"), drop: false);
+
+        Assert.Equal(new[] { "mask" }, held.Panel.Offered);
+
+        Leave(window);
+
+        Carry(window, Box(window, "clip-path"), SvgViewerElementTree.Carrying("0/1", "mask"));
+        Carry(window, Box(window, "mask"), SvgViewerElementTree.Carrying("0/1", "mask"));
+        Carry(window, Box(window, "clip-path"), SvgViewerElementTree.Carrying("0/0", "clip-path"));
+
+        Assert.Equal(new[] { "0/1 mask", "0/0 clip-path" }, asked);
+        Assert.Equal(0, held.Writes);
+
+        window.Close();
+    }
+
+    /// <summary>A shape kept in &lt;defs&gt; could be either, so both boxes take it, and the one it lands on says which.</summary>
+    [AvaloniaFact]
+    public void A_Spare_Shape_Is_Offered_Both_Boxes()
+    {
+        var held = new Held(Kept);
+        var window = held.Show("1");
+        var asked = Asked(held.Panel);
+
+        Carry(window, Box(window, "mask"), SvgViewerElementTree.Carrying("0/2", "clip-path", "mask"), drop: false);
+
+        Assert.Equal(new[] { "clip-path", "mask" }, held.Panel.Offered.Order(StringComparer.Ordinal));
+
+        Leave(window);
+
+        Carry(window, Box(window, "mask"), SvgViewerElementTree.Carrying("0/2", "clip-path", "mask"));
+
+        Assert.Equal(new[] { "0/2 mask" }, asked);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// macOS narrows what a drag offers to a copy while ⌥ is held and turns down any other answer,
+    /// so a box answers a copy where no link is offered.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Row_Is_Taken_With_A_Copy_Where_The_Drag_Offers_No_Link()
+    {
+        var held = new Held(Kept);
+        var window = held.Show("1");
+        var asked = Asked(held.Panel);
+        var answered = new List<DragDropEffects>();
+
+        window.AddHandler(DragDrop.DragOverEvent, (_, e) => answered.Add(e.DragEffects), RoutingStrategies.Bubble, handledEventsToo: true);
+
+        Carry(window, Box(window, "mask"), SvgViewerElementTree.Carrying("0/2", "clip-path", "mask"), effects: DragDropEffects.Copy);
+
+        Assert.Equal(DragDropEffects.Copy, answered.Last());
+        Assert.Equal(new[] { "0/2 mask" }, asked);
+
+        window.Close();
+    }
+
+    /// <summary>The drawing itself has no place of its own to cover, and an &lt;svg&gt; is clipped but never drawn masked.</summary>
+    [AvaloniaFact]
+    public void Neither_The_Drawing_Itself_Nor_A_Mask_On_An_Svg_Is_Offered()
+    {
+        const string markup = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <defs><circle id="spare" r="2" /></defs>
+              <svg id="inner" width="4" height="4"><rect width="4" height="4" /></svg>
+            </svg>
+            """;
+
+        foreach (var (address, offered) in new[] { (string.Empty, Array.Empty<string>()), ("1", new[] { "clip-path" }) })
+        {
+            var held = new Held(markup);
+
+            held.Panel.NewClipRequested = _ => true;
+            Asked(held.Panel);
+
+            var window = held.Show(address);
+
+            Assert.Equal(address.Length > 0, News(window, "clip-path").Contains("New clip path"));
+            Assert.Empty(News(window, "mask"));
+
+            Carry(window, Box(window, "clip-path"), SvgViewerElementTree.Carrying("0/0", "clip-path", "mask"), drop: false);
+
+            Assert.Equal(offered, held.Panel.Offered);
+
+            window.Close();
+        }
+
+        static string?[] News(Window window, string name)
+        {
+            var pick = Control(window, "choices", name);
+
+            Click(pick);
+
+            var said = Offered(pick).Select(Said).Where(text => text?.StartsWith("New ", StringComparison.Ordinal) == true).ToArray();
+
+            Assert.IsType<MenuFlyout>(pick.Flyout).Hide();
+            Dispatcher.UIThread.RunJobs();
+
+            return said;
+        }
+    }
+
+    /// <summary>A clip path the style sets wins over the attribute, so its box is read-only and takes nothing; the mask box still does.</summary>
+    [AvaloniaFact]
+    public void A_Clip_Set_In_Style_Takes_No_Row()
+    {
+        var held = new Held(Kept.Replace("<rect width=\"8\" height=\"8\" />", "<rect width=\"8\" height=\"8\" style=\"clip-path:url(#window)\" />"));
+        var window = held.Show("1");
+        var asked = Asked(held.Panel);
+
+        Carry(window, Box(window, "clip-path"), SvgViewerElementTree.Carrying("0/2", "clip-path", "mask"));
+
+        Assert.Empty(asked);
+
+        Carry(window, Box(window, "mask"), SvgViewerElementTree.Carrying("0/2", "clip-path", "mask"), drop: false);
+
+        Assert.Equal(new[] { "mask" }, held.Panel.Offered);
+
+        window.Close();
+    }
+
     // ---- the controls beside a box ----------------------------------------------------------------
 
     private static Button Control(Window window, string kind, string name)
@@ -979,6 +1165,118 @@ public class SvgViewerElementPanelTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("""<rect fill="url(#g)" />""", held.Text);
+
+        window.Close();
+    }
+
+    /// <summary>A new clip path or mask is made by a host, which knows where the element is drawn; a panel with none offers neither.</summary>
+    [AvaloniaFact]
+    public void The_Clip_Path_Menu_Offers_A_New_One_Where_A_Host_Can_Make_It()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <clipPath id="window"><rect width="4" height="4" /></clipPath>
+              <rect width="8" height="8" />
+            </svg>
+            """);
+        var window = held.Show("1");
+        var clip = Control(window, "choices", "clip-path");
+
+        Click(clip);
+
+        Assert.Equal(new[] { "none", "url(#window)" }, Offered(clip).Select(Said));
+
+        Assert.IsType<MenuFlyout>(clip.Flyout).Hide();
+        Dispatcher.UIThread.RunJobs();
+
+        var asked = new List<string>();
+
+        held.Panel.NewClipRequested = property =>
+        {
+            asked.Add(property);
+
+            return true;
+        };
+
+        Click(clip);
+
+        var offered = Offered(clip);
+
+        Assert.Equal(new[] { "none", "url(#window)", "New clip path" }, offered.Select(Said));
+
+        offered[2].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.IsType<MenuFlyout>(clip.Flyout).Hide();
+        Dispatcher.UIThread.RunJobs();
+
+        var mask = Control(window, "choices", "mask");
+
+        Click(mask);
+
+        Offered(mask).Single(item => Said(item) == "New mask").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "clip-path", "mask" }, asked);
+        Assert.Equal(0, held.Writes);
+
+        window.Close();
+    }
+
+    /// <summary>The viewer makes it for the row its tree has picked, which is the element the panel shows.</summary>
+    [AvaloniaFact]
+    public async Task A_New_Mask_From_The_Panel_Masks_The_Picked_Row()
+    {
+        var viewer = new SvgViewer();
+        var window = new Window { Width = 900, Height = 700, Background = Brushes.White, Content = viewer };
+
+        window.Show();
+        Assert.True(await viewer.LoadTextAsync(Drawing));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        var mask = Control(window, "choices", "mask");
+
+        Click(mask);
+
+        Offered(mask).Single(item => Said(item) == "New mask").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("""<rect x="0" y="0" width="24" height="24" fill="#00ff00" mask="url(#mask)" />""", viewer.Source);
+        Assert.Contains("""<path d="M 0 0 L 24 0 L 24 24 L 0 24 Z" fill="white" />""", viewer.Source);
+
+        window.Close();
+    }
+
+    /// <summary>A filter hiding the picked row leaves the panel on it, and what the panel makes is still for that row.</summary>
+    [AvaloniaFact]
+    public async Task A_New_Mask_From_The_Panel_Masks_The_Row_The_Filter_Hides()
+    {
+        var viewer = new SvgViewer();
+        var window = new Window { Width = 900, Height = 700, Background = Brushes.White, Content = viewer };
+
+        window.Show();
+        Assert.True(await viewer.LoadTextAsync(Drawing));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Elements.Filter = "nothing is called this";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(viewer.Elements.SelectedNode);
+
+        var mask = Control(window, "choices", "mask");
+
+        Click(mask);
+
+        Offered(mask).Single(item => Said(item) == "New mask").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("""<rect x="0" y="0" width="24" height="24" fill="#00ff00" mask="url(#mask)" />""", viewer.Source);
 
         window.Close();
     }

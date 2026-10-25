@@ -70,6 +70,11 @@ public class LayoutSettingTests : IDisposable
     {
         var path = Path.Combine(_directory, name);
 
+        if (name.EndsWith(".svgstudio", StringComparison.Ordinal))
+        {
+            return TestPackage.Write(path, text);
+        }
+
         File.WriteAllText(path, text);
 
         return path;

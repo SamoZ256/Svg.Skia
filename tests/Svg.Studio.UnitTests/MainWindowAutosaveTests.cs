@@ -82,8 +82,8 @@ public class MainWindowAutosaveTests : IDisposable
         Assert.True(Recovery(window).Pulse());
 
         // The copy holds the work; the project holds what it held when it was opened.
-        Assert.Equal(window.Workspace!.Document.ToXml(), File.ReadAllText(ProjectRecovery.For(path)));
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Dump(window.Workspace!.Document), TestPackage.Dump(ProjectDocument.Read(ProjectRecovery.Read(ProjectRecovery.For(path))!, null)));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
     }
 
     [AvaloniaFact]
@@ -193,9 +193,9 @@ public class MainWindowAutosaveTests : IDisposable
         Assert.Contains("icons.svgstudio", Assert.Single(asked), StringComparison.Ordinal);
 
         // Given back, and still nobody's but the window's: the file is what it was.
-        Assert.Contains("scale=\"6\"", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Contains("scale=\"6\"", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
         Assert.True(window.Workspace.IsEdited);
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
         Assert.True(File.Exists(ProjectRecovery.For(path)));
     }
 
@@ -216,7 +216,7 @@ public class MainWindowAutosaveTests : IDisposable
 
         Assert.False(window.Workspace!.Document.ChangedOnDisk());
 
-        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        TestPackage.Write(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
 
         Assert.True(window.Workspace.Document.ChangedOnDisk());
     }
@@ -235,7 +235,7 @@ public class MainWindowAutosaveTests : IDisposable
         await window.OpenAsync(new[] { path });
         Dispatcher.UIThread.RunJobs();
 
-        Assert.DoesNotContain("scale=\"6\"", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("scale=\"6\"", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
         Assert.False(window.Workspace.IsEdited);
         Assert.False(File.Exists(ProjectRecovery.For(path)));
     }
@@ -290,7 +290,7 @@ public class MainWindowAutosaveTests : IDisposable
 
         // Something else wrote the file after the crash, and the copy still holds work it never saw.
         Assert.Contains("something else has written it since", Assert.Single(asked), StringComparison.Ordinal);
-        Assert.Contains("scale=\"6\"", window.Workspace!.Document.ToXml(), StringComparison.Ordinal);
+        Assert.Contains("scale=\"6\"", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -466,10 +466,18 @@ public class MainWindowAutosaveTests : IDisposable
     }
 
     /// <summary>A copy of <paramref name="text"/> left as a crash would have left it.</summary>
-    private static void Kept(string path, string text)
+    internal static void Kept(string path, string text)
     {
         Directory.CreateDirectory(ProjectRecovery.Store);
-        File.WriteAllText(ProjectRecovery.For(path), text);
+
+        using var zip = System.IO.Compression.ZipFile.Open(ProjectRecovery.For(path), System.IO.Compression.ZipArchiveMode.Create);
+
+        foreach (var (relative, file) in TestPackage.From(text))
+        {
+            using var entry = new StreamWriter(zip.CreateEntry(relative).Open());
+
+            entry.Write(file);
+        }
     }
 
     /// <summary>One gesture: a row into the group beside it, which no tab is holding.</summary>
@@ -514,6 +522,11 @@ public class MainWindowAutosaveTests : IDisposable
     private string Write(string name, string text)
     {
         var path = Path.Combine(_directory, name);
+
+        if (name.EndsWith(".svgstudio", StringComparison.Ordinal))
+        {
+            return TestPackage.Write(path, text);
+        }
 
         File.WriteAllText(path, text);
 

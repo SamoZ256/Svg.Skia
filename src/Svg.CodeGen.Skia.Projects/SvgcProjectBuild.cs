@@ -45,6 +45,8 @@ public sealed class SvgcBuildSettings
 
     public SvgSizeRequest Size { get; set; } = SvgSizeRequest.None;
 
+    public SvgCodeStyle Style { get; set; } = SvgCodeStyle.Default;
+
     /// <summary>The settings a project asks for, with the built-in defaults under them.</summary>
     /// <remarks>
     /// What a caller with no options of its own wants. <c>svgc</c> starts here and lays its flags
@@ -68,7 +70,8 @@ public sealed class SvgcBuildSettings
             Class = project.Class ?? "Generated",
             Recipe = project.Recipe,
             SingleFile = project.SingleFile,
-            Size = new SvgSizeRequest(project.Width, project.Height, project.Scale, SvgPadding.Parse(project.Padding))
+            Size = new SvgSizeRequest(project.Width, project.Height, project.Scale, SvgPadding.Parse(project.Padding)),
+            Style = project.Style
         };
     }
 }
@@ -138,7 +141,8 @@ public static class SvgcProjectBuild
                     settings.HelperScope,
                     HelperClassNameFor(settings.HelperScope, singleFile),
                     settings.Cache,
-                    settings.SkiaSharp));
+                    settings.SkiaSharp,
+                    settings.Style));
 
             written.Add(singleFile);
 
@@ -212,6 +216,12 @@ public static class SvgcProjectBuild
     /// <summary>Says why a build cannot be made, before any of it is.</summary>
     private static void Refuse(SvgcProject project, SvgcBuildSettings settings)
     {
+        // One class calling every drawing has one file to be in.
+        if (settings.Style.Api is { } && settings.SingleFile is null && settings.Emit == SvgEmit.CSharp)
+        {
+            throw new SvgcProjectException($"The API class {settings.Style.Api} needs every drawing in one file. Name a singleFile.");
+        }
+
         if (settings.Emit != SvgEmit.Svg)
         {
             return;
@@ -301,7 +311,8 @@ public static class SvgcProjectBuild
                 new[] { drawing },
                 SvgHelperScope.PerClass,
                 cache: settings.Cache,
-                skiaSharp: settings.SkiaSharp)
+                skiaSharp: settings.SkiaSharp,
+                style: new SvgCodeStyle { Body = settings.Style.Body, Typeface = settings.Style.Typeface })
             : null;
     }
 
@@ -386,11 +397,19 @@ public static class SvgcProjectBuild
 
         return new SkiaCSharpDrawing(
             picture,
-            item.Namespace ?? settings.Namespace,
+            SvgcProject.ResolveNamespace(new[] { item.Namespace, settings.Namespace })!,
             item.Class ?? settings.Class,
             declarations,
             frozen.Select(carrier => SvgExpressionAttributes.Lifted(carrier.Element.CustomAttributes, carrier.Name) ?? string.Empty).ToList(),
-            Bounds(svgDocument, sceneDocument, item.Input, log));
+            Bounds(svgDocument, sceneDocument, item.Input, log))
+        {
+            Method = item.Method,
+            Parameters = item.Parameters,
+
+            // Hidden text too: PaintCode gives a canvas holding any its Context, and one whose
+            // letters were drawn as outlines beside a hidden copy still takes it.
+            HasText = svgDocument.Descendants().OfType<SvgTextBase>().Any()
+        };
     }
 
     /// <summary>Every box the drawing marks, as its class will report it.</summary>

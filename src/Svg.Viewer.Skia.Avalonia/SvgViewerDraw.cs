@@ -11,8 +11,10 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Svg.Editor.Skia;
 using Svg.Skia;
 using Svg.SourceEditing;
+using Svg.Transforms;
 using Shim = ShimSkiaSharp;
 using SK = SkiaSharp;
 
@@ -814,6 +816,121 @@ public sealed class SvgViewerDraw
         fromParent = Shim.SKMatrix.CreateIdentity();
 
         return false;
+    }
+
+    /// <summary>
+    /// A path round everything <paramref name="element"/> paints, in its own user space, to start a
+    /// clip path or a mask for it with.
+    /// </summary>
+    /// <remarks>
+    /// Round the ink rather than the geometry, so it shaves no stroke: a group's node carries none of
+    /// its children's, and a miter reaches past half the width. Round any copy a <c>&lt;use&gt;</c>
+    /// draws elsewhere too, which is larger than needed and still cuts nothing. A path, so the points
+    /// tool reshapes it at once; a mask's is white, which shows everything under luminance.
+    /// </remarks>
+    /// <param name="region">The same box spelt as a viewBox is, which is what a mask made for the element shows.</param>
+    /// <returns>The sentence refusing it, or null where <paramref name="seed"/> was made.</returns>
+    public static string? Covering(SKSvg svg, SvgElement element, bool mask, out XElement? seed, out string? region)
+    {
+        seed = null;
+        region = null;
+
+        var box = SK.SKRect.Empty;
+
+        if (SvgViewerOutline.Placement(svg, element, 0) is { } placed
+            && placed.Total.TryInvert(out var back)
+            && SvgViewerOutline.Of(svg, element) is { } drawn)
+        {
+            using (drawn)
+            {
+                var own = svg.SkiaModel.ToSKMatrix(back);
+
+                drawn.Transform(own);
+                box = drawn.TightBounds;
+
+                // Markers hang off the shape's node, below where its outline stops.
+                foreach (var marker in Markers(svg, element))
+                {
+                    box.Union(own.MapRect(svg.SkiaModel.ToSKRect(marker.TransformedBounds)));
+                }
+            }
+        }
+
+        if (box.Width <= 0f || box.Height <= 0f)
+        {
+            return $"Nothing of that is drawn, so a {(mask ? "mask" : "clip path")} would have nothing to cover.";
+        }
+
+        var (left, top, right, bottom) = (Number(box.Left), Number(box.Top), Number(box.Right), Number(box.Bottom));
+
+        seed = new XElement("path", new XAttribute("d", $"M {left} {top} L {right} {top} L {right} {bottom} L {left} {bottom} Z"));
+        region = $"{left} {top} {Number(box.Width)} {Number(box.Height)}";
+
+        if (mask)
+        {
+            seed.Add(new XAttribute("fill", "white"));
+        }
+
+        return null;
+    }
+
+    /// <summary>The marker nodes drawn for <paramref name="element"/> and what it holds, wherever it is drawn.</summary>
+    private static IEnumerable<SvgSceneNode> Markers(SKSvg svg, SvgElement element)
+    {
+        var pending = new Stack<SvgSceneNode>(
+            svg.TryGetRetainedSceneNodes(element, out var nodes) ? nodes.Where(node => !SvgViewerOutline.InMask(node)) : []);
+
+        while (pending.TryPop(out var node))
+        {
+            foreach (var child in node.Children)
+            {
+                if (child.Kind == SvgSceneNodeKind.Marker)
+                {
+                    yield return child;
+                }
+                else
+                {
+                    pending.Push(child);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// What to write in front of <paramref name="shape"/>'s transform so it stays where it is drawn
+    /// once it clips or masks <paramref name="user"/>, whose space it is then drawn in; null where
+    /// nothing is.
+    /// </summary>
+    /// <remarks>
+    /// A shape kept off the canvas is taken as written. That is decided by where it is written
+    /// rather than by whether its parent has a node, because a <c>&lt;defs&gt;</c> has one; and by
+    /// the line <c>SvgElementEditor</c> draws rather than <see cref="Holds"/>, which also turns away a
+    /// <c>&lt;switch&gt;</c> a shape is drawn in.
+    /// </remarks>
+    public static string? Carried(SKSvg svg, SvgElement shape, SvgElement user)
+    {
+        if (shape.Parent is not { } parent
+            || shape.Parents.Any(above => SvgElementEditor.Keeps(SvgElementNames.NameOf(above)))
+            || !TryParent(svg, parent, out var fromParent)
+            || SvgViewerOutline.Placement(svg, user, 0) is not { } placed
+            || !placed.Total.TryInvert(out var toUser))
+        {
+            return null;
+        }
+
+        var carried = GeometryWriter.Settled(toUser.PreConcat(fromParent));
+
+        if (!SvgViewerGizmo.Near(carried.ScaleX, 1f) || !SvgViewerGizmo.Near(carried.ScaleY, 1f)
+            || !SvgViewerGizmo.Near(carried.SkewX, 0f) || !SvgViewerGizmo.Near(carried.SkewY, 0f))
+        {
+            return SvgViewerGizmo.Spelt(carried).ToString();
+        }
+
+        var (x, y) = (Swept(carried.TransX), Swept(carried.TransY));
+
+        return x == 0f && y == 0f ? null : new SvgTranslate(x, y).ToString();
+
+        static float Swept(float value) => SvgViewerGizmo.Near(value, 0f) ? 0f : value;
     }
 
     // ---- the palette ------------------------------------------------------------------------

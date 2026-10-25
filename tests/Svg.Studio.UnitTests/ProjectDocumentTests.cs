@@ -10,13 +10,14 @@ using Xunit;
 namespace Svg.Studio.UnitTests;
 
 /// <summary>
-/// The .svgstudio format: a project and the drawings it holds, in one file.
+/// The .svgstudio format: a folder holding the project's settings, a file per drawing and a folder
+/// per group.
 /// </summary>
 /// <remarks>
 /// The contract is the first test here and most of the rest are the reasons it is hard: what this
-/// reads it writes back byte for byte, drawings included, and an edit changes what it was made to
-/// and nothing else. A project that reformatted the drawings it holds would turn every save into a
-/// diff nobody asked for.
+/// reads it writes back byte for byte, drawings included, and an edit changes the one file it was
+/// made to and nothing else. A project that reformatted the drawings it holds would turn every save
+/// into a diff nobody asked for.
 /// </remarks>
 public class ProjectDocumentTests : IDisposable
 {
@@ -25,11 +26,38 @@ public class ProjectDocumentTests : IDisposable
     /// attributes one to a line, a path split over two, an empty element written both ways, a
     /// numeric escape, and a stylesheet indented for itself.
     /// </summary>
-    private const string Project = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <!-- kept, so an edit is proven not to reformat the file -->
-        <studio namespace="Demo.Icons" skiaSharp="4">
+    private const string Badge = """
+        <svg xmlns="http://www.w3.org/2000/svg"
+             viewBox="0 0 24 24">
+          <style>
+            .on { fill: #3b82f6 }
+          </style>
+          <path d="M 0 0
+                   L 24 24" />
+          <g></g>
+          <rect/>
+          <text>a &#38; b</text>
+        </svg>
+        """;
 
+    /// <summary>A project's folder as somebody wrote it, which is what reading and writing must leave alone.</summary>
+    private static readonly IReadOnlyDictionary<string, string> Files = new Dictionary<string, string>
+    {
+        ["studio.xml"] = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <!-- kept, so an edit is proven not to reformat the file -->
+            <studio namespace="Demo.Icons" skiaSharp="4">
+            </studio>
+
+            """,
+        ["Badge.svg"] = Badge.Replace("\n</svg>", "\n\n  <metadata><drawing xmlns=\"https://svg.skia/studio/1.0\" class=\"Badge\" /></metadata>\n</svg>", StringComparison.Ordinal) + "\n",
+        ["Large/group.xml"] = """<group namespace="Demo.Icons.Large" scale="2" />""" + "\n",
+        ["Large/BadgeLarge.svg"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>""" + "\n",
+    };
+
+    /// <summary>The same project in one piece, for the tests about what it holds rather than how it is written.</summary>
+    private const string Project = """
+        <studio namespace="Demo.Icons" skiaSharp="4">
           <drawing name="Badge" class="Badge">
             <svg xmlns="http://www.w3.org/2000/svg"
                  viewBox="0 0 24 24">
@@ -43,13 +71,11 @@ public class ProjectDocumentTests : IDisposable
               <text>a &#38; b</text>
             </svg>
           </drawing>
-
           <group name="Large" namespace="Demo.Icons.Large" scale="2">
             <drawing name="BadgeLarge">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
             </drawing>
           </group>
-
         </studio>
         """;
 
@@ -63,106 +89,118 @@ public class ProjectDocumentTests : IDisposable
 
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
-    private static ProjectDocument Read(string xml = Project) => ProjectDocument.Parse(xml);
+    private static ProjectDocument Read(string xml = Project) => TestPackage.Parse(xml);
 
-    private static ProjectDrawing First(ProjectDocument document) => document.Root.Drawings.First();
+    private static ProjectDocument Folder() => ProjectDocument.Read(Files, null);
+
+    private static ProjectDrawing First(ProjectDocument document) => document.Root.Drawings.First(one => one.Name == "Badge");
+
+    /// <summary>Every file of <paramref name="document"/> that differs from <see cref="Files"/>, with what it now says.</summary>
+    private static Dictionary<string, string?> Differences(ProjectDocument document)
+    {
+        var now = document.Files();
+
+        return now.Keys.Union(Files.Keys)
+            .Where(path => !now.TryGetValue(path, out var text) || !Files.TryGetValue(path, out var was) || text != was)
+            .ToDictionary(path => path, path => now.TryGetValue(path, out var text) ? text : null);
+    }
 
     [Fact]
     public void A_Project_Is_Written_Back_As_It_Was_Read()
     {
-        Assert.Equal(Project, Read().ToXml());
+        Assert.Empty(Differences(Folder()));
     }
 
     [Fact]
     public void A_Drawing_Is_Handed_Out_As_It_Was_Written()
     {
-        var start = Project.IndexOf("<svg", StringComparison.Ordinal);
-        var end = Project.IndexOf("</svg>", StringComparison.Ordinal) + "</svg>".Length;
-
-        // The file's own bytes: a path over two lines, an empty element written both ways, an
-        // escape spelled as a number, and a stylesheet indented for itself.
-        Assert.Equal(Project[start..end], First(Read()).Text);
+        // The file's own bytes, with the settings Studio keeps beside it taken out.
+        Assert.Equal(Badge, First(Folder()).Text);
+        Assert.Equal("Badge", First(Folder()).Class);
     }
 
     [Fact]
-    public void A_Drawing_Put_Back_Unedited_Leaves_The_File_As_It_Was()
+    public void A_Drawing_Put_Back_Unedited_Leaves_The_Folder_As_It_Was()
     {
-        var document = Read();
+        var document = Folder();
         var drawing = First(document);
 
         Assert.Null(drawing.SetText(drawing.Text));
-        Assert.Equal(Project, document.ToXml());
+        Assert.Empty(Differences(document));
     }
 
     [Fact]
-    public void An_Edited_Drawing_Is_The_Only_Thing_That_Changes()
+    public void An_Edited_Drawing_Is_The_Only_File_That_Changes()
     {
-        var document = Read();
+        var document = Folder();
         var drawing = First(document);
 
         Assert.Null(drawing.SetText(drawing.Text.Replace("#3b82f6", "#ff0000", StringComparison.Ordinal)));
 
-        var written = document.ToXml();
+        var (path, text) = Assert.Single(Differences(document));
 
-        Assert.Equal(Project.Replace("#3b82f6", "#ff0000", StringComparison.Ordinal), written);
+        Assert.Equal("Badge.svg", path);
+        Assert.Equal(Files["Badge.svg"].Replace("#3b82f6", "#ff0000", StringComparison.Ordinal), text);
     }
 
     [Fact]
     public void Text_That_Is_Not_A_Drawing_Is_Refused_And_Changes_Nothing()
     {
-        var document = Read();
+        var document = Folder();
         var drawing = First(document);
 
         Assert.NotNull(drawing.SetText("<not-a-drawing />"));
         Assert.NotNull(drawing.SetText("<svg xmlns=\"http://www.w3.org/2000/svg\">"));
-        Assert.Equal(Project, document.ToXml());
+        Assert.Empty(Differences(document));
     }
 
     [Fact]
     public void A_Setting_Is_Written_Where_It_Was_And_Nowhere_Else()
     {
-        var document = Read();
+        var document = Folder();
 
         document.Root.SkiaSharp = SkiaSharpTarget.V3;
 
-        Assert.Equal(Project.Replace("skiaSharp=\"4\"", "skiaSharp=\"3\"", StringComparison.Ordinal), document.ToXml());
+        Assert.Equal(
+            new Dictionary<string, string?> { ["studio.xml"] = Files["studio.xml"].Replace("skiaSharp=\"4\"", "skiaSharp=\"3\"", StringComparison.Ordinal) },
+            Differences(document));
     }
 
-    /// <summary>
-    /// The format used to say where a build wrote, and a project written then still says it. It is
-    /// dropped rather than refused, so opening one works — and it is gone the next time it is
-    /// written, because nothing reads it any more.
-    /// </summary>
     [Fact]
-    public void A_Project_Naming_Where_Its_Output_Went_Opens_Without_It()
+    public void A_Drawing_Moved_On_Its_Board_Changes_Only_Its_Settings_Line()
     {
-        var document = ProjectDocument.Parse("""
-            <?xml version="1.0" encoding="utf-8"?>
-            <studio namespace="Demo.Icons" singleFile="Icons.cs">
-              <drawing name="Badge" output="Badge.cs">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
-              </drawing>
-            </studio>
-            """);
+        var document = Folder();
 
-        Assert.Equal("Demo.Icons", document.Root.Namespace);
-        Assert.Equal("Badge", Assert.Single(document.Root.Drawings).Name);
+        First(document).X = 40f;
+        First(document).Y = 8f;
 
-        Assert.Equal("""
-            <?xml version="1.0" encoding="utf-8"?>
-            <studio namespace="Demo.Icons">
-              <drawing name="Badge">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
-              </drawing>
-            </studio>
-            """, document.ToXml());
+        Assert.Equal(
+            Files["Badge.svg"].Replace("class=\"Badge\" />", "class=\"Badge\" x=\"40\" y=\"8\" />", StringComparison.Ordinal),
+            Assert.Single(Differences(document)).Value);
+    }
+
+    [Fact]
+    public void A_Drawing_Saying_Nothing_Of_Its_Own_Is_Its_Drawing_Alone()
+    {
+        Assert.Equal(Files["Large/BadgeLarge.svg"], Folder().Files()["Large/BadgeLarge.svg"]);
+        Assert.DoesNotContain("metadata", Folder().Files()["Large/BadgeLarge.svg"], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Project_In_One_File_Is_Refused_With_A_Sentence_Saying_What_It_Is_Now()
+    {
+        var refusal = Assert.Throws<SvgcProjectException>(() => ProjectDocument.Read(
+            new Dictionary<string, string> { ["studio.xml"] = Project },
+            null));
+
+        Assert.Contains("A drawing is an .svg file of its own", refusal.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void A_Group_Settles_What_A_Drawing_Does_Not_Say()
     {
-        var document = Read();
-        var large = document.Root.Drawings.Last();
+        var document = Folder();
+        var large = document.Root.Drawings.Single(one => one.Name == "BadgeLarge");
 
         Assert.Equal("Demo.Icons.Large", large.EffectiveNamespace);
         Assert.Equal(2f, large.EffectiveScale);
@@ -174,32 +212,20 @@ public class ProjectDocumentTests : IDisposable
     }
 
     [Fact]
-    public void A_Drawing_Added_Is_Indented_Once_And_Keeps_Its_Own_Lines()
+    public void A_Drawing_Added_Is_A_File_Of_Its_Own_Written_As_It_Came()
     {
-        var document = Read();
+        var document = Folder();
 
-        document.Root.AddDrawing("Dot", Drawing, document.Root.Children.Count);
+        var added = document.Root.AddDrawing("Dot", Drawing);
 
-        var written = document.ToXml();
-
-        Assert.Contains("""
-              <drawing name="Dot">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
-                  <circle cx="8" cy="8" r="8" fill="#ff0000" />
-                </svg>
-              </drawing>
-            """.TrimEnd(), written, StringComparison.Ordinal);
-
-        // And it reads back as the drawing it was, at the indentation it now sits at.
-        Assert.Equal(
-            Drawing.Replace("\n", "\n    ", StringComparison.Ordinal),
-            document.Root.Drawings.Last().Text);
+        Assert.Equal(Drawing, added.Text);
+        Assert.Equal(new Dictionary<string, string?> { ["Dot.svg"] = Drawing }, Differences(document));
     }
 
     [Fact]
-    public void A_Stylesheet_Is_Not_Indented_With_The_Drawing_Around_It()
+    public void A_Stylesheet_Is_Left_As_It_Was_Written()
     {
-        var document = Read();
+        var document = Folder();
 
         var styled = """
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
@@ -209,7 +235,7 @@ public class ProjectDocumentTests : IDisposable
             </svg>
             """;
 
-        var drawing = document.Root.AddDrawing("Styled", styled, 0);
+        var drawing = document.Root.AddDrawing("Styled", styled);
 
         // The line inside the stylesheet is what the drawing says, not where it sits: shifting it
         // would be the project editing somebody's CSS.
@@ -217,55 +243,93 @@ public class ProjectDocumentTests : IDisposable
     }
 
     [Fact]
-    public void A_Drawing_Removed_Takes_Its_Line_With_It()
+    public void A_Group_Removed_Takes_Its_Folder_With_It()
     {
-        var document = Read();
-        var group = document.Root.Children.OfType<ProjectGroup>().Single();
+        var document = Folder();
 
-        document.Root.Remove(group);
+        document.Root.Remove(document.Root.Children.OfType<ProjectGroup>().Single());
 
         Assert.Equal(
-            Project.Replace("""
-
-
-              <group name="Large" namespace="Demo.Icons.Large" scale="2">
-                <drawing name="BadgeLarge">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
-                </drawing>
-              </group>
-            """, string.Empty, StringComparison.Ordinal),
-            document.ToXml());
+            new Dictionary<string, string?> { ["Large/BadgeLarge.svg"] = null, ["Large/group.xml"] = null },
+            Differences(document));
     }
 
     [Fact]
-    public void A_Drawing_Moved_Into_A_Group_Arrives_At_Its_Depth()
+    public void A_Drawing_Moved_Into_A_Group_Moves_Its_File_Unchanged()
     {
-        var document = Read();
+        var document = Folder();
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
         var badge = First(document);
 
-        group.Move(badge, 0);
-
-        // The drawing's own lines follow it in; the second line of a start tag written over two is
-        // the tag's own bytes and stays where its author put it.
-        Assert.Contains("""
-                <drawing name="Badge" class="Badge">
-                  <svg xmlns="http://www.w3.org/2000/svg"
-            """.TrimEnd(), document.ToXml(), StringComparison.Ordinal);
-
-        // Two levels deeper than it was written, like everything else the branch holds.
-        Assert.Contains("\n        <g></g>", document.ToXml(), StringComparison.Ordinal);
+        group.Move(badge);
 
         Assert.Same(group, badge.Parent);
+        Assert.Equal(
+            new Dictionary<string, string?> { ["Badge.svg"] = null, ["Large/Badge.svg"] = Files["Badge.svg"] },
+            Differences(document));
+    }
+
+    [Fact]
+    public void A_Rename_Moves_The_File_And_Keeps_What_It_Draws()
+    {
+        var document = Folder();
+
+        First(document).Name = "Pill";
+
+        Assert.Equal(
+            new Dictionary<string, string?> { ["Badge.svg"] = null, ["Pill.svg"] = Files["Badge.svg"] },
+            Differences(document));
+    }
+
+    [Fact]
+    public void A_Name_A_File_Cannot_Carry_Is_Kept_Beside_The_Drawing()
+    {
+        var document = Folder();
+
+        First(document).Name = "Badge/Large?";
+
+        var files = document.Files();
+
+        Assert.Contains("Badge_Large_.svg", files.Keys);
+        Assert.Contains("name=\"Badge/Large?\"", files["Badge_Large_.svg"], StringComparison.Ordinal);
+        Assert.Equal("Badge/Large?", ProjectDocument.Read(files, null).Root.Drawings.Single(one => one.Class == "Badge").Name);
+    }
+
+    [Fact]
+    public void Drawings_Of_One_Name_Are_Kept_Apart_And_Keep_Their_Name()
+    {
+        var document = Folder();
+
+        document.Root.AddDrawing("Badge", Drawing);
+        document.Root.AddDrawing("badge", Drawing);
+
+        var files = document.Files();
+
+        // Apart without regard to case, which is one file on macOS and Windows.
+        Assert.Contains("Badge~2.svg", files.Keys);
+        Assert.Contains("badge~3.svg", files.Keys);
+        Assert.Equal(
+            new[] { "Badge", "Badge", "badge" },
+            ProjectDocument.Read(files, null).Root.Drawings.Where(one => one.Name.Equals("badge", StringComparison.OrdinalIgnoreCase)).Select(one => one.Name).OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void An_Empty_Group_Is_Still_A_File_So_Git_Keeps_It()
+    {
+        var document = ProjectDocument.Empty();
+
+        document.Root.AddGroup("Later");
+
+        Assert.Equal("<group />\n", document.Files()["Later/group.xml"]);
     }
 
     [Fact]
     public void A_Copy_Keeps_The_Drawing_It_Was_Made_From()
     {
-        var document = Read();
+        var document = Folder();
         var badge = First(document);
 
-        var copy = (ProjectDrawing)document.Root.Copy(badge, document.Root.Children.Count);
+        var copy = (ProjectDrawing)document.Root.Copy(badge);
 
         Assert.Equal(badge.Text, copy.Text);
         Assert.NotSame(badge.Element, copy.Element);
@@ -277,24 +341,22 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Group_Cannot_Be_Moved_Into_Itself()
     {
-        var document = Read();
+        var document = Folder();
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
 
-        Assert.Throws<SvgcProjectException>(() => group.Move(group, 0));
+        Assert.Throws<SvgcProjectException>(() => group.Move(group));
     }
 
     [Fact]
-    public void Windows_Line_Endings_Survive_A_Save()
+    public void Windows_Line_Endings_Survive_An_Edit_File_By_File()
     {
-        var document = ProjectDocument.Parse(Project.Replace("\n", "\r\n", StringComparison.Ordinal));
+        var crlf = Files.ToDictionary(file => file.Key, file => file.Value.Replace("\n", "\r\n", StringComparison.Ordinal));
+        var document = ProjectDocument.Read(crlf, null);
         var drawing = First(document);
 
         Assert.Null(drawing.SetText(drawing.Text.Replace("#3b82f6", "#ff0000", StringComparison.Ordinal)));
 
-        var written = document.ToXml();
-
-        Assert.DoesNotContain("\n\n", written.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n\n", "\r\n\r\n", StringComparison.Ordinal), StringComparison.Ordinal);
-        Assert.Equal(Project.Replace("#3b82f6", "#ff0000", StringComparison.Ordinal).Replace("\n", "\r\n", StringComparison.Ordinal), written);
+        Assert.Equal(crlf["Badge.svg"].Replace("#3b82f6", "#ff0000", StringComparison.Ordinal), document.Files()["Badge.svg"]);
     }
 
     [Fact]
@@ -302,33 +364,116 @@ public class ProjectDocumentTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, Project, new System.Text.UTF8Encoding(true));
+        Write(path, Files);
+        File.WriteAllText(Path.Combine(path, "Badge.svg"), Files["Badge.svg"], new System.Text.UTF8Encoding(true));
 
         var document = ProjectDocument.Load(path);
 
+        First(document).Class = "Pill";
         document.Save();
 
-        Assert.Equal(0xEF, File.ReadAllBytes(path)[0]);
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(0xEF, File.ReadAllBytes(Path.Combine(path, "Badge.svg"))[0]);
+    }
+
+    [Fact]
+    public void A_Save_Writes_Only_The_Files_That_Changed()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var long_ago = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        Write(path, Files);
+
+        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+        {
+            File.SetLastWriteTimeUtc(file, long_ago);
+        }
+
+        var document = ProjectDocument.Load(path);
+
+        First(document).Class = "Pill";
+        document.Save();
+
+        Assert.Equal(
+            new[] { "Badge.svg" },
+            Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                .Where(file => File.GetLastWriteTimeUtc(file) != long_ago)
+                .Select(file => Path.GetRelativePath(path, file).Replace(Path.DirectorySeparatorChar, '/')));
+    }
+
+    [Fact]
+    public void A_Save_Leaves_Whatever_Else_The_Folder_Holds()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        Write(path, Files);
+        File.WriteAllText(Path.Combine(path, "README.md"), "notes");
+
+        var document = ProjectDocument.Load(path);
+
+        document.Root.Remove(document.Root.Children.OfType<ProjectGroup>().Single());
+        document.Save();
+
+        Assert.True(File.Exists(Path.Combine(path, "README.md")));
+        Assert.False(Directory.Exists(Path.Combine(path, "Large")));
+    }
+
+    [Fact]
+    public void A_Rename_That_Changes_Only_Case_Is_Saved_As_That_Case()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+
+        Write(path, Files);
+
+        var document = ProjectDocument.Load(path);
+
+        First(document).Name = "badge";
+        document.Save();
+
+        Assert.Equal(
+            new[] { "badge.svg", "Large", "studio.xml" },
+            Directory.EnumerateFileSystemEntries(path).Select(Path.GetFileName).OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void A_Folder_That_Is_Not_A_Project_Is_Not_Saved_Into()
+    {
+        var path = Path.Combine(_directory, "somebody.svgstudio");
+
+        Directory.CreateDirectory(path);
+        File.WriteAllText(Path.Combine(path, "keep.txt"), "mine");
+
+        Assert.Throws<SvgcProjectException>(() => Folder().Save(path));
+        Assert.Equal(new[] { "keep.txt" }, Directory.EnumerateFileSystemEntries(path).Select(Path.GetFileName));
     }
 
     [Theory]
     [InlineData("<studio><thing name=\"x\" /></studio>", "not allowed")]
-    [InlineData("<studio><drawing name=\"x\" wrong=\"1\"><svg /></drawing></studio>", "not a <drawing> attribute")]
+    [InlineData("<studio><drawing name=\"x\" wrong=\"1\"><svg /></drawing></studio>", "not a <drawing> setting")]
     [InlineData("<studio><drawing><svg /></drawing></studio>", "missing a name")]
     [InlineData("<studio><drawing name=\"x\" /></studio>", "must hold one <svg>")]
     [InlineData("<studio><drawing name=\"x\"><svg /><svg /></drawing></studio>", "must hold one <svg>")]
     [InlineData("<studio><group><drawing name=\"x\"><svg /></drawing></group></studio>", "missing a name")]
     [InlineData("<svgc />", "must be <studio>")]
     [InlineData("<studio scale=\"nope\" />", "scale")]
-    [InlineData("<studio x=\"0\" />", "not a <studio> attribute")]
+    [InlineData("<studio x=\"0\" />", "not a <studio> setting")]
     [InlineData("<studio><drawing name=\"x\" x=\"8\"><svg /></drawing></studio>", "needs both, or neither")]
     [InlineData("<studio><drawing name=\"x\" x=\"left\" y=\"0\"><svg /></drawing></studio>", "is not a position")]
     public void A_Project_That_Says_Something_Unreadable_Is_Refused(string xml, string says)
     {
-        var refusal = Assert.ThrowsAny<Exception>(() => ProjectDocument.Parse(xml));
+        var refusal = Assert.ThrowsAny<Exception>(() => TestPackage.Parse(xml));
 
         Assert.Contains(says, refusal.Message, StringComparison.Ordinal);
+    }
+
+    private static void Write(string path, IReadOnlyDictionary<string, string> files)
+    {
+        foreach (var (relative, text) in files)
+        {
+            var file = Path.Combine(path, relative.Replace('/', Path.DirectorySeparatorChar));
+
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, text, new System.Text.UTF8Encoding(false));
+        }
     }
 
     /// <summary>The same project as the one above, with every row given a place on its board.</summary>
@@ -359,9 +504,9 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Place_Is_Read_And_Written_Where_It_Was()
     {
-        var document = ProjectDocument.Parse(Placed);
+        var document = TestPackage.Parse(Placed);
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
-        var alt = group.Drawings.Last();
+        var alt = group.Drawings.Single(one => one.Name == "BadgeAlt");
 
         Assert.Equal(120f, group.X);
         Assert.Equal(-40f, group.Y);
@@ -371,13 +516,13 @@ public class ProjectDocumentTests : IDisposable
         // Relative to the board it sits on, so moving the group is one attribute.
         group.X = 130f;
 
-        Assert.Equal(Placed.Replace("x=\"120\"", "x=\"130\"", StringComparison.Ordinal), document.ToXml());
+        Assert.Equal(TestPackage.Normal(Placed.Replace("x=\"120\"", "x=\"130\"", StringComparison.Ordinal)), TestPackage.Dump(document));
     }
 
     [Fact]
     public void A_Place_Is_Nobody_Elses_To_Inherit()
     {
-        var document = ProjectDocument.Parse(Placed);
+        var document = TestPackage.Parse(Placed);
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
         var large = group.Drawings.First();
 
@@ -395,7 +540,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Place_Moved_To_Another_Board_Is_Rewritten_For_It()
     {
-        var document = ProjectDocument.Parse(Placed);
+        var document = TestPackage.Parse(Placed);
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
         var badge = document.Root.Drawings.First();
 
@@ -403,7 +548,7 @@ public class ProjectDocumentTests : IDisposable
         // nothing about where it should sit, so the numbers are read again for the board it has
         // arrived on: the group sits at 120, -40, so a row at 0, 0 on the project's board is at
         // -120, 40 on the group's, which is the same spot.
-        group.Move(badge, 0);
+        group.Move(badge);
 
         Assert.Equal(-120f, badge.X);
         Assert.Equal(40f, badge.Y);
@@ -413,7 +558,7 @@ public class ProjectDocumentTests : IDisposable
         var alt = group.Drawings.Single(drawing => drawing.Name == "BadgeAlt");
         var was = alt.X;
 
-        group.Move(alt, 0);
+        group.Move(alt);
 
         Assert.Equal(was, alt.X);
     }
@@ -421,7 +566,7 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Copy_Forgets_The_Place_It_Was_Made_From()
     {
-        var document = ProjectDocument.Parse(Placed);
+        var document = TestPackage.Parse(Placed);
         var group = document.Root.Children.OfType<ProjectGroup>().Single();
         var alt = group.Drawings.Single(drawing => drawing.Name == "BadgeAlt");
 
@@ -429,7 +574,7 @@ public class ProjectDocumentTests : IDisposable
         // where somebody could already see it; a copy rewritten for the same board would land exactly
         // on top of its original, and the canvas hands a press to whichever was drawn last -- so the
         // original could no longer be picked, or dragged out from under it.
-        var copy = (ProjectDrawing)group.Copy(alt, group.Children.Count);
+        var copy = (ProjectDrawing)group.Copy(alt);
 
         Assert.False(copy.HasPosition);
         Assert.True(alt.HasPosition);
@@ -498,11 +643,11 @@ public class ProjectDocumentTests : IDisposable
     {
         // The case that was reported: a row put into a group nested inside another one. The chain is
         // summed, not just the group it lands in.
-        var document = ProjectDocument.Parse(Nested);
+        var document = TestPackage.Parse(Nested);
         var inner = Group(document, "Inner");
         var loose = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Loose");
 
-        inner.Move(loose, 0);
+        inner.Move(loose);
 
         // Outer is at 200, 100 and Inner at 30, 10, so a row at 10, 10 on the project's board is at
         // -220, -100 on Inner's -- and 200 + 30 - 220 is 10 again.
@@ -515,12 +660,12 @@ public class ProjectDocumentTests : IDisposable
     {
         // A group's own pair is the whole of it: its children are written against it, and laying a
         // board out is a translation, so nothing under it is touched or needs to be.
-        var document = ProjectDocument.Parse(Nested);
+        var document = TestPackage.Parse(Nested);
         var inner = Group(document, "Inner");
         var other = Group(document, "Other");
         var deep = inner.Drawings.Single();
 
-        other.Move(inner, 0);
+        other.Move(inner);
 
         Assert.Equal(170f, inner.X);
         Assert.Equal(150f, inner.Y);
@@ -537,11 +682,11 @@ public class ProjectDocumentTests : IDisposable
         // Two arranged boards inside a group that names no place of its own. Summing each chain all
         // the way to the project would give up here, and it does not have to: whatever the two share
         // cancels out of the difference, so the walk stops at the nearest node they have in common.
-        var document = ProjectDocument.Parse(Nested);
+        var document = TestPackage.Parse(Nested);
         var right = Group(document, "Right");
         var a = Group(document, "Left").Drawings.Single();
 
-        right.Move(a, 0);
+        right.Move(a);
 
         Assert.Equal(-80f, a.X);
         Assert.Equal(0f, a.Y);
@@ -550,10 +695,10 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Row_With_No_Place_Arrives_Without_One()
     {
-        var document = ProjectDocument.Parse(Nested);
+        var document = TestPackage.Parse(Nested);
         var nowhere = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Nowhere");
 
-        Group(document, "Other").Move(nowhere, 0);
+        Group(document, "Other").Move(nowhere);
 
         Assert.False(nowhere.HasPosition);
     }
@@ -561,14 +706,14 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Place_Is_Forgotten_When_The_Board_It_Arrives_On_Is_A_Grid()
     {
-        var document = ProjectDocument.Parse(Nested);
+        var document = TestPackage.Parse(Nested);
         var loose = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Loose");
 
         // Rows sit on this board and none of them names a place, so the board is a grid and the grid
         // begins at its own corner. A row arriving with a place would be the first placed row there
         // and would push the rest out to the right of it -- a larger jump than the one this avoids,
         // and on rows nobody dragged.
-        Group(document, "Grid").Move(loose, 0);
+        Group(document, "Grid").Move(loose);
 
         Assert.False(loose.HasPosition);
     }
@@ -576,11 +721,11 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Board_With_Nothing_On_It_Is_Not_A_Grid()
     {
-        var document = ProjectDocument.Parse(Nested);
+        var document = TestPackage.Parse(Nested);
         var loose = document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Name == "Loose");
 
         // Nothing to push: a group holding no rows has no queue for an arriving one to displace.
-        Group(document, "Empty").Move(loose, 0);
+        Group(document, "Empty").Move(loose);
 
         Assert.Equal(-290f, loose.X);
         Assert.Equal(10f, loose.Y);
@@ -589,8 +734,8 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Place_Is_No_Business_Of_The_Build()
     {
-        var placed = ProjectDocument.Parse(Placed).Flatten();
-        var plain = ProjectDocument.Parse(
+        var placed = TestPackage.Parse(Placed).Flatten();
+        var plain = TestPackage.Parse(
             Placed.Replace(" x=\"0\" y=\"0\"", string.Empty, StringComparison.Ordinal)
                 .Replace(" x=\"120\" y=\"-40\"", string.Empty, StringComparison.Ordinal)
                 .Replace(" x=\"60\" y=\"8\"", string.Empty, StringComparison.Ordinal)).Flatten();
@@ -637,6 +782,38 @@ public class ProjectDocumentTests : IDisposable
     }
 
     /// <summary>
+    /// What a build runs: read from the folder and written as one file, with no window and no app.
+    /// Studio's own Export calls the same thing, so the two cannot write different files.
+    /// </summary>
+    [Fact]
+    public void A_Project_Exports_Without_The_Window()
+    {
+        var folder = TestPackage.Write(Path.Combine(_directory, "icons.svgstudio"), """
+            <studio namespace="Demo.Icons">
+              <drawing name="Badge">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+              </drawing>
+              <group name="Large" namespace=".Large" scale="2">
+                <drawing name="Badge Large">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></svg>
+                </drawing>
+              </group>
+            </studio>
+            """);
+        var target = Path.Combine(_directory, "Icons.g.cs");
+
+        Assert.Equal(new[] { target }, ProjectDocument.Load(folder).Export(target, SvgTextLayout.Baked));
+
+        var generated = File.ReadAllText(target);
+
+        Assert.Contains("namespace Demo.Icons", generated);
+        Assert.Contains("class Badge", generated);
+        Assert.Contains("namespace Demo.Icons.Large", generated);
+        Assert.Contains("class Badge_Large", generated);
+        Assert.Contains("48f, 48f", generated);
+    }
+
+    /// <summary>
     /// A project whose root and whose group each declare, and a drawing that uses both.
     /// </summary>
     private const string Declared = """
@@ -664,7 +841,7 @@ public class ProjectDocumentTests : IDisposable
     {
         // The blocks are part of the file like everything else in it, and a save must not reformat
         // them any more than it reformats a drawing.
-        Assert.Equal(Declared, Read(Declared).ToXml());
+        Assert.Equal(TestPackage.Normal(Declared), TestPackage.Dump(Read(Declared)));
     }
 
     [Fact]
@@ -685,12 +862,12 @@ public class ProjectDocumentTests : IDisposable
     [Fact]
     public void A_Group_Declares_In_One_Block()
     {
-        var twice = Declared.Replace(
-            "  <group name=\"Large\" scale=\"2\">",
-            "  <e:code xmlns:e=\"https://svg.skia/expr/1.0\" />\n  <group name=\"Large\" scale=\"2\">",
-            StringComparison.Ordinal);
+        var twice = new Dictionary<string, string>
+        {
+            ["studio.xml"] = "<studio xmlns:e=\"https://svg.skia/expr/1.0\">\n  <e:code />\n  <e:code />\n</studio>\n"
+        };
 
-        var refusal = Assert.Throws<SvgcProjectException>(() => Read(twice));
+        var refusal = Assert.Throws<SvgcProjectException>(() => ProjectDocument.Read(twice, null));
 
         Assert.Contains("more than one <e:code>", refusal.Message, StringComparison.Ordinal);
     }
@@ -755,7 +932,7 @@ public class ProjectDocumentTests : IDisposable
         Assert.Null(group.SetCode("<e:code xmlns:e=\"https://svg.skia/expr/1.0\" />"));
 
         Assert.Null(group.Code);
-        Assert.DoesNotContain("e:code", document.ToXml()[document.ToXml().IndexOf("<group", StringComparison.Ordinal)..], StringComparison.Ordinal);
+        Assert.DoesNotContain("e:code", TestPackage.Dump(document)[TestPackage.Dump(document).IndexOf("<group", StringComparison.Ordinal)..], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -776,7 +953,7 @@ public class ProjectDocumentTests : IDisposable
         Assert.NotNull(group.Code);
 
         // In front of what the group holds, so it is read before the drawings that inherit it.
-        var written = document.ToXml();
+        var written = TestPackage.Dump(document);
 
         Assert.True(
             written.IndexOf("e:code", StringComparison.Ordinal)
@@ -1015,14 +1192,14 @@ public class ProjectDocumentTests : IDisposable
 
         ProjectPlacement.Place(document.Root, organize: true);
 
-        // A project file is something somebody reads and diffs, so a block put into one is written
-        // the way the rest of the file is rather than the way XLinq would indent it.
+        // A project's files are something somebody reads and diffs, so a block put into one is
+        // written the way the rest of the file is rather than the way XLinq would indent it.
         Assert.Contains("""
-                <e:code xmlns:e="https://svg.skia/expr/1.0">
-                  <e:param name="ring" type="number" default="2" />
-                  <e:let name="edge">mix(tint, tint, 0.5)</e:let>
-                </e:code>
-            """, document.ToXml(), StringComparison.Ordinal);
+              <e:code xmlns:e="https://svg.skia/expr/1.0">
+                <e:param name="ring" type="number" default="2" />
+                <e:let name="edge">mix(tint, tint, 0.5)</e:let>
+              </e:code>
+            """, document.Files()["One/group.xml"], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1068,7 +1245,7 @@ public class ProjectDocumentTests : IDisposable
         var document = Read(Declared);
         var group = (ProjectGroup)document.Root.Children.Single();
 
-        var copy = (ProjectGroup)document.Root.Copy(group, 1);
+        var copy = (ProjectGroup)document.Root.Copy(group);
 
         // The block travels with the group, because it is part of what the group is: a copy that
         // dropped it would be a row whose drawings no longer build.
@@ -1087,20 +1264,15 @@ public class ProjectDocumentTests : IDisposable
     public void A_Group_Holding_Nothing_Is_Somewhere_To_Declare()
     {
         var document = ProjectDocument.Empty();
-        var group = document.Root.AddGroup("Large", 0);
+        var group = document.Root.AddGroup("Large");
 
         Assert.Null(group.SetCode(
             "<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:param name=\"tint\" type=\"color\" default=\"#00ff00\" /></e:code>"));
 
-        Assert.Equal("""
-            <?xml version="1.0" encoding="utf-8"?>
-            <studio>
-              <group name="Large">
-                <e:code xmlns:e="https://svg.skia/expr/1.0"><e:param name="tint" type="color" default="#00ff00" /></e:code>
-              </group>
-            </studio>
-
-            """, document.ToXml());
+        // Its own file, and in it only what it declares: the folder is its name.
+        Assert.Equal(
+            "<group>\n  <e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:param name=\"tint\" type=\"color\" default=\"#00ff00\" /></e:code>\n</group>\n",
+            document.Files()["Large/group.xml"]);
     }
 
     [Fact]
@@ -1112,18 +1284,37 @@ public class ProjectDocumentTests : IDisposable
         Assert.Empty(document.Root.Children);
         Assert.Null(document.Path);
 
-        document.Root.AddDrawing("Dot", Drawing, 0);
+        document.Root.AddDrawing("Dot", Drawing);
 
-        Assert.Equal("""
-            <?xml version="1.0" encoding="utf-8"?>
-            <studio>
-              <drawing name="Dot">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
-                  <circle cx="8" cy="8" r="8" fill="#ff0000" />
-                </svg>
-              </drawing>
-            </studio>
-
-            """, document.ToXml());
+        Assert.Equal(
+            new Dictionary<string, string>
+            {
+                ["studio.xml"] = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<studio>\n</studio>\n",
+                ["Dot.svg"] = Drawing
+            },
+            document.Files());
     }
+
+    [Fact]
+    public void A_Namespace_Starting_With_A_Dot_Continues_The_One_Above_It()
+    {
+        var document = TestPackage.Parse("""
+            <studio namespace="Demo.Icons">
+              <group name="Large" namespace=".Large">
+                <drawing name="badge" namespace=".Badges">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" /></svg>
+                </drawing>
+              </group>
+            </studio>
+            """);
+
+        Assert.Equal("Demo.Icons.Large.Badges", document.Root.Drawings.Single().EffectiveNamespace);
+        Assert.Equal(".Large.Badges", document.Flatten().Items.Single().Namespace);
+    }
+
+    [Fact]
+    public void The_Projects_Own_Namespace_Cannot_Continue_One()
+        => Assert.Contains(
+            "nothing above it",
+            Assert.Throws<SvgcProjectException>(() => TestPackage.Parse("""<studio namespace=".Icons" />""")).Message);
 }

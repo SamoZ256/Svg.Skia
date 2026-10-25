@@ -1,6 +1,7 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Svg.PaintCode.UnitTests;
 
@@ -91,6 +92,39 @@ internal static class SymbolDocument
                 ("variables", archive.Array(light, dark, level, step, animation, rotationSpeed, phase, phase3)))));
     }
 
+    /// <summary>
+    /// The symbol faults again, with area a raster can show: glyph fills a 20-unit square in
+    /// accentColorOn, wrapper hands it that colour by name, chain places glyph once and wrapper
+    /// twice side by side, and moved places glyph with its anchor dragged off the box corner.
+    /// </summary>
+    internal static byte[] Painted()
+    {
+        var archive = new KeyedArchiveBuilder();
+
+        var purple = ScopeDocument.Color(archive, "colorPurple", "0.3725490196 0.0 0.7882352941 1", usage: 1);
+        var accent = ScopeDocument.Color(archive, "accentColorOn", "0.9843137255 0.2431372549 0.447432841 1", usage: 1);
+        var blue = ScopeDocument.Color(archive, "colorBlue", "0 0 1 1");
+
+        var glyph = Canvas(archive, "glyph", archive.Array(
+            Shape(archive, "Glyph", accent, archive.Dictionary(), "{0, 0}", "{20, 0}", "{20, -20}", "{0, -20}")));
+        var wrapper = Canvas(archive, "wrapper", archive.Array(
+            Symbol(archive, "Inner", "glyph", archive.Dictionary(), archive.Dictionary(("VIRTUAL__accentColorOn", accent)))));
+        var chain = Canvas(archive, "chain", archive.Array(
+            Symbol(archive, "Direct", "glyph", archive.Dictionary(), archive.Dictionary(("VIRTUAL__accentColorOn", accent))),
+            Symbol(archive, "Outer", "wrapper", archive.Dictionary(), archive.Dictionary(("VIRTUAL__accentColorOn", purple)), anchorX: 10),
+            Symbol(archive, "Pinned", "wrapper", archive.Dictionary(), archive.Dictionary(("VIRTUAL__accentColorOn", blue)), anchorX: 20)));
+        var moved = Canvas(archive, "moved", archive.Array(Moved(archive, "glyph")));
+
+        return archive.ToBytes(
+            ("styleKitName", archive.Text("Painted")),
+            ("desks", archive.Array(archive.Object("PPDesk", ("name", archive.Text("Desk")), ("canvases", archive.Array(glyph, wrapper, chain, moved))))),
+            ("library", archive.Object(
+                "PPLibrary",
+                ("colors", archive.Array(purple, accent, blue)),
+                ("gradients", archive.Array()),
+                ("variables", archive.Array()))));
+    }
+
     private static int Canvas(KeyedArchiveBuilder archive, string name, int children)
         => archive.Object(
             "PPCanvas",
@@ -105,7 +139,8 @@ internal static class SymbolDocument
             },
             ("isExported", true), ("isAvailableAsSymbol", true));
 
-    private static int Shape(KeyedArchiveBuilder archive, string name, int fill, int bindings)
+    /// <summary>A closed shape through <paramref name="points"/>, or a line with no area where none are given.</summary>
+    private static int Shape(KeyedArchiveBuilder archive, string name, int fill, int bindings, params string[] points)
         => archive.Object(
             "PPBezier",
             new[]
@@ -116,8 +151,9 @@ internal static class SymbolDocument
                 ("path", archive.Object(
                     "PPPath",
                     ("contours", archive.Array(archive.Array(
-                        archive.Object("PPPathPoint", ("position", archive.Text("{0, 0}"))),
-                        archive.Object("PPPathPoint", ("position", archive.Text("{10, -10}")))))),
+                        (points.Length > 0 ? points : new[] { "{0, 0}", "{10, -10}" })
+                            .Select(point => archive.Object("PPPathPoint", ("position", archive.Text(point))))
+                            .ToArray()))),
                     ("contoursClosedStatus", archive.Array(archive.Value(true)))))
             },
             ("anchorX", 0d), ("anchorY", 0d), ("alpha", 1d), ("visibilityMode", 1));
@@ -141,7 +177,7 @@ internal static class SymbolDocument
             ("anchorX", 0d), ("anchorY", -13d), ("alpha", 1d), ("visibilityMode", 1));
 
     /// <summary>An instance, with the plain values it hands its target in <paramref name="values"/>.</summary>
-    private static int Symbol(KeyedArchiveBuilder archive, string name, string target, int bindings, int? values = null)
+    private static int Symbol(KeyedArchiveBuilder archive, string name, string target, int bindings, int? values = null, double anchorX = 0)
     {
         var members = new List<(string, int)>
         {
@@ -161,7 +197,7 @@ internal static class SymbolDocument
         return archive.Object(
             "PPSymbol",
             members.ToArray(),
-            ("anchorX", 0d), ("anchorY", -15d), ("x", 0d), ("y", -15d), ("width", 15d), ("height", 15d),
+            ("anchorX", anchorX), ("anchorY", -15d), ("x", 0d), ("y", -15d), ("width", 15d), ("height", 15d),
             ("alpha", 1d), ("visibilityMode", 1), ("isKeepingAnchorAtDefaultPosition", true));
     }
 
@@ -172,7 +208,7 @@ internal static class SymbolDocument
     /// 221 of the sample document's 761 instances are like this, and a use has no path data to carry
     /// the offset in the way a shape does.
     /// </remarks>
-    private static int Moved(KeyedArchiveBuilder archive)
+    private static int Moved(KeyedArchiveBuilder archive, string target = "badge")
         => archive.Object(
             "PPSymbol",
             new[]
@@ -181,8 +217,8 @@ internal static class SymbolDocument
                 ("propertyValueProviders", archive.Dictionary()),
                 ("symbolProviderID", archive.Object(
                     "PPSymbolProviderID",
-                    ("name", archive.Text("badge")),
-                    ("identifier", archive.Text("badge"))))
+                    ("name", archive.Text(target)),
+                    ("identifier", archive.Text(target))))
             },
             ("anchorX", 20d), ("anchorY", -25d), ("x", -5d), ("y", -10d), ("width", 15d), ("height", 15d),
             ("alpha", 1d), ("visibilityMode", 1), ("isKeepingAnchorAtDefaultPosition", false));

@@ -70,6 +70,7 @@
     <Compile Remove="$(SvgSourcesBasePath)\Source\Paths\SvgPathBuilder.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Resources\svg11.dtd" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\SvgElementFactory.cs" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\Text\SvgDominantBaseline.cs" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)'=='netstandard2.0'">

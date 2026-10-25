@@ -16,7 +16,10 @@ namespace Svg.Viewer.Skia.Avalonia;
 
 /// <summary>One element a gesture is to move, as the host that owns the selection knows it.</summary>
 /// <param name="Element">The element itself, in the drawing's live document.</param>
-/// <param name="Key">What the host calls it; handed back unread with whatever was written.</param>
+/// <param name="Key">
+/// What the host calls it; handed back unread with whatever was written, except by
+/// <see cref="SvgViewerPoints"/> for the shape a <c>&lt;use&gt;</c> draws, which it names by its address.
+/// </param>
 /// <param name="Use">For mask or clip content, which of the elements using it to take hold of it through.</param>
 public readonly record struct SvgViewerGizmoMember(SvgElement Element, string Key, int Use = 0);
 

@@ -44,17 +44,20 @@ pending check is not a pass. Merge only once every check has finished and none h
    Record three things: the number, the head branch — the one I am on, and the one to delete at the
    end — and the target, its `baseRefName`.
 
-2. **Make sure it can merge.** The target may have moved while the branch was open and now
-   conflict with it:
+2. **Make sure it can merge.** The target may have moved while the branch was open, and now
+   conflict with it or merely be ahead of it:
 
    ```sh
    gh pr view --repo SamoZ256/Svg.Skia <number> --json mergeable,mergeStateStatus
    ```
 
    `CONFLICTING` (state `DIRTY`) means GitHub cannot make the merge commit, and `gh pr merge` would
-   refuse with "the merge commit cannot be cleanly created". `UNKNOWN` means GitHub hasn't worked it
-   out yet, so ask again a moment later. On a conflict, resolve it on the head branch by merging the
-   target *into* it. Never rebase: a rebased branch can only be pushed by force.
+   refuse with "the merge commit cannot be cleanly created". `BEHIND` means the target has commits
+   the branch lacks; the ruleset on `master` refuses to merge it until it has them, since CI never
+   tested the two together. `BLOCKED` is the ruleset waiting for checks, which step 3 does, and
+   `UNKNOWN` means GitHub hasn't worked it out yet, so ask again a moment later. On a conflict or
+   when behind, merge the target *into* the head branch. Never rebase: a rebased branch can only be
+   pushed by force.
 
    ```sh
    git fetch origin
@@ -66,7 +69,8 @@ pending check is not a pass. Merge only once every check has finished and none h
      code can't tell you which should win, stop and ask me rather than choosing. `git merge --abort`
      puts the branch back if it goes wrong.
    - **Then run the gates again** on the result: format what the resolution touched, build, and run
-     the suite. A merge that resolved cleanly can still fail to compile or pass.
+     the suite. A merge that resolved cleanly, or had nothing to resolve, can still fail to compile
+     or pass.
    - **Commit and push:** `git add` the resolved files, `git commit --no-edit` (the default merge
      message says what it is), and `git push`. That push starts CI again, and step 3 waits for it.
 
@@ -98,7 +102,8 @@ pending check is not a pass. Merge only once every check has finished and none h
 
    The number is not optional. With `--repo` pinned, `gh` cannot infer the pull request from the
    current branch and prints its usage instead of merging — which reads like a refusal and is easy
-   to mistake for one.
+   to mistake for one. A real refusal because the branch is behind means the target moved during
+   CI: go back to step 2.
 
    A merge commit, not a squash and not a rebase, because that is how this repository's history
    reads and squashing would throw away the commit bodies `/push` just wrote. Confirm it really
@@ -107,9 +112,9 @@ pending check is not a pass. Merge only once every check has finished and none h
    **Do not pass `--delete-branch`.** `gh` would delete the local branch and switch away, which is
    step 6's job — it would then find nothing to do and report success for work it never did.
 
-5. **Delete the remote branch**: `git push origin --delete <head branch>`. This is what gives the
-   prune in the next step something to report, and keeps merged branches from accumulating on the
-   remote.
+5. **Delete the remote branch**: `git push origin --delete <head branch>`, which keeps merged
+   branches from accumulating on the remote. The push removes the local `origin/<head branch>`
+   with it, so `/land`'s prune will not list this one as gone.
 
 6. **Run `/land <target branch>`.** I am on the pull request's head branch, since step 1 found the
    pull request from it, and that is the branch `/land` deletes. Let it do its own checking — do

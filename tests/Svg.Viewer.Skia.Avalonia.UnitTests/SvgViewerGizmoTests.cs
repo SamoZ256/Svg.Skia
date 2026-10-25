@@ -1686,6 +1686,82 @@ public class SvgViewerGizmoTests
         window.Close();
     }
 
+    /// <summary>
+    /// A shape in &lt;defs&gt; that only a mask's &lt;use&gt; draws is held where the mask puts it, and
+    /// stays under the hand while it is dragged, when the mask's own copy of it is a rebuild behind.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Defs_Shape_Only_A_Mask_Draws_Is_Held_Where_The_Mask_Puts_It()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <path id="spot" d="M0 0 L20 0 L20 20 L0 20 Z" fill="#ffffff" />
+                <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><use xlink:href="#spot" x="30" y="40" /></mask>
+              </defs>
+              <g transform="translate(20 10)"><rect width="80" height="90" fill="#3366cc" mask="url(#m)" /></g>
+            </svg>
+            """);
+
+        SelectById(viewer, "spot");
+
+        var box = viewer.Canvas.Gizmo!.Value;
+        Assert.Equal(50f, box.TL.X, 1);
+        Assert.Equal(50f, box.TL.Y, 1);
+        Assert.Equal(70f, box.BR.X, 1);
+
+        window.MouseDown(At(window, viewer, 60f, 60f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(At(window, viewer, 65f, 60f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(At(window, viewer, 70f, 60f), Held);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(60f, viewer.Canvas.Gizmo!.Value.TL.X, 1);
+        Assert.Equal(50f, viewer.Canvas.Gizmo!.Value.TL.Y, 1);
+
+        window.MouseUp(At(window, viewer, 70f, 60f), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("M10 0 L30 0 L30 20 L10 20 Z", Attribute(viewer, "spot", "d"));
+        Assert.Equal(60f, viewer.Canvas.Gizmo!.Value.TL.X, 1);
+
+        window.Close();
+    }
+
+    /// <summary>A shape in &lt;defs&gt; held where a mask's &lt;use&gt; draws it moves with that use, so held with it, it is moved once.</summary>
+    [AvaloniaFact]
+    public async Task A_Defs_Shape_Held_With_The_Use_That_Draws_It_Is_Moved_Once()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <path id="spot" d="M0 0 L20 0 L20 20 L0 20 Z" fill="#ffffff" />
+                <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><use id="through" xlink:href="#spot" x="30" y="40" /></mask>
+              </defs>
+              <g transform="translate(20 10)"><rect width="80" height="90" fill="#3366cc" mask="url(#m)" /></g>
+            </svg>
+            """);
+
+        var document = viewer.Canvas.Svg!.SourceDocument!;
+
+        Assert.True(viewer.Elements.TrySelect(new[]
+        {
+            SvgElementAddress.Create(document.GetElementById("spot")).Key,
+            SvgElementAddress.Create(document.GetElementById("through")).Key
+        }));
+        Dispatcher.UIThread.RunJobs();
+
+        Drag(window, viewer, (60f, 60f), (70f, 60f));
+
+        Assert.Equal("40", Attribute(viewer, "through", "x"));
+        Assert.Equal("M0 0 L20 0 L20 20 L0 20 Z", Attribute(viewer, "spot", "d"));
+
+        window.Close();
+    }
+
     /// <summary>A &lt;use&gt; in a clip path folds its own place into the path, so it is ringed but not held.</summary>
     [AvaloniaFact]
     public async Task A_Use_Inside_A_Clip_Path_Is_Ringed_But_Has_No_Handles()

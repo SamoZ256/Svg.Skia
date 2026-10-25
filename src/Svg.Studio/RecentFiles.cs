@@ -25,17 +25,14 @@ public static class RecentFiles
     /// Where the list is kept.
     /// </summary>
     /// <remarks>Settable so a test drives a file of its own instead of the one on this machine.</remarks>
-    public static string Store { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Svg.Studio",
-        "recent");
+    public static string Store { get; set; } = Path.Combine(StudioSettings.Folder, "recent");
 
     /// <summary>What can be opened again, newest first.</summary>
     /// <remarks>
     /// Filtered by what is still there, so nothing offered can fail to open — a file moved or
     /// deleted between sessions is the ordinary case, not an error worth reporting.
     /// </remarks>
-    public static IReadOnlyList<string> Paths => Read().Where(File.Exists).ToList();
+    public static IReadOnlyList<string> Paths => Read().Where(path => File.Exists(path) || ProjectPackage.Exists(path)).ToList();
 
     /// <summary>Puts a path at the front, wherever in the list it was.</summary>
     public static void Add(string path)

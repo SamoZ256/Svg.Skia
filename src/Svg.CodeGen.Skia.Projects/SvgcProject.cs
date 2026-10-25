@@ -81,6 +81,12 @@ public sealed class SvgcProjectItem
     /// that names any of them replaces the project's sizing outright instead of merging with it.
     /// </remarks>
     public bool HasSize => Width is { } || Height is { } || Scale is { };
+
+    /// <summary>Its method on <see cref="SvgCodeStyle.Api"/>, where not <c>draw</c> and the class name.</summary>
+    public string? Method { get; set; }
+
+    /// <summary>The parameters its API method takes, in order, in place of <see cref="SvgCodeStyle.Order"/>.</summary>
+    public IReadOnlyList<string>? Parameters { get; set; }
 }
 
 /// <summary>
@@ -177,6 +183,9 @@ public sealed class SvgcProject
 
     public IReadOnlyList<SvgcProjectItem> Items { get; }
 
+    /// <summary>The shape of the generated file beyond the drawings; nothing a flag overrides.</summary>
+    public SvgCodeStyle Style { get; set; } = SvgCodeStyle.Default;
+
     public static SvgcProject Load(string path) => SvgcProjectDocument.Load(path).Flatten();
 
     /// <summary>
@@ -222,6 +231,113 @@ public sealed class SvgcProject
         "relaxed" => SvgTextLayout.Relaxed,
         _ => throw new SvgcProjectException($"'{value}' is not a text layout. Expected strict, baked or relaxed.")
     };
+
+    public static SvgBody ParseBody(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        null or "" or "record" => SvgBody.Record,
+        "direct" => SvgBody.Direct,
+        _ => throw new SvgcProjectException($"'{value}' is not a body. Expected record or direct.")
+    };
+
+    /// <summary>Parameter names separated by white space, or null when there are none.</summary>
+    public static IReadOnlyList<string>? ParseNames(string? value)
+    {
+        if (value?.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries) is not { Length: > 0 } names)
+        {
+            return null;
+        }
+
+        foreach (var name in names)
+        {
+            ParseName(name, "parameter name", qualified: false);
+        }
+
+        return names;
+    }
+
+    /// <summary>A C# name, dotted where <paramref name="qualified"/>, or null when it was not given.</summary>
+    public static string? ParseName(string? value, string what, bool qualified)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var name = value!.Trim();
+        var parts = qualified ? name.Split('.') : new[] { name };
+
+        return parts.All(IsName)
+            ? name
+            : throw new SvgcProjectException($"'{value}' is not a {what}.");
+    }
+
+    /// <summary>
+    /// A namespace, or null when it was not given. One that starts with a dot continues the namespace
+    /// above it, which only <paramref name="relative"/> allows.
+    /// </summary>
+    public static string? ParseNamespace(string? value, bool relative)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var name = value!.Trim();
+        var continues = name[0] == '.';
+
+        if (continues && !relative)
+        {
+            throw new SvgcProjectException($"'{name}' continues the namespace above it, and there is nothing above it to continue. Write it in full.");
+        }
+
+        return (continues ? name.Substring(1) : name).Split('.').All(IsName)
+            ? name
+            : throw new SvgcProjectException($"'{name}' is not a namespace.");
+    }
+
+    /// <summary>
+    /// The namespace a node is in, from what it and each node above it say, nearest first: each one
+    /// that starts with a dot continues the next, up to the first written in full. Still starting
+    /// with a dot where none above is, for the build to continue from the project's.
+    /// </summary>
+    public static string? ResolveNamespace(IEnumerable<string?> nearestFirst)
+    {
+        string? resolved = null;
+
+        foreach (var value in nearestFirst)
+        {
+            if (value is null)
+            {
+                continue;
+            }
+
+            resolved = value + resolved;
+
+            if (value[0] != '.')
+            {
+                break;
+            }
+        }
+
+        return resolved;
+    }
+
+    private static bool IsName(string part)
+        => part.Length > 0 && !char.IsDigit(part[0]) && part.All(c => c == '_' || char.IsLetterOrDigit(c));
+
+    /// <summary>The settings that shape the file as a project spells them, each null where it is not given.</summary>
+    public static SvgCodeStyle ParseStyle(string? api, string? resizing, string? context, string? order, string? body, string? typeface)
+        => new()
+        {
+            Api = ParseName(api, "class name", qualified: true),
+            Resizing = ParseName(resizing, "type name", qualified: true),
+            Context = ParseName(context, "type name", qualified: true),
+            Order = ParseNames(order) ?? Array.Empty<string>(),
+            Body = ParseBody(body),
+            Typeface = Blank(typeface)
+        };
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value!.Trim();
 
     public static SkiaSharpTarget ParseSkiaSharpTarget(string? value) => value?.Trim() switch
     {

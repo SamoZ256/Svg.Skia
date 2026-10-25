@@ -278,6 +278,18 @@ public class SvgcProjectBuildTests : IDisposable
         Assert.Contains("the text of <tspan> is resolved before the drawing is recorded", refusal.Message);
     }
 
+    [Fact]
+    public void A_Continued_Namespace_Continues_The_One_The_Build_Was_Given()
+    {
+        // The flag's, standing in for the project's, as svgc's -n does.
+        var drawing = SvgcProjectBuild.Build(
+            new SvgcProjectItem("A", null, ".Overlays", "A", null, source: Drawing),
+            new SvgcBuildSettings { Namespace = "Flag" },
+            new NoAssets());
+
+        Assert.Equal("Flag.Overlays", drawing!.NamespaceName);
+    }
+
     /// <summary>A loader for a drawing that asks for nothing: no image, no text.</summary>
     private sealed class NoAssets : ISvgAssetLoader
     {
@@ -292,5 +304,74 @@ public class SvgcProjectBuildTests : IDisposable
         public float MeasureText(string? text, SKPaint paint, ref SKRect bounds) => 0f;
 
         public SKPath? GetTextPath(string? text, SKPaint paint, float x, float y) => null;
+    }
+
+    private const string Tank = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="30" height="30">
+          <defs><e:code>
+            <e:param name="level" type="number" default="1" />
+            <e:param name="accentColorOn" type="color" default="#f00" />
+          </e:code></defs>
+          <rect x="6" y="6" width="18" height="{{ level * 18 }}" fill="{{ accentColorOn }}" />
+        </svg>
+        """;
+
+    [Fact]
+    public void A_Project_Builds_Its_Api_Into_The_Single_File()
+    {
+        var target = Path("Icons.cs");
+        var project = SvgcProject.Parse($"""
+            <svgc>
+              <namespace>Drawings</namespace>
+              <singleFile>{target}</singleFile>
+              <api>PaintCodeResources.VectorIconsResource</api>
+              <order>accentColorOn level</order>
+              <body>direct</body>
+              <svg input="tank.svg" class="Tank" method="drawTanklevel" />
+            </svgc>
+            """, _directory);
+
+        File.WriteAllText(Path("tank.svg"), Tank);
+
+        SvgcProjectBuild.Run(project, SvgcBuildSettings.For(project), new NoAssets());
+
+        var code = File.ReadAllText(target);
+
+        Assert.Contains("public static void drawTanklevel(SKCanvas canvas, SKColor accentColorOn, float level)", code);
+        Assert.Contains("global::Drawings.Tank.Draw(canvas, level: level, accentColorOn: accentColorOn);", code);
+        Assert.DoesNotContain("DrawPicture", code);
+    }
+
+    [Fact]
+    public void Text_Nothing_Draws_Still_Takes_The_Context()
+    {
+        // Letters PaintCode's designer outlined, beside the text they were outlined from, hidden.
+        const string outlined = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30">
+              <text x="2" y="20" font-size="10" display="none">A</text>
+              <path d="M 2 20 L 6 10 L 10 20 Z" />
+            </svg>
+            """;
+
+        var drawing = SvgcProjectBuild.Build(new SvgcProjectItem("A", null, "Demo", "A", null, source: outlined), new SvgcBuildSettings(), new NoAssets())!;
+        var code = SkiaCSharpCodeGen.GenerateFile(new[] { drawing }, style: new SvgCodeStyle { Api = "Api", Context = "PaintCode.Context" });
+
+        Assert.True(drawing.HasText);
+        Assert.Contains("public static void drawA(SKCanvas canvas, global::PaintCode.Context context)", code);
+    }
+
+    [Fact]
+    public void An_Api_Without_A_Single_File_Is_Refused()
+    {
+        var project = new SvgcProject(
+            null, "Demo", null, null, null, null, null, null, null, null, null, null,
+            new[] { new SvgcProjectItem("Badge", Path("Badge.cs"), null, "Badge", null, source: Drawing) })
+        {
+            Style = new SvgCodeStyle { Api = "Icons" }
+        };
+
+        var error = Assert.Throws<SvgcProjectException>(() => SvgcProjectBuild.Run(project, SvgcBuildSettings.For(project), new NoAssets()));
+
+        Assert.Contains("singleFile", error.Message);
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions.Recipes;
@@ -12,7 +13,7 @@ namespace Svg.Studio.UnitTests;
 /// </summary>
 public class ProjectTemplatesTests
 {
-    private const string Project = """
+    private const string Manifest = """
         <?xml version="1.0" encoding="utf-8"?>
         <studio namespace="Demo.Icons">
           <e:templates xmlns:e="https://svg.skia/expr/1.0">
@@ -22,15 +23,18 @@ public class ProjectTemplatesTests
             </e:recipe>
             <recipe xmlns="https://svg.skia/expr/1.0" name="Kept"/>
           </e:templates>
-
-          <group name="Line">
-            <drawing name="Bell"   source="streamline:abc123">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h24" stroke="#000000" /></svg>
-            </drawing>
-          </group>
         </studio>
 
         """;
+
+    /// <summary>The project's folder: the templates in its own file, and a drawing that says where it came from.</summary>
+    private static readonly IReadOnlyDictionary<string, string> Files = new Dictionary<string, string>
+    {
+        ["studio.xml"] = Manifest,
+        ["Line/group.xml"] = "<group />\n",
+        ["Line/Bell.svg"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h24" stroke="#000000" />"""
+                            + "\n\n  <metadata><drawing xmlns=\"https://svg.skia/studio/1.0\" source=\"streamline:abc123\" /></metadata></svg>\n",
+    };
 
     private const string Tinted = """
         <e:templates xmlns:e="https://svg.skia/expr/1.0">
@@ -46,19 +50,21 @@ public class ProjectTemplatesTests
             <e:recipe name="A" />
             <e:recipe xmlns:e="https://svg.skia/expr/1.0" name="B" />
           </e:templates>
-          <drawing name="Dot">
-            <svg xmlns="http://www.w3.org/2000/svg" />
-          </drawing>
         </studio>
 
         """;
 
+    private static ProjectDocument Read() => ProjectDocument.Read(Files, null);
+
+    private static ProjectDocument Holding(string manifest)
+        => ProjectDocument.Read(new Dictionary<string, string> { ["studio.xml"] = manifest }, null);
+
     [Fact]
     public void Templates_And_A_Source_Are_Written_Back_Byte_For_Byte()
     {
-        var document = ProjectDocument.Parse(Project);
+        var document = Read();
 
-        Assert.Equal(Project, document.ToXml());
+        Assert.Equal(Files, document.Files());
         Assert.Equal("streamline:abc123", document.Root.Drawings.Single().Source);
 
         // Not a row: the templates are what the project says, not something in its tree.
@@ -68,7 +74,7 @@ public class ProjectTemplatesTests
     [Fact]
     public void Each_Template_Reads_On_Its_Own()
     {
-        var templates = ProjectDocument.Parse(Project).Root.Templates;
+        var templates = Read().Root.Templates;
 
         Assert.Equal(new[] { "Tinted", "Kept" }, templates.Select(one => one.Name));
 
@@ -83,7 +89,7 @@ public class ProjectTemplatesTests
     [Fact]
     public void A_Bad_Template_Does_Not_Stop_The_Project_Loading()
     {
-        var document = ProjectDocument.Parse(Project.Replace("<e:match colors=\"1\" />", "<e:bogus />", StringComparison.Ordinal));
+        var document = Holding(Manifest.Replace("<e:match colors=\"1\" />", "<e:bogus />", StringComparison.Ordinal));
 
         Assert.Throws<SvgRecipeException>(() => SvgRecipe.Parse(document.Root.Templates[0].Text));
     }
@@ -91,25 +97,22 @@ public class ProjectTemplatesTests
     [Fact]
     public void Templates_In_A_Group_Are_Refused()
     {
-        var xml = Project.Replace(
-            "<group name=\"Line\">",
-            "<group name=\"Line\">\n    <e:templates xmlns:e=\"https://svg.skia/expr/1.0\" />",
-            StringComparison.Ordinal);
+        var files = new Dictionary<string, string>(Files)
+        {
+            ["Line/group.xml"] = "<group>\n  <e:templates xmlns:e=\"https://svg.skia/expr/1.0\" />\n</group>\n"
+        };
 
-        var refusal = Assert.Throws<SvgcProjectException>(() => ProjectDocument.Parse(xml));
+        var refusal = Assert.Throws<SvgcProjectException>(() => ProjectDocument.Read(files, null));
 
-        Assert.Contains("on <studio>", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("in studio.xml", refusal.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Two_Blocks_Of_Templates_Are_Refused()
     {
-        var xml = Project.Replace(
-            "\n  <group",
-            "  <e:templates xmlns:e=\"https://svg.skia/expr/1.0\" />\n  <group",
-            StringComparison.Ordinal);
+        var twice = Manifest.Replace("</studio>", "  <e:templates xmlns:e=\"https://svg.skia/expr/1.0\" />\n</studio>", StringComparison.Ordinal);
 
-        var refusal = Assert.Throws<SvgcProjectException>(() => ProjectDocument.Parse(xml));
+        var refusal = Assert.Throws<SvgcProjectException>(() => Holding(twice));
 
         Assert.Contains("more than one <e:templates>", refusal.Message, StringComparison.Ordinal);
     }
@@ -117,16 +120,16 @@ public class ProjectTemplatesTests
     [Fact]
     public void A_Group_Cannot_Name_A_Source()
     {
-        var xml = Project.Replace("<group name=\"Line\">", "<group name=\"Line\" source=\"x\">", StringComparison.Ordinal);
+        var files = new Dictionary<string, string>(Files) { ["Line/group.xml"] = "<group source=\"x\" />\n" };
 
-        Assert.Throws<SvgcProjectException>(() => ProjectDocument.Parse(xml));
+        Assert.Throws<SvgcProjectException>(() => ProjectDocument.Read(files, null));
     }
 
     [Fact]
     public void A_Project_Without_Templates_Is_Somewhere_To_Keep_Them()
     {
         var document = ProjectDocument.Empty();
-        document.Root.AddDrawing("Dot", "<svg xmlns=\"http://www.w3.org/2000/svg\" />", 0);
+        document.Root.AddDrawing("Dot", "<svg xmlns=\"http://www.w3.org/2000/svg\" />");
 
         Assert.Empty(document.Root.Templates);
         Assert.Null(document.Root.SetTemplates(document.Root.TemplatesText));
@@ -141,28 +144,25 @@ public class ProjectTemplatesTests
               <e:templates xmlns:e="https://svg.skia/expr/1.0">
                 <e:recipe name="Tinted"><e:slot name="ink" rest="true">ink</e:slot></e:recipe>
               </e:templates>
-              <drawing name="Dot">
-                <svg xmlns="http://www.w3.org/2000/svg" />
-              </drawing>
             </studio>
 
-            """, document.ToXml());
+            """, document.Files()["studio.xml"]);
     }
 
     [Fact]
     public void Templates_That_Are_Not_A_Block_Are_Refused()
     {
-        var document = ProjectDocument.Parse(Project);
+        var document = Read();
 
         Assert.NotNull(document.Root.SetTemplates("<e:templates"));
         Assert.NotNull(document.Root.SetTemplates("<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:param name=\"a\" type=\"number\" default=\"1\" /></e:code>"));
-        Assert.Equal(Project, document.ToXml());
+        Assert.Equal(Files, document.Files());
     }
 
     [Fact]
     public void Undo_Puts_The_Templates_Back()
     {
-        var workspace = new ProjectWorkspace(ProjectDocument.Parse(Project));
+        var workspace = new ProjectWorkspace(Read());
         var root = workspace.Document.Root;
 
         workspace.Do("Edit templates", () => ProjectSnapshot.Templates(root), () => Assert.Null(root.SetTemplates(Tinted)));
@@ -171,13 +171,13 @@ public class ProjectTemplatesTests
 
         Assert.True(workspace.Undo());
 
-        Assert.Equal(Project, workspace.Document.ToXml());
+        Assert.Equal(Files, workspace.Document.Files());
     }
 
     [Fact]
     public void A_Template_Put_Under_A_Label_Is_Named_So_In_The_Edit_Menu()
     {
-        var workspace = new ProjectWorkspace(ProjectDocument.Parse(Project));
+        var workspace = new ProjectWorkspace(Read());
         var root = workspace.Document.Root;
 
         Assert.Null(TemplateLibrary.Put(workspace, root.Templates.Count, "<recipe xmlns=\"https://svg.skia/expr/1.0\" name=\"Mine\" />", "Claude Code: add template Mine"));
@@ -190,13 +190,13 @@ public class ProjectTemplatesTests
 
         Assert.True(workspace.Undo());
         Assert.True(workspace.Undo());
-        Assert.Equal(Project, workspace.Document.ToXml());
+        Assert.Equal(Files, workspace.Document.Files());
     }
 
     [Fact]
     public void Templates_Bound_From_Above_Read_On_Their_Own()
     {
-        var templates = ProjectDocument.Parse(BoundAbove).Root.Templates;
+        var templates = Holding(BoundAbove).Root.Templates;
 
         Assert.Equal("A", SvgRecipe.Parse(templates[0].Text).Name);
         Assert.Equal("B", SvgRecipe.Parse(templates[1].Text).Name);
@@ -209,20 +209,20 @@ public class ProjectTemplatesTests
     [Fact]
     public void Templates_Bound_From_Above_Survive_An_Unedited_Save_And_An_Undo()
     {
-        var workspace = new ProjectWorkspace(ProjectDocument.Parse(BoundAbove));
+        var workspace = new ProjectWorkspace(Holding(BoundAbove));
         var root = workspace.Document.Root;
 
         Assert.Null(root.SetTemplates(root.TemplatesText));
-        Assert.Equal(BoundAbove, workspace.Document.ToXml());
+        Assert.Equal(BoundAbove, workspace.Document.Files()["studio.xml"]);
 
         workspace.Do("Edit templates", () => ProjectSnapshot.Templates(root), () => Assert.Null(root.SetTemplates(Tinted)));
-        var edited = workspace.Document.ToXml();
+        var edited = workspace.Document.Files()["studio.xml"];
 
         Assert.True(workspace.Undo());
-        Assert.Equal(BoundAbove, workspace.Document.ToXml());
+        Assert.Equal(BoundAbove, workspace.Document.Files()["studio.xml"]);
 
         Assert.True(workspace.Redo());
-        Assert.Equal(edited, workspace.Document.ToXml());
+        Assert.Equal(edited, workspace.Document.Files()["studio.xml"]);
     }
 
     [Fact]
@@ -230,23 +230,23 @@ public class ProjectTemplatesTests
     {
         var workspace = new ProjectWorkspace(ProjectDocument.Empty());
         var root = workspace.Document.Root;
-        var empty = workspace.Document.ToXml();
+        var empty = workspace.Document.Files();
 
         workspace.Do("Edit templates", () => ProjectSnapshot.Templates(root), () => Assert.Null(root.SetTemplates(Tinted)));
 
         Assert.True(workspace.Undo());
         Assert.Null(root.TemplatesBlock);
-        Assert.Equal(empty, workspace.Document.ToXml());
+        Assert.Equal(empty, workspace.Document.Files());
     }
 
     [Fact]
     public void A_Source_Is_Set_Cleared_And_Copied()
     {
-        var document = ProjectDocument.Parse(Project);
+        var document = Read();
         var group = (ProjectGroup)document.Root.Children.Single();
         var bell = document.Root.Drawings.Single();
 
-        var copy = (ProjectDrawing)group.Copy(bell, 1);
+        var copy = (ProjectDrawing)group.Copy(bell);
 
         Assert.Equal("streamline:abc123", copy.Source);
 
@@ -255,10 +255,10 @@ public class ProjectTemplatesTests
 
         bell.Source = " ";
         Assert.Null(bell.Source);
-        Assert.DoesNotContain("source=\"streamline:def456\"", document.ToXml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("source=\"streamline:def456\"", TestPackage.Dump(document), StringComparison.Ordinal);
 
         copy.Source = null;
         Assert.Null(copy.Source);
-        Assert.DoesNotContain("source=", document.ToXml(), StringComparison.Ordinal);
+        Assert.DoesNotContain("source=", TestPackage.Dump(document), StringComparison.Ordinal);
     }
 }

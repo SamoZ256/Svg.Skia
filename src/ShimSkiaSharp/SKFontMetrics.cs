@@ -11,4 +11,5 @@ public struct SKFontMetrics
     public float? StrikeoutThickness { get; set; }
     public float? UnderlinePosition { get; set; }
     public float? UnderlineThickness { get; set; }
+    public float? CapHeight { get; set; }
 }

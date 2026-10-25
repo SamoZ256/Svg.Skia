@@ -36,6 +36,17 @@ internal static class SampleDocument
             new[] { ("name", archive.Text("purpleShade")), ("parentColor", purple) },
             ("isDerived", true), ("operation", 1), ("operationAmount", 0.2d));
 
+        // And the two SampleStyleKit uses: a highlight, and an alias PaintCode writes as the parent.
+        var purpleLight = archive.Object(
+            "PPColor",
+            new[] { ("name", archive.Text("purpleLight")), ("parentColor", purple) },
+            ("isDerived", true), ("operation", 0), ("operationAmount", 0.5d));
+
+        var purpleAlias = archive.Object(
+            "PPColor",
+            new[] { ("name", archive.Text("purpleAlias")), ("parentColor", purple) },
+            ("isDerived", true), ("operation", 6), ("operationAmount", 0.5d));
+
         var point = archive.Object(
             "PPPathPoint",
             ("position", archive.Text("{9.8047, -1.5499}")),
@@ -92,7 +103,7 @@ internal static class SampleDocument
 
         var desk = archive.Object("PPDesk", ("name", archive.Text("Overlays")), ("canvases", archive.Array(canvas)));
 
-        var library = archive.Object("PPLibrary", ("colors", archive.Array(purple, purpleFade, purpleGrey, purpleShade)), ("variables", archive.Array(
+        var library = archive.Object("PPLibrary", ("colors", archive.Array(purple, purpleFade, purpleGrey, purpleShade, purpleLight, purpleAlias)), ("variables", archive.Array(
             // The kinds PaintCode's own menu gives these: 5 is Boolean, 0 is Number. They used to be
             // 0 and 2 -- anything but 13 -- from when kind was read only to tell a derived variable
             // from an input, which made a boolean claim to be a number and a number a fraction.

@@ -83,15 +83,19 @@ public static class ProjectImport
 
         document.Root.Namespace = PaintCodeImport.NamespaceOf(source, options);
 
+        // Read only by an API class, which the project does not have until somebody names one.
+        document.Root.Order = string.Join(" ", PaintCodeImport.ParameterOrder(source));
+
         var desks = PaintCodeImport.Desks(source, options, notes);
         var gap = Gap(desks);
         var below = 0f;
 
         foreach (var desk in desks)
         {
-            var group = document.Root.AddGroup(desk.Name, document.Root.Children.Count);
+            var group = document.Root.AddGroup(desk.Name);
 
-            group.Namespace = document.Root.Namespace is { } root ? root + "." + desk.Name : desk.Name;
+            // Continuing the project's, so renaming it moves every desk.
+            group.Namespace = "." + desk.Name;
 
             var corner = Corner(desk);
 
@@ -108,9 +112,10 @@ public static class ProjectImport
             {
                 // The document itself rather than the file the folder import writes, which is the
                 // same drawing indented by a writer on the way past.
-                var drawing = group.AddDrawing(canvas.Name, canvas.Document.Root!.ToString(), group.Children.Count);
+                var drawing = group.AddDrawing(canvas.Name, canvas.Document.Root!.ToString());
 
                 drawing.Class = canvas.Class;
+                drawing.Method = canvas.Method;
 
                 if (canvas.Place is { } place && corner is { } from)
                 {
@@ -202,7 +207,7 @@ public static class ProjectImport
         {
             if (child is SvgcProjectGroup group)
             {
-                var into = target.AddGroup(Named(group), target.Children.Count);
+                var into = target.AddGroup(Named(group));
 
                 Carry(group, into);
                 Convert(group, into, notes);
@@ -222,8 +227,7 @@ public static class ProjectImport
 
             var added = target.AddDrawing(
                 Path.GetFileNameWithoutExtension(drawing.Input),
-                svg,
-                target.Children.Count);
+                svg);
 
             Carry(drawing, added);
         }

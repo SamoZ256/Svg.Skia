@@ -81,7 +81,7 @@ public class TemplateImportTests
 
     private static (ProjectWorkspace Workspace, ProjectGroup Group) Open(string name)
     {
-        var workspace = new ProjectWorkspace(ProjectDocument.Parse(Project));
+        var workspace = new ProjectWorkspace(TestPackage.Parse(Project));
 
         return (workspace, workspace.Document.Root.Children.OfType<ProjectGroup>().Single(group => group.Name == name));
     }
@@ -107,7 +107,6 @@ public class TemplateImportTests
         var added = TemplateLibrary.Import(
             workspace,
             group,
-            group.Children.Count,
             new[]
             {
                 Bound(group, Accent, "Home", "#000000", "streamline:a"),
@@ -118,7 +117,7 @@ public class TemplateImportTests
 
         Assert.Empty(notes);
         Assert.Equal(code, group.CodeText);
-        Assert.Equal(new[] { "Bell", "Home", "Star", "Flag" }, group.Children.Select(child => child.Name));
+        Assert.Equal(new[] { "Bell", "Flag", "Home", "Star" }, group.Children.Select(child => child.Name));
         Assert.Equal(new[] { "streamline:a", "streamline:b", "streamline:c" }, added.Select(drawing => drawing.Source));
         Assert.All(added, drawing =>
         {
@@ -137,7 +136,6 @@ public class TemplateImportTests
         var added = TemplateLibrary.Import(
             workspace,
             group,
-            0,
             new[]
             {
                 Bound(group, Tinted, "Home", "#000000"),
@@ -148,11 +146,11 @@ public class TemplateImportTests
 
         Assert.Equal(3, added.Count);
         Assert.Equal(new[] { "tint", "ink", "wash" }, Declared(group));
-        Assert.EndsWith("\n      <e:let name=\"wash\">withAlpha(tint, 0.35)</e:let>\n    </e:code>", group.CodeText, StringComparison.Ordinal);
+        Assert.EndsWith("\n    <e:let name=\"wash\">withAlpha(tint, 0.35)</e:let>\n  </e:code>", group.CodeText, StringComparison.Ordinal);
         Assert.Equal("#3b82f6", (string?)group.Code!.Elements().First().Attribute("default"));
         Assert.Equal("color", (string?)group.Code.Elements().ElementAt(1).Attribute("type"));
         Assert.Equal("Two templates declare 'tint' differently, so the first one's was kept.", Assert.Single(notes));
-        Assert.Equal(new[] { "Home", "Star", "Flag", "Dot" }, group.Children.Select(child => child.Name));
+        Assert.Equal(new[] { "Dot", "Flag", "Home", "Star" }, group.Children.Select(child => child.Name));
         Assert.All(added, drawing => Assert.DoesNotContain("e:code", drawing.Text, StringComparison.Ordinal));
         Assert.Contains("fill=\"{{ wash }}\"", added[2].Text, StringComparison.Ordinal);
     }
@@ -161,21 +159,21 @@ public class TemplateImportTests
     public void One_Undo_Takes_Back_The_Batch_And_Its_Declarations_Byte_For_Byte()
     {
         var (workspace, group) = Open("Empty");
-        var before = workspace.Document.ToXml();
+        var before = TestPackage.Dump(workspace.Document);
 
-        TemplateLibrary.Import(workspace, group, 1, new[] { Bound(group, Tinted, "Home", "#000000"), Bound(group, Washed, "Flag", "#4147d5") }, new List<string>());
+        TemplateLibrary.Import(workspace, group, new[] { Bound(group, Tinted, "Home", "#000000"), Bound(group, Washed, "Flag", "#4147d5") }, new List<string>());
 
-        var after = workspace.Document.ToXml();
+        var after = TestPackage.Dump(workspace.Document);
 
         Assert.NotNull(group.Code);
         Assert.True(workspace.Undo());
-        Assert.Equal(before, workspace.Document.ToXml());
+        Assert.Equal(before, TestPackage.Dump(workspace.Document));
         Assert.Null(group.Code);
         Assert.Equal(new[] { "Dot" }, group.Children.Select(child => child.Name));
         Assert.False(workspace.CanUndo);
 
         Assert.True(workspace.Redo());
-        Assert.Equal(after, workspace.Document.ToXml());
+        Assert.Equal(after, TestPackage.Dump(workspace.Document));
     }
 
     [Fact]
@@ -183,7 +181,7 @@ public class TemplateImportTests
     {
         var (workspace, group) = Open("Empty");
 
-        var added = Assert.Single(TemplateLibrary.Import(workspace, group, 0, new[] { new TemplateImport("Home", Glyph("#123456")) }, new List<string>()));
+        var added = Assert.Single(TemplateLibrary.Import(workspace, group, new[] { new TemplateImport("Home", Glyph("#123456")) }, new List<string>()));
 
         Assert.Contains("fill=\"#123456\"", added.Text, StringComparison.Ordinal);
         Assert.Null(added.Source);
@@ -198,7 +196,6 @@ public class TemplateImportTests
         TemplateLibrary.Import(
             workspace,
             group,
-            0,
             new[] { Bound(group, Accent, "Home", "#000000", "streamline:a"), Bound(group, Accent, "Star", "#000000", "streamline:b") },
             new List<string>());
 
@@ -213,19 +210,19 @@ public class TemplateImportTests
     {
         var (workspace, group) = Open("Empty");
 
-        TemplateLibrary.Import(workspace, group, 0, new[] { new TemplateImport("Home", Glyph("#000000"), null, "streamline:a") }, new List<string>());
+        TemplateLibrary.Import(workspace, group, new[] { new TemplateImport("Home", Glyph("#000000"), null, "streamline:a") }, new List<string>());
 
-        var drawing = (ProjectDrawing)group.Children[0];
+        var drawing = (ProjectDrawing)group.Children.Single(child => child.Name == "Home");
         drawing.X = 10f;
         drawing.Y = 20f;
 
-        var before = workspace.Document.ToXml();
+        var before = TestPackage.Dump(workspace.Document);
         var notes = new List<string>();
 
         Assert.True(TemplateLibrary.Replace(workspace, drawing, Bound(group, Tinted, "ignored", "#333333", "streamline:other"), notes));
 
         Assert.Empty(notes);
-        Assert.Same(drawing, group.Children[0]);
+        Assert.Same(drawing, group.Children.Single(child => child.Name == "Home"));
         Assert.Equal("Home", drawing.Name);
         Assert.Equal("streamline:a", drawing.Source);
         Assert.Equal((10f, 20f), (drawing.X, drawing.Y));
@@ -234,7 +231,7 @@ public class TemplateImportTests
         Assert.Equal("update Home", workspace.UndoLabel);
 
         Assert.True(workspace.Undo());
-        Assert.Equal(before, workspace.Document.ToXml());
+        Assert.Equal(before, TestPackage.Dump(workspace.Document));
         Assert.Contains("fill=\"#000000\"", drawing.Text, StringComparison.Ordinal);
     }
 
@@ -247,7 +244,6 @@ public class TemplateImportTests
         var added = TemplateLibrary.Import(
             workspace,
             group,
-            0,
             new[] { new TemplateImport("Home", Glyph("#000000"), SvgRecipe.Parse(Tinted)), new TemplateImport("Star", Glyph("#000000")) },
             notes);
 
@@ -262,7 +258,7 @@ public class TemplateImportTests
         var (workspace, group) = Open("Empty");
         var notes = new List<string>();
 
-        Assert.Empty(TemplateLibrary.Import(workspace, group, 0, new[] { new TemplateImport("Home", Glyph("#000000"), SvgRecipe.Parse(Tinted)) }, notes));
+        Assert.Empty(TemplateLibrary.Import(workspace, group, new[] { new TemplateImport("Home", Glyph("#000000"), SvgRecipe.Parse(Tinted)) }, notes));
 
         Assert.Single(notes);
         Assert.False(workspace.CanUndo);
@@ -273,16 +269,16 @@ public class TemplateImportTests
     {
         var (workspace, group) = Open("Scheme");
         var bell = (ProjectDrawing)group.Children[0];
-        var before = workspace.Document.ToXml();
+        var before = TestPackage.Dump(workspace.Document);
         var notes = new List<string>();
 
-        Assert.Empty(TemplateLibrary.Import(workspace, group, 0, new[] { Bound(group, Accent, " ", "#000000") }, notes));
+        Assert.Empty(TemplateLibrary.Import(workspace, group, new[] { Bound(group, Accent, " ", "#000000") }, notes));
         Assert.False(TemplateLibrary.Replace(workspace, bell, new TemplateImport("Bell", "<div/>"), notes));
 
         Assert.Equal(2, notes.Count);
         Assert.Contains("needs a name", notes[0], StringComparison.Ordinal);
         Assert.Contains("<svg> document", notes[1], StringComparison.Ordinal);
-        Assert.Equal(before, workspace.Document.ToXml());
+        Assert.Equal(before, TestPackage.Dump(workspace.Document));
         Assert.False(workspace.CanUndo);
         Assert.False(workspace.IsEdited);
     }
@@ -291,13 +287,13 @@ public class TemplateImportTests
     public void A_Name_Declared_Below_The_Target_Is_Refused_Rather_Than_Declared_Twice()
     {
         var (workspace, group) = Open("Outer");
-        var before = workspace.Document.ToXml();
+        var before = TestPackage.Dump(workspace.Document);
         var notes = new List<string>();
 
-        Assert.Empty(TemplateLibrary.Import(workspace, group, 0, new[] { Bound(group, Tinted, "Home", "#000000") }, notes));
+        Assert.Empty(TemplateLibrary.Import(workspace, group, new[] { Bound(group, Tinted, "Home", "#000000") }, notes));
 
         Assert.Equal("'Inner' declares 'tint' of its own, so declaring it on 'Outer' as well would declare it twice.", Assert.Single(notes));
-        Assert.Equal(before, workspace.Document.ToXml());
+        Assert.Equal(before, TestPackage.Dump(workspace.Document));
         Assert.False(workspace.CanUndo);
     }
 
@@ -309,7 +305,6 @@ public class TemplateImportTests
         var added = Assert.Single(TemplateLibrary.Import(
             workspace,
             group,
-            0,
             new[] { Bound(group, Accent.Replace("name=\"Accent glyph\"", "name=\"Accent glyph\" size=\"30\"", StringComparison.Ordinal), "Home", "#000000") },
             new List<string>()));
 
@@ -322,7 +317,7 @@ public class TemplateImportTests
     {
         var (workspace, group) = Open("Scheme");
         var drawing = (ProjectDrawing)group.Children[0];
-        var before = workspace.Document.ToXml();
+        var before = TestPackage.Dump(workspace.Document);
         var code = group.CodeText;
 
         Assert.True(TemplateLibrary.Replace(workspace, drawing, Bound(group, Accent, "ignored", "#333333"), new List<string>()));
@@ -331,7 +326,7 @@ public class TemplateImportTests
         Assert.Contains("d=\"M2 2h20v20z\" fill=\"{{ stateAccentColor }}\"", drawing.Text, StringComparison.Ordinal);
 
         Assert.True(workspace.Undo());
-        Assert.Equal(before, workspace.Document.ToXml());
+        Assert.Equal(before, TestPackage.Dump(workspace.Document));
     }
 
     /// <summary>The group panel's first declaration takes the same path as an import's, so it is placed as one is.</summary>
@@ -343,15 +338,14 @@ public class TemplateImportTests
         Assert.Null(new GroupTarget(workspace, group).Commit("add k", source => Svg.SourceEditing.SvgDeclarationEditor.AddLet(source, "k", "1")));
 
         Assert.Equal(
-            "<e:code xmlns:e=\"https://svg.skia/expr/1.0\">\n      <e:let name=\"k\">1</e:let>\n    </e:code>",
+            "<e:code xmlns:e=\"https://svg.skia/expr/1.0\">\n    <e:let name=\"k\">1</e:let>\n  </e:code>",
             group.CodeText.Replace("\r\n", "\n", StringComparison.Ordinal));
     }
 
     [AvaloniaFact]
     public async Task The_Window_Imports_A_Batch_Shows_The_Last_And_Says_What_It_Noted()
     {
-        var path = Path.Combine(Directory.CreateTempSubdirectory().FullName, "icons.svgstudio");
-        File.WriteAllText(path, Project);
+        var path = TestPackage.Write(Path.Combine(Directory.CreateTempSubdirectory().FullName, "icons.svgstudio"), Project);
 
         var window = new MainWindow();
         var said = new List<(string Title, string Message)>();
@@ -369,7 +363,7 @@ public class TemplateImportTests
 
         var group = window.Workspace!.Document.Root.Children.OfType<ProjectGroup>().Single(one => one.Name == "Empty");
 
-        var added = await window.ImportAsync(group, 0, new[] { Bound(group, Tinted, "Home", "#000000"), Bound(group, Washed, "Flag", "#4147d5") });
+        var added = await window.ImportAsync(group, new[] { Bound(group, Tinted, "Home", "#000000"), Bound(group, Washed, "Flag", "#4147d5") });
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(new[] { "Home", "Flag" }, added.Select(drawing => drawing.Name));

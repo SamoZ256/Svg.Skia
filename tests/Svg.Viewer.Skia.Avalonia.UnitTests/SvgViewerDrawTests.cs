@@ -620,4 +620,109 @@ public class SvgViewerDrawTests
 
         Assert.True(select.IsChecked);
     }
+
+    // ---- a clip path or a mask for what is drawn -----------------------------------------------
+
+    private static Svg.Skia.SKSvg Load(string markup)
+    {
+        var svg = new Svg.Skia.SKSvg();
+
+        Assert.NotNull(svg.FromSvg(markup));
+
+        return svg;
+    }
+
+    private static SvgElement ById(Svg.Skia.SKSvg svg, string id) => svg.SourceDocument!.GetElementById(id);
+
+    /// <summary>In the element's own space, and round its ink: a group's stroke is its children's.</summary>
+    [AvaloniaFact]
+    public void A_New_Clip_Path_Starts_As_The_Box_Round_The_Element_And_Its_Stroke()
+    {
+        var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="80" height="80">
+              <rect id="framed" transform="translate(20 0)" x="2" y="2" width="8" height="8" fill="#3366cc" stroke="#000000" stroke-width="2" />
+              <g id="strokes" transform="scale(2)" fill="none" stroke="#000000" stroke-width="2"><path d="M2 12 L8 12" /></g>
+              <g id="empty" />
+            </svg>
+            """);
+
+        Assert.Null(SvgViewerDraw.Covering(svg, ById(svg, "framed"), mask: false, out var clip, out var region));
+        Assert.Equal("""<path d="M 1 1 L 11 1 L 11 11 L 1 11 Z" />""", clip!.ToString());
+        Assert.Equal("1 1 10 10", region);
+
+        Assert.Null(SvgViewerDraw.Covering(svg, ById(svg, "strokes"), mask: true, out var mask, out _));
+        Assert.Equal("""<path d="M 2 11 L 8 11 L 8 13 L 2 13 Z" fill="white" />""", mask!.ToString());
+
+        Assert.Equal(
+            "Nothing of that is drawn, so a clip path would have nothing to cover.",
+            SvgViewerDraw.Covering(svg, ById(svg, "empty"), mask: false, out var none, out var nowhere));
+        Assert.Null(none);
+        Assert.Null(nowhere);
+    }
+
+    /// <summary>A marker is drawn under the shape's clip too, so the box takes in the arrowhead as well as the line.</summary>
+    [AvaloniaFact]
+    public void A_New_Clip_Path_Covers_The_Markers_A_Line_Ends_In()
+    {
+        var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <marker id="arrow" markerWidth="6" markerHeight="6" refX="0" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+                  <path d="M0 0 L6 3 L0 6 Z" />
+                </marker>
+              </defs>
+              <line id="pointer" x1="10" y1="50" x2="90" y2="50" stroke="#000000" stroke-width="2" marker-end="url(#arrow)" />
+            </svg>
+            """);
+
+        Assert.Null(SvgViewerDraw.Covering(svg, ById(svg, "pointer"), mask: false, out var clip, out var region));
+        Assert.Equal("""<path d="M 10 47 L 96 47 L 96 53 L 10 53 Z" />""", clip!.ToString());
+        Assert.Equal("10 47 86 6", region);
+    }
+
+    /// <summary>A shape drawn beside a moved group goes into that group's space, so it is carried back by as much.</summary>
+    [AvaloniaFact]
+    public void A_Shape_Outside_A_Moved_Group_Is_Carried_Back_By_The_Groups_Move()
+    {
+        var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="80" height="80">
+              <g transform="translate(10 5)"><rect id="moved" width="10" height="10" /><circle id="beside" cx="5" cy="5" r="2" /></g>
+              <g transform="scale(2)"><rect id="doubled" width="10" height="10" /></g>
+              <circle id="spot" cx="15" cy="10" r="4" />
+            </svg>
+            """);
+
+        Assert.Equal("translate(-10, -5)", SvgViewerDraw.Carried(svg, ById(svg, "spot"), ById(svg, "moved")));
+        Assert.Equal("matrix(0.5, 0, 0, 0.5, 0, 0)", SvgViewerDraw.Carried(svg, ById(svg, "spot"), ById(svg, "doubled")));
+
+        // Already in the space it would be drawn in.
+        Assert.Null(SvgViewerDraw.Carried(svg, ById(svg, "beside"), ById(svg, "moved")));
+    }
+
+    /// <summary>A &lt;switch&gt; draws what it holds where it stands, so a shape in one is carried like a shape in a group.</summary>
+    [AvaloniaFact]
+    public void A_Shape_In_A_Switch_Is_Carried_Back_By_The_Groups_Above_It()
+    {
+        var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+              <rect id="target" width="10" height="10" />
+              <g transform="translate(10 0)"><switch><rect id="switched" width="5" height="5" /></switch></g>
+            </svg>
+            """);
+
+        Assert.Equal("translate(10, 0)", SvgViewerDraw.Carried(svg, ById(svg, "switched"), ById(svg, "target")));
+    }
+
+    [AvaloniaFact]
+    public void A_Shape_In_Defs_Is_Taken_As_Written()
+    {
+        var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+              <defs><circle id="spare" cx="5" cy="5" r="4" /></defs>
+              <g transform="translate(10 5)"><rect id="moved" width="10" height="10" /></g>
+            </svg>
+            """);
+
+        Assert.Null(SvgViewerDraw.Carried(svg, ById(svg, "spare"), ById(svg, "moved")));
+    }
 }

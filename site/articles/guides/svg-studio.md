@@ -6,49 +6,72 @@ title: "Svg Studio"
 
 `src/Svg.Studio` is the editor for a set of drawings: the icons of one product, built at the sizes
 and under the names the code that draws them wants. It opens one `.svgstudio` project at a time, and
-that project is one file — the settings, the tree and the drawings themselves.
+that project is a folder — the settings in one file, each drawing in a file of its own, and a folder
+for each group.
 
 ## The format
 
-```xml
-<!-- icons.svgstudio -->
-<?xml version="1.0" encoding="utf-8"?>
-<studio namespace="Demo.Icons">
-
-  <drawing name="badge" class="Badge">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-      <circle cx="12" cy="12" r="10" fill="#3b82f6" />
-    </svg>
-  </drawing>
-
-  <group name="Large" namespace="Demo.Icons.Large" scale="2">
-    <drawing name="badge-large" class="BadgeLarge">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">…</svg>
-    </drawing>
-  </group>
-
-</studio>
+```
+icons.svgstudio/
+  studio.xml          the project's own settings, its templates and what it declares
+  badge.svg           a drawing: a standalone SVG file, which anything can open
+  Large/              a group
+    group.xml         the group's settings and what it declares
+    badge-large.svg
 ```
 
-- A `<drawing>` holds the `<svg>` it draws and nothing else. The project is what you move, diff or
-  hand to somebody: there is no second half of it to lose.
+```xml
+<!-- studio.xml -->
+<?xml version="1.0" encoding="utf-8"?>
+<studio namespace="Demo.Icons">
+</studio>
+
+<!-- Large/group.xml -->
+<group namespace=".Large" scale="2" />
+
+<!-- Large/badge-large.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <circle cx="12" cy="12" r="10" fill="#3b82f6" />
+
+  <metadata><drawing xmlns="https://svg.skia/studio/1.0" class="BadgeLarge" /></metadata>
+</svg>
+```
+
+- A drawing is its own `.svg`. What Studio keeps about it — its class, its place on the board, where
+  it was imported from — goes in a `<metadata>` at the end, and is left out when there is nothing to
+  say, so a drawing nobody has touched is the file it was.
 - `name` is what every row calls itself — the tree, the tab, and the class a drawing falls back on.
   It is a label rather than an identifier, so a drawing copied three times is three rows reading the
-  same thing until one of them is renamed.
+  same thing until one of them is renamed. The file is named after it: `badge.svg`, then
+  `badge~2.svg` for the next of that name, with anything a file system cannot hold replaced. Where
+  the file name cannot say the name, the name is written beside the drawing as well.
+- Rows go by name, in the tree and everywhere else: a folder keeps no order, so the board lays them
+  out and the build generates them in that order too.
 - Settings are attributes wherever they appear, and a group hands its own down to everything under
-  it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. The
-  project also carries `cache`, `helperScope` and `skiaSharp`. Where the C# goes is not among them:
-  an export asks, so nothing in the file can come to disagree with the answer. A project written
-  before that carries `output` or `singleFile`; they are dropped as it is read.
+  it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. A
+  namespace that starts with a dot continues the one above it: `.Large` under `Demo.Icons` is
+  `Demo.Icons.Large`, and follows the project's when that is renamed. The project's own namespace is
+  written in full, having nothing above it to continue. The project also carries `cache`,
+  `helperScope` and `skiaSharp`, and what shapes the file: `body`,
+  `typeface`, and an API class (`api`, `resizing`, `context`, `order`), with `method` and
+  `parameters` on a drawing (see [shaping the generated file](../packages/svg-codegen-skia#shaping-the-generated-file)).
+  Where the C# goes is not among them:
+  an export asks, so nothing in the project can come to disagree with the answer.
 - `x` and `y` say where a row sits on the board of the group holding it — both or neither, and
   relative to that board, so a group carries what it holds. They are the one pair that is inherited
   by nobody, and the build never sees them: a group is still folded into its drawings rather than
   composed out of them.
-- The file is written back as it was found — comments, attribute order, indentation and the
-  drawings' own bytes. Editing one attribute rewrites that attribute.
+- Every file is written back as it was found — comments, attribute order, indentation and the
+  drawings' own bytes — and a save writes only the files that changed.
+- **In git** the folder merges file by file, with nothing of Studio's in it: two people adding a
+  drawing each add a file each, and only a drawing both of them changed is a conflict. The
+  **Changes** panel settles one of those by keeping a side — or both, when both added a drawing of
+  one name.
 
 `File → Export…` writes the project through the build `svgc` runs, so the two cannot come to
-disagree about what the project says.
+disagree about what the project says. Another project's build can write the same file without the
+app, through [Svg.Studio.Projects](../packages/svg-studio-projects). The settings only an export reads (`cache`, `helperScope`,
+`skiaSharp` and the ones shaping the file) are asked for there rather than shown in Properties.
 
 ## Opening one
 
@@ -57,11 +80,12 @@ A project opens as a workspace rather than as a document: the tree goes in a pan
 one you can fold, move or put behind another — and the project itself takes no tab, one project at a
 time, closed with `Project → Close`.
 
-Double-clicking a `.svgstudio` opens it too. On Windows and Linux a release build registers the
-extension for the current user each time it starts, so it points at the copy that ran last. On macOS
-the association comes from the app bundle, which a publish for an `osx-*` runtime builds only when
-asked: `dotnet publish src/Svg.Studio -c Release -r osx-arm64 -p:StudioAppBundle=true` leaves
-`Svg.Studio.app` in the publish folder. Finder notices it once the app has been opened.
+On macOS a `.svgstudio` is one document in Finder and in `File → Open`, and double-clicking it opens
+it, once the app bundle has been opened: a publish for an `osx-*` runtime builds it only when asked —
+`dotnet publish src/Svg.Studio -c Release -r osx-arm64 -p:StudioAppBundle=true` leaves
+`Svg.Studio.app` in the publish folder. Elsewhere it is an ordinary folder, which nothing can be told
+to open with Studio: open it from Studio, by picking the `studio.xml` inside it, dropping the folder
+on the window or naming it on the command line.
 
 Two other things open as a project, by being converted into one:
 
@@ -86,9 +110,11 @@ marks it, so a group folded away still says where the tab you are looking at liv
 
 The tree is editable. Each row carries **Add group**, **Add SVG…** and **Remove**; `Delete` removes
 the selected row, and a row is dragged to move it — dropped on the top or bottom quarter of a group
-it lands beside it, and in the middle it goes inside. Adding an `.svg` file reads it in; so does
-pasting one, or pasting the SVG a drawing program puts on the clipboard. Adding, removing and moving
-edit the project; nothing reaches the file until you save it.
+it lands beside it, and in the middle it goes inside. A drag held near the top or foot of this or any
+other pane scrolls it, faster the nearer the edge, so a row out of sight can still be reached; a tab
+held at either end of a strip with more tabs than fit scrolls the strip the same way. Adding
+an `.svg` file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
+clipboard. Adding, removing and moving edit the project; nothing reaches the folder until you save it.
 
 Five panels sit round the tabs: the **Project** tree, the **Properties** of whatever is in front, the
 **Variables** it declares, the **Attributes** of the element picked in it, and the **Elements** those
@@ -179,7 +205,7 @@ be given different sliders for are not the one parameter, however alike their na
 
 ## Where an edit lands
 
-Nothing reaches the `.svgstudio` file except through `File → Save`. Between the two there is the
+Nothing reaches the `.svgstudio` folder except through `File → Save`. Between the two there is the
 project itself, held in the window, which is what every view of it reads.
 
 - A node's **settings** are held on the tab they were typed in until it is committed. A tab hands
@@ -195,8 +221,8 @@ project itself, held in the window, which is what every view of it reads.
 
 ⌘Z takes back the front tab's own edits first, and the project's once that tab has none left.
 
-`File → Save` hands the selected tab's work to the project and writes the project — one file, so one
-write, whatever was typed where. `File → Export…` asks for one `.cs` and writes the whole project
+`File → Save` hands the selected tab's work to the project and writes the project — the files that
+changed, whatever was typed where. `File → Export…` asks for one `.cs` and writes the whole project
 into it, whatever tab is in front: a project is one build, so there is nothing to pick. It takes the
 tab's own work with it, the same as a save does, and leaves the project where it was. With no project
 open it is the drawing being looked at that goes — as `.svg` at the size it is being drawn at, or as
@@ -222,12 +248,12 @@ it, which is most of them.
 ## The recovery copy
 
 Studio keeps a copy of the project under your application data while it has work that is not on disk
-— sooner as more piles up behind it, and never the project's own file. Saving throws the copy away,
+— sooner as more piles up behind it, and never the project's own files. Saving throws the copy away,
 and so does closing the window, so a copy waiting when you open a project again is one Studio never
 got to throw away. It offers it back, and restoring puts the work in the window without touching the
-file.
+project.
 
-The copy is keyed by the project's own file, so a project that has never been saved has nothing to
+The copy is keyed by the project's own folder, so a project that has never been saved has nothing to
 look one up under again and is not covered until you name it. Switch the copies off in
 **Settings** — the application menu on macOS, `File → Settings…` elsewhere.
 
@@ -270,6 +296,18 @@ is caught in the box, and one written on an attribute the parser lifts nothing o
 rather than written as braces nobody reads. A value the element's `style` attribute sets reads on its
 row as `red in style`, and the row takes nothing: the declaration wins over the attribute, so it is
 changed under **Inline style** instead.
+
+## Code that calls it the way PaintCode's did
+
+`File → Export…` asks for the settings only an export reads before it asks where the file goes:
+the picture cache, the helper methods, the SkiaSharp version, how `Draw` draws (record a picture,
+or straight onto the canvas), the **Typeface** expression, and a **PaintCode-style API** block with
+the class, the resizing enum, the text context type and the argument order. The answers are kept in
+the project, where a build exporting it reads them too, so the next export opens on them; changing them is one step
+Undo takes back. A drawing's Properties keep its own **API method** and **API arguments**. A
+PaintCode import fills in each drawing's method and the project's argument order. The API takes
+effect once its class is named. What the class looks like is in
+[a PaintCode-style API](../packages/svg-codegen-skia#a-paintcode-style-api).
 
 ## Boxes for the code that draws it
 
@@ -321,6 +359,24 @@ path, so nothing of its own says where that is.
 An element that uses a clip path or a mask says so in the element tree, beside its id: `clip #window`
 or `mask #sweep`. The filter finds it by that.
 
+**Giving an element one.** Drag a `<clipPath>` or a `<mask>` from the element tree onto an element's
+row, or onto the **Clip path** or **Mask** box of the element picked, and it clips or masks that
+element; whatever did so before stays in `<defs>`. A shape kept in `<defs>` drops the same way and is
+moved into a clip path made for it, or a mask while `Alt` (`⌥`) is held. The row it would land on is
+outlined green for a clip and violet for a mask, and says which. The tree's menu has **New clip path**
+and **New mask**, which cover the picked element, its stroke and its markers with a rectangular path
+and pick that path; a new mask's path is white. With two rows picked it has **Clip … with …** and
+**Mask … with …**: a clip path, a mask or a shape in `<defs>` is what clips or masks the other row, and
+of two drawn rows the one painted later is moved into the new clip path or mask, staying where it was
+drawn and keeping the paint and font its groups gave it. A mask made from a shape masks by its alpha
+(`mask-type="alpha"`), so a shape with no fill of its own, which paints black, still shows the element
+where it covers it. A board offers all of this, though its rows cannot otherwise be dragged.
+
+The paths a clip or a mask is made of are reshaped where they apply: double-click one on the canvas,
+or pick it in the tree and choose **Points** (`⌖`) on the toolbar, and its points are held on the
+element it clips. That reaches a shape in `<defs>` drawn only through a `<use>` as well, and a double
+click on a `<use>` reshapes the shape it draws, which changes it everywhere it is used.
+
 ## Connecting Claude Code
 
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
@@ -343,10 +399,10 @@ It works with files by their full paths: `save` writes a project that was never 
 of no project's, to a path it names; `export` writes the project as one C# file, or with no project
 open the drawing in front as SVG or C#; `new_project` starts an empty one; `open_file` opens a drawing,
 a project, or an svgc project or PaintCode document to convert, and brings the project open already
-forward; and `reload` reads the open project again from its file, or, while a drawing of no project's
+forward; and `reload` reads the open project again from its folder, or, while a drawing of no project's
 is in front, that drawing instead. Studio does not watch the disk, so after a file it has open is
 changed elsewhere — by another editor, or a `git pull` in a terminal — Claude Code is told to call
-`reload`. Until it does, `save` and `git_commit` refuse to write the project once its file is not
+`reload`. Until it does, `save` and `git_commit` refuse to write the project once its files are not
 what Studio last read or wrote, and `get_changes` says so first, rather than take Studio's copy for
 edits and write it back over the change. Where Studio would stop to ask you something, a tool never opens a
 dialog. Removing a node whose tab holds edits you have not saved, starting or opening a project, or
@@ -357,13 +413,13 @@ client cannot ask, the first are refused, saying why, and the choice stays yours
 does over a recovery copy waiting to be restored. Otherwise a tool goes on as you chose before and
 says what it did: a PaintCode document is converted on the terms you last picked, and text an export
 cannot ask about is baked unless you chose to relax it for good. A project part way through a merge
-still opens if its file reads, and Studio offers you the merge when you next come back to it; one
-whose file holds the conflict is refused.
+still opens if its files read, and Studio offers you the merge when you next come back to it; one
+with a file holding the conflict is refused.
 
 You can hand Claude Code a drawing yourself, as a resource: `@svg-studio:svg-studio://front.png`
 attaches the drawing in front as an image, `front.svg` its source and `front.cs` its C#, and
-`svg-studio://drawing/1/0.svg` the drawing at that path in the project, which is a position, so a move
-renumbers it; each section of this documentation is there too. Three prompts start a common job:
+`svg-studio://drawing/1/0.svg` the drawing at that path in the project, which is a position among rows
+sorted by name, so a rename or a move renumbers it; each section of this documentation is there too. Three prompts start a common job:
 `/mcp__svg-studio__new_drawing` draws one on its group's grid and tries it at small sizes before adding
 it, `/mcp__svg-studio__review_drawing` says what is wrong with one and changes nothing, and
 `/mcp__svg-studio__add_parameter` turns a value into a parameter whose default keeps the look.

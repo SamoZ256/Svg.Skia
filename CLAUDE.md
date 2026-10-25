@@ -13,8 +13,8 @@ Add only what someone could not find by reading the code.
 
 ## Rules
 
-- **Never push, branch, or make or enter a worktree unasked, nor touch another agent's desk.** A plan
-  asks whether to branch, unless I already said. Commit unasked only to split a change into several.
+- **Never push, branch, or make or enter a worktree unasked, nor touch another agent's desk.** Ask
+  to branch before editing on a detached head or `master`. Commit unasked only to split a change.
 - **Prefer removing code to adding it.** Before adding a helper, a type or an option, widen the one
   already doing that job; before adding a branch, see whether the case can be stopped from arising.
   A net addition is worth a sentence saying what was reused and what could not be.
@@ -95,5 +95,5 @@ A clean checkout builds clean and the suite is fully green — anything failing 
 or something that drifted, so investigate rather than assume it was already broken. The 48 `CS0618`
 warnings are `Svg.Custom` deprecating its own paint-server API, and are expected. W3C text rows use
 per-fixture thresholds calibrated against a particular native Skia: a hairline failure after a
-SkiaSharp bump usually wants a threshold nudge and almost never a re-captured baseline.
-`Svg.Studio.UnitTests` builds its own `Application`, so nothing in `App.axaml` is covered by a test.
+SkiaSharp bump usually wants a threshold nudge and almost never a re-captured baseline. Only
+`Svg.Studio.UiTests` cover `App.axaml`; they take the real pointer, so run only in `studio-ui.yml`.

@@ -319,7 +319,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
 
         var (_, port) = await Serving(path);
         await using var client = await Client(port);
@@ -346,7 +346,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, Tinted);
+        TestPackage.Write(path, Tinted);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -528,14 +528,14 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.NotEqual(true, saved.IsError);
         Assert.Equal("Saved, except 0 home: a save takes only the front tab's edits, so open it and save again.", Text(saved));
-        Assert.DoesNotContain("#123456", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.DoesNotContain("#123456", TestPackage.Read(path), StringComparison.Ordinal);
 
         await Call(client, "open", new() { ["node"] = "0" });
 
         var committed = await Call(client, "git_commit", new() { ["message"] = "Darken" });
 
         Assert.Equal($"Committed {Git(work, "rev-parse", "HEAD").Trim()[..10]}.", Text(committed));
-        Assert.Contains("#123456", Git(work, "show", "HEAD:icons.svgstudio"), StringComparison.Ordinal);
+        Assert.Contains("#123456", Git(work, "show", "HEAD:icons.svgstudio/home.svg"), StringComparison.Ordinal);
 
         // And the tab the commit wrote is no longer said to hold what is now in HEAD.
         Assert.DoesNotContain("Tabs holding edits", Text(await Call(client, "get_context", new())), StringComparison.Ordinal);
@@ -567,7 +567,7 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.Equal(2, Regex.Matches(history, "^- Claude Code: save home$", RegexOptions.Multiline).Count);
         Assert.DoesNotMatch("^- save home$", history);
-        Assert.Contains("#0000ff", Git(work, "show", "HEAD:icons.svgstudio"), StringComparison.Ordinal);
+        Assert.Contains("#0000ff", Git(work, "show", "HEAD:icons.svgstudio/home.svg"), StringComparison.Ordinal);
         Assert.Equal("Took back \"Claude Code: save home\".", Text(await Call(client, "undo", new())));
         Assert.Empty(_announced);
     }
@@ -595,7 +595,7 @@ public class StudioMcpServerTests : IDisposable
         await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Mine" });
 
         // As a pull leaves it: on disk, and committed.
-        File.WriteAllText(path, pulled);
+        TestPackage.Write(path, pulled);
         Git(work, "commit", "-am", "Blue");
 
         var changes = await Call(client, "get_changes", new());
@@ -608,7 +608,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.Equal("Nothing was saved: " + said, Text(saved));
         Assert.True(committed.IsError);
         Assert.Equal("Nothing was committed: " + said, Text(committed));
-        Assert.Equal(pulled, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(pulled), TestPackage.Read(path));
         Assert.Equal("2", Git(work, "rev-list", "--count", "HEAD").Trim());
 
         // Where reload would read the drawing in front, it is pointed past it.
@@ -621,12 +621,12 @@ public class StudioMcpServerTests : IDisposable
             "Nothing was saved, the drawing in front included, as the save would write the project's edits too: "
             + said.Replace("reload reads it again", "open_file with its path, or open with a node path, brings a tab of it forward, and reload then reads it", StringComparison.Ordinal),
             Text(alone));
-        Assert.Equal(pulled, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(pulled), TestPackage.Read(path));
 
         // With nothing to write of the project's, the drawing saves alone.
         Assert.Equal("Took back \"Claude Code: change class\".", Text(await Call(client, "undo", new())));
         Assert.Equal("Saved.", Text(await Call(client, "save", new())));
-        Assert.Equal(pulled, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(pulled), TestPackage.Read(path));
 
         // Read again, the file is what Studio has; written by Studio, it is again, until something else writes it.
         await Call(client, "open_file", new() { ["path"] = path });
@@ -635,10 +635,10 @@ public class StudioMcpServerTests : IDisposable
         Assert.Equal("Saved.", Text(await Call(client, "save", new())));
         Assert.DoesNotContain("changed on disk", Text(await Call(client, "get_changes", new())), StringComparison.Ordinal);
 
-        File.WriteAllText(path, pulled);
+        TestPackage.Write(path, pulled);
 
         Assert.Equal("Nothing was saved: " + said, Text(await Call(client, "save", new())));
-        Assert.Equal(pulled, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(pulled), TestPackage.Read(path));
         Assert.Empty(_announced);
     }
 
@@ -666,24 +666,24 @@ public class StudioMcpServerTests : IDisposable
 
         await Call(client, "set_attributes", new()
         {
-            ["node"] = "0",
+            ["node"] = "1",
             ["key"] = "0",
             ["attributes"] = new[] { new { name = "fill", value = "#ff0000" } },
             ["summary"] = "red"
         });
-        await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" });
-        await Call(client, "remove", new() { ["node"] = "1" });
-        await Call(client, "declare", new() { ["node"] = "1", ["name"] = "edge", ["type"] = "number", ["default"] = "2", ["summary"] = "edge" });
-        await Call(client, "add_drawing", new() { ["parent"] = "1", ["name"] = "Star", ["svg"] = Drawing });
-        await Call(client, "extract_template", new() { ["node"] = "1/0", ["name"] = "Tinted badge" });
-        await Call(client, "set_node", new() { ["node"] = "1/0", ["setting"] = "x", ["value"] = "10" });
-        await Call(client, "set_node", new() { ["node"] = "1/0", ["setting"] = "y", ["value"] = "20" });
+        await Call(client, "set_node", new() { ["node"] = "1", ["setting"] = "class", ["value"] = "Home" });
+        await Call(client, "remove", new() { ["node"] = "2" });
+        await Call(client, "declare", new() { ["node"] = "0", ["name"] = "edge", ["type"] = "number", ["default"] = "2", ["summary"] = "edge" });
+        await Call(client, "add_drawing", new() { ["parent"] = "0", ["name"] = "Star", ["svg"] = Drawing });
+        await Call(client, "extract_template", new() { ["node"] = "0/0", ["name"] = "Tinted badge" });
+        await Call(client, "set_node", new() { ["node"] = "0/0", ["setting"] = "x", ["value"] = "10" });
+        await Call(client, "set_node", new() { ["node"] = "0/0", ["setting"] = "y", ["value"] = "20" });
 
         // Typed into Filled's tab, which is not in the project until that tab is saved.
-        await Call(client, "open", new() { ["node"] = "1/0" });
+        await Call(client, "open", new() { ["node"] = "0/0" });
         await Call(client, "set_attributes", new()
         {
-            ["node"] = "1/0",
+            ["node"] = "0/0",
             ["key"] = "0",
             ["attributes"] = new[] { new { name = "opacity", value = "0.5" } },
             ["summary"] = "fade"
@@ -699,12 +699,12 @@ public class StudioMcpServerTests : IDisposable
             text,
             StringComparison.Ordinal);
         Assert.Contains("settings (project): its templates changed, adding Tinted badge\n", text, StringComparison.Ordinal);
-        Assert.Contains("changed 0 drawing home: its drawing changed; class unset → \"Home\"\n", text, StringComparison.Ordinal);
-        Assert.Contains("removed old#0 drawing old\n", text, StringComparison.Ordinal);
-        Assert.Contains("settings 1 group Badges: its declarations changed, adding edge\n", text, StringComparison.Ordinal);
-        Assert.Contains("added 1/1 drawing Star\n", text, StringComparison.Ordinal);
-        Assert.Contains("moved 1/0 drawing Filled: its place unset → 10,20\n", text, StringComparison.Ordinal);
-        Assert.Contains("Not in it: edits held in the tab of 1/0 Filled, until it is saved into the project.\n", text, StringComparison.Ordinal);
+        Assert.Contains("changed 1 drawing home: its drawing changed; class unset → \"Home\"\n", text, StringComparison.Ordinal);
+        Assert.Contains("removed old.svg drawing old\n", text, StringComparison.Ordinal);
+        Assert.Contains("settings 0 group Badges: its declarations changed, adding edge\n", text, StringComparison.Ordinal);
+        Assert.Contains("added 0/1 drawing Star\n", text, StringComparison.Ordinal);
+        Assert.Contains("moved 0/0 drawing Filled: its place unset → 10,20\n", text, StringComparison.Ordinal);
+        Assert.Contains("Not in it: edits held in the tab of 0/0 Filled, until it is saved into the project.\n", text, StringComparison.Ordinal);
         Assert.Contains("revision \"HEAD\"", text, StringComparison.Ordinal);
         Assert.Empty(_announced);
     }
@@ -724,10 +724,10 @@ public class StudioMcpServerTests : IDisposable
         await using var client = await Client(port);
 
         Git(work, "switch", "-c", "red");
-        File.WriteAllText(path, Project.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
+        TestPackage.Write(path, Project.Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
         Git(work, "commit", "-am", "Red");
         Git(work, "switch", "main");
-        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        TestPackage.Write(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
         Git(work, "commit", "-am", "Blue");
         Assert.NotEqual(0, Exit(work, "merge", "--no-edit", "red"));
 
@@ -735,7 +735,7 @@ public class StudioMcpServerTests : IDisposable
         var since = await Call(client, "get_changes", new() { ["since"] = first });
 
         // What is compared is Studio's copy, which the commits and the merge have since left behind on disk; reload refuses mid-merge, so the line points at finishing it.
-        var outdated = "icons.svgstudio is part way through a merge or a rebase, which left its file other than Studio's copy compared here; finish it, or abort it, then reload.\n";
+        var outdated = "icons.svgstudio is part way through a merge or a rebase, which left its files other than Studio's copy compared here; finish it, or abort it, then reload.\n";
 
         Assert.StartsWith(
             $"{outdated}Since HEAD ({Git(work, "rev-parse", "HEAD").Trim()[..10]}), edits not yet saved included: 1 change: 1 changed.\nchanged 0 drawing home: its drawing changed\n",
@@ -751,7 +751,7 @@ public class StudioMcpServerTests : IDisposable
         var path = Committed(Project);
         var work = Path.GetDirectoryName(path)!;
 
-        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        TestPackage.Write(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
         Git(work, "commit", "-am", "Blue");
         File.WriteAllText(Path.Combine(work, "README.md"), "Icons");
         Git(work, "add", "README.md");
@@ -804,14 +804,15 @@ public class StudioMcpServerTests : IDisposable
 
         await Call(client, "declare", new() { ["node"] = "0", ["name"] = "tint", ["default"] = "#0000ff", ["summary"] = "blue" });
         await Call(client, "set_node", new() { ["node"] = "0/0", ["setting"] = "name", ["value"] = "Solid" });
-        await Call(client, "remove_elements", new() { ["node"] = "0/1", ["keys"] = new[] { "1" }, ["summary"] = "no ring" });
+        // Renamed, Solid sorts after Ringed.
+        await Call(client, "remove_elements", new() { ["node"] = "0/0", ["keys"] = new[] { "1" }, ["summary"] = "no ring" });
 
-        var then = await Call(client, "render", new() { ["node"] = "0/0", ["revision"] = "HEAD" });
-        var now = await Call(client, "render", new() { ["node"] = "0/0" });
-        var ringed = await Call(client, "render", new() { ["node"] = "0/1", ["revision"] = "HEAD" });
-        var bare = await Call(client, "render", new() { ["node"] = "0/1" });
-        var read = Text(await Call(client, "get_drawing", new() { ["node"] = "0/0", ["revision"] = "HEAD" }));
-        var lost = Text(await Call(client, "get_drawing", new() { ["node"] = "0/1", ["revision"] = "HEAD" }));
+        var then = await Call(client, "render", new() { ["node"] = "0/1", ["revision"] = "HEAD" });
+        var now = await Call(client, "render", new() { ["node"] = "0/1" });
+        var ringed = await Call(client, "render", new() { ["node"] = "0/0", ["revision"] = "HEAD" });
+        var bare = await Call(client, "render", new() { ["node"] = "0/0" });
+        var read = Text(await Call(client, "get_drawing", new() { ["node"] = "0/1", ["revision"] = "HEAD" }));
+        var lost = Text(await Call(client, "get_drawing", new() { ["node"] = "0/0", ["revision"] = "HEAD" }));
 
         using (var red = Png(then))
         using (var blue = Png(now))
@@ -824,18 +825,18 @@ public class StudioMcpServerTests : IDisposable
             Assert.Equal(new SKColor(0xFF, 0xFF, 0xFF), white.GetPixel(12, 12));
         }
 
-        Assert.StartsWith("Drawing 0/0 drawing Solid, as git has it at HEAD, named Filled there, its text the same as now, drawn at 24 px", Text(then), StringComparison.Ordinal);
-        Assert.StartsWith("Drawing 0/0 drawing Solid, as git has it at HEAD, named Filled there, its text the same as now\n", read, StringComparison.Ordinal);
+        Assert.StartsWith("Drawing 0/1 drawing Solid, as git has it at HEAD, named Filled there, its text the same as now, drawn at 24 px", Text(then), StringComparison.Ordinal);
+        Assert.StartsWith("Drawing 0/1 drawing Solid, as git has it at HEAD, named Filled there, its text the same as now\n", read, StringComparison.Ordinal);
         Assert.DoesNotContain("Inherited from", read, StringComparison.Ordinal);
         Assert.DoesNotContain("Problem:", read, StringComparison.Ordinal);
-        Assert.StartsWith("Drawing 0/1 drawing Ringed, as git has it at HEAD\n", lost, StringComparison.Ordinal);
+        Assert.StartsWith("Drawing 0/0 drawing Ringed, as git has it at HEAD\n", lost, StringComparison.Ordinal);
         Assert.Contains("<circle cx=\"12\" cy=\"12\" r=\"6\" fill=\"{{ tint }}\" />", lost, StringComparison.Ordinal);
 
         // With tint no longer declared, its use is a problem now and none in the revision, which its own blocks declare.
         await Call(client, "set_declarations", new() { ["node"] = "0", ["code"] = "<e:code xmlns:e=\"https://svg.skia/expr/1.0\" />", ["summary"] = "undeclare" });
 
-        var declared = Text(await Call(client, "get_drawing", new() { ["node"] = "0/0", ["revision"] = "HEAD" }));
-        var undeclared = Text(await Call(client, "get_drawing", new() { ["node"] = "0/0" }));
+        var declared = Text(await Call(client, "get_drawing", new() { ["node"] = "0/1", ["revision"] = "HEAD" }));
+        var undeclared = Text(await Call(client, "get_drawing", new() { ["node"] = "0/1" }));
 
         Assert.DoesNotContain("Problem:", declared, StringComparison.Ordinal);
         Assert.Contains("Problem:", undeclared, StringComparison.Ordinal);
@@ -893,7 +894,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
 
         var (_, port) = await Serving(path);
         await using var client = await Client(port);
@@ -924,7 +925,7 @@ public class StudioMcpServerTests : IDisposable
         Directory.CreateDirectory(work);
         Git(work, "init", "-b", "main");
         Configure(work);
-        File.WriteAllText(path, Project.Replace(
+        TestPackage.Write(path, Project.Replace(
             "</studio>",
             $"""
               <drawing name="Long">
@@ -946,7 +947,7 @@ public class StudioMcpServerTests : IDisposable
 
         var whole = Text(await Call(client, "get_drawing", new() { ["node"] = "1", ["revision"] = "HEAD" }));
 
-        File.WriteAllText(path, "<studio><drawing name=\"home\"></studio>");
+        File.WriteAllText(Path.Combine(path, ProjectPackage.Manifest), "<studio><drawing name=\"home\"></studio>");
         Git(work, "commit", "-am", "Break the icons");
 
         var broken = await Call(client, "get_changes", new());
@@ -966,17 +967,18 @@ public class StudioMcpServerTests : IDisposable
     }
 
     /// <remarks>
-    /// The file changed on disk since the commit, as a save would have changed it: a template edited,
-    /// one dropped and one added, a declaration swapped for another, and Round written above Square.
+    /// The files changed on disk since the commit, as a save would have changed them: a template edited,
+    /// one dropped and one added, a declaration swapped for another, and Round written above Square,
+    /// which is no change where no order is kept.
     /// </remarks>
     [AvaloniaFact]
-    public async Task Get_Changes_Names_The_Declarations_And_Templates_That_Came_Or_Went_And_A_Row_That_Only_Moved()
+    public async Task Get_Changes_Names_The_Declarations_And_Templates_That_Came_Or_Went()
     {
         const string named = "Demo.Icons.Generated.For.The.Dashboard.Of.The.Building.Management.System";
         var path = Committed(Templated);
         var head = Git(Path.GetDirectoryName(path)!, "rev-parse", "HEAD").Trim()[..10];
 
-        File.WriteAllText(path, $"""
+        TestPackage.Write(path, $"""
             <studio namespace="{named}">
               <e:templates xmlns:e="https://svg.skia/expr/1.0">
                 <e:recipe name="Tinted">
@@ -1012,10 +1014,9 @@ public class StudioMcpServerTests : IDisposable
         // The namespace cut at 60 characters.
         Assert.Equal(
             $"""
-            Since HEAD ({head}), edits not yet saved included: 3 changes: 1 moved, 2 with new settings.
+            Since HEAD ({head}), edits not yet saved included: 2 changes: 2 with new settings.
             settings (project): namespace "Demo.Icons" → "{named[..60]}…"; its templates changed, adding New; dropping Gone; editing Tinted
             settings 0 group Badges: its declarations changed, adding edge and dropping tint
-            moved 0/0 drawing Round: moved among the rows beside it
             get_drawing with revision "HEAD" reads a drawing as git has it there.
             """,
             Text(changes));
@@ -1028,7 +1029,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Committed(Templated.ReplaceLineEndings("\r\n"));
 
-        File.WriteAllText(path, Templated.ReplaceLineEndings("\n"));
+        TestPackage.Write(path, Templated.ReplaceLineEndings("\n"));
 
         var (_, port) = await Serving(path);
         await using var client = await Client(port);
@@ -1109,7 +1110,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "nested.svgstudio");
 
-        File.WriteAllText(path, Nested);
+        TestPackage.Write(path, Nested);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -1119,15 +1120,15 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.DoesNotContain("value", schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
 
-        var unknown = await Call(client, "set_node", new() { ["node"] = "1", ["setting"] = "colour", ["value"] = "red" });
-        var projects = await Call(client, "set_node", new() { ["node"] = "1", ["setting"] = "cache", ["value"] = "lastValue" });
+        var unknown = await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "colour", ["value"] = "red" });
+        var projects = await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "cache", ["value"] = "lastValue" });
         var named = await Call(client, "set_node", new() { ["node"] = "", ["setting"] = "name", ["value"] = "Icons" });
-        var nothing = await Call(client, "set_node", new() { ["node"] = "1", ["setting"] = "scale", ["value"] = "0" });
+        var nothing = await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "scale", ["value"] = "0" });
 
         Assert.All(new[] { unknown, projects, named, nothing }, result => Assert.True(result.IsError, Text(result)));
-        Assert.StartsWith("1 has no setting colour;", Text(unknown), StringComparison.Ordinal);
-        Assert.StartsWith("1 has no setting cache;", Text(projects), StringComparison.Ordinal);
-        Assert.StartsWith("(project) has no setting name;", Text(named), StringComparison.Ordinal);
+        Assert.StartsWith("0 has no setting called 'colour';", Text(unknown), StringComparison.Ordinal);
+        Assert.StartsWith("0 has no setting called 'cache';", Text(projects), StringComparison.Ordinal);
+        Assert.StartsWith("(project) has no setting called 'name';", Text(named), StringComparison.Ordinal);
         Assert.Contains("has to be a positive number", Text(nothing), StringComparison.Ordinal);
         Assert.False(workspace.CanUndo);
         Assert.False(workspace.IsEdited);
@@ -1164,30 +1165,30 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "nested.svgstudio");
 
-        File.WriteAllText(path, Nested);
+        TestPackage.Write(path, Nested);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
         var root = window.Workspace!.Document.Root;
 
         // Typed into a drawing's Project pane, and into the tab of a group inside the one removed.
-        await window.ShowAsync(root.Children[0]);
+        await window.ShowAsync(root.Children[1]);
         Dispatcher.UIThread.RunJobs();
         Assert.True(((GroupPanel)window.GetVisualDescendants().OfType<SvgViewer>().First().SidePanels.Single().Content).Edit("width", "40"));
 
-        var round = ((ProjectGroup)root.Children[1]).Children[0];
+        var round = ((ProjectGroup)root.Children[0]).Children[0];
 
         await window.ShowAsync(round);
         Dispatcher.UIThread.RunJobs();
         Assert.True(window.GetVisualDescendants().OfType<GroupPanel>().Single(panel => ReferenceEquals(panel.Node, round)).Edit("width", "5"));
 
-        var pane = await Call(client, "remove", new() { ["node"] = "0" });
-        var nested = await Call(client, "remove", new() { ["node"] = "1" });
+        var pane = await Call(client, "remove", new() { ["node"] = "1" });
+        var nested = await Call(client, "remove", new() { ["node"] = "0" });
 
         Assert.True(pane.IsError);
-        Assert.StartsWith("0 home has edits in its tab", Text(pane), StringComparison.Ordinal);
+        Assert.StartsWith("1 home has edits in its tab", Text(pane), StringComparison.Ordinal);
         Assert.True(nested.IsError);
-        Assert.StartsWith("1/0 Round has edits in its tab", Text(nested), StringComparison.Ordinal);
+        Assert.StartsWith("0/0 Round has edits in its tab", Text(nested), StringComparison.Ordinal);
         Assert.Equal(2, root.Children.Count);
         Assert.Empty(_announced);
     }
@@ -1268,13 +1269,13 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "nested.svgstudio");
 
-        File.WriteAllText(path, Nested);
+        TestPackage.Write(path, Nested);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
 
-        var there = await Call(client, "move", new() { ["node"] = "1/0", ["into"] = "1" });
-        var inside = await Call(client, "move", new() { ["node"] = "1", ["into"] = "1/0" });
+        var there = await Call(client, "move", new() { ["node"] = "0/0", ["into"] = "0" });
+        var inside = await Call(client, "move", new() { ["node"] = "0", ["into"] = "0/0" });
 
         Assert.NotEqual(true, there.IsError);
         Assert.StartsWith("Nothing changed", Text(there), StringComparison.Ordinal);
@@ -1384,20 +1385,20 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "nested.svgstudio");
 
-        File.WriteAllText(path, Nested);
+        TestPackage.Write(path, Nested);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
         var workspace = window.Workspace!;
         var root = workspace.Document.Root;
 
-        var moved = await Call(client, "move", new() { ["node"] = "0", ["into"] = "1" });
+        var moved = await Call(client, "move", new() { ["node"] = "1", ["into"] = "0" });
 
         Assert.NotEqual(true, moved.IsError);
         Assert.Equal("Claude Code: move home", workspace.UndoLabel);
 
-        // The person drags Dot out to the project.
-        Assert.True(window.Move(((ProjectGroup)((ProjectGroup)root.Children[0]).Children[0]).Children[0], root));
+        // The person drags Dot out to the project, from Round, which sorts after home in Badges.
+        Assert.True(window.Move(((ProjectGroup)((ProjectGroup)root.Children[0]).Children[1]).Children[0], root));
 
         var buried = await Call(client, "undo", new());
         var still = await Call(client, "undo", new());
@@ -1412,7 +1413,7 @@ public class StudioMcpServerTests : IDisposable
         var undone = await Call(client, "undo", new());
         var same = await Call(client, "set_attributes", new()
         {
-            ["node"] = "0",
+            ["node"] = "1",
             ["key"] = "0",
             ["attributes"] = new[] { new { name = "fill", value = "#00ff00" } },
             ["summary"] = "green"
@@ -1420,7 +1421,7 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.NotEqual(true, undone.IsError);
         Assert.Equal("Took back \"Claude Code: move home\".", Text(undone));
-        Assert.Equal(new[] { "home", "Badges" }, root.Children.Select(child => child.Name));
+        Assert.Equal(new[] { "Badges", "home" }, root.Children.Select(child => child.Name));
         Assert.NotEqual(true, same.IsError);
         Assert.StartsWith("Nothing changed", Text(same), StringComparison.Ordinal);
         Assert.Empty(_announced);
@@ -1473,22 +1474,22 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "nested.svgstudio");
 
-        File.WriteAllText(path, Nested);
+        TestPackage.Write(path, Nested);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
         var workspace = window.Workspace!;
 
-        var copied = await Call(client, "duplicate_elements", new() { ["node"] = "0", ["keys"] = new[] { "0" }, ["summary"] = "two squares" });
-        var refused = await Call(client, "remove_elements", new() { ["node"] = "0", ["keys"] = new[] { "(root)" }, ["summary"] = "x" });
-        var node = await Call(client, "get_node", new() { ["node"] = "1/0/0" });
+        var copied = await Call(client, "duplicate_elements", new() { ["node"] = "1", ["keys"] = new[] { "0" }, ["summary"] = "two squares" });
+        var refused = await Call(client, "remove_elements", new() { ["node"] = "1", ["keys"] = new[] { "(root)" }, ["summary"] = "x" });
+        var node = await Call(client, "get_node", new() { ["node"] = "0/0/0" });
 
         Assert.NotEqual(true, copied.IsError);
         Assert.Contains("The copy is at 1", Text(copied), StringComparison.Ordinal);
         Assert.True(refused.IsError);
         Assert.Equal("Claude Code: two squares", workspace.UndoLabel);
         Assert.NotEqual(true, node.IsError);
-        Assert.StartsWith("1/0/0 drawing Dot\n", Text(node), StringComparison.Ordinal);
+        Assert.StartsWith("0/0/0 drawing Dot\n", Text(node), StringComparison.Ordinal);
 
         var undone = await Call(client, "undo", new());
 
@@ -1619,7 +1620,7 @@ public class StudioMcpServerTests : IDisposable
             """;
         var path = Path.Combine(_directory, "edged.svgstudio");
 
-        File.WriteAllText(path, edged);
+        TestPackage.Write(path, edged);
 
         var (_, port) = await Serving(path);
         await using var client = await Client(port);
@@ -1652,7 +1653,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "tinted.svgstudio");
 
-        File.WriteAllText(path, Tinted);
+        TestPackage.Write(path, Tinted);
 
         var (window, port) = await Serving(path);
         var workspace = window.Workspace!;
@@ -1700,7 +1701,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "tinted.svgstudio");
 
-        File.WriteAllText(path, Tinted.Replace("<group name=\"Badges\">", "<group name=\"Badges\" width=\"48\" height=\"48\">", StringComparison.Ordinal));
+        TestPackage.Write(path, Tinted.Replace("<group name=\"Badges\">", "<group name=\"Badges\" width=\"48\" height=\"48\">", StringComparison.Ordinal));
 
         var (window, port) = await Serving(path);
         var workspace = window.Workspace!;
@@ -1739,7 +1740,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "tinted.svgstudio");
 
-        File.WriteAllText(path, Tinted);
+        TestPackage.Write(path, Tinted);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -1789,7 +1790,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "tinted.svgstudio");
 
-        File.WriteAllText(path, Tinted);
+        TestPackage.Write(path, Tinted);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -1824,7 +1825,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "scaled.svgstudio");
 
-        File.WriteAllText(path, Project.Replace("<studio namespace=\"Demo.Icons\">", "<studio namespace=\"Demo.Icons\" width=\"24\" scale=\"2\">", StringComparison.Ordinal));
+        TestPackage.Write(path, Project.Replace("<studio namespace=\"Demo.Icons\">", "<studio namespace=\"Demo.Icons\" width=\"24\" scale=\"2\">", StringComparison.Ordinal));
 
         var (_, port) = await Serving(path);
         await using var client = await Client(port);
@@ -1844,7 +1845,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "badge.svgstudio");
 
-        File.WriteAllText(path, Badge);
+        TestPackage.Write(path, Badge);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -1891,7 +1892,7 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "badge.svgstudio");
         var target = Path.Combine(_directory, "Icons.cs");
 
-        File.WriteAllText(path, Badge);
+        TestPackage.Write(path, Badge);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -1926,7 +1927,7 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "icons.svgstudio");
         var locked = Path.Combine(_directory, "Locked.cs");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
         File.WriteAllText(locked, "// kept");
 
         var (_, port) = await Serving(path);
@@ -1955,7 +1956,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.Equal($"There is no folder {Path.Combine(_directory, "gone")}.", Text(nowhere));
         Assert.Equal("A project exports as one C# file; give a path ending .cs.", Text(svg));
         Assert.Equal("// kept", File.ReadAllText(locked));
-        Assert.Equal(new[] { "Locked.cs", "icons.svgstudio" }, Directory.GetFiles(_directory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Equal(new[] { "Locked.cs", "icons.svgstudio" }, Directory.GetFileSystemEntries(_directory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
         Assert.Empty(_announced);
     }
 
@@ -2023,13 +2024,13 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "nested.svgstudio");
         var target = Path.Combine(_directory, "Icons.cs");
 
-        File.WriteAllText(path, Nested);
+        TestPackage.Write(path, Nested);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
         var root = window.Workspace!.Document.Root;
-        var home = (ProjectDrawing)root.Children[0];
-        var dot = (ProjectDrawing)((ProjectGroup)((ProjectGroup)root.Children[1]).Children[0]).Children[0];
+        var home = (ProjectDrawing)root.Children[1];
+        var dot = (ProjectDrawing)((ProjectGroup)((ProjectGroup)root.Children[0]).Children[0]).Children[0];
 
         // home's edit held in a tab behind, and Dot's in the tab in front.
         await window.ShowAsync(home);
@@ -2048,8 +2049,8 @@ public class StudioMcpServerTests : IDisposable
         Assert.NotEqual(true, exported.IsError);
         Assert.Equal(
             $"Wrote {target}: every drawing of the project as one C# file.\n"
-            + "It took in the edits held in the tab of 1/0/0 Dot, as Export does; the project holds them unsaved.\n"
-            + "Left out: the edits held in the tab of 0 home; open it and save, then export again.",
+            + "It took in the edits held in the tab of 0/0/0 Dot, as Export does; the project holds them unsaved.\n"
+            + "Left out: the edits held in the tab of 1 home; open it and save, then export again.",
             Text(exported));
         Assert.Contains("#654321", dot.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("#123456", home.Text, StringComparison.Ordinal);
@@ -2063,7 +2064,7 @@ public class StudioMcpServerTests : IDisposable
 
         // Remembered only where it took one: taken for an edit, an export of nothing to take in ended
         // what redo had, which then fell to the window's own step, refused for home's tab.
-        await Call(client, "set_node", new() { ["node"] = "1", ["setting"] = "class", ["value"] = "Badges" });
+        await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Badges" });
         await Call(client, "undo", new());
         await Call(client, "export", new() { ["path"] = target });
 
@@ -2086,7 +2087,7 @@ public class StudioMcpServerTests : IDisposable
         var copy = Path.Combine(_directory, "copy.svg");
         var aside = $"The drawing in front, {drawing}, is of no project's, and is not exported while a project is open: export writes the project whatever tab is in front, as File > Export does.";
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
         File.WriteAllText(drawing, Drawing);
 
         var (_, port) = await Serving(path);
@@ -2122,7 +2123,7 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "icons.svgstudio");
         var target = Path.Combine(_directory, "Icons.cs");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -2168,7 +2169,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -2193,7 +2194,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.Equal("'other.svgstudio' is not a full path; Studio has no folder it is relative to.", Text(relative));
         Assert.Equal("A drawing of no project's saves as SVG; give a path ending .svg.", Text(project));
         Assert.Equal("The drawing in front has no file; give save a path ending .svg to write it there.", Text(untitled));
-        Assert.Equal(new[] { "icons.svgstudio" }, Directory.GetFiles(_directory).Select(Path.GetFileName));
+        Assert.Equal(new[] { "icons.svgstudio" }, Directory.GetFileSystemEntries(_directory).Select(Path.GetFileName));
         Assert.Empty(_announced);
     }
 
@@ -2238,7 +2239,7 @@ public class StudioMcpServerTests : IDisposable
         var star = Path.Combine(_directory, "star.svg");
         var target = Path.Combine(_directory, "copy.svg");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
         File.WriteAllText(star, Drawing);
 
         var (window, port) = await Serving(path);
@@ -2255,7 +2256,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.NotEqual(true, saved.IsError);
         Assert.Equal($"Saved as {target}. Its tab saves there from now on, and its undo history started again.", Text(saved));
         Assert.Equal(Drawing, File.ReadAllText(target));
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
         Assert.Empty(_announced);
     }
 
@@ -2310,7 +2311,7 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "icons.svgstudio");
         var star = Path.Combine(_directory, "star.svg");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
         File.WriteAllText(star, Drawing);
 
         var (window, port) = await Serving(path);
@@ -2349,8 +2350,8 @@ public class StudioMcpServerTests : IDisposable
         var second = Path.Combine(_directory, "nested.svgstudio");
         var drawing = Path.Combine(_directory, "dot.svg");
 
-        File.WriteAllText(first, Project);
-        File.WriteAllText(second, Nested);
+        TestPackage.Write(first, Project);
+        TestPackage.Write(second, Nested);
         File.WriteAllText(drawing, Drawing);
 
         var (window, port) = await Serving(first);
@@ -2380,7 +2381,7 @@ public class StudioMcpServerTests : IDisposable
         var again = await Call(client, "open_file", new() { ["path"] = second });
 
         Assert.NotEqual(true, again.IsError);
-        Assert.Equal($"The project at {second} is open already; reload reads it again from its file.", Text(again));
+        Assert.Equal($"The project at {second} is open already; reload reads it again from its folder.", Text(again));
 
         // The same file by another case, where the disk does not tell them apart: opened again, it lost its tabs.
         var cased = Path.Combine(_directory, "NESTED.svgstudio");
@@ -2390,7 +2391,7 @@ public class StudioMcpServerTests : IDisposable
             var workspace = window.Workspace;
             var same = await Call(client, "open_file", new() { ["path"] = cased });
 
-            Assert.Equal($"The project at {cased} is open already; reload reads it again from its file.", Text(same));
+            Assert.Equal($"The project at {cased} is open already; reload reads it again from its folder.", Text(same));
             Assert.Same(workspace, window.Workspace);
         }
 
@@ -2407,7 +2408,7 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "icons.svgstudio");
         var drawing = Path.Combine(_directory, "dot.svg");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
         File.WriteAllText(drawing, Drawing);
 
         var (window, port) = await Serving(path);
@@ -2421,11 +2422,11 @@ public class StudioMcpServerTests : IDisposable
         var forward = await Call(client, "open_file", new() { ["path"] = path });
 
         Assert.NotEqual(true, forward.IsError);
-        Assert.Equal($"The project at {path} is open already, and 0 drawing home is in front now; reload reads it again from its file.", Text(forward));
+        Assert.Equal($"The project at {path} is open already, and 0 drawing home is in front now; reload reads it again from its folder.", Text(forward));
         Assert.Same(home, ((TabItem)Tabs(window).SelectedItem!).Tag);
         Assert.False(window.Workspace.CanUndo);
 
-        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        TestPackage.Write(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
 
         Assert.StartsWith($"Read {path} again; ", Text(await Call(client, "reload", new())), StringComparison.Ordinal);
         Assert.Empty(_announced);
@@ -2443,7 +2444,8 @@ public class StudioMcpServerTests : IDisposable
         var count = Tabs(window).Items.Count;
 
         File.WriteAllText(broken, "<svg><rect");
-        File.WriteAllText(unparsed, "<studio><drawing /></studio>");
+        Directory.CreateDirectory(unparsed);
+        File.WriteAllText(Path.Combine(unparsed, ProjectPackage.Manifest), "<studio><drawing></studio>");
         File.WriteAllText(garbage, "not a PaintCode document");
 
         var relative = await Call(client, "open_file", new() { ["path"] = "broken.svg" });
@@ -2542,9 +2544,9 @@ public class StudioMcpServerTests : IDisposable
 
         try
         {
-            File.WriteAllText(open, Project);
-            File.WriteAllText(kept, Nested);
-            File.WriteAllText(ProjectRecovery.For(kept), Nested.Replace("\"Dot\"", "\"Spot\"", StringComparison.Ordinal));
+            TestPackage.Write(open, Project);
+            TestPackage.Write(kept, Nested);
+            MainWindowAutosaveTests.Kept(kept, Nested.Replace("\"Dot\"", "\"Spot\"", StringComparison.Ordinal));
 
             var (window, port) = await Serving(open);
             var asked = new List<ElicitRequestParams>();
@@ -2575,20 +2577,21 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "nested.svgstudio");
 
-        File.WriteAllText(path, Nested);
+        TestPackage.Write(path, Nested);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
         var root = window.Workspace!.Document.Root;
-        var round = (ProjectGroup)((ProjectGroup)root.Children[1]).Children[0];
+        var round = (ProjectGroup)((ProjectGroup)root.Children[0]).Children[0];
 
         await window.ShowAsync(round);
         await window.ShowAsync(round.Children[0]);
-        await window.ShowAsync(root.Children[0]);
+        await window.ShowAsync(root.Children[1]);
         Dispatcher.UIThread.RunJobs();
 
         // As an editor or git would leave it: home recoloured, and Dot renamed, so its path names another node.
-        File.WriteAllText(path, Nested.Replace("#00ff00", "#0000ff", StringComparison.Ordinal).Replace("\"Dot\"", "\"Spot\"", StringComparison.Ordinal));
+        Directory.Delete(path, recursive: true);
+        TestPackage.Write(path, Nested.Replace("#00ff00", "#0000ff", StringComparison.Ordinal).Replace("\"Dot\"", "\"Spot\"", StringComparison.Ordinal));
 
         var reloaded = await Call(client, "reload", new());
         var again = await Call(client, "reload", new());
@@ -2596,13 +2599,13 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.NotEqual(true, reloaded.IsError);
         Assert.Equal(
-            $"Read {path} again; get_project lists it now. The tab of 1/0/0 Dot was not opened again, as its path now names another node or none. Its undo history started again.",
+            $"Read {path} again; get_project lists it now. The tab of 0/0/0 Dot was not opened again, as its path now names another node or none. Its undo history started again.",
             Text(reloaded));
-        Assert.Contains("#0000ff", ((ProjectDrawing)now.Children[0]).Text, StringComparison.Ordinal);
+        Assert.Contains("#0000ff", ((ProjectDrawing)now.Children[1]).Text, StringComparison.Ordinal);
         Assert.Equal(
-            new[] { now, ((ProjectGroup)now.Children[1]).Children[0], now.Children[0] },
+            new[] { now, ((ProjectGroup)now.Children[0]).Children[0], now.Children[1] },
             Tabs(window).Items.OfType<TabItem>().Select(item => item.Tag));
-        Assert.Same(now.Children[0], ((TabItem)Tabs(window).SelectedItem!).Tag);
+        Assert.Same(now.Children[1], ((TabItem)Tabs(window).SelectedItem!).Tag);
         Assert.NotEqual(true, again.IsError);
         Assert.Equal($"Nothing changed: {path} holds what Studio has.", Text(again));
         Assert.Same(now, window.Workspace.Document.Root);
@@ -2614,7 +2617,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -2638,7 +2641,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.StartsWith("Nothing was reloaded: changes not saved are held in the project. ", Text(project), StringComparison.Ordinal);
         Assert.StartsWith("Nothing was reloaded: changes not saved are held in the tab of 0 home. ", Text(tab), StringComparison.Ordinal);
         Assert.Equal("The project has never been saved, so it has no file to read again.", Text(untitled));
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
         Assert.Empty(_announced);
     }
 
@@ -2651,7 +2654,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
 
         var (window, port) = await Serving(path);
         var asked = new List<ElicitRequestParams>();
@@ -2659,7 +2662,7 @@ public class StudioMcpServerTests : IDisposable
         var workspace = window.Workspace!;
 
         Assert.NotEqual(true, (await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "class", ["value"] = "Home" })).IsError);
-        File.WriteAllText(path, "<studio><drawing /></studio>");
+        File.WriteAllText(Path.Combine(path, ProjectPackage.Manifest), "<studio><drawing></studio>");
 
         var refused = await Call(client, "reload", new());
 
@@ -2685,7 +2688,7 @@ public class StudioMcpServerTests : IDisposable
 
         try
         {
-            File.WriteAllText(path, Project);
+            TestPackage.Write(path, Project);
 
             var (window, port) = await Serving(path);
             await using var client = await Client(port);
@@ -2693,8 +2696,9 @@ public class StudioMcpServerTests : IDisposable
 
             Assert.Equal(copy, window.Recovery!.Path);
 
-            File.WriteAllText(copy, Project.Replace("\"home\"", "\"house\"", StringComparison.Ordinal));
-            File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+            File.Delete(copy);
+            MainWindowAutosaveTests.Kept(path, Project.Replace("\"home\"", "\"house\"", StringComparison.Ordinal));
+            TestPackage.Write(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
 
             var reloaded = await Call(client, "reload", new());
 
@@ -2755,14 +2759,14 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "icons.svgstudio");
         var drawing = Path.Combine(_directory, "dot.svg");
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
         File.WriteAllText(drawing, Drawing);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
 
         await Call(client, "open_file", new() { ["path"] = drawing });
-        File.WriteAllText(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        TestPackage.Write(path, Project.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
 
         var alone = await Call(client, "reload", new());
 
@@ -2790,12 +2794,12 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "templated.svgstudio");
 
-        File.WriteAllText(path, Templated);
+        TestPackage.Write(path, Templated);
 
         var (window, port) = await Serving(path);
         var root = window.Workspace!.Document.Root;
         var badges = (ProjectGroup)root.Children[0];
-        var square = badges.Children[0];
+        var square = badges.Children[1];
         var discarded = new List<string>();
         var asked = new List<ElicitRequestParams>();
         var answers = new Queue<Func<ElicitRequestParams, ElicitResult>>(new Func<ElicitRequestParams, ElicitResult>[]
@@ -2832,7 +2836,7 @@ public class StudioMcpServerTests : IDisposable
         }
 
         Assert.True(refused.IsError);
-        Assert.Equal("0/0 Square has edits in its tab not yet saved into the project; open it and save them first.", Text(refused));
+        Assert.Equal("0/1 Square has edits in its tab not yet saved into the project; open it and save them first.", Text(refused));
         Assert.All(kept, result => Assert.True(result.IsError, Text(result)));
         Assert.Same(badges, root.Children[0]);
         Assert.True(viewer.IsSourceModified);
@@ -2846,17 +2850,17 @@ public class StudioMcpServerTests : IDisposable
             Assert.Equal(
                 new[]
                 {
-                    "Nothing was removed: the person kept the edits held in the tab of 0/0 Square.",
+                    "Nothing was removed: the person kept the edits held in the tab of 0/1 Square.",
                     "Nothing was removed: the person declined the question, or did not answer it.",
                     "Nothing was removed: the person declined the question, or did not answer it.",
                     "Nothing was removed: 'Throw away whatever is in the way' is not one of the choices, which are 'Throw the edits away and remove it', 'Keep the edits; remove nothing'."
                 },
                 kept.Select(Text));
             Assert.Equal(5, asked.Count);
-            Assert.All(asked, question => Assert.Contains("closes the tab of 0/0 Square", question.Message, StringComparison.Ordinal));
+            Assert.All(asked, question => Assert.Contains("closes the tab of 0/1 Square", question.Message, StringComparison.Ordinal));
             Assert.Equal(2, Choices(asked[0]).Count);
             Assert.NotEqual(true, removed.IsError);
-            Assert.Equal("Removed Badges, throwing away the edits held in the tab of 0/0 Square. It is one undo step.", Text(removed));
+            Assert.Equal("Removed Badges, throwing away the edits held in the tab of 0/1 Square. It is one undo step.", Text(removed));
             Assert.Empty(root.Children);
             Assert.DoesNotContain(Tabs(window).Items.OfType<TabItem>(), item => ReferenceEquals(item.Tag, square));
         }
@@ -2877,7 +2881,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "templated.svgstudio");
 
-        File.WriteAllText(path, Templated);
+        TestPackage.Write(path, Templated);
 
         var (window, port) = await Serving(path);
         var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
@@ -2894,22 +2898,22 @@ public class StudioMcpServerTests : IDisposable
 
             await Dispatcher.UIThread.InvokeAsync(async () =>
             {
-                await window.ShowAsync(badges.Children[1]);
+                await window.ShowAsync(badges.Children[0]);
                 Front().SetSource(Front().Source + "<!-- typed -->");
             });
 
             return Chose(question, 0);
         }));
 
-        await window.ShowAsync(badges.Children[0]);
+        await window.ShowAsync(badges.Children[1]);
         Dispatcher.UIThread.RunJobs();
         Front().SetSource(Front().Source + "<!-- typed -->");
 
         var result = await Call(person, "remove", new() { ["node"] = "0" });
 
         Assert.Equal(2, asked.Count);
-        Assert.DoesNotContain("0/1 Round", asked[0].Message, StringComparison.Ordinal);
-        Assert.Contains("0/1 Round", asked[1].Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("0/0 Round", asked[0].Message, StringComparison.Ordinal);
+        Assert.Contains("0/0 Round", asked[1].Message, StringComparison.Ordinal);
         Assert.True(result.IsError);
         Assert.Same(badges, window.Workspace.Document.Root.Children[0]);
         Assert.Equal(2, Tabs(window).Items.OfType<TabItem>().Count(item => item.Content is SvgViewer { IsSourceModified: true }));
@@ -2927,7 +2931,7 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "badge.svgstudio");
         var target = Path.Combine(_directory, "Icons.cs");
 
-        File.WriteAllText(path, Badge);
+        TestPackage.Write(path, Badge);
 
         var (window, port) = await Serving(path);
         var workspace = window.Workspace!;
@@ -2991,8 +2995,8 @@ public class StudioMcpServerTests : IDisposable
         var other = Path.Combine(_directory, "nested.svgstudio");
         var star = Path.Combine(_directory, "star.svg");
 
-        File.WriteAllText(path, Project);
-        File.WriteAllText(other, Nested);
+        TestPackage.Write(path, Project);
+        TestPackage.Write(other, Nested);
         File.WriteAllText(star, Drawing);
 
         var (window, port) = await Serving(path);
@@ -3047,7 +3051,7 @@ public class StudioMcpServerTests : IDisposable
             Assert.All(asked.Skip(count), question => Assert.Contains($"{named} has changes that have not been saved.", question.Message, StringComparison.Ordinal));
         }
 
-        Assert.Equal(Project, File.ReadAllText(path));
+        Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
 
         // A drawing of no project's, reloaded over the edits in its tab.
         await window.OpenAsync(new[] { star });
@@ -3090,7 +3094,7 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "badge.svgstudio");
         var target = Path.Combine(_directory, "Icons.cs");
 
-        File.WriteAllText(path, Badge);
+        TestPackage.Write(path, Badge);
 
         var (window, port) = await Serving(path);
         var asked = new List<ElicitRequestParams>();
@@ -3189,7 +3193,7 @@ public class StudioMcpServerTests : IDisposable
         var target = Path.Combine(_directory, "Icons.cs");
         var badge = Badge[Badge.IndexOf("<svg", StringComparison.Ordinal)..(Badge.IndexOf("</svg>", StringComparison.Ordinal) + "</svg>".Length)];
 
-        File.WriteAllText(path, Project);
+        TestPackage.Write(path, Project);
 
         var (window, port) = await Serving(path);
         var asked = new List<ElicitRequestParams>();
@@ -3237,14 +3241,14 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "nested.svgstudio");
 
-        File.WriteAllText(path, Nested);
+        TestPackage.Write(path, Nested);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port, protocol);
         var root = window.Workspace!.Document.Root;
-        var home = (ProjectDrawing)root.Children[0];
+        var home = (ProjectDrawing)root.Children[1];
 
-        await window.ShowAsync(((ProjectGroup)((ProjectGroup)root.Children[1]).Children[0]).Children[0]);
+        await window.ShowAsync(((ProjectGroup)((ProjectGroup)root.Children[0]).Children[0]).Children[0]);
         Dispatcher.UIThread.RunJobs();
 
         var viewer = (SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!;
@@ -3256,10 +3260,10 @@ public class StudioMcpServerTests : IDisposable
         var templates = await client.ListResourceTemplatesAsync();
 
         Assert.Equal(
-            new[] { "svg-studio://front.svg", "svg-studio://front.png", "svg-studio://front.cs", "svg-studio://drawing/0.svg", "svg-studio://drawing/1/0/0.svg" },
+            new[] { "svg-studio://front.svg", "svg-studio://front.png", "svg-studio://front.cs", "svg-studio://drawing/0/0/0.svg", "svg-studio://drawing/1.svg" },
             uris.Where(uri => !uri.StartsWith("svg-studio://docs/", StringComparison.Ordinal)));
         Assert.Equal(AssistantDocs.Sections.Select(section => "svg-studio://docs/" + section.Id.Replace('#', '/')), uris.Where(uri => uri.StartsWith("svg-studio://docs/", StringComparison.Ordinal)));
-        Assert.Equal("Badges / Round / Dot", listed.Single(resource => resource.Uri == "svg-studio://drawing/1/0/0.svg").Title);
+        Assert.Equal("Badges / Round / Dot", listed.Single(resource => resource.Uri == "svg-studio://drawing/0/0/0.svg").Title);
         Assert.Equal(
             new[] { "svg-studio://drawing/{+path}.svg", "svg-studio://drawing/{+path}.png", "svg-studio://drawing/{+path}.cs" },
             templates.Select(template => template.UriTemplate));
@@ -3267,14 +3271,14 @@ public class StudioMcpServerTests : IDisposable
 
         async Task<string> Read(string uri) => Assert.IsType<TextResourceContents>(Assert.Single((await client.ReadResourceAsync(uri)).Contents)).Text;
 
-        var source = await Read("svg-studio://drawing/1/0/0.svg");
+        var source = await Read("svg-studio://drawing/0/0/0.svg");
 
         Assert.Equal(viewer.Source, source);
-        Assert.EndsWith("Source:\n" + source, Text(await Call(client, "get_drawing", new() { ["node"] = "1/0/0" })), StringComparison.Ordinal);
+        Assert.EndsWith("Source:\n" + source, Text(await Call(client, "get_drawing", new() { ["node"] = "0/0/0" })), StringComparison.Ordinal);
         Assert.Equal(source, await Read("svg-studio://front.svg"));
 
-        var png = Assert.IsType<BlobResourceContents>(Assert.Single((await client.ReadResourceAsync("svg-studio://drawing/0.png")).Contents));
-        var drawn = Assert.Single((await Call(client, "render", new() { ["node"] = "0" })).Content.OfType<ImageContentBlock>());
+        var png = Assert.IsType<BlobResourceContents>(Assert.Single((await client.ReadResourceAsync("svg-studio://drawing/1.png")).Contents));
+        var drawn = Assert.Single((await Call(client, "render", new() { ["node"] = "1" })).Content.OfType<ImageContentBlock>());
 
         Assert.Equal("image/png", png.MimeType);
         Assert.Equal(drawn.DecodedData.ToArray(), png.DecodedData.ToArray());
@@ -3283,7 +3287,7 @@ public class StudioMcpServerTests : IDisposable
         var settings = SvgcBuildSettings.For(flat);
 
         settings.TextLayout = SvgTextLayout.Baked;
-        Assert.Equal(SvgcProjectBuild.Generate(flat.Items.Single(), settings, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()))), await Read("svg-studio://drawing/0.cs"));
+        Assert.Equal(SvgcProjectBuild.Generate(flat.Items.Single(), settings, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()))), await Read("svg-studio://drawing/1.cs"));
 
         foreach (var section in new[] { AssistantDocs.Sections.First(one => !one.Id.Contains('#', StringComparison.Ordinal)), AssistantDocs.Sections.First(one => one.Id.Contains('#', StringComparison.Ordinal)) })
         {
@@ -3300,18 +3304,18 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "nested.svgstudio");
 
-        File.WriteAllText(path, Nested.Replace("<circle", "<!-- " + new string('x', 100_000) + " -->\n<circle", StringComparison.Ordinal));
+        TestPackage.Write(path, Nested.Replace("<circle", "<!-- " + new string('x', 100_000) + " -->\n<circle", StringComparison.Ordinal));
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port, protocol);
 
-        await window.ShowAsync(window.Workspace!.Document.Root.Children[1]);
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
         Dispatcher.UIThread.RunJobs();
 
         foreach (var (uri, said) in new[]
                  {
                      ("svg-studio://drawing/9.svg", "'9' is not a drawing. get_project lists the paths."),
-                     ("svg-studio://drawing/1.png", "'1' is a group, not a drawing. get_project lists the paths."),
+                     ("svg-studio://drawing/0.png", "'0' is a group, not a drawing. get_project lists the paths."),
                      ("svg-studio://front.cs", "The tab in front is not a drawing; name one by its node path."),
                      ("svg-studio://docs/svg-studio/no-such-section", "There is no section svg-studio#no-such-section"),
                      ("svg-studio://project", "There is no resource svg-studio://project")
@@ -3324,7 +3328,7 @@ public class StudioMcpServerTests : IDisposable
         }
 
         // Whole or not at all, as get_drawing gives a source.
-        var whole = await Assert.ThrowsAsync<McpProtocolException>(() => client.ReadResourceAsync("svg-studio://drawing/1/0/0.svg").AsTask());
+        var whole = await Assert.ThrowsAsync<McpProtocolException>(() => client.ReadResourceAsync("svg-studio://drawing/0/0/0.svg").AsTask());
 
         Assert.Contains("get_drawing", whole.Message, StringComparison.Ordinal);
         Assert.Empty(_announced);
@@ -3336,7 +3340,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "noise.svgstudio");
 
-        File.WriteAllText(path, """
+        TestPackage.Write(path, """
             <studio namespace="Demo.Icons">
               <drawing name="Noise">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
@@ -3366,7 +3370,7 @@ public class StudioMcpServerTests : IDisposable
         var path = Path.Combine(_directory, "many.svgstudio");
         var drawing = """<drawing name="d{0}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="{0}" height="24" /></svg></drawing>""";
 
-        File.WriteAllText(path, $"<studio namespace=\"Demo.Icons\"><group name=\"Badges\" />{string.Concat(Enumerable.Range(1, 201).Select(at => string.Format(CultureInfo.InvariantCulture, drawing, at)))}</studio>");
+        TestPackage.Write(path, $"<studio namespace=\"Demo.Icons\"><group name=\"Badges\" />{string.Concat(Enumerable.Range(1, 201).Select(at => string.Format(CultureInfo.InvariantCulture, drawing, at)))}</studio>");
 
         var (_, port) = await Serving(path);
         await using var client = await Client(port, protocol);
@@ -3585,11 +3589,11 @@ public class StudioMcpServerTests : IDisposable
         var scheme = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
 
         var imported = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b", "ico_c" }, ["parent"] = "0" });
-        var added = scheme.Children.Skip(2).OfType<ProjectDrawing>().ToList();
+        var added = scheme.Children.OfType<ProjectDrawing>().Where(drawing => drawing.Name is "bin" or "cog").ToList();
 
         Assert.NotEqual(true, imported.IsError);
         Assert.Equal(
-            "Imported 2 icons into 0 Scheme: 0/2 bin, 0/3 cog. It is one undo step.\n"
+            "Imported 2 icons into 0 Scheme: 0/1 bin, 0/2 cog. It is one undo step.\n"
             + "bin, cog: through Accent glyph, Studio's best guess; Mono glyph, Keep colours would fit too.",
             Text(imported));
         Assert.Equal(new[] { "streamline:ico_b", "streamline:ico_c" }, added.Select(drawing => drawing.Source));
@@ -3625,21 +3629,21 @@ public class StudioMcpServerTests : IDisposable
         var (window, port) = await Streaming(streamline);
         await using var client = await Client(port);
 
-        // 0/1/0 a came from ico_a, a group further down.
+        // a came from ico_a, in a group further down, which bin sorts before: 0/2/0 once bin is in.
         var imported = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_a", "ico_b", "ico_c", "ico_d" }, ["parent"] = "0" });
         var again = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_a", "ico_b" }, ["parent"] = "0" });
 
         Assert.NotEqual(true, imported.IsError);
         Assert.Equal(
-            "Imported 1 icon into 0 Scheme: 0/2 bin. It is one undo step.\n"
-            + "Already there, so not downloaded: 0/1/0 a.\n"
+            "Imported 1 icon into 0 Scheme: 0/1 bin. It is one undo step.\n"
+            + "Already there, so not downloaded: 0/2/0 a.\n"
             + $"ico_c: Weekly download limit reached. Streamline's limit lifts {lifts.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)}.\n"
             + "Stopped there, so ico_d was not downloaded.\n"
             + "bin: through Accent glyph, Studio's sure choice.",
             Text(imported));
         Assert.DoesNotContain(streamline.Asked, asked => asked.StartsWith("/v1/icons/ico_a", StringComparison.Ordinal) || asked.StartsWith("/v1/icons/ico_d", StringComparison.Ordinal));
         Assert.NotEqual(true, again.IsError);
-        Assert.Equal("Nothing changed: 0 Scheme has every one already, as 0/1/0 a, 0/2 bin.", Text(again));
+        Assert.Equal("Nothing changed: 0 Scheme has every one already, as 0/1 bin, 0/2/0 a.", Text(again));
         Assert.Equal(1, streamline.Count("/v1/icons/ico_b/download"));
 
         Assert.True(window.Workspace!.Undo());
@@ -3715,11 +3719,11 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.NotEqual(true, imported.IsError);
         Assert.Equal(
-            "Imported 2 icons into 0 Scheme: 0/2 bin, 0/3 dot. It is one undo step.\n"
+            "Imported 2 icons into 0 Scheme: 0/1 bin, 0/3 dot. It is one undo step.\n"
             + "bin: through Mono glyph, as asked.\n"
             + "dot: through Keep colours, as Mono glyph does not fit it.",
             Text(imported));
-        Assert.Contains("fill=\"{{ stateBlackColor }}\"", ((ProjectDrawing)scheme.Children[2]).Text, StringComparison.Ordinal);
+        Assert.Contains("fill=\"{{ stateBlackColor }}\"", ((ProjectDrawing)scheme.Children[1]).Text, StringComparison.Ordinal);
         Assert.Contains("fill=\"#fb3e72\"", ((ProjectDrawing)scheme.Children[3]).Text, StringComparison.Ordinal);
         Assert.Empty(_announced);
     }
@@ -3742,7 +3746,7 @@ public class StudioMcpServerTests : IDisposable
         // Turned down, so the panel's own import ends once its download is let through.
         window.ShowImport = _ => Task.FromResult(false);
 
-        await panel.SearchAsync();
+        await StreamlinePanelTests.Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
 
         var picking = panel.OpenImportAsync();
@@ -3759,7 +3763,7 @@ public class StudioMcpServerTests : IDisposable
         var imported = await Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b" }, ["parent"] = "0" });
 
         Assert.NotEqual(true, imported.IsError);
-        Assert.Equal("streamline:ico_b", ((ProjectDrawing)scheme.Children[^1]).Source);
+        Assert.Equal("streamline:ico_b", ((ProjectDrawing)scheme.Children.Single(child => child.Name == "bin")).Source);
         Assert.Empty(_announced);
     }
 
@@ -3782,7 +3786,7 @@ public class StudioMcpServerTests : IDisposable
         window.ShowImport = _ => Task.FromResult(false);
         panel.ConfirmFamily = _ => Task.FromResult(false);
 
-        await panel.SearchAsync();
+        await StreamlinePanelTests.Search(panel);
         await panel.PickAsync(0, KeyModifiers.None);
 
         var importing = Call(client, "streamline_import", new() { ["hashes"] = new[] { "ico_b" }, ["parent"] = "0" });
@@ -3809,7 +3813,7 @@ public class StudioMcpServerTests : IDisposable
         var imported = await importing;
 
         Assert.NotEqual(true, imported.IsError);
-        Assert.Equal("streamline:ico_b", ((ProjectDrawing)scheme.Children[^1]).Source);
+        Assert.Equal("streamline:ico_b", ((ProjectDrawing)scheme.Children.Single(child => child.Name == "bin")).Source);
 
         await panel.OpenImportAsync();
 
@@ -3835,10 +3839,10 @@ public class StudioMcpServerTests : IDisposable
 
         Assert.NotEqual(true, found.IsError);
         Assert.Equal(
-            "Imported 1 icon into 0 Scheme: 0/2 cog. It is one undo step.\ncog: through Accent glyph, as Line glyph does not fit it.",
+            "Imported 1 icon into 0 Scheme: 0/1 cog. It is one undo step.\ncog: through Accent glyph, as Line glyph does not fit it.",
             Text(unsearched));
         Assert.Equal(
-            "Imported 1 icon into 0 Scheme: 0/3 bin. It is one undo step.\nbin: through Line glyph, as asked.",
+            "Imported 1 icon into 0 Scheme: 0/1 bin. It is one undo step.\nbin: through Line glyph, as asked.",
             Text(searched));
         Assert.Empty(_announced);
     }
@@ -3849,7 +3853,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, StreamlinePanelTests.Project);
+        TestPackage.Write(path, StreamlinePanelTests.Project);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -3889,7 +3893,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, StreamlinePanelTests.Project);
+        TestPackage.Write(path, StreamlinePanelTests.Project);
 
         var (window, port) = await Serving(path);
         await using var client = await Client(port);
@@ -3915,9 +3919,9 @@ public class StudioMcpServerTests : IDisposable
         Assert.Equal("Added Sun as 0/4 through the template 'Accent glyph'. It is one undo step.", Text(through));
 
         // Sure of keeping the colours, which is what a drawing left without a template already does.
-        Assert.Equal("Added Pluto as 0/5. It is one undo step.", Text(kept));
-        Assert.Contains("fill=\"#000000\"", ((ProjectDrawing)scheme.Children[3]).Text, StringComparison.Ordinal);
-        Assert.Contains("fill=\"{{ stateAccentColor }}\"", ((ProjectDrawing)scheme.Children[4]).Text, StringComparison.Ordinal);
+        Assert.Equal("Added Pluto as 0/3. It is one undo step.", Text(kept));
+        Assert.Contains("fill=\"#000000\"", ((ProjectDrawing)scheme.Children[4]).Text, StringComparison.Ordinal);
+        Assert.Contains("fill=\"{{ stateAccentColor }}\"", ((ProjectDrawing)scheme.Children[5]).Text, StringComparison.Ordinal);
         Assert.Empty(_announced);
     }
 
@@ -4007,7 +4011,8 @@ public class StudioMcpServerTests : IDisposable
 
         // Plain text, not the JSON of a string: a quoted reply with its newlines spelled out is what every call came back as.
         Assert.False(context.StartsWith("\"", StringComparison.Ordinal), context);
-        Assert.DoesNotContain("\\n", context, StringComparison.Ordinal);
+        // Its folder taken out: on Windows one whose random name starts with n spells \n in the path.
+        Assert.DoesNotContain("\\n", context.Replace(_directory, string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
         var contents = Text(await client.CallToolAsync("read_doc", new Dictionary<string, object?> { ["id"] = "" }));
 
         Assert.Contains("In front: the drawing", context, StringComparison.Ordinal);
@@ -4123,7 +4128,7 @@ public class StudioMcpServerTests : IDisposable
         Directory.CreateDirectory(work);
         Git(work, "init", "-b", "main");
         Configure(work);
-        File.WriteAllText(path, text);
+        TestPackage.Write(path, text);
         Git(work, "add", "icons.svgstudio");
         Git(work, "commit", "-m", "Add the icons");
 
@@ -4137,7 +4142,7 @@ public class StudioMcpServerTests : IDisposable
         var info = Path.Combine(Path.GetDirectoryName(path)!, ".git", "info");
 
         Directory.CreateDirectory(info);
-        File.WriteAllText(Path.Combine(info, "attributes"), "icons.svgstudio filter=slow\n");
+        File.WriteAllText(Path.Combine(info, "attributes"), "icons.svgstudio/** filter=slow\n");
         Git(Path.GetDirectoryName(path)!, "config", "filter.slow.smudge", "sleep 0.5; cat");
 
         return path;
@@ -4154,7 +4159,7 @@ public class StudioMcpServerTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, text);
+        TestPackage.Write(path, text);
 
         var (window, port) = await Serving(path);
 
@@ -4217,9 +4222,13 @@ public class StudioMcpServerTests : IDisposable
     }
 
     /// <summary>Lets the window's own start, which runs from its Opened handler, finish.</summary>
+    /// <remarks>
+    /// As many rounds as <see cref="Gestures.Until"/> gives, which a cold Kestrel on a loaded runner
+    /// needs; its own rather than that one for the status it names when it gives up.
+    /// </remarks>
     private static async Task Until(Func<bool> done)
     {
-        for (var tries = 0; !done() && tries < 200; tries++)
+        for (var tries = 0; !done() && tries < 1000; tries++)
         {
             Dispatcher.UIThread.RunJobs();
             await Task.Delay(10);

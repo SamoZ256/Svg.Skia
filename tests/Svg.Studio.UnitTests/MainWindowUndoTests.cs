@@ -80,7 +80,7 @@ public class MainWindowUndoTests
     public async Task The_Projects_Steps_Are_Named_In_The_Order_Undo_And_Redo_Would_Take_Them()
     {
         var (_, viewer) = await Host();
-        var workspace = new ProjectWorkspace(ProjectDocument.Parse("<studio namespace=\"Demo.Icons\" />"));
+        var workspace = new ProjectWorkspace(TestPackage.Parse("<studio namespace=\"Demo.Icons\" />"));
 
         Assert.Empty(workspace.UndoLabels);
 

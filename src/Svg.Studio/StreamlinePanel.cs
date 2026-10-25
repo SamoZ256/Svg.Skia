@@ -346,6 +346,21 @@ public sealed class StreamlinePanel : UserControl
             ? _searched
             : (_query.Text?.Trim() ?? string.Empty, _style.SelectedItem as string is { } chosen && chosen != AnyStyle ? chosen : null);
 
+        // Streamline refuses an empty query as an invalid request rather than answering with nothing,
+        // so a cleared field, or a style picked over one, goes back to the strip as it opened.
+        if (query.Length == 0)
+        {
+            _results.Clear();
+            _anchor = null;
+            _searched = (query, style);
+            _hasMore = false;
+            Forget(Array.Empty<StreamlineIcon>());
+            Say(null);
+            ShowTiles();
+
+            return;
+        }
+
         _paging = true;
 
         try
@@ -511,7 +526,7 @@ public sealed class StreamlinePanel : UserControl
                 return;
             }
 
-            await ImportAsync(new StreamlineImport(workspace, target, fetched), target.Children.Count, null, show: true).ConfigureAwait(true);
+            await ImportAsync(new StreamlineImport(workspace, target, fetched), null, show: true).ConfigureAwait(true);
         }
         finally
         {
@@ -522,9 +537,9 @@ public sealed class StreamlinePanel : UserControl
 
     /// <summary>
     /// Shows <paramref name="import"/> in the import window and, where it is taken, brings its icons
-    /// in at <paramref name="index"/>, as one step, or replaces the drawing it updates.
+    /// in, as one step, or replaces the drawing it updates.
     /// </summary>
-    private async Task ImportAsync(StreamlineImport import, int index, SkiaSharp.SKPoint? at, bool show)
+    private async Task ImportAsync(StreamlineImport import, SkiaSharp.SKPoint? at, bool show)
     {
         var workspace = import.Workspace;
 
@@ -563,12 +578,11 @@ public sealed class StreamlinePanel : UserControl
             ShowTiles();
         }
 
-        // Clamped, since an undo can have taken rows out of the group while the window was up.
-        await _window.ImportAsync(import.Target, Math.Min(index, import.Target.Children.Count), Placed(import.Imports(), at).Imports, show && !_window.OnBoard(import.Target)).ConfigureAwait(true);
+        await _window.ImportAsync(import.Target, Placed(import.Imports(), at).Imports, show && !_window.OnBoard(import.Target)).ConfigureAwait(true);
     }
 
     /// <summary>
-    /// Downloads <paramref name="hashes"/> and adds them at the end of <paramref name="group"/> through
+    /// Downloads <paramref name="hashes"/> and adds them to <paramref name="group"/> through
     /// <paramref name="template"/> or what each batch is suggested, as one step, saying in
     /// <paramref name="notes"/> what the window would have shown; for a tool, which has no window.
     /// </summary>
@@ -623,7 +637,7 @@ public sealed class StreamlinePanel : UserControl
 
             var imports = Imports(new TemplateLibrary(workspace.Document.Root), group, fetched, template, notes);
 
-            return await _window.ImportAsync(group, group.Children.Count, imports, show: false, notes, label).ConfigureAwait(true);
+            return await _window.ImportAsync(group, imports, show: false, notes, label).ConfigureAwait(true);
         }
         finally
         {
@@ -633,13 +647,13 @@ public sealed class StreamlinePanel : UserControl
     }
 
     /// <summary>
-    /// Imports what is being dragged into <paramref name="group"/> at <paramref name="index"/> through
+    /// Imports what is being dragged into <paramref name="group"/> through
     /// the import window, aimed there; once told not to ask, each batch whose template is sure goes
     /// straight in and only the rest through the window.
     /// </summary>
     /// <param name="at">Where on the group's board the first lands, the rest in a row after it, or null to join its spread.</param>
     /// <param name="show">Whether the last drawing imported opens, as it does from the tree; a board drop stays on the board.</param>
-    public async Task DropAsync(ProjectGroup group, int index, SkiaSharp.SKPoint? at, bool show)
+    public async Task DropAsync(ProjectGroup group, SkiaSharp.SKPoint? at, bool show)
     {
         // Before the first await: the drag can end, and clear it, before the drop is done with it.
         var dragged = Dragged.ToList();
@@ -680,7 +694,7 @@ public sealed class StreamlinePanel : UserControl
             {
                 var (imports, next) = Placed(Imports(library, group, sure), at);
 
-                added = await _window.ImportAsync(group, index, imports, show && !_window.OnBoard(group)).ConfigureAwait(true);
+                added = await _window.ImportAsync(group, imports, show && !_window.OnBoard(group)).ConfigureAwait(true);
                 at = next;
 
                 // So the Import button cannot bring them in a second time.
@@ -696,10 +710,9 @@ public sealed class StreamlinePanel : UserControl
             }
 
             var import = new StreamlineImport(workspace, group, amber) { Dropped = true };
-            var after = index + added.Count;
 
             // Posted, so the window comes up once the drop that asked for it is over.
-            await Dispatcher.UIThread.InvokeAsync(() => ImportAsync(import, after, at, show)).ConfigureAwait(true);
+            await Dispatcher.UIThread.InvokeAsync(() => ImportAsync(import, at, show)).ConfigureAwait(true);
         }
         finally
         {
@@ -790,7 +803,7 @@ public sealed class StreamlinePanel : UserControl
                 return;
             }
 
-            await ImportAsync(new StreamlineImport(workspace, parent, new[] { download }, drawing), 0, null, show: true).ConfigureAwait(true);
+            await ImportAsync(new StreamlineImport(workspace, parent, new[] { download }, drawing), null, show: true).ConfigureAwait(true);
         }
         finally
         {
@@ -957,11 +970,10 @@ public sealed class StreamlinePanel : UserControl
     /// <summary>Why icons can no longer land in <paramref name="into"/>, or null while they can.</summary>
     /// <remarks>
     /// An undo of the first page takes the group it made out, and closing the project takes the lot.
-    /// Asked of the XML: an undo restores its parent's children without clearing the group's Parent.
     /// </remarks>
     private string? Gone(ProjectWorkspace workspace, ProjectGroup into)
         => !ReferenceEquals(_window.Workspace, workspace) ? "Stopped: the project the icons were going into was closed."
-            : !into.Element.AncestorsAndSelf().Contains(workspace.Document.Root.Element) ? $"Stopped: {into.Name} is no longer in the project."
+            : !into.DescendsFrom(workspace.Document.Root) ? $"Stopped: {into.Name} is no longer in the project."
             : null;
 
     /// <summary>One page into the family's group, made in the same step where it is not there yet.</summary>
@@ -983,7 +995,7 @@ public sealed class StreamlinePanel : UserControl
 
         if (group is { })
         {
-            TemplateLibrary.Import(workspace, group, group.Children.Count, imports, notes);
+            TemplateLibrary.Import(workspace, group, imports, notes);
 
             return group;
         }
@@ -995,9 +1007,9 @@ public sealed class StreamlinePanel : UserControl
             () => ProjectSnapshot.Contents(target),
             () =>
             {
-                made = target.AddGroup(name, target.Children.Count);
+                made = target.AddGroup(name);
 
-                TemplateLibrary.Import(workspace, made, 0, imports, notes);
+                TemplateLibrary.Import(workspace, made, imports, notes);
             });
 
         return made;

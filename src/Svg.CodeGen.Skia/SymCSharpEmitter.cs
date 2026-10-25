@@ -19,6 +19,12 @@ public static class SymCSharpEmitter
     [ThreadStatic]
     private static ExprCompiler? t_compiler;
 
+    [ThreadStatic]
+    private static int t_emitted;
+
+    /// <summary>How many symbolic values have been emitted, which tells code that emitted none apart.</summary>
+    internal static int Emitted => t_emitted;
+
     internal static IDisposable UseCompiler(ExprCompiler compiler)
     {
         var previous = t_compiler;
@@ -44,6 +50,7 @@ public static class SymCSharpEmitter
     /// </summary>
     public static string Emit(SymNode node, ExprType expected)
     {
+        t_emitted++;
         var sb = new StringBuilder();
         Emit(node, sb, expected);
         return sb.ToString();

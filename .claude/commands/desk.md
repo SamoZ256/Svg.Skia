@@ -7,12 +7,11 @@ allowed-tools: Bash(git rev-parse:*), Bash(git worktree:*), Bash(git fetch:*), B
 A desk is a worktree for one agent. It is not a branch: the agent in it branches, switches and
 lands as often as it likes, and the desk stays. Desks rest detached on `origin/master`, which is
 what lets every one of them sit at the latest master at once — git refuses a branch in two
-worktrees, not a commit. `main/` is the exception: it holds `master` itself, for committing
-straight to it, and is never made or removed here.
+worktrees, not a commit. `main/` is a desk like any other.
 
-**Only `main/` is ever on `master`.** Any other desk that ends up there — by `/land`, or by hand —
-goes back to `git switch --detach origin/master` before it is left. While it holds `master`,
-`main/` cannot switch to it: git refuses with `'master' is already used by worktree at …`.
+**No desk holds `master`.** Nothing is committed on it — GitHub takes it only through merged pull
+requests — so there is no local `master` to keep. A desk that ends up on one by hand goes back to
+`git switch --detach origin/master` before it is left.
 
 **Invoking this is the permission to make or remove a worktree.** Nothing else makes one: never
 create, remove or move into a worktree unless this command was run or I said so in as many words.
@@ -30,8 +29,8 @@ has no `.modules/` — this is not the layout these instructions are for.
 
 ## Making one: `/desk [name]`
 
-1. **Name it.** The argument, or the first free `desk-1`, `desk-2`, … Refuse `main`, a name with a
-   slash, and a name already taken by a directory in the hub.
+1. **Name it.** The argument, or the first free `desk-1`, `desk-2`, … Refuse a name with a slash,
+   and a name already taken by a directory in the hub.
 
 2. **Add it, detached at the remote's master:**
 
@@ -61,7 +60,7 @@ has no `.modules/` — this is not the layout these instructions are for.
 
 ## Taking one away: `/desk remove <name>`
 
-1. **Refuse** `main`, and the desk this session is running in.
+1. **Refuse** the desk this session is running in.
 
 2. **Refuse anything that would be lost**, and say what it is:
    - uncommitted work — `git -C <desk> status --short`, and inside each submodule

@@ -19,16 +19,37 @@ internal static class PaintCodeColorOperations
     /// <summary>Blends towards black, which is what PaintCode's shadow does.</summary>
     /// <remarks>
     /// Its <c>colorByBlendingColors</c> blends against black carrying the colour's own alpha, so the
-    /// alpha term cancels and only the channels move. The cast it does is a truncation, not a round.
+    /// alpha term cancels and only the channels move. The cast it does is a truncation, not a round,
+    /// and in single precision: a document stores 0.2 as 0.20000000298023224, and in double 250 of a
+    /// channel came out 199 where PaintCode's float gives 200.
     /// </remarks>
     internal static PaintCodeColor Shadow(PaintCodeColor colour, double amount)
-        => new(
+    {
+        var ratio = (float)amount;
+
+        return new(
             colour.Name,
-            (byte)((1 - amount) * colour.Red),
-            (byte)((1 - amount) * colour.Green),
-            (byte)((1 - amount) * colour.Blue),
+            (byte)((1f - ratio) * colour.Red),
+            (byte)((1f - ratio) * colour.Green),
+            (byte)((1f - ratio) * colour.Blue),
             colour.Alpha,
             colour.IsApproximate);
+    }
+
+    /// <summary>Blends towards white, the same way <see cref="Shadow"/> blends towards black.</summary>
+    /// <remarks>In single precision, as <c>colorByBlendingColors</c> is, so a channel truncates where PaintCode's does.</remarks>
+    internal static PaintCodeColor Highlight(PaintCodeColor colour, double amount)
+    {
+        var ratio = (float)amount;
+
+        return new(
+            colour.Name,
+            (byte)(((1f - ratio) * colour.Red) + (ratio * 255)),
+            (byte)(((1f - ratio) * colour.Green) + (ratio * 255)),
+            (byte)(((1f - ratio) * colour.Blue) + (ratio * 255)),
+            colour.Alpha,
+            colour.IsApproximate);
+    }
 
     /// <summary>The same hue and brightness at a different saturation.</summary>
     /// <remarks>

@@ -747,4 +747,51 @@ public class SvgcProjectDocumentTests
         Assert.Equal(parsed.Items.Single().Scale, flattened.Items.Single().Scale);
         Assert.Equal(parsed.Items.Single().Input, flattened.Items.Single().Input);
     }
+
+    [Fact]
+    public void A_Namespace_Starting_With_A_Dot_Continues_The_One_Above_It()
+    {
+        var document = Parse("""
+            <svgc>
+              <namespace>Icons</namespace>
+              <group namespace=".Nav">
+                <svg input="a.svg" namespace=".Own" />
+                <group>
+                  <svg input="b.svg" namespace=".Deep" />
+                </group>
+                <group namespace="Other">
+                  <svg input="c.svg" namespace=".Kept" />
+                </group>
+              </group>
+            </svgc>
+            """);
+
+        // A group that says nothing is skipped, and one written in full is where the joining stops.
+        Assert.Equal(
+            new[] { "Icons.Nav.Own", "Icons.Nav.Deep", "Other.Kept" },
+            document.Root.Drawings.Select(drawing => drawing.EffectiveNamespace).ToArray());
+
+        // The project's own is the build's to add, after a flag has had its say.
+        Assert.Equal(new[] { ".Nav.Own", ".Nav.Deep", "Other.Kept" }, document.Flatten().Items.Select(item => item.Namespace).ToArray());
+    }
+
+    [Fact]
+    public void A_Continued_Namespace_Follows_Where_It_Is_Moved()
+    {
+        var document = Parse("""
+            <svgc>
+              <group namespace="A">
+                <svg input="a.svg" namespace=".Own" />
+              </group>
+              <group namespace="B" />
+            </svgc>
+            """);
+
+        var groups = document.Root.Children.OfType<SvgcProjectGroup>().ToArray();
+        var moved = groups[0].Drawings.Single();
+
+        groups[1].Move(moved, 0);
+
+        Assert.Equal("B.Own", moved.EffectiveNamespace);
+    }
 }

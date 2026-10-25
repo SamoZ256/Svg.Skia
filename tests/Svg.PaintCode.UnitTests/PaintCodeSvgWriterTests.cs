@@ -154,6 +154,21 @@ public class PaintCodeSvgWriterTests
         Assert.Equal(empty, PaintCodePathData.For(shape)!.Length == 0);
     }
 
+    /// <summary>
+    /// An arc a hair short of a turn still goes round, centred where it should be. Its ends are a
+    /// rounding apart: written as one point, one arc between them drew nothing, and a digit apart,
+    /// one arc put its centre wherever the rounding pointed.
+    /// </summary>
+    [Theory]
+    [InlineData(9, 14, -0.00001, 0.00001, "M9,7A4.5 7 0 0 1 0,7A4.5 7 0 0 1 9,7L4.5,7Z")]
+    [InlineData(100, 100, 78.09999, 78.10001, "M60.3102,1.0746A50 50 0 0 1 39.6898,98.9254A50 50 0 0 1 60.3102,1.0745L50,50Z")]
+    public void An_Arc_A_Hair_Short_Of_A_Turn_Is_Written_In_Two_Halves(double width, double height, double start, double end, string expected)
+    {
+        var metrics = new PaintCodeShapeMetrics(0, true, true, true, true, start, end, true, 0, 0);
+
+        Assert.Equal(expected, PaintCodePathData.For(Filled(Gradient(), -90, frame: At(width, height), kind: PaintCodeShapeKind.Oval, metrics: metrics)));
+    }
+
     [Fact]
     public void A_Gradient_Fill_Becomes_A_Gradient_Laid_Along_The_Angle_It_Was_Given()
     {
@@ -535,9 +550,35 @@ public class PaintCodeSvgWriterTests
         Assert.Equal("9", run.Attribute("x")!.Value);
         Assert.Equal("4.5", run.Attribute("y")!.Value);
         Assert.Equal("end", run.Attribute("text-anchor")!.Value);
-        Assert.Equal("central", run.Attribute("dominant-baseline")!.Value);
+        Assert.Equal("cap-middle", run.Attribute("dominant-baseline")!.Value);
+        Assert.Equal("none", run.Attribute("font-kerning")!.Value);
         Assert.Equal("bold", run.Attribute("font-weight")!.Value);
         Assert.Equal("3", run.Value);
+    }
+
+    [Theory]
+    [InlineData(9.5, 1, "4.5")]
+    [InlineData(9.5, 2, "9")]
+    [InlineData(23.99999, 1, "12")]
+    public void A_Run_Aligns_Along_Its_Box_Cut_To_A_Whole_Unit_As_PaintCode_Does(double width, int alignment, string x)
+    {
+        var text = new PaintCodeText("3", "Inter", "Bold", 7, null, alignment, 0, 0, 0);
+        var shape = new PaintCodeShape(
+            "Text",
+            PaintCodeShapeKind.Rectangle,
+            new PaintCodeFrame(0, -9, width, 9, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            null,
+            PaintCodePaint.None,
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            text,
+            PaintCodeShapeMetrics.Default);
+
+        var run = WriteTree(Only(shape), new List<PaintCodeImportNote>()).Descendants().First(one => one.Name.LocalName == "text");
+
+        Assert.Equal(x, run.Attribute("x")!.Value);
     }
 
     /// <summary>
@@ -810,7 +851,7 @@ public class PaintCodeSvgWriterTests
     [InlineData(117, -22, false, "M4.0951,0.8175A7.5 7.5 0 0 1 14.4539,10.3095")]
     // Negative, so the turn wraps to 260 and the arc becomes the long way round. PaintCode writes
     // AddArc(rect, 10, (360 * ceil(100 / 360)) - 100).
-    [InlineData(-10, 90, false, "M14.8861,8.8024A7.5 7.5 0 1 1 7.5,0")]
+    [InlineData(-10, 90, false, "M14.8861,8.8024A7.5 7.5 0 0 1 1.7547,12.3209A7.5 7.5 0 0 1 7.5,0")]
     // Exactly half a turn, where the two halves are told apart by the direction alone.
     [InlineData(0, 180, false, "M15,7.5A7.5 7.5 0 0 1 0,7.5")]
     // Closed through the middle, which is the wedge PaintCode closes with LineTo(MidX, MidY).
@@ -1122,4 +1163,15 @@ public class PaintCodeSvgWriterTests
 
         return PaintCodeSvgWriter.Write(canvas, PaintCodeDeclarations.Of(Scope()), PaintCodeSymbols.Of(Scope()), notes);
     }
+
+    [Theory]
+    [InlineData("Regular", null)]
+    [InlineData("Medium", "500")]
+    [InlineData("Bold", "bold")]
+    [InlineData("Semibold", "600")]
+    [InlineData("ExtraBold Italic", "800")]
+    [InlineData("Light", "300")]
+    [InlineData("UltraLight", "200")]
+    public void A_Face_Says_Its_Weight(string face, string? weight)
+        => Assert.Equal(weight, PaintCodeSvgWriter.Weight(face));
 }

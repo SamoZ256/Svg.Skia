@@ -1,6 +1,9 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
+using System.Collections.Generic;
 using System.Text;
+using Svg.Expressions;
 
 namespace Svg.PaintCode;
 
@@ -40,21 +43,30 @@ internal static class PaintCodeSlug
     }
 
     /// <summary>
-    /// The name as an expression may spell it: letters, digits and underscores only.
+    /// The name as PaintCode's own generated code spells it, and so as its expressions do: letters,
+    /// digits and underscores, the first letter lowered and a word after a space capitalised.
     /// </summary>
     /// <remarks>
     /// PaintCode lets a variable be called "level-17" and then writes "level17" in the expressions
-    /// that use it, so a name and the identifier standing for it are two different strings.
+    /// that use it, so a name and the identifier standing for it are two different strings. The
+    /// library colour "Tint Color" is the parameter tintColor of the methods it generates; spelled
+    /// TintColor here, a caller passing it by name had nothing to pass it to.
     /// </remarks>
     internal static string Identifier(string name)
     {
         var builder = new StringBuilder(name.Length);
+        var capitalise = false;
 
         foreach (var character in name)
         {
             if (char.IsLetterOrDigit(character) || character == '_')
             {
-                builder.Append(character);
+                builder.Append(builder.Length == 0 ? char.ToLowerInvariant(character) : capitalise ? char.ToUpperInvariant(character) : character);
+                capitalise = false;
+            }
+            else if (char.IsWhiteSpace(character) && builder.Length > 0)
+            {
+                capitalise = true;
             }
         }
 
@@ -63,10 +75,50 @@ internal static class PaintCodeSlug
             return "value";
         }
 
-        return char.IsDigit(builder[0]) ? "_" + builder : builder.ToString();
+        var identifier = char.IsDigit(builder[0]) ? "_" + builder : builder.ToString();
+
+        // Lowered, "Mix" and "Base" became a function the expression language refuses to redeclare
+        // and a C# keyword the generated code cannot take; the colour "Canvas" would meet the
+        // canvas the generated API takes first. Each gets an underscore, as PaintCode's own r_ does.
+        return ExprFunctions.IsReservedName(identifier) || s_taken.Contains(identifier) ? identifier + "_" : identifier;
     }
 
+    /// <summary>C#'s reserved words, and the names the generated API already gives its own parameters.</summary>
+    private static readonly HashSet<string> s_taken = new(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const",
+        "continue", "decimal", "default", "delegate", "do", "double", "else", "enum", "event", "explicit",
+        "extern", "false", "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int",
+        "interface", "internal", "is", "lock", "long", "namespace", "new", "null", "object", "operator", "out",
+        "override", "params", "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
+        "short", "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true", "try",
+        "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void", "volatile", "while",
+        "canvas", "context", "targetFrame", "resizing", "resizedFrame"
+    };
+
     /// <summary>The same name as an identifier C# will take: PascalCase, and never starting with a digit.</summary>
+    /// <summary>The method PaintCode draws a canvas of this name by.</summary>
+    /// <remarks>Measured against the 1,011 public methods of the sample's own export, all of which it names.</remarks>
+    internal static string Method(string name)
+    {
+        var builder = new StringBuilder(name.Length + 5);
+
+        foreach (var character in name)
+        {
+            if (char.IsLetterOrDigit(character) || character == '_')
+            {
+                builder.Append(builder.Length == 0 ? char.ToUpperInvariant(character) : character);
+            }
+        }
+
+        if (builder.Length > 0 && char.IsDigit(builder[0]))
+        {
+            builder.Insert(0, '_');
+        }
+
+        return "draw" + builder;
+    }
+
     internal static string Pascal(string name)
     {
         var builder = new StringBuilder(name.Length);

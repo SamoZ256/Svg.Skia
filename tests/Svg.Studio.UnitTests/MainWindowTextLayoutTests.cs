@@ -58,7 +58,7 @@ public class MainWindowTextLayoutTests : IDisposable
     {
         var path = Path.Combine(_directory, "icons.svgstudio");
 
-        File.WriteAllText(path, $"""
+        TestPackage.Write(path, $"""
             <studio namespace="Demo.Icons">
               <drawing name="badge" class="Badge">
             {drawing}

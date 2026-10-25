@@ -70,7 +70,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
         + "- Call get_context before acting, to see the project, the tab in front and what is selected.\n"
         + "- read_doc with an empty id lists the documentation's sections; read one before answering how Studio works.\n"
         + "- Every client connected to this Studio shares one undo and redo: undo takes back the newest edit any of them made, and redo what any of them took back, so check the label each names.\n"
-        + "- Studio does not watch the disk: after a file it has open is changed outside it, by an edit or by git in a terminal, call reload before going on. Until then save and git_commit refuse to write a project file that changed, but a save of a drawing of no project's still writes Studio's copy over a change to its own file.\n"
+        + "- Studio does not watch the disk: after a file it has open is changed outside it, by an edit or by git in a terminal, call reload before going on. Until then save and git_commit refuse to write a project whose files changed, but a save of a drawing of no project's still writes Studio's copy over a change to its own file.\n"
         + "- A step that would throw away edits the person has not saved, or export text its C# cannot write out where they have not chosen for good how to lay it out, asks them through your client and goes on as they answer; where your client cannot ask, the step is refused and says why, or the text is baked.\n"
         + "- Resources: each drawing as svg-studio://drawing/<path>.svg, .png and .cs, the drawing in front as svg-studio://front.svg, .png and .cs, and the docs' sections; a drawing's path is a position, as get_project's are.\n"
         + AssistantSession.Rules

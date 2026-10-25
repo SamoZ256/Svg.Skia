@@ -1,0 +1,9 @@
+canvas,threshold
+bathroom,0.03
+button,0.02
+button-highlighted,0.02
+front-door,0.02
+icon-ghost,0.02
+icon-pac-man,0.02
+pac-man,0.02
+scale-circle,0.02
