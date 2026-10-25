@@ -70,7 +70,12 @@ public abstract class ProjectNode
     /// </remarks>
     internal string? Segment { get; set; }
 
-    /// <summary>When this node was made, which is what orders two rows nothing else tells apart.</summary>
+    /// <summary>When this node was made, which is what orders two rows of one name.</summary>
+    /// <remarks>
+    /// Rows read from a folder are made in the order of their files, so this orders them as their file
+    /// names do. A new or renamed row is given its file name only as the project is written, so ordered
+    /// by that, it moved past its namesake on its own when the autosave wrote it.
+    /// </remarks>
     internal long Sequence { get; }
 
     /// <summary>What this is called: the row in the tree, the tab, and the class it falls back on.</summary>
@@ -333,11 +338,6 @@ public class ProjectGroup : ProjectNode
     private static int Order(ProjectNode left, ProjectNode right)
     {
         var by = NaturalOrder.Instance.Compare(left.Name, right.Name);
-
-        if (by == 0)
-        {
-            by = string.CompareOrdinal(left.Segment, right.Segment);
-        }
 
         return by != 0 ? by : left.Sequence.CompareTo(right.Sequence);
     }

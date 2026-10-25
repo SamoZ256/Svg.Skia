@@ -44,7 +44,7 @@ public sealed class AssistantSession : IDisposable
     internal const string Rules =
         """
         - get_drawing gives the address keys set_attributes takes. Keys are positions, so read again after an edit that adds, moves or removes elements, or an undo or redo of one.
-        - Nodes of the project are named by path from get_project, such as 0/2. Paths are positions too: a remove or move renumbers the nodes after it, and so does an undo or redo of one, so read get_project again before naming another node.
+        - Nodes of the project are named by path from get_project, such as 0/2. Paths are positions too, among rows kept in name order: an add, an import or a rename renumbers the rows beside it, as a remove or a move does, and so does an undo or redo of any of them, so read get_project again before naming another node.
         - Expressions are written {{ name }} inside an attribute; parameters and lets are declared in the drawing's or a group's declarations.
         - A group's or the project's declarations are inherited by every drawing under it.
         - Every edit is one step the person can undo with Cmd/Ctrl+Z.

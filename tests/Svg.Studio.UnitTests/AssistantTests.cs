@@ -977,6 +977,27 @@ public class AssistantTests : IDisposable
         // Given back to the board's own group, as a node taken out is, and not one to name.
         Assert.Same(badges, board.Described);
         Assert.DoesNotContain("Picked", new AssistantTools(window).Context(), StringComparison.Ordinal);
+
+        await Send(
+            window,
+            new ScriptedChat(
+                Call("add_group", new() { ["parent"] = "0" }),
+                Call("add_drawing", new() { ["parent"] = "0/1", ["name"] = "Dot", ["svg"] = Drawing }),
+                Say("Added.")),
+            "add a group holding one");
+
+        var inner = (ProjectGroup)badges.Children[1];
+        var dot = inner.Children[0];
+
+        board = await Pick(window, badges, dot);
+
+        Assert.Contains("Picked on the board: 0/1/0 drawing Dot", new AssistantTools(window).Context(), StringComparison.Ordinal);
+        Assert.True(await window.RemoveAsync(inner));
+        Dispatcher.UIThread.RunJobs();
+
+        // Still in the group that was taken out, so the board still describes it, and there is no path to name it by.
+        Assert.Same(dot, board.Described);
+        Assert.DoesNotContain("Picked", new AssistantTools(window).Context(), StringComparison.Ordinal);
     }
 
     /// <remarks>Each answer under the bound a client cuts a tool's output at, and the base64 an image holds nowhere in either.</remarks>
@@ -2583,6 +2604,18 @@ public class AssistantTests : IDisposable
         Assert.Contains("class Demo.Icons.Filled", code, StringComparison.Ordinal);
         Assert.Contains("tint", code[code.IndexOf("\n\n", StringComparison.Ordinal)..], StringComparison.Ordinal);
         Assert.DoesNotContain("home", code, StringComparison.Ordinal);
+    }
+
+    /// <remarks>A namespace starting with a dot continues the one above it, which the header named as it was written.</remarks>
+    [AvaloniaFact]
+    public async Task The_Code_Names_The_Class_In_The_Namespace_The_Build_Puts_It_In()
+    {
+        var chat = new ScriptedChat(Call("get_code", new() { ["node"] = "0/0" }), Say("Here."));
+
+        await Send(await Host(Write("icons.svgstudio", Project.Replace("<group name=\"Badges\">", "<group name=\"Badges\" namespace=\".Badges\">", StringComparison.Ordinal))), chat, "show me the badge's code");
+
+        Assert.Contains("class Demo.Icons.Badges.Filled", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("namespace Demo.Icons.Badges", chat.Results[0], StringComparison.Ordinal);
     }
 
     [AvaloniaFact]

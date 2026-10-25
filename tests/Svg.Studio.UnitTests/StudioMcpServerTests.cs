@@ -1023,6 +1023,48 @@ public class StudioMcpServerTests : IDisposable
         Assert.Empty(_announced);
     }
 
+    /// <remarks>Only the group it is filed under differs, which a row comparing the drawing's own settings and text has nothing of to say.</remarks>
+    [AvaloniaFact]
+    public async Task Get_Changes_Says_Where_A_Drawing_That_Only_Moved_Was()
+    {
+        var path = Committed(Templated);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        // Round, which sorts before Square, out to the project's own rows, where it sorts after Badges.
+        await Call(client, "move", new() { ["node"] = "0/0", ["into"] = "" });
+
+        var changes = Text(await Call(client, "get_changes", new()));
+
+        Assert.Contains(": 1 change: 1 moved.\nmoved 1 drawing Round: moved from Badges/Round.svg\n", changes, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
+    /// <remarks>
+    /// A comment between the templates changes the block and none of them. Compare reads the block
+    /// whole and lists the project for it, and the row said nothing of why it was there.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Get_Changes_Says_The_Templates_Block_Changed_Where_No_Template_In_It_Did()
+    {
+        var path = Committed(Templated);
+        var manifest = Path.Combine(path, ProjectPackage.Manifest);
+        var text = File.ReadAllText(manifest);
+
+        Assert.Contains("<e:recipe name=\"Kept\" />", text, StringComparison.Ordinal);
+        File.WriteAllText(manifest, text.Replace("<e:recipe name=\"Kept\" />", "<!-- for the dashboard --><e:recipe name=\"Kept\" />", StringComparison.Ordinal));
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+
+        Assert.Contains(
+            ": 1 change: 1 with new settings.\nsettings (project): its templates block changed\n",
+            Text(await Call(client, "get_changes", new())),
+            StringComparison.Ordinal);
+        Assert.Empty(_announced);
+    }
+
     /// <remarks>As core.autocrlf can leave it: git has the file written CRLF, and Studio has written it LF since.</remarks>
     [AvaloniaFact]
     public async Task Get_Changes_Sets_Aside_The_Line_Endings_Git_Has_The_Project_In()
@@ -2612,6 +2654,38 @@ public class StudioMcpServerTests : IDisposable
         Assert.Empty(_announced);
     }
 
+    /// <remarks>
+    /// The settings of a drawing named as its file, which a save leaves out, so Studio writes the file
+    /// back as it was. Reload took that for nothing changed, while save and git_commit, which compare
+    /// the files themselves, went on refusing, and nothing Studio would write cleared it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Reload_Reads_A_Project_Again_Whose_Files_Changed_Though_Studio_Would_Write_Them_The_Same()
+    {
+        var path = Path.Combine(_directory, "icons.svgstudio");
+        var home = Path.Combine(path, "home.svg");
+
+        TestPackage.Write(path, Project);
+
+        var (_, port) = await Serving(path);
+        await using var client = await Client(port);
+        var text = File.ReadAllText(home);
+        var end = text.LastIndexOf("</svg>", StringComparison.Ordinal);
+        var body = text[..end].TrimEnd();
+
+        // Where a save puts them, after a blank line, which is what reading them takes back out.
+        File.WriteAllText(home, body + "\n\n  <metadata><drawing xmlns=\"https://svg.skia/studio/1.0\" name=\"home\" /></metadata>" + text[body.Length..]);
+
+        var refused = await Call(client, "save", new());
+        var reloaded = await Call(client, "reload", new());
+        var saved = await Call(client, "save", new());
+
+        Assert.StartsWith("Nothing was saved: icons.svgstudio changed on disk", Text(refused), StringComparison.Ordinal);
+        Assert.StartsWith($"Read {path} again; ", Text(reloaded), StringComparison.Ordinal);
+        Assert.Equal("Saved.", Text(saved));
+        Assert.Empty(_announced);
+    }
+
     [AvaloniaFact]
     public async Task Reload_Is_Refused_While_The_Project_Or_A_Tab_Holds_Unsaved_Edits()
     {
@@ -2640,7 +2714,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.All(new[] { project, tab, untitled }, result => Assert.True(result.IsError, Text(result)));
         Assert.StartsWith("Nothing was reloaded: changes not saved are held in the project. ", Text(project), StringComparison.Ordinal);
         Assert.StartsWith("Nothing was reloaded: changes not saved are held in the tab of 0 home. ", Text(tab), StringComparison.Ordinal);
-        Assert.Equal("The project has never been saved, so it has no file to read again.", Text(untitled));
+        Assert.Equal("The project has never been saved, so it has no folder to read again.", Text(untitled));
         Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
         Assert.Empty(_announced);
     }
@@ -3564,19 +3638,23 @@ public class StudioMcpServerTests : IDisposable
         Assert.Single(streamline.Asked);
     }
 
+    /// <remarks>Streamline refuses an empty query as an invalid request, which was one request of the hour's spent on a refusal.</remarks>
     [AvaloniaFact]
-    public async Task Streamline_Search_Refuses_A_Style_Streamline_Has_Not_Got_Without_Asking_It()
+    public async Task Streamline_Search_Refuses_A_Style_Streamline_Has_Not_Got_Or_A_Blank_Query_Without_Asking_It()
     {
         var streamline = new Streamline();
         var (_, port) = await Streaming(streamline);
         await using var client = await Client(port);
 
         var refused = await Call(client, "streamline_search", new() { ["query"] = "bell", ["style"] = "sparkly" });
+        var blank = await Call(client, "streamline_search", new() { ["query"] = " " });
 
         Assert.True(refused.IsError);
         Assert.Equal(
             "Streamline has no style 'sparkly'; it has line, solid, flat, duo, hand-drawn, creative, gradient, remix, neon, pop, light, glyph, minimal, outlined, geometric, bold, stroke, wireframe, filled.",
             Text(refused));
+        Assert.True(blank.IsError);
+        Assert.Equal("Name something to search for; Streamline refuses an empty search.", Text(blank));
         Assert.Empty(streamline.Asked);
     }
 

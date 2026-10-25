@@ -271,7 +271,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
                     UriTemplate = $"{Scheme}drawing/{{+path}}.{kind.Extension}",
                     Name = $"drawing.{kind.Extension}",
                     Title = $"A drawing's {kind.Noun}",
-                    Description = kind.Description + " The path is a node path as get_project lists it, such as 1/0, and it is a position: a move, a remove or an undo of one renumbers the nodes after it, so list again rather than keep one.",
+                    Description = kind.Description + " The path is a node path as get_project lists it, such as 1/0, and it is a position among rows kept in name order: an add, an import, a rename, a move or a remove, or an undo of one, renumbers the rows beside it, so list again rather than keep one.",
                     MimeType = kind.Mime
                 }).ToList()
             }))
@@ -355,7 +355,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
             .Append(_tools.Function(_tools.ImportFromStreamline, new AIFunctionFactoryOptions
             {
                 Name = "streamline_import",
-                Description = "Downloads icons from Streamline by the hashes streamline_search lists and adds them at the end of a group through the project's templates, as one undo step, and opens the last; each is one download from the person's plan, and an icon the group already came from is skipped."
+                Description = "Downloads icons from Streamline by the hashes streamline_search lists and adds them to a group, among its rows by name, through the project's templates, as one undo step, and opens the last; the answer names each one's path; each is one download from the person's plan, and an icon the group already came from is skipped."
             }))
             .Select(function => McpServerTool.Create(new Plain(function, _call), new McpServerToolCreateOptions
             {

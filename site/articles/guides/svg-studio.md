@@ -398,10 +398,11 @@ both with your key and against your plan's quota.
 It works with files by their full paths: `save` writes a project that was never saved, or a drawing
 of no project's, to a path it names; `export` writes the project as one C# file, or with no project
 open the drawing in front as SVG or C#; `new_project` starts an empty one; `open_file` opens a drawing,
-a project, or an svgc project or PaintCode document to convert, and brings the project open already
-forward; and `reload` reads the open project again from its folder, or, while a drawing of no project's
-is in front, that drawing instead. Studio does not watch the disk, so after a file it has open is
-changed elsewhere — by another editor, or a `git pull` in a terminal — Claude Code is told to call
+a project from its folder or anything inside it, or an svgc project or PaintCode document to
+convert, and brings the project open already forward; and `reload` reads the open project again
+from its folder, or, while a drawing of no project's is in front, that drawing instead. Studio does
+not watch the disk, so after a file it has open is changed elsewhere — by another editor, or a
+`git pull` in a terminal — Claude Code is told to call
 `reload`. Until it does, `save` and `git_commit` refuse to write the project once its files are not
 what Studio last read or wrote, and `get_changes` says so first, rather than take Studio's copy for
 edits and write it back over the change. Where Studio would stop to ask you something, a tool never opens a
@@ -419,9 +420,10 @@ with a file holding the conflict is refused.
 You can hand Claude Code a drawing yourself, as a resource: `@svg-studio:svg-studio://front.png`
 attaches the drawing in front as an image, `front.svg` its source and `front.cs` its C#, and
 `svg-studio://drawing/1/0.svg` the drawing at that path in the project, which is a position among rows
-sorted by name, so a rename or a move renumbers it; each section of this documentation is there too. Three prompts start a common job:
-`/mcp__svg-studio__new_drawing` draws one on its group's grid and tries it at small sizes before adding
-it, `/mcp__svg-studio__review_drawing` says what is wrong with one and changes nothing, and
+sorted by name, so an add, a rename or a move beside it renumbers it; each section of this
+documentation is there too. Three prompts start a common job: `/mcp__svg-studio__new_drawing`
+draws one on its group's grid and tries it at small sizes before adding it,
+`/mcp__svg-studio__review_drawing` says what is wrong with one and changes nothing, and
 `/mcp__svg-studio__add_parameter` turns a value into a parameter whose default keeps the look.
 
 1. In **Settings**, on the **Accounts** tab, turn on **Let Claude Code connect to this Studio**. Studio then listens on

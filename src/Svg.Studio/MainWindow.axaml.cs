@@ -810,7 +810,7 @@ public partial class MainWindow : Window
             }
             else if (Restored(named, waiting) is { } recovered)
             {
-                // As read with the file, so a pull after the restore is a change to it.
+                // As read from the folder, so a pull after the restore is a change to it.
                 recovered.Disk = document.Disk;
                 document = recovered;
 

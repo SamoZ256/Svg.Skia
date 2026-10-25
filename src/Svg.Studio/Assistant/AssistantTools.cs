@@ -282,7 +282,7 @@ public sealed class AssistantTools
         Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Given a path, saves a project never saved, or a drawing of no project's, there: the drawing's tab then saves to it, and its undo history starts again.");
         Add(Export, "export", "Writes what is open to a file outside the project: with a project open, every drawing of it as one C# file, as Export in the File menu does, after taking in the edits of the tab in front; with none, the drawing in front, as C# where the path ends .cs and as SVG where it ends .svg. Text the project's C# cannot write out is laid out as the person chooses where they can be asked, and baked where not, unless they chose for good.");
         Add(NewProject, "new_project", "Starts a new, empty project in place of the one open, closing its tabs; where it or a tab of it holds changes not saved, asks the person whether to throw them away, and is refused where they cannot be asked. Nothing is written until save is given a path.");
-        Add(OpenFile, "open_file", "Opens a file by its full path: a drawing (.svg) in a tab of its own, or a project (.svgstudio) in place of the one open, closing its tabs, which over changes not saved in it or a tab of it asks the person whether to throw them away, and is refused where they cannot be asked. An svgc project (.svgcproj) or a PaintCode document (.pcvd) is converted into a new project, held in Studio until save is given a path. The project open already is not read again, but brought forward from a drawing of no project's.");
+        Add(OpenFile, "open_file", "Opens a file by its full path: a drawing (.svg) in a tab of its own, or a project (.svgstudio) in place of the one open, closing its tabs, which over changes not saved in it or a tab of it asks the person whether to throw them away, and is refused where they cannot be asked; a path inside a project's folder, a drawing of it included, opens that project. An svgc project (.svgcproj) or a PaintCode document (.pcvd) is converted into a new project, held in Studio until save is given a path. The project open already is not read again, but brought forward from a drawing of no project's.");
         Add(Reload, "reload", "Reads the open project again from its folder after it was changed outside Studio, which does not watch the disk; while a drawing of no project's is in front, reads that drawing from its own file instead, and says the project was not read. Over edits not saved, asks the person whether to throw them away, and is refused where they cannot be asked. The project's tabs open again where their path still names the same node; the undo history starts again.");
         Add(Remove, "remove", "Removes a group or drawing from the project; where a tab under it holds edits not yet saved into the project, asks the person whether to throw them away, and is refused where they cannot be asked.");
         Add(GetChanges, "get_changes", "Lists what has changed in the project since its last commit, edits not yet saved included, as Studio's Changes pane compares it: each group or drawing added, removed, changed, moved or given new settings, and what about it changed, for a commit message; with since, against another commit, branch or tag. Edits held in a tab are left out until saved into the project.");
@@ -327,7 +327,8 @@ public sealed class AssistantTools
             text.Append("In front: ").Append(Describe(front, small)).Append('\n');
 
             // A group's tab is its board, with no drawing in front for a tool to take without a path;
-            // a pick an undo has taken out the board still describes, and it has none to give.
+            // a pick inside a group taken out still has that group, so the board describes it still,
+            // and it has none to give.
             if (_window.TabOf(front)?.Content is GroupPanel board && !ReferenceEquals(board.Described, front) && Path(board.Described) is not Gone)
             {
                 text.Append("Picked on the board: ").Append(Describe(board.Described, small)).Append("; name it by that path.\n");
@@ -811,7 +812,7 @@ public sealed class AssistantTools
                     // otherwise, and a text it freezes is among the warnings.
                     settings.TextLayout = StudioSettings.RelaxedText == RelaxedTextAnswer.Always ? SvgTextLayout.Relaxed : SvgTextLayout.Baked;
                     generate = () => SvgcProjectBuild.Generate(item, settings, loader, log.Add);
-                    what = $"the C# svgc writes for it alone, class {item.Namespace ?? settings.Namespace}.{item.Class}"
+                    what = $"the C# svgc writes for it alone, class {SvgcProject.ResolveNamespace(new[] { item.Namespace, settings.Namespace })}.{item.Class}"
                            + (string.Equals(text, drawing.Text, StringComparison.Ordinal) ? null : ", built from the text in its tab")
                            + " (Export writes every drawing into one file, with the helpers where helperScope puts them)";
                 }
@@ -1090,6 +1091,11 @@ public sealed class AssistantTools
     internal async Task<(byte[]? Sheet, string Text, bool Refused)> SearchStreamline(string query, string? style, int offset)
     {
         const int cell = 64, across = 8, most = 24;
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return (null, "Name something to search for; Streamline refuses an empty search.", true);
+        }
 
         var known = style is null ? null : StreamlinePanel.StyleNames.FirstOrDefault(one => string.Equals(one, style.Trim(), StringComparison.OrdinalIgnoreCase));
 
@@ -1786,7 +1792,7 @@ public sealed class AssistantTools
             return Report($"Added the template '{called}' to the project." + Undoes + "\n" + text, $"add template {called}");
         });
 
-    /// <summary>Icons from Streamline added at the end of a group through the project's templates, as one step, and the last opened as add_drawing opens its drawing.</summary>
+    /// <summary>Icons from Streamline added to a group through the project's templates, as one step, and the last opened as add_drawing opens its drawing.</summary>
     /// <remarks>The MCP server's alone: it takes the hashes only streamline_search answers.</remarks>
     internal Task<string> ImportFromStreamline(
         [Description("The icons' hashes from streamline_search: up to 20, each one download.")] string[] hashes,
@@ -2191,15 +2197,8 @@ public sealed class AssistantTools
 
             // The project Committed found still open once git answered.
             var now = asked!.Document;
-            var changes = ProjectChanges.Compare(then, now).ToList();
+            var changes = ProjectChanges.Compare(then, now);
             var templates = Templates(then.Root, now.Root);
-
-            // No node holds the templates, so Compare has no row for them where the project's own settings are the same.
-            if (templates is { } && changes.FirstOrDefault()?.After is not ProjectRoot)
-            {
-                changes.Insert(0, new ProjectChange(string.Empty, ProjectChangeKind.Settings, then.Root, now.Root));
-            }
-
             var held = _window.HoldingEdits();
             var footer = (held.Count > 0 ? $"Not in it: edits held in {Tabs(held)}, until {(held.Count == 1 ? "it is" : "each is")} saved into the project.\n" : null)
                          + $"get_drawing with revision \"{revision}\" reads a drawing as git has it there.";
@@ -2236,6 +2235,12 @@ public sealed class AssistantTools
                 if (change.Kind == ProjectChangeKind.Moved && differs.Count == 0)
                 {
                     differs.Add($"moved from {ProjectChanges.KeyOf(change.Before!)}");
+                }
+
+                // Compare reads the templates block whole and Templates each template, so a change between them is told only here.
+                if (node is ProjectRoot && differs.Count == 0)
+                {
+                    differs.Add("its templates block changed");
                 }
 
                 return (differs.Count > 0 ? row.Append(": ").AppendJoin("; ", differs) : row).ToString();
@@ -2697,7 +2702,7 @@ public sealed class AssistantTools
 
         if (workspace.Document.Path is not { } path)
         {
-            return "The project has never been saved, so it has no file to read again.";
+            return "The project has never been saved, so it has no folder to read again.";
         }
 
         if (await _window.Changes.Conflicted().ConfigureAwait(true))
@@ -2711,11 +2716,9 @@ public sealed class AssistantTools
 
         // Read here first, so a file that no longer parses is said, not taken for a merge to resolve, and
         // nobody is asked to throw work away for it.
-        IReadOnlyDictionary<string, string> read;
-
         try
         {
-            read = ProjectDocument.Load(path).Files();
+            _ = ProjectDocument.Load(path);
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or IOException or UnauthorizedAccessException)
         {
@@ -2737,7 +2740,9 @@ public sealed class AssistantTools
         }
 
         // Over what is held it is read again all the same: the person has said to throw it away, or closing says why not.
-        if (held.Count == 0 && ProjectPackage.Same(read, workspace.Document.Files()))
+        // Compared as save and git_commit compare, by the files themselves: a change Studio would write
+        // back the same still stops them, until the folder is read again.
+        if (held.Count == 0 && !workspace.Document.ChangedOnDisk())
         {
             return Report($"Nothing changed: {path} holds what Studio has.", null);
         }

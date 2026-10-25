@@ -313,6 +313,32 @@ public class ProjectDocumentTests : IDisposable
             ProjectDocument.Read(files, null).Root.Drawings.Where(one => one.Name.Equals("badge", StringComparison.OrdinalIgnoreCase)).Select(one => one.Name).OrderBy(name => name, StringComparer.Ordinal));
     }
 
+    /// <remarks>
+    /// Ordered by the ~2, which a row is given only as the project is written, a row added or renamed
+    /// beside one of its name sorted first, then swapped places with it on its own at the next
+    /// autosave, under a tool holding its path.
+    /// </remarks>
+    [Fact]
+    public void A_Row_Given_Another_Rows_Name_Sorts_After_It_And_Stays_There()
+    {
+        var document = Folder();
+        var badge = First(document);
+        var renamed = document.Root.AddDrawing("Alpha", Drawing);
+
+        document.Files();
+
+        var added = document.Root.AddDrawing("Badge", Drawing);
+
+        renamed.Name = "Badge";
+
+        var order = document.Root.Children.ToList();
+
+        document.Files();
+
+        Assert.Equal(new ProjectNode[] { badge, renamed, added }, order.Where(one => one.Name == "Badge"));
+        Assert.Equal(order, document.Root.Children);
+    }
+
     [Fact]
     public void An_Empty_Group_Is_Still_A_File_So_Git_Keeps_It()
     {
