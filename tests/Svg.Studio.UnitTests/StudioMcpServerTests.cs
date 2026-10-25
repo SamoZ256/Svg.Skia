@@ -454,8 +454,11 @@ public class StudioMcpServerTests : IDisposable
             ["summary"] = "red"
         });
 
-        // Refused in the save before git is asked, which is where the commit writes the project.
-        File.SetAttributes(path, FileAttributes.ReadOnly);
+        // Refused in the save before git is asked, which is where the commit writes the project. A folder
+        // where the save writes each drawing first blocks it everywhere; Windows ignores a read-only folder.
+        var blocked = Directory.EnumerateFiles(path, "*.svg", SearchOption.AllDirectories)
+            .Select(file => Directory.CreateDirectory(file + ".~tmp"))
+            .ToList();
 
         CallToolResult unwritable;
 
@@ -465,7 +468,7 @@ public class StudioMcpServerTests : IDisposable
         }
         finally
         {
-            File.SetAttributes(path, FileAttributes.Normal);
+            blocked.ForEach(folder => folder.Delete());
         }
 
         Assert.True(unwritable.IsError);
