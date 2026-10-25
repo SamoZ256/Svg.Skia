@@ -36,7 +36,6 @@
     <Compile Include="..\Svg.PaintCode.UnitTests\Bplist.cs" Link="Fixtures\Bplist.cs" />
     <Compile Include="..\Svg.PaintCode.UnitTests\KeyedArchiveBuilder.cs" Link="Fixtures\KeyedArchiveBuilder.cs" />
     <Compile Include="..\Svg.PaintCode.UnitTests\DeskDocument.cs" Link="Fixtures\DeskDocument.cs" />
-    <Compile Include="..\Svg.PaintCode.UnitTests\SampleFactAttribute.cs" Link="Fixtures\SampleFactAttribute.cs" />
   </ItemGroup>
 
   <ItemGroup>

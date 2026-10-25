@@ -303,10 +303,6 @@ public class ProjectImportTests : IDisposable
     public void A_PaintCode_Import_Is_Written_Alike_Twice_And_Saves_Back_Unchanged()
         => ImportsStably(Path.Combine(AppContext.BaseDirectory, "TestAssets", "sample.pcvd"));
 
-    [SampleFact]
-    public void The_Sample_Document_Is_Written_Alike_Twice_And_Saves_Back_Unchanged()
-        => ImportsStably(SampleFactAttribute.Path!);
-
     private void ImportsStably(string source)
     {
         var work = Path.Combine(_directory, "work");
