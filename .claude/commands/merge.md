@@ -17,7 +17,9 @@ Stop at the first thing that looks wrong. Never force, never `-D`, never merge p
 **Always wait for CI.** The gates `/push` runs here cover one operating system. CI also runs Windows
 and Linux, and those are where platform-specific bugs show up: a branch once passed every local test
 and failed 32 on Windows, because git writes read-only files and ships `core.autocrlf=true` there. A
-pending check is not a pass. Merge only once every check has finished and none has failed.
+pending check is not a pass. Merge only once every check has finished and none has failed. The one
+exception is a target no workflow runs on: a pull request stacked on a feature branch has no CI,
+and gets its run on every platform when that branch goes to `master`.
 
 1. **Get a pull request to merge, and the branch it is going into.**
 
@@ -88,6 +90,10 @@ pending check is not a pass. Merge only once every check has finished and none h
    checks on their own: never put the listing and the merge in one command, since then the result
    is read only after the merge. A merge went past two red jobs that way once.
 
+   - **`no checks reported on the '<branch>' branch`** (exit 1, with or without `--watch`): read
+     `on.pull_request` in `.github/workflows/*.yml`. If no workflow lists the target under
+     `branches`, there is no CI for it: say so and go on to step 4. If one does, the checks have
+     not registered since the push yet — ask again shortly, and never take this for no CI.
    - **Every check passed or was skipped:** go on to step 4.
    - **Any check failed:** stop and do not merge. Report each failing job, the failed test names
      and their error, from `gh run view --repo SamoZ256/Svg.Skia <run id> --log-failed`. Also say
@@ -121,6 +127,7 @@ pending check is not a pass. Merge only once every check has finished and none h
    not pre-empt its steps or skip it because you already know the answer.
 
 Report the pull request number, what the target branch moved to, and whatever `/land` says about the
-final state. If `/land` reports that more came down than this branch's own commits, repeat that
-prominently: it means the target moved while the branch was open, and what is local is no longer
-what was tested.
+final state. Where it merged with no CI, say so: only `/push`'s local gates, on one operating
+system, ever ran on it. If `/land` reports that more came down than this branch's own commits,
+repeat that prominently: it means the target moved while the branch was open, and what is local is
+no longer what was tested.
