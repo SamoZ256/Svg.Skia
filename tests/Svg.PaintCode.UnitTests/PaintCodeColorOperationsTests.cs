@@ -65,6 +65,25 @@ public class PaintCodeColorOperationsTests
         Assert.Equal(0.5, ours.Alpha);
     }
 
+    /// <summary>A highlight only lightens, blending towards white the way a shadow blends towards black.</summary>
+    [Theory]
+    [InlineData(0xce, 0xa3, 0x6c, 0.5)]
+    [InlineData(0xce, 0xa3, 0x6c, 0.8)]
+    [InlineData(0x00, 0x00, 0x00, 1)]
+    public void A_Highlight_Agrees_With_PaintCode(byte red, byte green, byte blue, double amount)
+    {
+        var ours = PaintCodeColorOperations.Highlight(Colour(red, green, blue, 0.5), amount);
+
+        // colorByBlendingColors, against white at the colour's own alpha.
+        var expected = (
+            (byte)(((1f - (float)amount) * red) + ((float)amount * 255)),
+            (byte)(((1f - (float)amount) * green) + ((float)amount * 255)),
+            (byte)(((1f - (float)amount) * blue) + ((float)amount * 255)));
+
+        Assert.Equal(expected, (ours.Red, ours.Green, ours.Blue));
+        Assert.Equal(0.5, ours.Alpha);
+    }
+
     /// <summary>
     /// The chain the sample's accentColorOff is: desaturated, shadowed, then given an alpha.
     /// </summary>

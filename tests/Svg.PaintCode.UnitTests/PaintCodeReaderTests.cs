@@ -101,6 +101,22 @@ public class PaintCodeReaderTests
         Assert.False(color.IsApproximate);
     }
 
+    /// <summary>
+    /// A highlight blends towards white and an alias is its parent, both exact: before, either fell
+    /// to the parent's colour marked approximate, so SampleStyleKit's light buttons drew its base.
+    /// </summary>
+    [Theory]
+    [InlineData("purpleLight", 175, 127, 228)]
+    [InlineData("purpleAlias", 95, 0, 201)]
+    public void A_Highlight_And_An_Alias_Are_Worked_Out_As_PaintCode_Works_Them_Out(string name, int red, int green, int blue)
+    {
+        var color = PaintCodeDocument.Parse(SampleDocument.Bytes()).Colors.Single(one => one.Name == name).Value;
+
+        Assert.Equal((red, green, blue), ((int)color.Red, (int)color.Green, (int)color.Blue));
+        Assert.Equal(1d, color.Alpha);
+        Assert.False(color.IsApproximate);
+    }
+
     [Fact]
     public void An_Input_Variable_Carries_Its_Value_And_A_Derived_One_Its_Expression()
     {

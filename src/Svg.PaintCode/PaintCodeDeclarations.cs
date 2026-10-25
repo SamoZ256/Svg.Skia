@@ -760,13 +760,13 @@ internal sealed class PaintCodeDeclarations
     /// The derived colour written as what it is derived by, or null where nothing can say it.
     /// </summary>
     /// <remarks>
-    /// All three of PaintCode's operations have a name in the expression language now, so a whole
+    /// Every operation PaintCode has a name for in the expression language follows here, so a whole
     /// chain of them follows the colour a caller passes: accentColorOff is accentColorOn
     /// desaturated, shadowed and given an alpha, and each step is one declaration reading the one
     /// below it. Worked out at import before this, it followed the canvas instead -- so a symbol
     /// handed another accent drew the shade the document was saved with.
     ///
-    /// A shade is a blend towards black that leaves the alpha alone, and mix moves all four
+    /// A shade or a highlight is a blend towards black or white that leaves the alpha alone, and mix moves all four
     /// channels -- so it is only the same thing where the colour is opaque. A translucent one keeps
     /// the shade the reader worked out, since mix would make it more opaque as well as darker.
     /// </remarks>
@@ -774,6 +774,8 @@ internal sealed class PaintCodeDeclarations
     {
         PaintCodeReader.OperationAlpha when color.Alpha is { } alpha => $"withAlpha({parent}, {Number(alpha)})",
         PaintCodeReader.OperationShadow when color.Value.Alpha >= 1 => $"mix({parent}, #000000ff, {Number(color.Amount)})",
+        PaintCodeReader.OperationHighlight when color.Value.Alpha >= 1 => $"mix({parent}, #ffffffff, {Number(color.Amount)})",
+        PaintCodeReader.OperationAlias => parent,
 
         // A percentage, as PaintCode stores it, against a fraction as the language takes it.
         PaintCodeReader.OperationSaturation => $"withSaturation({parent}, {Number(color.Amount / 100)})",

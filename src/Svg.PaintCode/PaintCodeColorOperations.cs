@@ -30,6 +30,21 @@ internal static class PaintCodeColorOperations
             colour.Alpha,
             colour.IsApproximate);
 
+    /// <summary>Blends towards white, the same way <see cref="Shadow"/> blends towards black.</summary>
+    /// <remarks>In single precision, as <c>colorByBlendingColors</c> is, so a channel truncates where PaintCode's does.</remarks>
+    internal static PaintCodeColor Highlight(PaintCodeColor colour, double amount)
+    {
+        var ratio = (float)amount;
+
+        return new(
+            colour.Name,
+            (byte)(((1f - ratio) * colour.Red) + (ratio * 255)),
+            (byte)(((1f - ratio) * colour.Green) + (ratio * 255)),
+            (byte)(((1f - ratio) * colour.Blue) + (ratio * 255)),
+            colour.Alpha,
+            colour.IsApproximate);
+    }
+
     /// <summary>The same hue and brightness at a different saturation.</summary>
     /// <remarks>
     /// Saturation is a percentage, not a fraction: the sample asks for 0.2 and means two tenths of

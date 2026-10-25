@@ -104,6 +104,8 @@ public class PaintCodeImportTests
     [InlineData("purpleFade", "withAlpha(colorPurple, 0.7)")]
     [InlineData("purpleGrey", "withSaturation(colorPurple, 0.002)")]
     [InlineData("purpleShade", "mix(colorPurple, #000000ff, 0.2)")]
+    [InlineData("purpleLight", "mix(colorPurple, #ffffffff, 0.5)")]
+    [InlineData("purpleAlias", "colorPurple")]
     public void A_Derived_Colour_Is_Written_As_What_Derives_It(string name, string body)
     {
         var declaration = PaintCodeDeclarations

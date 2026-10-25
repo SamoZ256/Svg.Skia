@@ -41,10 +41,13 @@ internal static class PaintCodeReader
     // PPColor.operation, for a colour derived from another. Read off PaintCode's own generated code,
     // which writes the chain out: accentColorGray is colorByChangingSaturation(accentColorOn, 0.2),
     // accentColorGrayShadow is colorByApplyingShadow of that, and accentColorOff an alpha over it.
-    // Those three are the only operations the sample's 29 derived colours use.
+    // Those three are the only operations the sample's 29 derived colours use; SampleStyleKit adds
+    // highlight, colorByApplyingHighlight, and 6, which its code writes as the parent itself.
+    internal const int OperationHighlight = 0;
     internal const int OperationShadow = 1;
     internal const int OperationAlpha = 2;
     internal const int OperationSaturation = 3;
+    internal const int OperationAlias = 6;
 
     internal static PaintCodeDocument Load(string path)
     {
@@ -362,7 +365,9 @@ internal static class PaintCodeReader
         return operation switch
         {
             OperationAlpha => new PaintCodeColor(name, parent.Red, parent.Green, parent.Blue, amount, parent.IsApproximate),
+            OperationHighlight => Named(PaintCodeColorOperations.Highlight(parent, amount), name),
             OperationShadow => Named(PaintCodeColorOperations.Shadow(parent, amount), name),
+            OperationAlias => Named(parent, name),
             OperationSaturation => Named(PaintCodeColorOperations.Saturation(parent, amount), name),
 
             // Anything else keeps the parent's own colour and says so, rather than guessing at a
