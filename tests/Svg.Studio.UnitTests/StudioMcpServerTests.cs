@@ -112,7 +112,8 @@ public class StudioMcpServerTests : IDisposable
 
         // Plain text, not the JSON of a string: a quoted reply with its newlines spelled out is what every call came back as.
         Assert.False(context.StartsWith("\"", StringComparison.Ordinal), context);
-        Assert.DoesNotContain("\\n", context, StringComparison.Ordinal);
+        // Its folder taken out: on Windows one whose random name starts with n spells \n in the path.
+        Assert.DoesNotContain("\\n", context.Replace(_directory, string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
         var contents = Text(await client.CallToolAsync("read_doc", new Dictionary<string, object?> { ["id"] = "" }));
 
         Assert.Contains("In front: the drawing", context, StringComparison.Ordinal);
@@ -234,9 +235,13 @@ public class StudioMcpServerTests : IDisposable
     }
 
     /// <summary>Lets the window's own start, which runs from its Opened handler, finish.</summary>
+    /// <remarks>
+    /// As many rounds as <see cref="Gestures.Until"/> gives, which a cold Kestrel on a loaded runner
+    /// needs; its own rather than that one for the status it names when it gives up.
+    /// </remarks>
     private static async Task Until(Func<bool> done)
     {
-        for (var tries = 0; !done() && tries < 200; tries++)
+        for (var tries = 0; !done() && tries < 1000; tries++)
         {
             Dispatcher.UIThread.RunJobs();
             await Task.Delay(10);

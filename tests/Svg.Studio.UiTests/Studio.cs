@@ -25,7 +25,8 @@ internal sealed class Studio : IDisposable
 {
     private const string BundleId = "com.svgskia.studio";
 
-    private static readonly string? App = Environment.GetEnvironmentVariable("SVG_STUDIO_UI_APP");
+    /// <summary>The bundle under test, which Appium launches by its path.</summary>
+    internal static readonly string? App = Environment.GetEnvironmentVariable("SVG_STUDIO_UI_APP");
 
     private Studio(string data, string[] arguments)
     {
@@ -108,6 +109,10 @@ internal sealed class Studio : IDisposable
 
     public void Click(string name) => Click(Find(name));
 
+    /// <summary>An element once it takes a click, for a panel's OK that stays grey until what it acts on is picked.</summary>
+    public IWebElement Enabled(string name)
+        => Until(() => Driver.FindElements(MobileBy.AccessibilityId(name)).FirstOrDefault(e => e.Displayed && e.Enabled), $"'{name}' enabled");
+
     /// <summary>Clicks with the real pointer, so only once Studio is the app in front.</summary>
     public void Click(IWebElement element)
     {
@@ -161,9 +166,12 @@ internal sealed class Studio : IDisposable
     {
         Click(Until(() => Driver.FindElements(Chain($"**/XCUIElementTypeMenuBarItem[`title == '{menu}'`]")).FirstOrDefault(), $"the menu '{menu}'"));
 
-        var items = Driver.FindElements(Chain($"**/XCUIElementTypeMenuBarItem[`title == '{menu}'`]/**/XCUIElementTypeMenuItem"))
-            .Select(e => e.GetAttribute("title"))
-            .ToList();
+        // Asked until there are some: the menu's items reach the accessibility tree a moment after it opens.
+        var items = Until(
+            () => Driver.FindElements(Chain($"**/XCUIElementTypeMenuBarItem[`title == '{menu}'`]/**/XCUIElementTypeMenuItem"))
+                .Select(e => e.GetAttribute("title"))
+                .ToList() is { Count: > 0 } found ? found : null,
+            $"the items of '{menu}'");
 
         Press(Keys.Escape);
 
