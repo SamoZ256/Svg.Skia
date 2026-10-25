@@ -1,7 +1,7 @@
 ---
 description: After a branch is merged upstream, move this desk onto the target, bring it up to date, and delete the merged branch
 argument-hint: [target-branch]
-allowed-tools: Bash(git status:*), Bash(git branch:*), Bash(git checkout:*), Bash(git switch:*), Bash(git fetch:*), Bash(git log:*), Bash(git rev-list:*), Bash(git rev-parse:*)
+allowed-tools: Bash(git status:*), Bash(git branch:*), Bash(git checkout:*), Bash(git switch:*), Bash(git fetch:*), Bash(git merge:*), Bash(git worktree:*), Bash(git log:*), Bash(git rev-list:*), Bash(git rev-parse:*)
 ---
 
 The branch I am on has been merged into `$1` somewhere else (a pull request, usually). Bring
@@ -12,16 +12,22 @@ Target branch: **$1**
 Do this in order, stopping at the first thing that looks wrong:
 
 1. **Record the current branch.** That is the one to delete at the end. If it is already `$1`,
-   there is nothing to delete: detach as step 3 says, then report and stop.
+   there is nothing to delete: move as step 3 says, then report and stop.
 
 2. **Refuse to proceed on a dirty tree.** If `git status --short` is not empty, stop and show me
    what is uncommitted. Do not stash, do not commit, do not switch. Switching branches with
    uncommitted work either fails or carries the changes across, and neither is what I want here.
 
 3. **Fetch, and move onto `$1`.** `git fetch origin --prune`, saying which remote branches went.
-   Then `git switch --detach origin/$1`, even when `$1` is not checked out anywhere: a desk rests
-   on the remote's target rather than on a local branch, which git refuses to hold in two desks at
-   once (see `/desk`).
+   Then:
+
+   - **`$1` is `master`:** `git switch --detach origin/master`. A desk rests detached there, since
+     no desk holds `master` (see `/desk`).
+   - **Any other `$1`:** `git switch $1`, which makes it from `origin/$1` if there is no local one,
+     then `git merge --ff-only origin/$1`. The next piece of work usually goes on that branch. A
+     fast-forward that fails means the local `$1` has commits the remote lacks: stop and say so.
+     If git refuses because another desk has `$1` checked out, leave that desk alone: detach at
+     `origin/$1` instead, and say which desk holds it (`git worktree list`).
 
    Report the commit it moved to, and whether that was a fast-forward.
 
