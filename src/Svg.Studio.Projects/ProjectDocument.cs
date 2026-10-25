@@ -70,7 +70,12 @@ public abstract class ProjectNode
     /// </remarks>
     internal string? Segment { get; set; }
 
-    /// <summary>When this node was made, which is what orders two rows nothing else tells apart.</summary>
+    /// <summary>When this node was made, which is what orders two rows of one name.</summary>
+    /// <remarks>
+    /// Rows read from a folder are made in the order of their files, so this orders them as their file
+    /// names do. A new or renamed row is given its file name only as the project is written, so ordered
+    /// by that, it moved past its namesake on its own when the autosave wrote it.
+    /// </remarks>
     internal long Sequence { get; }
 
     /// <summary>What this is called: the row in the tree, the tab, and the class it falls back on.</summary>
@@ -182,9 +187,10 @@ public abstract class ProjectNode
     public ProjectNode? OwnerOf(string setting) => setting switch
     {
         "width" or "height" or "scale" => SizeOwner(true),
-        // Where a thing sits is its own. A group's place is on its parent's board, in its parent's
-        // coordinates, so offered as a drawing's inherited x it would be a number about somewhere else.
-        "x" or "y" => null,
+        // A name, and where a thing sits, are its own. A group's place is on its parent's board, in
+        // its parent's coordinates, so offered as a drawing's inherited x it would be a number about
+        // somewhere else.
+        "name" or "x" or "y" => null,
         _ => Ancestry(true).FirstOrDefault(node => node.Setting(setting) is { })
     };
 
@@ -332,11 +338,6 @@ public class ProjectGroup : ProjectNode
     private static int Order(ProjectNode left, ProjectNode right)
     {
         var by = NaturalOrder.Instance.Compare(left.Name, right.Name);
-
-        if (by == 0)
-        {
-            by = string.CompareOrdinal(left.Segment, right.Segment);
-        }
 
         return by != 0 ? by : left.Sequence.CompareTo(right.Sequence);
     }
@@ -958,7 +959,9 @@ public sealed class ProjectDrawing : ProjectNode
         set => Element.SetAttributeValue("source", Trimmed(value));
     }
 
-    internal string? Inline(string svgText)
+    /// <summary>The text read as a drawing, or null with why it cannot be one.</summary>
+    /// <remarks>Asked before a step is recorded as well as here: refused inside one, it left a step that took nothing back.</remarks>
+    internal static SvgSourceDocument? Read(string svgText, out string? refusal)
     {
         if (svgText is null)
         {
@@ -967,17 +970,26 @@ public sealed class ProjectDrawing : ProjectNode
 
         // The file's own ending is put back when it is written, so text pasted from a machine that
         // ends its lines differently cannot decide it.
-        var read = SvgSourceDocument.Read(svgText.Replace("\r\n", "\n"), out var refusal);
+        var read = SvgSourceDocument.Read(svgText.Replace("\r\n", "\n"), out refusal);
 
-        if (read is null)
+        if (read is { Document.Root: not { Name.LocalName: "svg" } })
+        {
+            refusal = "A drawing has to be an <svg> document.";
+
+            return null;
+        }
+
+        return read;
+    }
+
+    internal string? Inline(string svgText)
+    {
+        if (Read(svgText, out var refusal) is not { } read)
         {
             return refusal;
         }
 
-        if (read.Document.Root is not { } root || root.Name.LocalName != "svg")
-        {
-            return "A drawing has to be an <svg> document.";
-        }
+        var root = read.Document.Root!;
 
         Lift(root);
 
@@ -1263,7 +1275,12 @@ public sealed class ProjectDocument
     private static readonly string[] s_drawingAttributes = s_nodeAttributes.Concat(new[] { "source", "method", "parameters" }).ToArray();
 
     /// <summary>What the folder held as last read or written, so a save writes only what changed.</summary>
-    private Dictionary<string, string>? _disk;
+    /// <remarks>Set for a copy recovered over the folder, which stands in for what was read from it.</remarks>
+    internal Dictionary<string, string>? Disk { get; set; }
+
+    /// <summary>The settings <paramref name="node"/> can carry, which are what the reader takes back but where a drawing was imported from.</summary>
+    internal static IReadOnlyList<string> Settings(ProjectNode node)
+        => node is ProjectRoot ? s_settings : node is ProjectDrawing ? s_drawingAttributes.Where(name => name != "source").ToArray() : s_nodeAttributes;
 
     private ProjectDocument(SvgSourceDocument manifest, string? path)
     {
@@ -1276,9 +1293,23 @@ public sealed class ProjectDocument
     /// <summary>The folder this project is, or null while it is not one yet.</summary>
     /// <remarks>
     /// Null is the ordinary state of a project nobody has saved: a conversion and a new project are
-    /// both made in the window and are not named until somebody is asked where to put them.
+    /// both made in the window and are not named until they are saved.
     /// </remarks>
     public string? Path { get; private set; }
+
+    /// <summary>Whether the folder holds something other than what was last read from it or written to it here, as after a pull in a terminal.</summary>
+    /// <remarks>Studio does not watch the disk; this is asked by what would otherwise write its copy over the change.</remarks>
+    public bool ChangedOnDisk()
+    {
+        try
+        {
+            return Path is { } path && Disk is { } disk && ProjectPackage.Exists(path) && !ProjectPackage.Same(ProjectPackage.Read(path), disk);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>The project at <paramref name="path"/>: its folder, or anything inside it.</summary>
     public static ProjectDocument Load(string path)
@@ -1289,7 +1320,7 @@ public sealed class ProjectDocument
         var files = ProjectPackage.Read(folder);
         var document = Read(files, folder);
 
-        document._disk = files;
+        document.Disk = files;
 
         return document;
     }
@@ -1378,11 +1409,13 @@ public sealed class ProjectDocument
     /// Where the build writes is not among what this carries: the project names no file, so the
     /// caller that asked for one lays it over these settings.
     /// </remarks>
-    public SvgcProject Flatten()
+    /// <param name="one">A drawing to build from its text as it stands, such as a tab's buffer; every drawing, each from its text in the project, where none is given.</param>
+    /// <param name="alone">Whether <paramref name="one"/> is built alone, or with every other drawing from its text in the project.</param>
+    public SvgcProject Flatten((ProjectDrawing Drawing, string Text)? one = null, bool alone = true)
     {
         var items = new List<SvgcProjectItem>();
 
-        foreach (var drawing in Root.Drawings)
+        foreach (var drawing in one is { } only && alone ? new[] { only.Drawing } : Root.Drawings)
         {
             var size = drawing.ScopedSizeOwner;
 
@@ -1401,7 +1434,7 @@ public sealed class ProjectDocument
                 // What it is built from rather than what it is: the groups above it declare into it
                 // on the way, and a build that read the drawing alone would generate a Draw with
                 // none of those parameters on it.
-                ProjectDeclarations.Built(drawing, drawing.Text))
+                ProjectDeclarations.Built(drawing, one is { } given && ReferenceEquals(given.Drawing, drawing) ? given.Text : drawing.Text))
             {
                 Method = drawing.Method,
                 Parameters = SvgcProject.ParseNames(drawing.Parameters)
@@ -1451,9 +1484,10 @@ public sealed class ProjectDocument
     }
 
     /// <summary>What an export would freeze at its default: text an expression drives. Empty for ordinary icons.</summary>
-    public IReadOnlyList<string> Survey()
+    /// <param name="front">A drawing to read from its text as it stands, such as a tab's buffer an export would take in.</param>
+    public IReadOnlyList<string> Survey((ProjectDrawing Drawing, string Text)? front = null)
     {
-        var project = Flatten();
+        var project = Flatten(front, alone: false);
 
         return SvgcProjectBuild.Survey(project, SvgcBuildSettings.For(project), Loader());
     }
@@ -1498,7 +1532,7 @@ public sealed class ProjectDocument
             throw new SvgcProjectException($"'{full}' is a folder that is not a project, so the project is not saved into it.");
         }
 
-        var disk = string.Equals(full, Path, StringComparison.Ordinal) && _disk is { } kept
+        var disk = string.Equals(full, Path, StringComparison.Ordinal) && Disk is { } kept
             ? kept
             : Directory.Exists(full)
                 ? ProjectPackage.Read(full)
@@ -1511,7 +1545,7 @@ public sealed class ProjectDocument
         finally
         {
             // How far it got, even when it stopped: the next save then writes only what is left.
-            _disk = disk;
+            Disk = disk;
         }
 
         Path = full;

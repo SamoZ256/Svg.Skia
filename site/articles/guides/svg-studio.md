@@ -167,8 +167,8 @@ is, and there it waits in the grid with the rest: one that is still a grid itsel
 row would be the first placed one and would push everything nobody touched out to the right of it,
 and one with a group between them that names no place of its own.
 
-A drag writes the project as it is made, like every other arrangement edit, and like those it cannot be
-undone.
+A drag writes the project as it is made, and like every other arrangement edit it is one step on the
+project's history, *move …* in the Edit menu, so ⌘Z takes it back.
 
 **Captions** writes each drawing's name inside its own top corner, where a group's name sits in its
 frame, and a board comes up with them. The name is shrunk until it fits the drawing — across it and
@@ -212,12 +212,14 @@ project itself, held in the window, which is what every view of it reads.
   over what was typed in it and nothing else.
 - A drawing **open in a tab** is edited through that tab's buffer, so the edit can be taken back
   with ⌘Z.
-- A drawing **open in no tab** — one edited from a group's canvas — goes straight into the project.
-  There is no buffer to hold it, so there is nothing to undo; it is still unsaved, and the window
-  says so.
+- A drawing **open in no tab** — one edited from a group's canvas — goes straight into the project,
+  as a step on the project's history that ⌘Z takes back. It is still unsaved, and the window says
+  so.
 - **Arranging** — a row added, removed or dragged in the tree, a drawing dragged on a board — is the
   project's own edit. No tab wears a mark for it, because closing a tab would not lose it; the
   window title does, and closing the project asks about it by name.
+
+⌘Z takes back the front tab's own edits first, and the project's once that tab has none left.
 
 `File → Save` hands the selected tab's work to the project and writes the project — the files that
 changed, whatever was typed where. `File → Export…` asks for one `.cs` and writes the whole project
@@ -378,8 +380,51 @@ click on a `<use>` reshapes the shape it draws, which changes it everywhere it i
 ## Connecting Claude Code
 
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
-project and its drawings, lists every problem in them, sets attributes and text, reads and changes a
-group's declarations, adds, moves and renames nodes, and saves or commits.
+project, its drawings and each node's own and inherited settings, lists every problem in them, reads
+the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
+reads and changes a group's declarations, declares or renames one parameter or let with every use of
+it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
+Before a commit, `get_changes` tells it what has changed since the last one, as the Changes panel
+would, counting what the project holds unsaved but not edits still held in a tab; `git_history` lists
+the project's commits, and `get_drawing` and `render` take any of them as a revision to show a
+drawing as it was there. It lists the project's templates and how an import would rank them for a
+drawing, makes one from a drawing, and brings a drawing in through one when it names it. It can also
+see a drawing, which the panel cannot: `render` draws one as an image, at several sizes side by side
+and on light and dark, with parameter values of its own, or as a replacement or a new drawing would
+look before either is applied. With a Streamline key set in Settings, `streamline_search` shows it a
+sheet of Streamline's icons and `streamline_import` brings them in through the project's templates,
+both with your key and against your plan's quota.
+
+It works with files by their full paths: `save` writes a project that was never saved, or a drawing
+of no project's, to a path it names; `export` writes the project as one C# file, or with no project
+open the drawing in front as SVG or C#; `new_project` starts an empty one; `open_file` opens a drawing,
+a project from its folder or anything inside it, or an svgc project or PaintCode document to
+convert, and brings the project open already forward; and `reload` reads the open project again
+from its folder, or, while a drawing of no project's is in front, that drawing instead. Studio does
+not watch the disk, so after a file it has open is changed elsewhere — by another editor, or a
+`git pull` in a terminal — Claude Code is told to call
+`reload`. Until it does, `save` and `git_commit` refuse to write the project once its files are not
+what Studio last read or wrote, and `get_changes` says so first, rather than take Studio's copy for
+edits and write it back over the change. Where Studio would stop to ask you something, a tool never opens a
+dialog. Removing a node whose tab holds edits you have not saved, starting or opening a project, or
+reloading, over unsaved work, asks you in Claude Code whether to throw that work away, and exporting
+text the C# cannot write out asks whether to bake it or relax it, this once or from now on; each goes
+on as you answer, and does nothing where what it asked about changed before you answered. Where the
+client cannot ask, the first are refused, saying why, and the choice stays yours in Studio, as it
+does over a recovery copy waiting to be restored. Otherwise a tool goes on as you chose before and
+says what it did: a PaintCode document is converted on the terms you last picked, and text an export
+cannot ask about is baked unless you chose to relax it for good. A project part way through a merge
+still opens if its files read, and Studio offers you the merge when you next come back to it; one
+with a file holding the conflict is refused.
+
+You can hand Claude Code a drawing yourself, as a resource: `@svg-studio:svg-studio://front.png`
+attaches the drawing in front as an image, `front.svg` its source and `front.cs` its C#, and
+`svg-studio://drawing/1/0.svg` the drawing at that path in the project, which is a position among rows
+sorted by name, so an add, a rename or a move beside it renumbers it; each section of this
+documentation is there too. Three prompts start a common job: `/mcp__svg-studio__new_drawing`
+draws one on its group's grid and tries it at small sizes before adding it,
+`/mcp__svg-studio__review_drawing` says what is wrong with one and changes nothing, and
+`/mcp__svg-studio__add_parameter` turns a value into a parameter whose default keeps the look.
 
 1. In **Settings**, on the **Accounts** tab, turn on **Let Claude Code connect to this Studio**. Studio then listens on
    `127.0.0.1` only, on port 7337 unless you choose another.
@@ -389,8 +434,22 @@ group's declarations, adds, moves and renames nodes, and saves or commits.
 3. In Claude Code, `/mcp` lists `svg-studio` as connected while Studio is open.
 
 Each edit Claude Code makes is one step on the same history as yours, named in the Edit menu as
-*Undo Claude Code: …*, so ⌘Z takes it back. Saving, removing a node and committing are marked as
-destructive, so Claude Code asks you before it does them; Studio does not ask again.
+*Undo Claude Code: …*, so ⌘Z takes it back. Its `undo` tool takes back only its own steps, newest
+first, and names each one. While an edit of yours sits on top of its step it takes nothing back, and
+names your edit instead; only once it has none of its own left does it take back your last, and says
+so. If you have taken back each of its steps yourself already, the first `undo` after takes nothing
+back and says so, and the next is the one that reaches yours. Its `redo` puts back what its undo
+took, the same way: while a step you took back since is in front of one, it puts nothing back and
+names yours; once it makes a new edit, or has nothing of its undo's left, it puts back what **Redo**
+in the Edit menu would, and if you have put back or built over all its undo took, the first `redo`
+after puts nothing back and says so. `get_history` tells it what each would do now, and names the
+steps of the drawing in front and of the project, newest first, up to fifty each way. Neither takes
+back or puts back a step that could close a tab holding edits you have not saved, which Studio would
+do without asking: one of its own that adds or removes what the tab is on, or, with none of its own
+left, any step of the project's. Nor does either step a drawing's text in the project under a tab you
+have since opened on it and typed in, whose next save would write over it. It names the tab instead.
+Saving, exporting, removing a node and committing are marked as destructive, so Claude Code asks you
+before it does them; Studio does not ask again.
 
 Only one Studio can hold a port. A second one open at the same time says in Settings that the port is
 taken; give it another and copy its command separately.

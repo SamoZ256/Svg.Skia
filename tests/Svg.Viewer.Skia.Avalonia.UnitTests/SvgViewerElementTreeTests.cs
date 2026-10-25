@@ -832,6 +832,52 @@ public class SvgViewerElementTreeTests
         Assert.Equal(was, viewer.Source);
     }
 
+    /// <remarks>
+    /// Over the top of the drawing's own row, which for any other row that holds children means
+    /// before it: the editor refuses anything beside the root, so the tree asks for inside.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Row_Dropped_On_The_Edge_Of_The_Drawing_Itself_Goes_Last_Inside_It()
+    {
+        var (window, viewer) = await Host();
+
+        // At the usual height the tree's region is a row or so tall, and the next region covers the rows below.
+        window.Height = 1400;
+        Dispatcher.UIThread.RunJobs();
+
+        var was = viewer.Source;
+        var labels = viewer.Elements.GetVisualDescendants().OfType<TextBlock>().ToList();
+        var root = labels.Single(label => label.Text == "svg" && label.DataContext is SvgViewerElementNode).FindAncestorOfType<TreeViewItem>()!;
+        var top = root.TranslatePoint(new Point(root.Bounds.Width / 2d, 1d), window)!.Value;
+
+        // The defs row, carried onto the top edge of the drawing's own.
+        Carry(window, SvgViewerElementTree.Carrying("0"), top);
+
+        Assert.Equal(new[] { "svg", "g #wrap", "rect", "text", "defs", "code", "param" }, Rows(viewer));
+        Assert.Equal("1", viewer.Elements.Root!.Children.Last().AddressKey);
+
+        Assert.True(viewer.Undo());
+        Assert.Equal(was, viewer.Source);
+        Assert.False(viewer.CanUndo);
+    }
+
+    /// <remarks>The editor refuses a group beside the root, which has no siblings, so the tree asks for inside.</remarks>
+    [AvaloniaFact]
+    public async Task A_New_Group_Picked_On_The_Drawing_Itself_Goes_Last_Inside_It()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(string.Empty));
+
+        var menu = viewer.Elements.GetVisualDescendants().OfType<TreeView>().Single().ContextMenu!;
+
+        menu.ItemsSource!.OfType<MenuItem>().Single(item => Equals(item.Header, "New group")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "svg", "defs", "code", "param", "g #wrap", "rect", "text", "g" }, Rows(viewer));
+        Assert.Equal("2", viewer.Elements.Root!.Children.Last().AddressKey);
+    }
+
     [AvaloniaFact]
     public async Task A_New_Group_Is_Written_Beside_The_Picked_Row()
     {

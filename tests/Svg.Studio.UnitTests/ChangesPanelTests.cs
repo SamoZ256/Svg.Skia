@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Microsoft.Extensions.AI;
+using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 using static Svg.Studio.UnitTests.ProjectGitTests;
 
@@ -301,6 +303,114 @@ public class ChangesPanelTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_Tool_Neither_Saves_Nor_Commits_Mid_Merge()
+    {
+        Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
+
+        var window = await Host();
+
+        // Where the panel does not see it, so only git asked now knows.
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+
+        var committing = await Call(window, "git_commit", new() { ["message"] = "Merge other" });
+
+        Assert.Contains("in conflict", committing, StringComparison.Ordinal);
+        Assert.DoesNotContain("<<<<<<<", Git(Work, "show", "HEAD:icons.svgstudio/home.svg"), StringComparison.Ordinal);
+        Assert.True(await window.Changes.Git!.InMerge());
+
+        // Unedited, so nothing would be written, and the window is still not what the file holds.
+        var saving = await Call(window, "save", new());
+
+        Assert.Contains("in conflict", saving, StringComparison.Ordinal);
+        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(Home), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_Context_Says_A_Merge_Part_Way_Through_Holds_Saving_And_Committing_Back()
+    {
+        Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
+
+        var window = await Host();
+        var before = await new AssistantTools(window).ContextAsync();
+
+        // Where the panel does not see it, as a client's call arrives while Studio is in the background.
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+
+        var during = await new AssistantTools(window).ContextAsync();
+
+        Assert.Contains("\nGit: main", before, StringComparison.Ordinal);
+        Assert.DoesNotContain("merge", before, StringComparison.Ordinal);
+        Assert.Contains("\nGit: main; the project is part way through a merge or a rebase, so save and git_commit refuse until it is finished or aborted.", during, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Commit_From_The_Panel_Announces_Why_It_Was_Not_Made()
+    {
+        Committed();
+
+        var window = await Host();
+
+        // Git's refusal, here of nothing to commit, and then the project's, of a drawing it will not take.
+        Assert.False(await window.Changes.Commit("Again"));
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+        Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<SvgViewer>().First().SetSource("<div/>");
+
+        Assert.False(await window.Changes.Commit("Broken"));
+        Assert.Equal(new[] { "The commit failed", "The drawing couldn't be saved" }, _announced);
+        Assert.Equal("1", Git(Work, "rev-list", "--count", "HEAD").Trim());
+
+        window.ConfirmDiscard = _ => Task.FromResult(true);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tool_Commit_Is_Refused_Without_A_Message_Or_While_Git_Is_Running()
+    {
+        Committed();
+
+        // Fetching for ever, until the time limit stops it: the # makes a comment of the arguments.
+        Git(Work, "config", "core.sshCommand", "sleep 60 #");
+        Git(Work, "remote", "add", "origin", "ssh://example.invalid/icons.git");
+        Git(Work, "config", "branch.main.remote", "origin");
+        Git(Work, "config", "branch.main.merge", "refs/heads/main");
+
+        var window = await Host();
+        var blank = await Call(window, "git_commit", new() { ["message"] = "  " });
+        var timeout = ProjectGit.RemoteTimeout;
+
+        ProjectGit.RemoteTimeout = TimeSpan.FromSeconds(2);
+
+        try
+        {
+            // Busy from the call itself, before anything is awaited.
+            var pulling = window.Changes.Pull();
+            var running = await Call(window, "git_commit", new() { ["message"] = "During the pull" });
+
+            Assert.Contains("still running", running, StringComparison.Ordinal);
+            Assert.Empty(_announced);
+
+            await pulling;
+        }
+        finally
+        {
+            ProjectGit.RemoteTimeout = timeout;
+        }
+
+        Assert.Contains("needs a message", blank, StringComparison.Ordinal);
+        Assert.Equal("1", Git(Work, "rev-list", "--count", "HEAD").Trim());
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task A_File_Left_Conflicted_By_A_Rebase_Is_Left_To_Git()
     {
         Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
@@ -369,6 +479,102 @@ public class ChangesPanelTests : IDisposable
 
         Assert.Equal(1, asked);
         Assert.Contains("#0000ff", window.Workspace!.Document.Root.Drawings.Single().Text, StringComparison.Ordinal);
+        Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    /// <remarks>The merge window is a modal the client cannot answer, so the tool is told instead, and the window offers it to the person.</remarks>
+    [AvaloniaFact]
+    public async Task A_Tool_Opening_A_Project_Git_Stopped_A_Merge_In_Says_So_And_Opens_No_Merge_Window()
+    {
+        Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+
+        var window = Empty();
+        var asked = Asked(window);
+
+        var opened = await Call(window, "open_file", new() { ["path"] = File });
+
+        Assert.Equal(0, asked());
+        Assert.Equal("icons.svgstudio is part way through a merge or a rebase, and can't be opened until it is finished or aborted: open it in Studio, which offers to resolve a merge, or finish it with git.", opened);
+        Assert.Null(window.Workspace);
+        Assert.Contains("<<<<<<<", System.IO.File.ReadAllText(Home), StringComparison.Ordinal);
+        Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    /// <remarks>Git still says the file is conflicted once a clean copy is written over it and not yet added.</remarks>
+    [AvaloniaFact]
+    public async Task A_Project_A_Tool_Opens_Mid_Merge_Is_Said_To_Be_And_The_Merge_Is_Offered_When_The_Person_Comes_Back()
+    {
+        Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+        System.IO.File.WriteAllText(Home, TestPackage.From(Recoloured("#ff0000"))["home.svg"]);
+
+        var window = Empty();
+        var asked = Asked(window);
+
+        var opened = await Call(window, "open_file", new() { ["path"] = File });
+
+        Assert.Equal(0, asked());
+        Assert.Equal($"Opened the project icons.svgstudio at {File}; get_project lists it.\nicons.svgstudio is part way through a merge: resolve it from Studio's Changes panel, or with git; save and git_commit refuse until then.", opened);
+        Assert.Equal(File, window.Workspace!.Document.Path);
+
+        // As the window's return to the front refreshes.
+        await window.Changes.Refresh();
+
+        Assert.Equal(1, asked());
+        Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    /// <remarks>Before the file is read: what it holds is the conflict markers, which would be refused as a project that no longer reads.</remarks>
+    [AvaloniaFact]
+    public async Task Reload_Mid_Merge_Is_Refused_As_A_Merge_And_Keeps_The_Project_Open()
+    {
+        Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
+
+        var window = await Host();
+        var asked = Asked(window);
+        var workspace = window.Workspace;
+
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+
+        var reloaded = await Call(window, "reload", new());
+
+        Assert.Equal(0, asked());
+        Assert.Equal("The project is part way through a merge or a rebase; finish it, or abort it, then reload.", reloaded);
+        Assert.Same(workspace, window.Workspace);
+        Assert.Empty(_announced);
+
+        window.Close();
+    }
+
+    /// <remarks>Written over a file git still holds unmerged, the project is tracked there, and the refresh that finds the conflict offered the merge window.</remarks>
+    [AvaloniaFact]
+    public async Task A_Project_A_Tool_Saves_Over_A_File_Git_Stopped_A_Merge_In_Is_Said_To_Be_Mid_Merge_And_Opens_No_Merge_Window()
+    {
+        Diverged(Recoloured("#ff0000"), Recoloured("#0000ff"));
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+
+        var window = Empty();
+        var asked = Asked(window);
+
+        Assert.True(await window.NewProjectAsync());
+        Dispatcher.UIThread.RunJobs();
+
+        var saved = await Call(window, "save", new() { ["path"] = File });
+
+        Assert.Equal(0, asked());
+        Assert.Equal($"Saved as {File}, replacing the project there.\nicons.svgstudio is part way through a merge: resolve it from Studio's Changes panel, or with git; save and git_commit refuse until then.", saved);
+        Assert.Equal(File, window.Workspace!.Document.Path);
+
+        await window.Changes.Refresh();
+
+        Assert.Equal(1, asked());
         Assert.Empty(_announced);
 
         window.Close();
@@ -607,6 +813,31 @@ public class ChangesPanelTests : IDisposable
         process.WaitForExit();
 
         return output;
+    }
+
+    /// <summary>A tool called as a client calls it: no button is pressed, and Studio answers its own question yes.</summary>
+    private static async Task<string> Call(MainWindow window, string tool, AIFunctionArguments arguments)
+    {
+        var function = new AssistantTools(window) { Confirm = _ => Task.FromResult(true) }
+            .For(small: false, docs: false)
+            .OfType<AIFunction>()
+            .Single(one => one.Name == tool);
+
+        return (await function.InvokeAsync(arguments).AsTask().WaitAsync(TimeSpan.FromSeconds(30)))?.ToString() ?? string.Empty;
+    }
+
+    /// <summary>Counts the merge windows offered, each left as it is, as a person closing one unanswered would.</summary>
+    private static Func<int> Asked(MainWindow window)
+    {
+        var asked = 0;
+
+        window.ResolveConflicts = _ =>
+        {
+            asked++;
+            return Task.FromResult<bool?>(null);
+        };
+
+        return () => asked;
     }
 
     private MainWindow Empty()

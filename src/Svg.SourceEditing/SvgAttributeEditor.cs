@@ -59,9 +59,16 @@ public static class SvgAttributeEditor
             throw new ArgumentNullException(nameof(addressKey));
         }
 
-        if (Resolve(source.Document, addressKey) is not { } element)
+        return Resolve(source.Document, addressKey) is { } element ? ElementName(element) : null;
+    }
+
+    /// <summary>The name of <paramref name="element"/>, spelt as <see cref="ElementName(SvgSourceDocument, string)"/> spells it.</summary>
+    /// <remarks>For a walk holding each element already, which resolving every key again from the root made quadratic in its siblings.</remarks>
+    public static string ElementName(XElement element)
+    {
+        if (element is null)
         {
-            return null;
+            throw new ArgumentNullException(nameof(element));
         }
 
         if (element.Name.Namespace == SvgNamespace || element.Name.Namespace == XNamespace.None)
@@ -87,12 +94,22 @@ public static class SvgAttributeEditor
             throw new ArgumentNullException(nameof(addressKey));
         }
 
-        return Resolve(source.Document, addressKey) is not { } element
-            ? Array.Empty<SvgSourceAttribute>()
-            : element.Attributes()
-                .Where(attribute => !attribute.IsNamespaceDeclaration)
-                .Select(attribute => new SvgSourceAttribute(Spelling(attribute), attribute.Value))
-                .ToList();
+        return Resolve(source.Document, addressKey) is { } element ? Attributes(element) : Array.Empty<SvgSourceAttribute>();
+    }
+
+    /// <summary>The attributes of <paramref name="element"/>, spelt as <see cref="Attributes(SvgSourceDocument, string)"/> spells them.</summary>
+    /// <remarks>For a walk holding each element already, as <see cref="ElementName(XElement)"/> is.</remarks>
+    public static IReadOnlyList<SvgSourceAttribute> Attributes(XElement element)
+    {
+        if (element is null)
+        {
+            throw new ArgumentNullException(nameof(element));
+        }
+
+        return element.Attributes()
+            .Where(attribute => !attribute.IsNamespaceDeclaration)
+            .Select(attribute => new SvgSourceAttribute(Spelling(attribute), attribute.Value))
+            .ToList();
     }
 
     /// <summary>What one of an element's attributes says, as the file spells it.</summary>
@@ -173,7 +190,7 @@ public static class SvgAttributeEditor
 
         if (Resolve(source.Document, addressKey) is not { } element)
         {
-            return "That element is no longer in the drawing.";
+            return SvgElementEditor.Missing(addressKey);
         }
 
         if (Overridden(element, name) is { } overridden)
@@ -304,7 +321,7 @@ public static class SvgAttributeEditor
 
         if (Resolve(source.Document, addressKey) is not { } element)
         {
-            return "That element is no longer in the drawing.";
+            return SvgElementEditor.Missing(addressKey);
         }
 
         if (Carries(element) is { } why)

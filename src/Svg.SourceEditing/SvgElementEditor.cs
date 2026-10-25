@@ -33,6 +33,7 @@ public enum SvgElementDrop
 public static class SvgElementEditor
 {
     /// <inheritdoc cref="Move(string, string, string, SvgElementDrop)"/>
+    /// <param name="movedKey">The key the element is at once moved, or null where it was not.</param>
     /// <returns>The sentence refusing the move, or null where it was made.</returns>
     /// <remarks>
     /// The element itself moves, rather than the line of text carrying it, so what it holds travels
@@ -45,17 +46,24 @@ public static class SvgElementEditor
         SvgSourceDocument source,
         string addressKey,
         string targetKey,
-        SvgElementDrop where)
+        SvgElementDrop where,
+        out string? movedKey)
     {
         if (source is null)
         {
             throw new ArgumentNullException(nameof(source));
         }
 
-        if (SvgAttributeEditor.Resolve(source.Document, addressKey) is not { } moved ||
-            SvgAttributeEditor.Resolve(source.Document, targetKey) is not { } target)
+        movedKey = null;
+
+        if (SvgAttributeEditor.Resolve(source.Document, addressKey) is not { } moved)
         {
-            return "One of those is not in this drawing any more.";
+            return Missing(addressKey);
+        }
+
+        if (SvgAttributeEditor.Resolve(source.Document, targetKey) is not { } target)
+        {
+            return Missing(targetKey);
         }
 
         if (moved.Parent is null)
@@ -68,10 +76,9 @@ public static class SvgElementEditor
             return $"<{moved.Name.LocalName}> cannot be put inside itself.";
         }
 
-        // Beside the drawing itself means inside it: the root has no siblings.
-        if (target.Parent is null)
+        if (target.Parent is null && where != SvgElementDrop.Inside)
         {
-            where = SvgElementDrop.Inside;
+            return Rootless;
         }
 
         var into = where == SvgElementDrop.Inside ? target : target.Parent!;
@@ -95,6 +102,8 @@ public static class SvgElementEditor
         Cut(moved);
         Put(target, where, moved, now);
         Reindent(moved, was, now);
+
+        movedKey = SvgAttributeEditor.Key(moved);
 
         return null;
     }
@@ -124,12 +133,12 @@ public static class SvgElementEditor
 
         if (SvgAttributeEditor.Resolve(source.Document, targetKey) is not { } target)
         {
-            return "That is not in this drawing any more.";
+            return Missing(targetKey);
         }
 
-        if (target.Parent is null)
+        if (target.Parent is null && where != SvgElementDrop.Inside)
         {
-            where = SvgElementDrop.Inside;
+            return Rootless;
         }
 
         var into = where == SvgElementDrop.Inside ? target : target.Parent!;
@@ -659,7 +668,7 @@ public static class SvgElementEditor
         {
             if (SvgAttributeEditor.Resolve(source.Document, key) is not { } element)
             {
-                return "That is not in this drawing any more.";
+                return Missing(key);
             }
 
             if (element.Parent is null)
@@ -683,6 +692,15 @@ public static class SvgElementEditor
     }
 
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
+
+    /// <remarks>
+    /// Refused rather than read as inside, which a client asking for before the root was told only
+    /// by where it landed. The tree, whose top row is the root, asks for inside itself.
+    /// </remarks>
+    private const string Rootless = "Nothing can go beside the drawing itself, which has no siblings; put it inside instead.";
+
+    /// <summary>Why a key finds nothing, which is as true of one never there as of one since taken out.</summary>
+    internal static string Missing(string addressKey) => $"There is no element at {addressKey} in this drawing.";
 
     /// <summary>The whitespace an element is written after, or nothing where it shares its line.</summary>
     /// <remarks>
@@ -870,14 +888,32 @@ public static class SvgElementEditor
 
     /// <summary>Why <paramref name="parent"/> cannot hold <paramref name="placed"/>, or null where it can.</summary>
     /// <remarks>
-    /// A shape is not content these take: a gradient stops having stops, and a run of text stops
-    /// being one run. A clip path takes shapes, text and uses but no group, which clips with nothing.
+    /// A text's own spans are refused too: what is placed goes on a line of its own, and inside a
+    /// run of text that break reads as a space. SVG 1.1 gives a shape, an image, a use, a stop and
+    /// an animation only what describes or animates it, and an animateMotion its mpath besides; a
+    /// shape written into one is never drawn. A clip path takes shapes, text and uses but no group,
+    /// which clips with nothing.
     /// </remarks>
     private static string? Holds(XElement parent, XElement placed)
-        => parent.Name.LocalName is "linearGradient" or "radialGradient" or "filter" || IsText(parent) ||
-           parent.Name.LocalName == "clipPath" && !Clips(placed.Name.LocalName)
-            ? $"A <{parent.Name.LocalName}> cannot hold a <{placed.Name.LocalName}>."
-            : null;
+    {
+        var (into, name) = (parent.Name.LocalName, placed.Name.LocalName);
+        var any = name is "desc" or "title" or "metadata" or "set" || name.StartsWith("animate", StringComparison.Ordinal);
+        var takes = into switch
+        {
+            "linearGradient" or "radialGradient" => any || name is "stop",
+            "filter" => any || name.StartsWith("fe", StringComparison.Ordinal),
+            "clipPath" => any || Clips(name),
+            "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "path" or "image" or "use" or "stop" or "set" or "mpath" => any,
+            "animateMotion" => any || name is "mpath",
+            _ when into.StartsWith("animate", StringComparison.Ordinal) => any,
+            _ => !IsText(parent)
+        };
+
+        return takes ? null
+            : IsText(parent) && IsText(placed)
+                ? $"What a <{into}> holds is one run of text, and a <{name}> would be written into it on a line of its own, which reads as a space; write the whole <text> instead."
+                : $"A <{into}> cannot hold a <{name}>.";
+    }
 
     private static bool IsText(XElement element) => element.Name.LocalName is "text" or "tspan" or "textPath";
 

@@ -261,12 +261,14 @@ public sealed class TemplateLibrary
     /// with the declarations their templates need and the target does not inherit, as one undo step.
     /// </summary>
     /// <param name="notes">A drawing that was left out and why, or a name two templates declare differently.</param>
+    /// <param name="label">What the step is called in place of "add" and the name, for a caller that says who made it.</param>
     /// <returns>The drawings added, in order; none where the declarations could not be written.</returns>
     public static IReadOnlyList<ProjectDrawing> Import(
         ProjectWorkspace workspace,
         ProjectGroup target,
         IReadOnlyList<TemplateImport> imports,
-        ICollection<string> notes)
+        ICollection<string> notes,
+        string? label = null)
     {
         if (workspace is null)
         {
@@ -282,7 +284,7 @@ public sealed class TemplateLibrary
         var added = new List<ProjectDrawing>();
 
         workspace.Do(
-            prepared.Texts.Count == 1 ? $"add {prepared.Texts[0].Import.Name}" : $"add {prepared.Texts.Count} drawings",
+            label ?? (prepared.Texts.Count == 1 ? $"add {prepared.Texts[0].Import.Name}" : $"add {prepared.Texts.Count} drawings"),
             () => ProjectSnapshot.All(ProjectSnapshot.Code(target), ProjectSnapshot.Contents(target)),
             () =>
             {
@@ -346,8 +348,8 @@ public sealed class TemplateLibrary
                 : ProjectSnapshot.Text(drawing),
             () =>
             {
-                // The text first: it can be refused where the block, checked in Prepared, cannot, and
-                // a refusal before anything is written leaves no half of the update behind.
+                // Both were checked in Prepared; the text still goes first, so a refusal before anything
+                // is written leaves no half of the update behind.
                 // Indented as AddDrawing indents, since the text arrives written for a file of its own.
                 refusal = drawing.SetText(text);
 
@@ -370,12 +372,13 @@ public sealed class TemplateLibrary
     /// after the last where the index is their count, or takes that one out where the text is null,
     /// as one undo step.
     /// </summary>
+    /// <param name="label">What the step is called in place of what it does, for a caller that says who made it.</param>
     /// <returns>Why it could not, or null.</returns>
     /// <remarks>
     /// A template that does not parse as a recipe is still kept, and listed with its error, as one
     /// written into the file by hand would be; only what the block cannot hold is refused.
     /// </remarks>
-    public static string? Put(ProjectWorkspace workspace, int index, string? templateText)
+    public static string? Put(ProjectWorkspace workspace, int index, string? templateText, string? label = null)
     {
         if (workspace is null)
         {
@@ -387,7 +390,7 @@ public sealed class TemplateLibrary
         var holder = block.Document.Root!;
         var templates = holder.Elements().ToList();
         var was = index < templates.Count ? Named(templates[index]) : null;
-        string label;
+        string step;
 
         if (templateText is null)
         {
@@ -397,7 +400,7 @@ public sealed class TemplateLibrary
             }
 
             templates[index].Remove();
-            label = $"remove template {was}";
+            step = $"remove template {was}";
         }
         else
         {
@@ -432,7 +435,7 @@ public sealed class TemplateLibrary
             if (index < templates.Count)
             {
                 templates[index].ReplaceWith(template);
-                label = was == name ? $"edit template {name}" : $"rename template {was} to {name}";
+                step = was == name ? $"edit template {name}" : $"rename template {was} to {name}";
             }
             else
             {
@@ -454,7 +457,7 @@ public sealed class TemplateLibrary
                     holder.Add(new XText(indent), template, new XText("\n"));
                 }
 
-                label = $"add template {name}";
+                step = $"add template {name}";
             }
 
             // The block binds the prefix already, and a template read on its own carries it too.
@@ -477,7 +480,7 @@ public sealed class TemplateLibrary
 
         string? refusal = null;
 
-        workspace.Do(label, () => ProjectSnapshot.Templates(root), () => refusal = root.SetTemplates(text));
+        workspace.Do(label ?? step, () => ProjectSnapshot.Templates(root), () => refusal = root.SetTemplates(text));
 
         return refusal;
 
@@ -654,7 +657,7 @@ public sealed class TemplateLibrary
         {
             if (import.Recipe is not { } recipe)
             {
-                texts.Add((import, import.Text));
+                Keep(import, import.Text);
 
                 continue;
             }
@@ -665,7 +668,10 @@ public sealed class TemplateLibrary
                 // declarations: those go on the group, and a drawing redeclaring a name is refused.
                 var bare = recipe.Bind(Array.Empty<SvgRecipeSurveyValue>(), declared: recipe.Declarations.Select(Named)).Recipe ?? recipe;
 
-                texts.Add((import, SvgRecipeRewriter.Apply(Sized(import.Text, recipe), bare).Svg));
+                if (!Keep(import, SvgRecipeRewriter.Apply(Sized(import.Text, recipe), bare).Svg))
+                {
+                    continue;
+                }
             }
             catch (SvgRecipeException failure)
             {
@@ -700,6 +706,29 @@ public sealed class TemplateLibrary
         }
 
         return (code, texts);
+
+        // Refused here rather than by the drawing inside the step, which is then recorded with nothing in it.
+        bool Keep(TemplateImport import, string text)
+        {
+            // A file dropped as ".svg" is named nothing.
+            if (string.IsNullOrWhiteSpace(import.Name))
+            {
+                notes.Add("A drawing needs a name.");
+
+                return false;
+            }
+
+            if (ProjectDrawing.Read(text, out var refusal) is null)
+            {
+                notes.Add($"{import.Name}: {refusal}");
+
+                return false;
+            }
+
+            texts.Add((import, text));
+
+            return true;
+        }
 
         static string Named(XElement declaration) => ((string?)declaration.Attribute("name"))?.Trim() ?? string.Empty;
     }

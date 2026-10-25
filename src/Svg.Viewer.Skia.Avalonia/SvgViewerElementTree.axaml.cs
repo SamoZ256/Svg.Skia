@@ -174,7 +174,8 @@ public partial class SvgViewerElementTree : UserControl
     /// <summary>The rows' menu, showing whatever a host has wired and nothing where it wired nothing.</summary>
     private ContextMenu Menu()
     {
-        var group = Item("New group", () => NewGroupRequested is { } write && SelectedNode is { } row && write(row.AddressKey, SvgElementDrop.After));
+        // Last inside the drawing itself, which has nothing beside it.
+        var group = Item("New group", () => NewGroupRequested is { } write && SelectedNode is { } row && write(row.AddressKey, row.AddressKey.Length == 0 ? SvgElementDrop.Inside : SvgElementDrop.After));
         var clip = Item("New clip path", () => New("clip-path"));
         var mask = Item("New mask", () => New("mask"));
         var clipWith = Item(string.Empty, () => With("clip-path"));
@@ -479,7 +480,8 @@ public partial class SvgViewerElementTree : UserControl
 
         applied = applied is { } property && Takes(over, property) ? property : null;
 
-        var where = applied is { } && Shelter(row.Element) is { }
+        // The drawing itself has nothing beside it, so the whole of its row is inside.
+        var where = over.AddressKey.Length == 0 || applied is { } && Shelter(row.Element) is { }
             ? SvgElementDrop.Inside
             : Bands(e.GetPosition(item).Y, RowHeight(item), Holds(over) || applied is { });
 

@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Svg.Skia;
 
 namespace Svg.Studio;
@@ -34,6 +35,7 @@ public sealed class ProjectWorkspace
     {
         Document = document ?? throw new ArgumentNullException(nameof(document));
         Edits = edited ? 1 : 0;
+        _saved = edited ? -1 : 0;
         Suggested = suggested;
     }
 
@@ -50,9 +52,13 @@ public sealed class ProjectWorkspace
     /// <summary>How many of <see cref="_steps"/> have been done: the index of the next redo.</summary>
     private int _at;
 
+    /// <summary>What <see cref="_at"/> was when the file was last written, or -1 where no step leads back there.</summary>
+    private int _saved;
+
     private bool _applying;
 
-    private readonly record struct Gesture(string Label, Action Back, Action Again);
+    /// <summary>A class, so that <see cref="UndoStep"/> tells one step from another under the same label.</summary>
+    private sealed record Gesture(string Label, Action Back, Action Again);
 
     /// <summary>Raised when the document has changed, so every view of it can follow.</summary>
     public event EventHandler? Edited;
@@ -85,11 +91,11 @@ public sealed class ProjectWorkspace
 
     /// <summary>Whether the document holds work its file does not.</summary>
     /// <remarks>
-    /// A project edited back to what it was still counts as edited. Answering otherwise means
-    /// comparing the whole document against the bytes last written, on a file an import can size in
-    /// the tens of megabytes, to spare somebody a save they were about to make anyway.
+    /// Where the history stands against where it stood at the last write, so undoing back to a save
+    /// reads as saved. An edit by hand back to the same bytes is a step of its own and still reads
+    /// edited: comparing the document itself would cost a whole write per question.
     /// </remarks>
-    public bool IsEdited => Edits > 0;
+    public bool IsEdited => _at != _saved;
 
     /// <summary>Whether there is a gesture to take back.</summary>
     public bool CanUndo => _at > 0;
@@ -102,6 +108,24 @@ public sealed class ProjectWorkspace
 
     /// <inheritdoc cref="UndoLabel"/>
     public string? RedoLabel => CanRedo ? _steps[_at].Label : null;
+
+    /// <summary>What each undo would take back in turn, the next first.</summary>
+    public IReadOnlyList<string> UndoLabels => _steps.Take(_at).Reverse().Select(step => step.Label).ToList();
+
+    /// <summary>What each redo would put back in turn, the next first.</summary>
+    public IReadOnlyList<string> RedoLabels => _steps.Skip(_at).Select(step => step.Label).ToList();
+
+    /// <summary>The step <see cref="Undo"/> would take back, for whoever made it to know it again.</summary>
+    public object? UndoStep => CanUndo ? _steps[_at - 1] : null;
+
+    /// <summary>Whether <paramref name="step"/>, once an <see cref="UndoStep"/>, is still done: not taken back, built over, or trimmed away.</summary>
+    public bool Holds(object step) => _steps.FindIndex(0, _at, one => ReferenceEquals(one, step)) >= 0;
+
+    /// <summary>The step <see cref="Redo"/> would put back: the <see cref="UndoStep"/> it was.</summary>
+    public object? RedoStep => CanRedo ? _steps[_at] : null;
+
+    /// <summary>Whether <paramref name="step"/> is taken back and can still be put back: not since dropped by a newer edit.</summary>
+    public bool Undone(object step) => _steps.FindIndex(_at, _steps.Count - _at, one => ReferenceEquals(one, step)) >= 0;
 
     /// <summary>
     /// Runs one gesture against the document and keeps what it takes to put it back.
@@ -182,12 +206,18 @@ public sealed class ProjectWorkspace
 
         // Whatever was taken back and not put again is gone the moment something else is done,
         // which is what every text editor does with a redo tail.
+        if (_saved > _at)
+        {
+            _saved = -1;
+        }
+
         _steps.RemoveRange(_at, _steps.Count - _at);
         _steps.Add(new Gesture(label, undo, redo));
 
         if (_steps.Count > Depth)
         {
             _steps.RemoveAt(0);
+            _saved = _saved > 0 ? _saved - 1 : -1;
         }
 
         _at = _steps.Count;
@@ -279,6 +309,7 @@ public sealed class ProjectWorkspace
     private void Settle()
     {
         Edits = 0;
+        _saved = _at;
 
         Saved?.Invoke(this, EventArgs.Empty);
     }

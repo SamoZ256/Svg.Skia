@@ -252,6 +252,62 @@ public class SvgSourceWorkspaceTests
     }
 
     [Fact]
+    public void Every_Step_Is_Named_In_The_Order_Undo_And_Redo_Would_Take_Them()
+    {
+        var workspace = Open();
+
+        Assert.Empty(workspace.UndoLabels);
+        Assert.Empty(workspace.RedoLabels);
+
+        workspace.Commit("one", source => Fill(source, "red"));
+        workspace.Commit("two", source => Fill(source, "green"));
+        workspace.Commit("three", source => Fill(source, "blue"));
+
+        Assert.Equal(new[] { "three", "two", "one" }, workspace.UndoLabels);
+        Assert.Empty(workspace.RedoLabels);
+
+        workspace.Undo();
+        workspace.Undo();
+
+        Assert.Equal(new[] { "one" }, workspace.UndoLabels);
+        Assert.Equal(new[] { "two", "three" }, workspace.RedoLabels);
+    }
+
+    [Fact]
+    public void A_Step_Is_Known_Again_By_What_It_Handed_Out_Under_Any_Label()
+    {
+        var workspace = Open();
+
+        Assert.Null(workspace.UndoStep);
+
+        workspace.Commit("set fill", source => Fill(source, "red"));
+
+        var mine = workspace.UndoStep!;
+
+        workspace.Commit("set fill", source => Fill(source, "blue"));
+
+        Assert.True(workspace.Holds(mine));
+        Assert.NotSame(mine, workspace.UndoStep);
+
+        workspace.Undo();
+
+        Assert.Same(mine, workspace.UndoStep);
+
+        workspace.Undo();
+
+        Assert.False(workspace.Holds(mine));
+
+        workspace.Redo();
+
+        Assert.True(workspace.Holds(mine));
+
+        workspace.Undo();
+        workspace.Commit("set fill", source => Fill(source, "red"));
+
+        Assert.False(workspace.Holds(mine));
+    }
+
+    [Fact]
     public void The_Modified_Mark_Is_Raised_Only_When_It_Turns_Over()
     {
         var workspace = Open();

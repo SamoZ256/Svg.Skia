@@ -274,34 +274,46 @@ public static class SvgcProjectBuild
                 $"'{item.Input}' has no output, and the project names no singleFile to fold it into.");
         }
 
-        if (settings.Emit == SvgEmit.Svg)
+        log?.Invoke($"{(settings.Emit == SvgEmit.Svg ? "Converting" : "Generating")}: {output}");
+
+        if (Generate(item, settings, assetLoader, log) is { } text)
         {
-            log?.Invoke($"Converting: {output}");
-
-            // A recipe is a text transformation, so it has no business failing because the drawing
-            // uses a filter or a font the renderer cannot model. Read, rewrite, write.
-            File.WriteAllText(output, Recipe(Read(item), item.Recipe ?? settings.Recipe!, log));
-
-            return output;
-        }
-
-        log?.Invoke($"Generating: {output}");
-
-        if (Build(item, settings, assetLoader, log) is { } drawing)
-        {
-            // One file of one drawing, so what reaches the class is the same whichever way a project
-            // is built.
-            File.WriteAllText(
-                output,
-                SkiaCSharpCodeGen.GenerateFile(
-                    new[] { drawing },
-                    SvgHelperScope.PerClass,
-                    cache: settings.Cache,
-                    skiaSharp: settings.SkiaSharp,
-                    style: new SvgCodeStyle { Body = settings.Style.Body, Typeface = settings.Style.Typeface }));
+            File.WriteAllText(output, text);
         }
 
         return output;
+    }
+
+    /// <summary>What <see cref="Write"/> writes for one drawing: its C#, or the document a recipe made of it.</summary>
+    /// <returns>The text, or null where the drawing compiled to nothing and nothing is written.</returns>
+    public static string? Generate(
+        SvgcProjectItem item,
+        SvgcBuildSettings settings,
+        ISvgAssetLoader assetLoader,
+        Action<string>? log = null)
+    {
+        if (item is null)
+        {
+            throw new ArgumentNullException(nameof(item));
+        }
+
+        if (settings.Emit == SvgEmit.Svg)
+        {
+            // A recipe is a text transformation, so it has no business failing because the drawing
+            // uses a filter or a font the renderer cannot model. Read, rewrite, write.
+            return Recipe(Read(item), item.Recipe ?? settings.Recipe!, log);
+        }
+
+        // One file of one drawing, so what reaches the class is the same whichever way a project
+        // is built.
+        return Build(item, settings, assetLoader, log) is { } drawing
+            ? SkiaCSharpCodeGen.GenerateFile(
+                new[] { drawing },
+                SvgHelperScope.PerClass,
+                cache: settings.Cache,
+                skiaSharp: settings.SkiaSharp,
+                style: new SvgCodeStyle { Body = settings.Style.Body, Typeface = settings.Style.Typeface })
+            : null;
     }
 
     /// <summary>The drawing itself: the text an item carries, or the file it names.</summary>

@@ -38,7 +38,7 @@ public class StreamlinePanelTests : IDisposable
         "row(col(tree/1.4/tree/open,variables/1/variables/open)/300px,*/1,"
         + "col(project+elements/1/project/open,element/1/element/open)/300px)";
 
-    private const string Project = """
+    internal const string Project = """
         <?xml version="1.0" encoding="utf-8"?>
         <studio namespace="Demo.Icons">
           <e:templates xmlns:e="https://svg.skia/expr/1.0">
@@ -71,9 +71,9 @@ public class StreamlinePanelTests : IDisposable
 
         """;
 
-    private const string Glyph = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /></svg>""";
+    internal const string Glyph = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /></svg>""";
 
-    private const string Duo = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /><path d="M2 46h40v-40z" fill="#fb3e72" /></svg>""";
+    internal const string Duo = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M2 2h40v40z" fill="#000000" /><path d="M2 46h40v-40z" fill="#fb3e72" /></svg>""";
 
     /// <summary>A template for <see cref="Duo"/>, added to <see cref="Project"/> before its first recipe.</summary>
     private const string DuoRecipe = """
@@ -103,7 +103,7 @@ public class StreamlinePanelTests : IDisposable
     }
 
     /// <summary>Answers by path, and says what it was asked.</summary>
-    private sealed class Streamline : HttpMessageHandler
+    internal sealed class Streamline : HttpMessageHandler
     {
         private readonly List<string> _asked = new();
 
@@ -174,14 +174,14 @@ public class StreamlinePanelTests : IDisposable
             => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, type) };
     }
 
-    private static string Icon(string hash, string name, string family = "core-duo", bool free = true, string? colour = "#000000")
+    internal static string Icon(string hash, string name, string family = "core-duo", bool free = true, string? colour = "#000000")
         => $$"""
             { "hash": "{{hash}}", "name": "{{name}}", "imagePreviewUrl": "https://assets.streamlinehq.com/{{hash}}.png",
               "isFree": {{(free ? "true" : "false")}}, "hasPremiumAccess": false, "familySlug": "{{family}}", "familyName": "Core Duo"
               {{(colour is { } ? $", \"colors\": [\"{colour}\"]" : "")}} }
             """;
 
-    private static string Page(string list, IEnumerable<string> items, bool more, int next)
+    internal static string Page(string list, IEnumerable<string> items, bool more, int next)
         => $$"""{ "{{list}}": [{{string.Join(",", items)}}], "pagination": { "total": 3, "hasMore": {{(more ? "true" : "false")}}, "offset": 0, "nextOffset": {{next}} } }""";
 
     private async Task<MainWindow> Host(Streamline streamline, string? key = "sk_test", bool project = true, string text = Project)
@@ -1006,7 +1006,7 @@ public class StreamlinePanelTests : IDisposable
         => panel.GetLogicalDescendants().OfType<TextBox>().Single(box => box.PlaceholderText == "Search Streamline");
 
     /// <summary>Types <paramref name="query"/> and searches for it, as Enter does: Streamline refuses an empty one.</summary>
-    private static Task Search(StreamlinePanel panel, string query = "home")
+    internal static Task Search(StreamlinePanel panel, string query = "home")
     {
         Query(panel).Text = query;
 
@@ -1449,6 +1449,50 @@ public class StreamlinePanelTests : IDisposable
         await first;
     }
 
+    /// <remarks>
+    /// Closing the project ends the import going into it, which the person started and a tool has no say
+    /// over; so the person is not asked whether to throw away work for a close that will not happen,
+    /// and a reload is not refused for that work, as taking it back would not let the reload through.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData("new_project")]
+    [InlineData("reload")]
+    public async Task A_Tool_Closing_The_Project_Waits_For_A_Family_On_Its_Way_Into_It(string closing)
+    {
+        var streamline = Catalogue();
+        var held = new TaskCompletionSource();
+
+        streamline.Holding = request => request.RequestUri!.AbsolutePath == "/v1/family-groups" ? held.Task : Task.CompletedTask;
+
+        var window = await Host(streamline);
+        var workspace = window.Workspace!;
+        var asked = new List<AssistantTools.Question>();
+        var tools = new AssistantTools(window)
+        {
+            Ask = question =>
+            {
+                asked.Add(question);
+                return Task.FromResult<AssistantTools.Answer?>(new AssistantTools.Answer(question.Choices[0]));
+            }
+        };
+        var tool = tools.For(small: false, docs: false).OfType<Microsoft.Extensions.AI.AIFunction>().Single(function => function.Name == closing);
+
+        window.Streamline.ConfirmFamily = _ => Task.FromResult(false);
+        workspace.Edit();
+
+        var family = window.Streamline.ImportFamilyAsync(Parsed(Icon("ico_a", "a")));
+        var refused = (await tool.InvokeAsync(new Microsoft.Extensions.AI.AIFunctionArguments()))?.ToString();
+
+        Assert.Equal("Icons are on their way into the project from the Streamline panel; wait for them, or cancel the family import, then try again.", refused);
+        Assert.Empty(asked);
+        Assert.Same(workspace, window.Workspace);
+        Assert.True(workspace.IsEdited);
+        Assert.False(family.IsCompleted);
+
+        held.SetResult();
+        await family;
+    }
+
     private static StreamlineIcon Parsed(string json)
         => System.Text.Json.JsonSerializer.Deserialize<StreamlineIcon>(json, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
 
@@ -1809,7 +1853,7 @@ public class StreamlinePanelTests : IDisposable
         => MainWindowProjectTests.Row(window, label).TranslatePoint(new Point(12, 6), window)!.Value;
 
     /// <summary>Makes <paramref name="family"/>'s glyphs sure: their template is the one remembered for icons like them.</summary>
-    private static void Sure(string family)
+    internal static void Sure(string family)
         => TemplateLibrary.Remember(TemplateLibrary.Prepare(Glyph, family, null, "any", new[] { "#000000" }), "Accent glyph");
 
     private static Streamline Downloading(params string[] hashes)

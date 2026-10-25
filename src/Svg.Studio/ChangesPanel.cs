@@ -138,8 +138,9 @@ public sealed class ChangesPanel : UserControl
     /// <summary>Raised when <see cref="Changes"/> has been worked out again, and after every refresh of what git says.</summary>
     public event EventHandler? Compared;
 
-    /// <summary>Writes the project so what is committed is what the window shows; false is a refusal already said.</summary>
-    public Func<Task<bool>> Saving { get; set; } = () => Task.FromResult(true);
+    /// <summary>Writes the project so what is committed is what the window shows; false is a refusal already said, into the notes when given them.</summary>
+    /// <remarks>Given what the step taking in the front tab's edits is called, or null for the window's own name for it.</remarks>
+    public Func<List<string>?, string?, Task<bool>> Saving { get; set; } = (_, _) => Task.FromResult(true);
 
     /// <summary>Whether the window holds anything not on disk, which a pull would be written under.</summary>
     public Func<bool> Unsaved { get; set; } = () => false;
@@ -165,8 +166,9 @@ public sealed class ChangesPanel : UserControl
     public Func<ProjectMerge, Task<bool?>> ResolveConflicts { get; set; } = _ => Task.FromResult<bool?>(null);
 
     /// <summary>Points the panel at the project file <paramref name="path"/>, or at nothing.</summary>
+    /// <param name="notes">Where a merge to resolve is said, for a caller that cannot answer the merge window; see <see cref="Refresh"/>.</param>
     /// <returns>Whether there is anything to show: a saved project, and a git to ask about it.</returns>
-    public async Task<bool> Track(string? path)
+    public async Task<bool> Track(string? path, List<string>? notes = null)
     {
         var tracking = ++_tracking;
         var shown = path is { } && ProjectGit.Installed is { } && ProjectPackage.Exists(path) ? path : null;
@@ -184,13 +186,17 @@ public sealed class ChangesPanel : UserControl
         _head = null;
         _offered = false;
 
-        await Refresh().ConfigureAwait(true);
+        await Refresh(notes).ConfigureAwait(true);
 
         return _path is { };
     }
 
     /// <summary>Asks git again, for a save, a return to the window, or a command of its own.</summary>
-    public async Task Refresh()
+    /// <param name="notes">
+    /// Where a conflict is said instead of offering the merge window, which is then offered on the
+    /// window's next return, for a caller that cannot answer it.
+    /// </param>
+    public async Task Refresh(List<string>? notes = null)
     {
         if (_busy)
         {
@@ -252,10 +258,17 @@ public sealed class ChangesPanel : UserControl
         }
         else if (!_offered && _rebasing is null)
         {
-            // Once per conflict: closing the merge window hands focus back to the window, whose
-            // return refreshes, which would offer it again for ever.
-            _offered = true;
-            await Resolve(git, opening: false).ConfigureAwait(true);
+            if (notes is { })
+            {
+                notes.Add($"{git.Name} is part way through a merge: resolve it from Studio's Changes panel, or with git; save and git_commit refuse until then.");
+            }
+            else
+            {
+                // Once per conflict: closing the merge window hands focus back to the window, whose
+                // return refreshes, which would offer it again for ever.
+                _offered = true;
+                await Resolve(git, opening: false).ConfigureAwait(true);
+            }
         }
     }
 
@@ -330,19 +343,42 @@ public sealed class ChangesPanel : UserControl
     }
 
     /// <summary>Saves the project and commits it with <paramref name="message"/>.</summary>
-    public async Task Commit(string message)
+    /// <param name="notes">Where what went wrong goes, for a caller with nowhere to show a dialog; null announces it.</param>
+    /// <param name="label">What the save calls the step taking in the front tab's edits, as <see cref="Saving"/> takes it.</param>
+    /// <returns>Whether it was committed.</returns>
+    public async Task<bool> Commit(string message, List<string>? notes = null, string? label = null)
     {
-        if (_git is not { } git || string.IsNullOrWhiteSpace(message) || !await Saving().ConfigureAwait(true))
+        if (_git is not { } git)
         {
-            return;
+            return false;
         }
 
-        await Run("Committing…", "The commit failed", () => git.Commit(message.Trim())).ConfigureAwait(true);
+        // Here as well as on the button, which a tool does not press. Mid-merge the add would mark
+        // the conflict markers resolved and the commit conclude the merge with them.
+        var refusal = string.IsNullOrWhiteSpace(message) ? "A commit needs a message."
+            : _busy ? "Git is still running another command; try again when it has finished."
+            : await Conflicted().ConfigureAwait(true) ? $"{git.Name} is in conflict, part way through a merge or a rebase; finish it, or abort it, before committing."
+            : null;
+
+        if (refusal is { })
+        {
+            await Say(Announce, "Nothing was committed", refusal, notes).ConfigureAwait(true);
+            return false;
+        }
+
+        if (!await Saving(notes, label).ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        var committed = await Run("Committing…", "The commit failed", () => git.Commit(message.Trim()), notes).ConfigureAwait(true);
 
         if (_status is { State: ProjectGitState.Committed } && !_merging)
         {
             _message.Text = null;
         }
+
+        return committed;
     }
 
     public Task Pull() => Rewrite("pulling", "Pulling…", "The pull failed", async git =>
@@ -402,8 +438,9 @@ public sealed class ChangesPanel : UserControl
     public Task Resolve() => _git is { } git ? Resolve(git, opening: false) : Task.CompletedTask;
 
     /// <summary>Resolves the merge <paramref name="path"/> is stopped in, which is why it cannot be opened.</summary>
+    /// <param name="notes">Where the conflict is said instead of resolved, for a caller that cannot answer the merge window.</param>
     /// <returns>Whether the file was in a merge, and has been dealt with or said about.</returns>
-    public async Task<bool> Resolve(string path)
+    public async Task<bool> Resolve(string path, List<string>? notes = null)
     {
         if (await ProjectGit.For(ProjectPackage.Find(path) ?? path).ConfigureAwait(true) is not { } git)
         {
@@ -420,6 +457,14 @@ public sealed class ChangesPanel : UserControl
         catch (ProjectGitException)
         {
             return false;
+        }
+
+        if (notes is { })
+        {
+            notes.Add($"{git.Name} is part way through a merge or a rebase, and can't be opened until it is finished or aborted: "
+                      + "open it in Studio, which offers to resolve a merge, or finish it with git.");
+
+            return true;
         }
 
         await Resolve(git, opening: true).ConfigureAwait(true);
@@ -854,7 +899,8 @@ public sealed class ChangesPanel : UserControl
     private Task Remote(string doing, string failed, Func<ProjectGit, Task> command)
         => _git is { } git ? Run(doing, failed, () => command(git)) : Task.CompletedTask;
 
-    private async Task Run(string doing, string failed, Func<Task> command)
+    /// <returns>Whether the command succeeded; a failure is said under <paramref name="failed"/>.</returns>
+    private async Task<bool> Run(string doing, string failed, Func<Task> command, List<string>? notes = null)
     {
         _busy = true;
         _state.Text = doing;
@@ -875,12 +921,27 @@ public sealed class ChangesPanel : UserControl
             _busy = false;
         }
 
-        await Refresh().ConfigureAwait(true);
+        await Refresh(notes).ConfigureAwait(true);
 
         if (refusal is { })
         {
-            await Announce(failed, refusal.Message).ConfigureAwait(true);
+            await Say(Announce, failed, refusal.Message, notes).ConfigureAwait(true);
         }
+
+        return refusal is null;
+    }
+
+    /// <summary>Announces through <paramref name="announce"/>, or adds to <paramref name="notes"/> for a caller with nowhere to show a dialog.</summary>
+    internal static Task Say(Func<string, string, Task> announce, string title, string message, List<string>? notes)
+    {
+        if (notes is null)
+        {
+            return announce(title, message);
+        }
+
+        notes.Add($"{title}: {message}");
+
+        return Task.CompletedTask;
     }
 
     private static TextBlock Heading(string text) => new()

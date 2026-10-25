@@ -70,8 +70,8 @@ public static class SvgSourceElements
     /// path of child indices, so every element after it answers to a different address in the two.
     /// Mapping the file alone left every row of every drawing under a recipe finding nothing.
     ///
-    /// A rewrite only inserts: it does not remove, rename or reorder. So the two are walked
-    /// together and a built element with no counterpart in the file is passed over. Anything else
+    /// A rewrite only inserts, in front of what is there: it does not remove, rename or reorder. So
+    /// the two are walked together and a built element with no counterpart in the file is passed over. Anything else
     /// they disagree about gives the plain map back rather than a guess — a lookup that misses
     /// moves nothing, which is what this side is built to fail as.
     /// </remarks>
@@ -172,9 +172,11 @@ public static class SvgSourceElements
         var mine = source.Elements().ToList();
         var theirs = built.Elements().ToList();
 
-        var next = 0;
+        // From the end, because every rewrite puts its block in front of what was there. From the
+        // front, a group's block took the place of a drawing's own block of the same name.
+        var next = mine.Count - 1;
 
-        for (var index = 0; index < theirs.Count && next < mine.Count; index++)
+        for (var index = theirs.Count - 1; index >= 0 && next >= 0; index--)
         {
             // Not in the file, so it is what the rewrite put there — the declarations block, which
             // has no place to be shown and whose row rightly finds nothing.
@@ -196,12 +198,12 @@ public static class SvgSourceElements
                 return false;
             }
 
-            next++;
+            next--;
         }
 
         // Anything left over means they are not the same document with insertions, and every
         // address from here on would be a guess.
-        return next == mine.Count;
+        return next < 0;
     }
 
     /// <summary>One step down a path.</summary>

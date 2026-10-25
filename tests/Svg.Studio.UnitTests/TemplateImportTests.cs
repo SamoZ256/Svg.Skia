@@ -265,6 +265,25 @@ public class TemplateImportTests
     }
 
     [Fact]
+    public void A_Drawing_The_Project_Cannot_Hold_Is_A_Note_And_No_Step()
+    {
+        var (workspace, group) = Open("Scheme");
+        var bell = (ProjectDrawing)group.Children[0];
+        var before = TestPackage.Dump(workspace.Document);
+        var notes = new List<string>();
+
+        Assert.Empty(TemplateLibrary.Import(workspace, group, new[] { Bound(group, Accent, " ", "#000000") }, notes));
+        Assert.False(TemplateLibrary.Replace(workspace, bell, new TemplateImport("Bell", "<div/>"), notes));
+
+        Assert.Equal(2, notes.Count);
+        Assert.Contains("needs a name", notes[0], StringComparison.Ordinal);
+        Assert.Contains("<svg> document", notes[1], StringComparison.Ordinal);
+        Assert.Equal(before, TestPackage.Dump(workspace.Document));
+        Assert.False(workspace.CanUndo);
+        Assert.False(workspace.IsEdited);
+    }
+
+    [Fact]
     public void A_Name_Declared_Below_The_Target_Is_Refused_Rather_Than_Declared_Twice()
     {
         var (workspace, group) = Open("Outer");

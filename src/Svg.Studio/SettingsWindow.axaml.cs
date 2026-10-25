@@ -23,6 +23,8 @@ namespace Svg.Studio;
 /// </remarks>
 public partial class SettingsWindow : Window
 {
+    private bool _renewed;
+
     public SettingsWindow()
     {
         InitializeComponent();
@@ -183,13 +185,13 @@ public partial class SettingsWindow : Window
             if (McpCommand is { } command && Clipboard is { } clipboard)
             {
                 await clipboard.SetTextAsync(command).ConfigureAwait(true);
-                McpStatus.Text = "Copied. Run it in a terminal.";
+                McpStatus.Text = Live ? "Copied. Run it in a terminal." : "Copied. It works once Settings closes.";
             }
         };
 
         NewMcpToken.Click += (_, _) =>
         {
-            Tokened(() => StudioMcpServer.NewToken());
+            _renewed |= Tokened(() => StudioMcpServer.NewToken()) is { };
             Served();
         };
 
@@ -236,12 +238,15 @@ public partial class SettingsWindow : Window
         else if (token is { } || !on)
         {
             McpStatus.Text = on
-                ? StudioMcpServer.Status is { } status && status.Contains($":{StudioSettings.McpPort}.", StringComparison.Ordinal)
-                    ? status
+                ? Live
+                    ? StudioMcpServer.Status
                     : $"Served on 127.0.0.1:{StudioSettings.McpPort} once Settings closes."
                 : StudioMcpServer.Status ?? "Off.";
         }
     }
+
+    /// <summary>Whether the server running now takes the command shown, which a new port or token is not until Settings closes.</summary>
+    private bool Live => !_renewed && StudioMcpServer.Status?.Contains($":{StudioSettings.McpPort}.", StringComparison.Ordinal) == true;
 
     /// <summary>Asks the keychain for the token, putting its refusal in the status line.</summary>
     private string? Tokened(Func<string?> ask)

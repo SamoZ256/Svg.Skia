@@ -494,6 +494,15 @@ public class SvgRecipeTemplateTests
         Assert.False(SvgRecipe.Parse(Template("", "<match family=\"*line*\" />")).Matches(survey));
     }
 
+    [Theory]
+    [InlineData("family=\"*\"", false)]
+    [InlineData("family=\"!*solid*\"", false)]
+    [InlineData("colors=\"2\"", false)]
+    [InlineData("family=\"*line*\"", true)]
+    [InlineData("family=\"!*\"", true)]
+    public void NeedsFamily_IsWhetherAnUnknownFamilyFails(string condition, bool expected)
+        => Assert.Equal(expected, SvgRecipe.Parse(Template("", $"<match {condition} />")).Match!.NeedsFamily);
+
     // ---- the prototype templates against real drawings ------------------------------------
 
     [Fact]

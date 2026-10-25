@@ -77,6 +77,31 @@ public class MainWindowUndoTests
     }
 
     [AvaloniaFact]
+    public async Task The_Projects_Steps_Are_Named_In_The_Order_Undo_And_Redo_Would_Take_Them()
+    {
+        var (_, viewer) = await Host();
+        var workspace = new ProjectWorkspace(TestPackage.Parse("<studio namespace=\"Demo.Icons\" />"));
+
+        Assert.Empty(workspace.UndoLabels);
+
+        workspace.Edit("one");
+        workspace.Edit("two");
+        workspace.Edit("three");
+
+        Assert.True(workspace.Undo());
+        Assert.Equal(new[] { "two", "one" }, workspace.UndoLabels);
+        Assert.Equal(new[] { "three" }, workspace.RedoLabels);
+
+        // And a tab's, as its drawing's history holds them.
+        viewer.SetSource(viewer.Source + "<!-- a -->", "a");
+        viewer.SetSource(viewer.Source + "<!-- b -->", "b");
+
+        Assert.True(viewer.Undo());
+        Assert.Equal(new[] { "a" }, viewer.UndoLabels);
+        Assert.Equal(new[] { "b" }, viewer.RedoLabels);
+    }
+
+    [AvaloniaFact]
     public async Task A_Box_Being_Typed_In_Keeps_Its_Own_Undo()
     {
         // The menu's gesture is the window's on macOS, so it arrives even while somebody is editing

@@ -1427,6 +1427,39 @@ public sealed class GroupPanel : UserControl
         return values;
     }
 
+    /// <summary>A drawing loaded as the board draws it, bound to what <see cref="Seeded"/> gives it.</summary>
+    /// <param name="node">
+    /// The project's drawing it is, or the group it would be added to, read through the blocks above
+    /// it at the size it is built at there; null for a drawing of no project's.
+    /// </param>
+    /// <param name="path">Where a drawing of no project's is, which what it references resolves against.</param>
+    /// <exception cref="InvalidOperationException">The text is not readable as SVG.</exception>
+    internal static SvgViewerDocument Load(string text, ProjectNode? node, string? path = null)
+    {
+        var document = SvgViewerDocument.LoadFromSvg(
+            text,
+            path,
+            node is { } ? ProjectWorkspace.SizeOf(node) : SvgSizeRequest.None,
+            node switch
+            {
+                ProjectDrawing drawing => own => ProjectDeclarations.Built(drawing, own),
+                ProjectGroup group => own => ProjectDeclarations.Built(group, own),
+                _ => null
+            });
+
+        // Whatever binding throws, clamp's ArgumentException too, leaves it on its placeholders, as
+        // the drawing's own tab does; let out, it would leak the document.
+        try
+        {
+            document.Svg.SetExpressionValues(Seeded(document));
+        }
+        catch (Exception)
+        {
+        }
+
+        return document;
+    }
+
     /// <summary>The values the panel is showing, as the drawing takes them.</summary>
     private Dictionary<string, ExprValue> Values()
     {
@@ -3481,25 +3514,7 @@ public sealed class GroupPanel : UserControl
 
         try
         {
-            // Through the blocks the groups above it declare, which is what the build and the
-            // drawing's own tab read it through too.
-            var document = SvgViewerDocument.LoadFromSvg(
-                text,
-                null,
-                ProjectWorkspace.SizeOf(drawing),
-                own => ProjectDeclarations.Built(drawing, own));
-
-            // What the panel would show for this drawing on opening it, which is what a viewer
-            // binds and so what the drawing's own tab renders.
-            try
-            {
-                document.Svg.SetExpressionValues(Seeded(document));
-            }
-            catch (ExprException)
-            {
-            }
-
-            return new Drawn(drawing, text, declared, sizing, document, null);
+            return new Drawn(drawing, text, declared, sizing, Load(text, drawing), null);
         }
         catch (Exception failure)
         {
@@ -3923,14 +3938,32 @@ public sealed class GroupPanel : UserControl
                 node.Y = SvgcProject.ParseLength(value, "position");
                 node.X = node.Y is { } ? node.X ?? 0f : null;
                 break;
+            // A scale beside a width or a height is a size the build refuses, so the one written takes
+            // the other's place. Only a value does: clearing one leaves the rest as they were.
             case "width":
                 node.Width = SvgcProject.ParseLength(value, "width");
+                if (value is { })
+                {
+                    node.Scale = null;
+                }
+
                 break;
             case "height":
                 node.Height = SvgcProject.ParseLength(value, "height");
+                if (value is { })
+                {
+                    node.Scale = null;
+                }
+
                 break;
             case "scale":
                 node.Scale = SvgcProject.ParseScale(value);
+                if (value is { })
+                {
+                    node.Width = null;
+                    node.Height = null;
+                }
+
                 break;
             case "method":
                 ((ProjectDrawing)node).Method = value;
@@ -3987,7 +4020,9 @@ public sealed class GroupPanel : UserControl
         var box = new TextBox
         {
             Text = value,
-            PlaceholderText = Inherited(node, name) ?? (s_labels.TryGetValue(name, out var about) ? about.Hint : null),
+            PlaceholderText = Inherited(node, name) is { } inherited
+                ? $"{inherited.Value} — from {ProjectWorkspace.Label(inherited.Owner)}"
+                : s_labels.TryGetValue(name, out var about) ? about.Hint : null,
             FontSize = 12,
             Tag = name
         };
@@ -4097,18 +4132,33 @@ public sealed class GroupPanel : UserControl
             // tell from the one beside it.
             case "name" when string.IsNullOrWhiteSpace(value):
                 throw new SvgcProjectException("A drawing or group needs a name.");
-            case "width":
-                SvgcProject.ParseLength(value, "width");
+            case "name" or "namespace" or "class":
                 break;
-            case "height":
-                SvgcProject.ParseLength(value, "height");
+            // Asked as the build asks: the parser takes nought, less, NaN and infinity, which the build refuses.
+            case "width" or "height" or "scale":
+                var size = name == "scale" ? SvgcProject.ParseScale(value) : SvgcProject.ParseLength(value, name);
+
+                try
+                {
+                    _ = name switch
+                    {
+                        "width" => new SvgSizeRequest(size, null, null),
+                        "height" => new SvgSizeRequest(null, size, null),
+                        _ => new SvgSizeRequest(null, null, size)
+                    };
+                }
+                catch (ArgumentException refused)
+                {
+                    throw new SvgcProjectException(refused.Message);
+                }
+
                 break;
-            case "scale":
-                SvgcProject.ParseScale(value);
-                break;
-            case "x":
-            case "y":
-                SvgcProject.ParseLength(value, "position");
+            case "x" or "y":
+                if (SvgcProject.ParseLength(value, "position") is { } at && !float.IsFinite(at))
+                {
+                    throw new SvgcProjectException($"A position has to be a finite number, but was {at.ToString(CultureInfo.InvariantCulture)}.");
+                }
+
                 break;
             case "method":
                 SvgcProject.ParseName(value, "method name", qualified: false);
@@ -4127,34 +4177,25 @@ public sealed class GroupPanel : UserControl
                 }
 
                 break;
+            case "padding":
+                break;
+            // Every caller asks for a setting the node's form or ProjectDocument.Settings offers, so anything else is its mistake.
+            default:
+                throw new ArgumentOutOfRangeException(nameof(name), name, "There is no such setting.");
         }
     }
 
-    /// <summary>What the node would take for <paramref name="name"/> if it said nothing itself.</summary>
-    private static string? Inherited(ProjectNode node, string name)
-    {
-        if (node.Parent is not { } parent)
-        {
-            return null;
-        }
+    /// <summary>What the node takes for <paramref name="name"/> while it says nothing itself, and the node above giving it; null for nothing.</summary>
+    /// <remarks>
+    /// Nothing of a size where it gives any of width, height or scale: the nearest giving one decides all three, and may leave this one out.
+    /// A namespace is what the export writes rather than the ".Overlays" the owner wrote: where nothing above is in full, the build's default.
+    /// </remarks>
+    internal static (string Value, ProjectNode Owner)? Inherited(ProjectNode node, string name)
+        => name is "width" or "height" or "scale" && node.HasSize || node.Parent is not { } parent || parent.OwnerOf(name) is not { } owner || Value(owner, name) is not { } value
+            ? null
+            : (name == "namespace" ? SvgcProject.ResolveNamespace(new[] { parent.EffectiveNamespace, new SvgcBuildSettings().Namespace }) ?? value : value, owner);
 
-        var owner = parent.OwnerOf(name);
-
-        if (owner is null)
-        {
-            return null;
-        }
-
-        // What the export writes, rather than the ".Overlays" the owner wrote: where nothing above is in
-        // full, the build's default.
-        var inherited = name == "namespace"
-            ? SvgcProject.ResolveNamespace(new[] { parent.EffectiveNamespace, new SvgcBuildSettings().Namespace })
-            : Value(owner, name);
-
-        return $"{inherited} — from {ProjectWorkspace.Label(owner)}";
-    }
-
-    private static string? Value(ProjectNode node, string name) => name switch
+    internal static string? Value(ProjectNode node, string name) => name switch
     {
         "name" => node.Name,
         "namespace" => node.Namespace,

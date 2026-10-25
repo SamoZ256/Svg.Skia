@@ -121,7 +121,7 @@ public sealed class ProjectRecovery
             return null;
         }
 
-        if (kept.Count == files.Count && kept.All(file => files.TryGetValue(file.Key, out var text) && text == file.Value))
+        if (ProjectPackage.Same(kept, files))
         {
             Delete(recovery);
 

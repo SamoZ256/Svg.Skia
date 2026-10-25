@@ -109,4 +109,39 @@ public class MainWindowClosingTests
         Assert.Single(asked);
         Assert.False(window.IsVisible);
     }
+
+    /// <remarks>The prompt opens a turn after the close, and a tool's call can edit in between.</remarks>
+    [AvaloniaFact]
+    public async Task Closing_Names_What_Was_Edited_After_The_Close_And_Before_The_Question()
+    {
+        var (window, asked) = await Host(answer: true);
+        var other = Path.Combine(Path.GetTempPath(), $"svg-closing-{Guid.NewGuid():N}.svg");
+
+        File.WriteAllText(other, Drawing);
+        Edit(window);
+        await window.OpenAsync(new[] { other });
+        await Until(() => window.GetVisualDescendants().OfType<SvgViewer>().FirstOrDefault()?.DocumentPath == other);
+
+        window.Close();
+        window.GetVisualDescendants().OfType<SvgViewer>().First().SetSource(Drawing + "<!-- edited too -->");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "2 tabs have changes that have not been saved." }, asked);
+        Assert.False(window.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task Closing_Asks_Nothing_Once_What_Was_Unsaved_Is_Taken_Back_Before_The_Question()
+    {
+        var (window, asked) = await Host(answer: false);
+
+        Edit(window);
+
+        window.Close();
+        Assert.True(window.GetVisualDescendants().OfType<SvgViewer>().First().Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(asked);
+        Assert.False(window.IsVisible);
+    }
 }

@@ -2000,6 +2000,66 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(TestPackage.Normal(Project), TestPackage.Read(path));
     }
 
+    /// <summary>Whether the project is saved is where its history stands against where it stood at the save.</summary>
+    [Fact]
+    public void Undoing_Back_To_The_Save_Is_Saved_And_A_Save_No_Step_Leads_Back_To_Never_Is()
+    {
+        var path = Write("icons.svgstudio", Project);
+        var workspace = new ProjectWorkspace(ProjectDocument.Load(path));
+
+        workspace.Edit();
+        workspace.Save();
+
+        Assert.True(workspace.Undo());
+        Assert.True(workspace.IsEdited);
+        Assert.True(workspace.Redo());
+        Assert.False(workspace.IsEdited);
+
+        // Taken back past the save and built on: the saved state is on no step any more.
+        Assert.True(workspace.Undo());
+        workspace.Edit();
+        Assert.True(workspace.IsEdited);
+        Assert.True(workspace.Undo());
+        Assert.True(workspace.IsEdited);
+
+        // Nor once the step back to it has been trimmed off the far end of the history.
+        workspace.Save();
+
+        for (var edit = 0; edit <= 200; edit++)
+        {
+            workspace.Edit();
+        }
+
+        while (workspace.Undo())
+        {
+        }
+
+        Assert.True(workspace.IsEdited);
+
+        // A save five steps in moves down as those five are trimmed, and is still reached.
+        var trimmed = new ProjectWorkspace(ProjectDocument.Load(path));
+
+        for (var edit = 0; edit < 5; edit++)
+        {
+            trimmed.Edit();
+        }
+
+        trimmed.Save();
+
+        for (var edit = 0; edit < 200; edit++)
+        {
+            trimmed.Edit();
+        }
+
+        for (var undo = 0; undo < 200; undo++)
+        {
+            Assert.True(trimmed.Undo());
+        }
+
+        Assert.False(trimmed.CanUndo);
+        Assert.False(trimmed.IsEdited);
+    }
+
     /// <summary>
     /// A row put back is the row that was taken out, not a copy of it.
     /// </summary>
@@ -3033,6 +3093,93 @@ public class MainWindowProjectTests : IDisposable
         Assert.False(await window.CloseProjectAsync());
         Assert.Equal("icons.svgstudio has changes that have not been saved.", Assert.Single(asked));
         Assert.True(window.Workspace!.IsEdited);
+    }
+
+    /// <remarks>
+    /// What a tool had the person agree to, handed down: it closes unasked only while that is all it would
+    /// throw away, as a conversion runs for seconds between the question and the close.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Close_Agreed_To_Asks_Again_Where_More_Would_Be_Lost_Than_Was_Agreed()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var workspace = window.Workspace!;
+        var root = (TreeViewItem)Tree(window).Items[0]!;
+        var asked = new List<string>();
+        var notes = new List<string>();
+
+        window.ConfirmDiscard = message =>
+        {
+            asked.Add(message);
+
+            return Task.FromResult(false);
+        };
+
+        await window.ShowAsync((ProjectNode)((TreeViewItem)root.Items[1]!).Tag!);
+        Dispatcher.UIThread.RunJobs();
+        Panel(window, "Large").Edit("scale", "4");
+
+        // The window's own words for it, as the question put them.
+        Assert.False(await window.CloseProjectAsync());
+
+        var agreed = Assert.Single(asked);
+
+        Assert.True(window.Move(workspace.Document.Root.Children[0], workspace.Document.Root.Children[1]));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(await window.CloseProjectAsync(notes, agreed));
+        Assert.StartsWith("icons.svgstudio and Large have changes that have not been saved. Nothing was closed", Assert.Single(notes), StringComparison.Ordinal);
+        Assert.False(await window.CloseProjectAsync(null, agreed));
+        Assert.Equal(new[] { agreed, "icons.svgstudio and Large have changes that have not been saved." }, asked);
+        Assert.Same(workspace, window.Workspace);
+
+        Assert.True(await window.CloseProjectAsync(notes, asked[1]));
+        Assert.Equal(2, asked.Count);
+        Assert.Null(window.Workspace);
+    }
+
+    /// <remarks>The panels are rearranged for the tree and again for the changes panel, and the drawing in front before was put back over the project's tab.</remarks>
+    [AvaloniaFact]
+    public async Task A_Project_Opened_Over_A_Drawing_Of_Its_Own_Comes_Up_On_Its_Settings()
+    {
+        var window = await Host(Write("star.svg", Drawing));
+
+        await window.OpenAsync(new[] { Write("icons.svgstudio", Project) });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(window.Workspace!.Document.Root, ((TabItem)Tabs(window).SelectedItem!).Tag);
+
+        await window.NewProjectAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(window.Workspace!.Document.Root, ((TabItem)Tabs(window).SelectedItem!).Tag);
+    }
+
+    /// <remarks>It is not the project's, so closing the project leaves it open, edits and all.</remarks>
+    [AvaloniaFact]
+    public async Task Closing_The_Project_Asks_Nothing_About_A_Drawing_Of_Its_Own_That_Stays_Open()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var asked = new List<string>();
+
+        await window.OpenAsync(new[] { Write("star.svg", Drawing) });
+        Dispatcher.UIThread.RunJobs();
+
+        var star = Viewer(window);
+
+        star.SetSource(Drawing.Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        window.ConfirmDiscard = message =>
+        {
+            asked.Add(message);
+
+            return Task.FromResult(false);
+        };
+
+        Assert.True(await window.CloseProjectAsync());
+        Assert.Empty(asked);
+        Assert.Null(window.Workspace);
+        Assert.True(star.IsSourceModified);
+        Assert.Same(star, Assert.Single(Tabs(window).Items.OfType<TabItem>()).Content);
     }
 
     [AvaloniaFact]
@@ -6405,6 +6552,33 @@ public class MainWindowProjectTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Behind_A_Drawings_Name_And_A_Size_Its_Own_Width_Decides_Is_Nothing_Of_Its_Groups()
+    {
+        var window = await Host(Write("icons.svgstudio", $"""
+            <studio namespace="Demo.Icons">
+              <group name="Large" width="48" height="48">
+            {Holding("badge", " width=\"40\"")}
+              </group>
+            </studio>
+            """));
+
+        await window.ShowAsync(((ProjectGroup)window.Workspace!.Document.Root.Children[0]).Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        Open(window, window, "Properties");
+
+        TextBox Box(string name) => window.GetVisualDescendants().OfType<TextBox>().Single(candidate => Equals(candidate.Tag, name));
+
+        // Shown once the box is emptied, "Large — from Large" said a name could be inherited.
+        Assert.Equal("badge", Box("name").Text);
+        Assert.Null(Box("name").PlaceholderText);
+
+        // Its own width decides all three, so the group's 48 is no height it would take.
+        Assert.Null(Box("height").Text);
+        Assert.Equal("pixels", Box("height").PlaceholderText);
+    }
+
+    [AvaloniaFact]
     public async Task A_Drawing_Is_Given_A_Class_Of_Its_Own_In_Its_Tab()
     {
         Write("home.svg", Drawing);
@@ -6481,7 +6655,7 @@ public class MainWindowProjectTests : IDisposable
 
         var tab = Tabs(window).Items.OfType<TabItem>().Single(item => item.Tag is ProjectDrawing);
 
-        ((GroupPanel)Assert.Single(((SvgViewer)tab.Content!).SidePanels).Content).Edit("output", "Home.cs");
+        Assert.True(((GroupPanel)Assert.Single(((SvgViewer)tab.Content!).SidePanels).Content).Edit("class", "House"));
         Dispatcher.UIThread.RunJobs();
 
         // The drawing's text is untouched; what is unsaved is the project's say over it, and the
@@ -6495,6 +6669,37 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.Contains("home has changes that have not been saved.", asked);
         Assert.Contains(tab, Tabs(window).Items);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Width_Typed_For_A_Scaled_Group_Takes_The_Scales_Place()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var large = (ProjectGroup)window.Workspace!.Document.Root.Children[1];
+
+        // A drawing under it in a tab, whose size is worked out again from the group after every edit.
+        await window.ShowAsync(large.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var panel = await Group(window, 1);
+
+        Assert.True(panel.Edit("width", "48"));
+        panel.Commit();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(48f, large.Width);
+        Assert.Null(large.Scale);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Setting_No_Node_Takes_Is_Thrown_Back_Rather_Than_Held_As_An_Edit()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var panel = await Group(window, 1);
+
+        // Retired from the format, so only a caller that has not caught up asks for it.
+        Assert.Throws<ArgumentOutOfRangeException>(() => panel.Edit("output", "Large.cs"));
+        Assert.False(panel.IsModified);
     }
 
     private static TextBlock Marker(TabItem item) => (TextBlock)((StackPanel)item.Header!).Children[0];

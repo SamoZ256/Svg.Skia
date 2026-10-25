@@ -98,8 +98,9 @@ public static class ProjectDeclarations
             out _);
 
     /// <summary>What a drawing not yet added to <paramref name="group"/> would be drawn from there.</summary>
-    public static string Built(ProjectGroup group, string ownText)
-        => Built(Into(group), ownText ?? throw new ArgumentNullException(nameof(ownText)));
+    /// <param name="narrow">As <see cref="Built(ProjectDrawing, string, bool)"/> takes it.</param>
+    public static string Built(ProjectGroup group, string ownText, bool narrow = true)
+        => Built(Into(group), ownText ?? throw new ArgumentNullException(nameof(ownText)), narrow);
 
     /// <summary>The blocks a drawing in <paramref name="group"/> inherits, the group's own among them.</summary>
     private static IReadOnlyList<ProjectGroup> Into(ProjectGroup group)

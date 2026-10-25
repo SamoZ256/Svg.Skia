@@ -104,6 +104,10 @@ public static class ProjectPackage
         return files;
     }
 
+    /// <summary>Whether two sets of a project's files are the same files holding the same text.</summary>
+    public static bool Same(IReadOnlyDictionary<string, string> files, IReadOnlyDictionary<string, string> other)
+        => files.Count == other.Count && files.All(file => other.TryGetValue(file.Key, out var text) && text == file.Value);
+
     /// <summary>
     /// Writes <paramref name="files"/> into <paramref name="folder"/>, touching only what differs from
     /// <paramref name="disk"/> — what the folder held as last read or written, kept up to date here.

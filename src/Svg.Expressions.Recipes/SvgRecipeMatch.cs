@@ -86,6 +86,9 @@ public sealed class SvgRecipeMatch
 
     public string? Has { get; }
 
+    /// <summary>Whether <see cref="Family"/> turns away a drawing whose family is not known, as <c>*</c> and <c>!*solid*</c> do not.</summary>
+    public bool NeedsFamily => !Glob(Family, null);
+
     internal static SvgRecipeMatch Read(XElement element) => new(element);
 
     /// <summary>Whether a drawing with this survey, and these facts from wherever it came from, passes.</summary>

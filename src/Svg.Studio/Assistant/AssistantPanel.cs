@@ -59,8 +59,14 @@ public sealed class AssistantPanel : UserControl
         _tools = tools ?? throw new ArgumentNullException(nameof(tools));
         _session = new AssistantSession(tools);
 
-        _tools.Confirm = Ask;
-        _tools.Called += (_, summary) => Line("· " + summary, "tool");
+        _tools.Ask = Ask;
+        _tools.Called += (_, summary) =>
+        {
+            if (summary is { })
+            {
+                Line("· " + summary, "tool");
+            }
+        };
 
         _providers.ItemsSource = AssistantProviders.All.Select(provider => provider.Name).ToList();
         _providers.SelectionChanged += async (_, _) => await ChooseProvider().ConfigureAwait(true);
@@ -299,18 +305,25 @@ public sealed class AssistantPanel : UserControl
         }
     }
 
-    /// <summary>Asks in the conversation rather than in a dialog, so the question sits beside what prompted it.</summary>
-    private async Task<bool> Ask(string question)
+    /// <summary>Asks in the conversation rather than in a dialog, so the question sits beside what prompted it: a button for each answer.</summary>
+    private async Task<AssistantTools.Answer?> Ask(AssistantTools.Question question)
     {
-        var answer = new TaskCompletionSource<bool>();
-        var allow = new Button { Content = "Allow", FontSize = 12 };
-        var deny = new Button { Content = "Deny", FontSize = 12 };
+        var answer = new TaskCompletionSource<string?>();
+        var choices = question.Choices.Select(choice =>
+        {
+            var button = new Button { Content = choice, FontSize = 12 };
 
-        allow.Click += (_, _) => answer.TrySetResult(true);
-        deny.Click += (_, _) => answer.TrySetResult(false);
+            button.Click += (_, _) => answer.TrySetResult(choice);
 
-        // A question left open when the reply is stopped is a no.
-        _running?.Token.Register(() => answer.TrySetResult(false));
+            return button;
+        }).ToList();
+
+        // A question left open when the reply is stopped is answered with none of them.
+        _running?.Token.Register(() => answer.TrySetResult(null));
+
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 6, LineSpacing = 6 };
+
+        buttons.Children.AddRange(choices);
 
         var card = Bubble(
             new StackPanel
@@ -318,8 +331,8 @@ public sealed class AssistantPanel : UserControl
                 Spacing = 6,
                 Children =
                 {
-                    new TextBlock { Text = question, FontSize = 12, TextWrapping = TextWrapping.Wrap },
-                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { allow, deny } }
+                    new TextBlock { Text = question.Text, FontSize = 12, TextWrapping = TextWrapping.Wrap },
+                    buttons
                 }
             },
             mine: false);
@@ -328,15 +341,18 @@ public sealed class AssistantPanel : UserControl
         card.BorderThickness = new Thickness(1);
 
         _transcript.Children.Add(card);
-        _rows.Add(("ask", question));
+        _rows.Add(("ask", question.Text));
         _reply = null;
         Follow();
 
-        var allowed = await answer.Task.ConfigureAwait(true);
+        var chosen = await answer.Task.ConfigureAwait(true);
 
-        allow.IsEnabled = deny.IsEnabled = false;
+        foreach (var button in choices)
+        {
+            button.IsEnabled = false;
+        }
 
-        return allowed;
+        return new AssistantTools.Answer(chosen);
     }
 
     /// <summary>A dim line between the bubbles: what a tool did, or why a reply stopped.</summary>

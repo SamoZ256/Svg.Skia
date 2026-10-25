@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using Microsoft.Extensions.AI;
 using Svg;
+using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
 namespace Svg.Studio.UnitTests;
@@ -154,6 +158,42 @@ public class MainWindowTextLayoutTests : IDisposable
 
         Assert.False(await window.ExportAsync(Target));
         Assert.False(File.Exists(Target));
+    }
+
+    /// <remarks>
+    /// A tool's question is put without holding the window, as the panel puts it, so the person can type
+    /// in the tab in front, or bring another forward, before answering: the answer is to the text the
+    /// question listed, and the export it would apply to is not that.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Tool_Answered_After_The_Text_In_Front_Changed_Writes_Nothing()
+    {
+        var window = await Host(Frozen);
+        var asked = new List<AssistantTools.Question>();
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+        var tools = new AssistantTools(window)
+        {
+            Confirm = _ => Task.FromResult(true),
+            Ask = question =>
+            {
+                asked.Add(question);
+                viewer.SetSource(viewer.Source.Replace("#111827", "#222222", StringComparison.Ordinal));
+
+                return Task.FromResult<AssistantTools.Answer?>(new AssistantTools.Answer(question.Choices[1]));
+            }
+        };
+        var export = tools.For(small: false, docs: false).OfType<AIFunction>().Single(function => function.Name == "export");
+
+        var said = (await export.InvokeAsync(new AIFunctionArguments { ["path"] = Target }))?.ToString();
+
+        Assert.Equal("Nothing was written: what the person was asked about changed while they answered; call it again to go on from things as they are now.", said);
+        Assert.Contains("<tspan>", Assert.Single(asked).Text, StringComparison.Ordinal);
+        Assert.False(File.Exists(Target));
+        Assert.False(window.Workspace.CanUndo);
     }
 
     [AvaloniaFact]

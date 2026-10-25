@@ -109,6 +109,16 @@ public class SvgAttributeEditorDocumentTests
     }
 
     [Fact]
+    public void An_Element_Held_Already_Reads_Its_Attributes_As_Its_Key_Does()
+    {
+        var source = Read(Texts);
+        var tref = source.Document.Root!.Elements().ElementAt(4);
+
+        Assert.Equal(SvgAttributeEditor.Attributes(source, "4"), SvgAttributeEditor.Attributes(tref));
+        Assert.Contains(new SvgSourceAttribute("xlink:href", "#o"), SvgAttributeEditor.Attributes(tref));
+    }
+
+    [Fact]
     public void A_Namespace_Declaration_Is_Not_An_Attribute_Anybody_Edits()
     {
         Assert.Empty(SvgAttributeEditor.Attributes(Read(), string.Empty));
@@ -170,7 +180,7 @@ public class SvgAttributeEditorDocumentTests
         var source = Read();
 
         Assert.Equal(
-            "That element is no longer in the drawing.",
+            $"There is no element at {addressKey} in this drawing.",
             SvgAttributeEditor.SetAttribute(source, addressKey, "fill", "red"));
 
         Assert.Equal(Source, source.ToText());
@@ -396,7 +406,7 @@ public class SvgAttributeEditorDocumentTests
             "Only a <text>, a <tspan>, a <textPath> or an <e:let> has text of its own to edit.",
             SvgAttributeEditor.SetContent(source, "5", "no"));
 
-        Assert.Equal("That element is no longer in the drawing.", SvgAttributeEditor.SetContent(source, "9", "no"));
+        Assert.Equal("There is no element at 9 in this drawing.", SvgAttributeEditor.SetContent(source, "9", "no"));
 
         Assert.StartsWith("This element's text is written in its <tspan> children", SvgAttributeEditor.SetContent(source, "2", "no"), StringComparison.Ordinal);
 
