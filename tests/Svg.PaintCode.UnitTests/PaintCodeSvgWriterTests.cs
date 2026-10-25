@@ -155,15 +155,18 @@ public class PaintCodeSvgWriterTests
     }
 
     /// <summary>
-    /// An arc a hair short of a turn still goes round: its two ends are written as the same point,
-    /// and one arc between them would draw nothing at all.
+    /// An arc a hair short of a turn still goes round, centred where it should be. Its ends are a
+    /// rounding apart: written as one point, one arc between them drew nothing, and a digit apart,
+    /// one arc put its centre wherever the rounding pointed.
     /// </summary>
-    [Fact]
-    public void An_Arc_A_Hair_Short_Of_A_Turn_Is_Written_In_Two_Halves()
+    [Theory]
+    [InlineData(9, 14, -0.00001, 0.00001, "M9,7A4.5 7 0 0 1 0,7A4.5 7 0 0 1 9,7L4.5,7Z")]
+    [InlineData(100, 100, 78.09999, 78.10001, "M60.3102,1.0746A50 50 0 0 1 39.6898,98.9254A50 50 0 0 1 60.3102,1.0745L50,50Z")]
+    public void An_Arc_A_Hair_Short_Of_A_Turn_Is_Written_In_Two_Halves(double width, double height, double start, double end, string expected)
     {
-        var shape = Box(PaintCodeShapeKind.Oval, new PaintCodeShapeMetrics(0, true, true, true, true, -0.00001, 0.00001, true, 0, 0));
+        var metrics = new PaintCodeShapeMetrics(0, true, true, true, true, start, end, true, 0, 0);
 
-        Assert.Equal("M9,7A4.5 7 0 0 1 0,7A4.5 7 0 0 1 9,7L4.5,7Z", PaintCodePathData.For(shape));
+        Assert.Equal(expected, PaintCodePathData.For(Filled(Gradient(), -90, frame: At(width, height), kind: PaintCodeShapeKind.Oval, metrics: metrics)));
     }
 
     [Fact]
@@ -848,7 +851,7 @@ public class PaintCodeSvgWriterTests
     [InlineData(117, -22, false, "M4.0951,0.8175A7.5 7.5 0 0 1 14.4539,10.3095")]
     // Negative, so the turn wraps to 260 and the arc becomes the long way round. PaintCode writes
     // AddArc(rect, 10, (360 * ceil(100 / 360)) - 100).
-    [InlineData(-10, 90, false, "M14.8861,8.8024A7.5 7.5 0 1 1 7.5,0")]
+    [InlineData(-10, 90, false, "M14.8861,8.8024A7.5 7.5 0 0 1 1.7547,12.3209A7.5 7.5 0 0 1 7.5,0")]
     // Exactly half a turn, where the two halves are told apart by the direction alone.
     [InlineData(0, 180, false, "M15,7.5A7.5 7.5 0 0 1 0,7.5")]
     // Closed through the middle, which is the wedge PaintCode closes with LineTo(MidX, MidY).
