@@ -23,7 +23,6 @@
 
   <PropertyGroup>
     <Description>Shared SVG animation runtime and host playback contracts.</Description>
-    <PackageId>Svg.Animation</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;animation;smil;rendering;host playback;runtime</PackageTags>
   </PropertyGroup>

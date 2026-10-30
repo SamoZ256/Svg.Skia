@@ -12,7 +12,6 @@
 
   <PropertyGroup>
     <Description>Optional JavaScript runtime bridge for Svg.Skia.</Description>
-    <PackageId>Svg.Skia.JavaScript</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;skiasharp;skia;javascript;scripting;dom;jint</PackageTags>
   </PropertyGroup>

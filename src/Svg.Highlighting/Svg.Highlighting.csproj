@@ -17,7 +17,6 @@
 
   <PropertyGroup>
     <Description>Splits an SVG document into coloured pieces for a source view: markup, and the SVG expression extension's placeholders and declarations. Knows nothing about how they are drawn.</Description>
-    <PackageId>Svg.Highlighting</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;syntax;highlighting;tokenizer;xml;expressions</PackageTags>
   </PropertyGroup>

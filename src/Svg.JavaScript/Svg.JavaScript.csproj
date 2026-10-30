@@ -12,7 +12,6 @@
 
   <PropertyGroup>
     <Description>JavaScript runtime support for SVG documents.</Description>
-    <PackageId>Svg.JavaScript</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;javascript;scripting;dom;jint</PackageTags>
   </PropertyGroup>

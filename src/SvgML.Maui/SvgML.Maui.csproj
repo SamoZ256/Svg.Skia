@@ -10,7 +10,6 @@
         <Nullable>enable</Nullable>
         <RootNamespace>SvgML</RootNamespace>
         <Description>Inline SVG element authoring for .NET MAUI XAML backed by Svg.Skia.</Description>
-        <PackageId>SvgML.Maui</PackageId>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageTags>svg;xaml;maui;dotnet-maui;control;inline-svg</PackageTags>
         <IsPackable>true</IsPackable>

@@ -9,7 +9,6 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <IsPackable>true</IsPackable>
     <RootNamespace>Maui.Svg.Skia</RootNamespace>
-    <PackageId>Svg.Controls.Skia.Maui</PackageId>
     <Description>SVG controls for .NET MAUI backed by Svg.Skia and SKCanvasView.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;skia;skiasharp;maui;dotnet-maui;xaml;control;rendering</PackageTags>

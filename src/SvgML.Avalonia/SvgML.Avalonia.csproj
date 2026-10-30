@@ -17,7 +17,6 @@
     <SvgMLSelfWeaverEnabled>true</SvgMLSelfWeaverEnabled>
     <Description>Inline SVG element authoring for Avalonia XAML backed by Svg.Skia.</Description>
     <AssemblyName>SvgML.Avalonia</AssemblyName>
-    <PackageId>SvgML.Avalonia</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;xaml;avalonia;avaloniaui;control;inline-svg</PackageTags>
   </PropertyGroup>

@@ -11,7 +11,6 @@
 
   <PropertyGroup>
     <Description>Rewrites a plain Svg document into the Svg expression extension format, driven by a recipe file.</Description>
-    <PackageId>Svg.Expressions.Recipes</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;expressions;codegen;recipe;authoring;graphics</PackageTags>
   </PropertyGroup>

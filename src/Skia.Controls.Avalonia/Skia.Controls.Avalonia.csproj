@@ -13,7 +13,6 @@
 
   <PropertyGroup>
     <Description>A SkiaSharp based controls for Avalonia.</Description>
-    <PackageId>Skia.Controls.Avalonia</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>vector graphics;rendering;2d;graphics;picture;bitamp;geometry;shapes;skiasharp;skia;control;avalonia;avaloniaui</PackageTags>
   </PropertyGroup>
