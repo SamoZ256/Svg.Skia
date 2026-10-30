@@ -1,7 +1,9 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using ShimSkiaSharp;
 using Svg.CodeGen.Skia;
+using Svg.Expressions;
 using Svg.Model.Services;
 using Xunit;
 
@@ -256,6 +258,106 @@ public class SkiaCSharpCodeGenTests
             colorPos,
             SKShaderTileMode.Clamp,
             null);
+    }
+
+    // ---- layers that change nothing ----
+
+    private static readonly Regex OwnSave = new(@"^\s*skCanvas\d+\.Save\(\);\r?$", RegexOptions.Multiline);
+
+    [Theory]
+    [InlineData("record")]
+    [InlineData("record, cached")]
+    [InlineData("direct")]
+    public void An_Opaque_Layer_Over_Source_Over_Content_Is_A_Save(string body)
+    {
+        var code = Generate(body, Layered(new SKPaint { Color = new SKColor(255, 255, 255, 255) }));
+
+        Assert.DoesNotContain("SaveLayer", code);
+        Assert.Matches(OwnSave, code);
+        // The path's paint alone: the layer's is never built.
+        Assert.Single(Regex.Matches(code, @"new SKPaint\(\)"));
+    }
+
+    [Theory]
+    [InlineData("record")]
+    [InlineData("record, cached")]
+    [InlineData("direct")]
+    public void A_Driven_Opacity_Chooses_Between_Save_And_Layer_At_Run_Time(string body)
+    {
+        // A line has no area, so its layer has no bounds, as on each of blinds180ltr's slats.
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="20" height="20">
+              <defs>
+                <e:code>
+                  <e:param name="o" type="number" default="1" />
+                </e:code>
+              </defs>
+              <path d="M0,10 L20,10" stroke="#204060" stroke-width="2" opacity="{{ o }}" />
+            </svg>
+            """;
+        var document = SvgService.FromSvg(svg);
+        var picture = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())));
+
+        var code = Generate(body, picture!, SvgExpressionDeclarations.Parse(svg));
+
+        Assert.Matches(@"if \(skPaint\d+\.Color\.Alpha == 255\)", code);
+        Assert.Matches(OwnSave, code);
+        Assert.Matches(@"SaveLayer\(skPaint\d+\);", code);
+    }
+
+    [Theory]
+    [InlineData("translucent")]
+    [InlineData("blend mode")]
+    [InlineData("colour filter")]
+    [InlineData("mask")]
+    public void A_Layer_That_Changes_Something_Is_Kept(string kind)
+    {
+        var picture = kind switch
+        {
+            "translucent" => Layered(new SKPaint { Color = new SKColor(255, 255, 255, 51) }),
+            "blend mode" => Layered(new SKPaint { BlendMode = SKBlendMode.Multiply }),
+            "colour filter" => Layered(new SKPaint { ColorFilter = SKColorFilter.CreateLumaColor() }),
+            // Opaque and source-over itself, but what keeps the DstIn inside off the backdrop.
+            _ => Layered(
+                new SKPaint(),
+                new SaveLayerCanvasCommand(1, new SKPaint { BlendMode = SKBlendMode.DstIn }),
+                Path(),
+                new RestoreCanvasCommand(1))
+        };
+
+        foreach (var body in new[] { "record", "record, cached", "direct" })
+        {
+            var code = Generate(body, picture);
+
+            Assert.Matches(@"SaveLayer\(skPaint\d+\);", code);
+            Assert.DoesNotMatch(OwnSave, code);
+            Assert.DoesNotContain("Color.Alpha == 255", code);
+        }
+    }
+
+    private static string Generate(string body, SKPicture picture, SvgExpressionDeclarations? declarations = null)
+        => body switch
+        {
+            "record" => SkiaCSharpCodeGen.Generate(picture, "Svg", "Generated", declarations),
+            "record, cached" => SkiaCSharpCodeGen.Generate(picture, "Svg", "Generated", declarations, SvgPictureCache.LastValue),
+            _ => SkiaCSharpCodeGen.GenerateFile(
+                new[] { new SkiaCSharpDrawing(picture, "Svg", "Generated", declarations) },
+                style: new SvgCodeStyle { Body = SvgBody.Direct })
+        };
+
+    private static SKPicture Layered(SKPaint layer, params CanvasCommand[] inside)
+    {
+        var commands = new List<CanvasCommand> { new SaveLayerCanvasCommand(0, layer), Path() };
+        commands.AddRange(inside);
+        commands.Add(new RestoreCanvasCommand(0));
+        return new SKPicture(SKRect.Create(0f, 0f, 10f, 10f), commands);
+    }
+
+    private static DrawPathCanvasCommand Path()
+    {
+        var path = new SKPath();
+        path.AddRect(SKRect.Create(1f, 1f, 8f, 8f));
+        return new DrawPathCanvasCommand(path, new SKPaint { IsAntialias = true });
     }
 
     private static IEnumerable<SKShader> EnumerateShaders(SKPicture? picture)

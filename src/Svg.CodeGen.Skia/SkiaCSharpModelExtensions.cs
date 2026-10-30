@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using ShimSkiaSharp;
+using ShimSkiaSharp.Editing;
 using Svg.CodeGen.Skia.Expressions;
 using Svg.Expressions;
 
@@ -2149,8 +2150,9 @@ public static class SkiaCSharpModelExtensions
         var ranges = new Stack<FoldedRange>();
         var dead = 0;
 
-        foreach (var canvasCommand in commands)
+        for (var index = 0; index < commands.Count; index++)
         {
+            var canvasCommand = commands[index];
             sb = dead > 0 ? discarded : direct ? command.Clear() : live;
             counter.Statics = dead > 0 ? null : statics;
 
@@ -2260,18 +2262,38 @@ public static class SkiaCSharpModelExtensions
                     }
                 case SaveLayerCanvasCommand saveLayerCanvasCommand:
                     {
+                        // Under an antialiased clip a layer that changes nothing still costs most of
+                        // the drawing (blinds180ltr: 59.7 µs, 8.0 µs without).
+                        var inert = commands.CanSaveInsteadOfLayer(index);
+                        var color = saveLayerCanvasCommand.Paint?.Color;
+                        if (inert && (color is null || color.Value is { Expression: null, Alpha: 255 }))
+                        {
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
+                            break;
+                        }
+
                         var bounds = saveLayerCanvasCommand.Bounds?.ToSKRect();
                         if (saveLayerCanvasCommand.Paint is { })
                         {
                             var counterPaint = ++counter.Paint;
                             saveLayerCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
-                            if (bounds is { })
+                            var saveLayer = bounds is { }
+                                ? $"{counter.CanvasVarName}{counterCanvas}.SaveLayer({bounds}, {counter.PaintVarName}{counterPaint});"
+                                : $"{counter.CanvasVarName}{counterCanvas}.SaveLayer({counter.PaintVarName}{counterPaint});";
+                            if (inert && color?.Expression is { })
                             {
-                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SaveLayer({bounds}, {counter.PaintVarName}{counterPaint});");
+                                sb.AppendLine($"{indent}if ({counter.PaintVarName}{counterPaint}.Color.Alpha == 255)");
+                                sb.AppendLine($"{indent}{{");
+                                sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.Save();");
+                                sb.AppendLine($"{indent}}}");
+                                sb.AppendLine($"{indent}else");
+                                sb.AppendLine($"{indent}{{");
+                                sb.AppendLine($"{indent}    {saveLayer}");
+                                sb.AppendLine($"{indent}}}");
                             }
                             else
                             {
-                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SaveLayer({counter.PaintVarName}{counterPaint});");
+                                sb.AppendLine($"{indent}{saveLayer}");
                             }
 
                             // NOTE: Do not dispose created SKTypeface by font manager.

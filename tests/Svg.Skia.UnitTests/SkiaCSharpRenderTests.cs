@@ -474,6 +474,51 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_Mask_Keeps_Its_Layer()
+        // Its outer layer is opaque and source-over, so only what it holds says it is not a no-op.
+        => AssertRendersTheSame("Mask", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <mask id="m"><circle cx="12" cy="12" r="8" fill="#fff" /></mask>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <rect x="2" y="2" width="20" height="20" fill="#7c3aed" mask="url(#m)" />
+            </svg>
+            """);
+
+    // Blinds180ltr's shape: an opacity on each line, which has no area and so gives its layer no
+    // bounds, under an antialiased clip turned a float's worth off 90°. That clip is what tells the
+    // two apart at a zero threshold: through a layer it covers an edge pixel twice.
+    private const string DrivenOpacityUnderAClip = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code><e:param name="o" type="number" default="1" /></e:code>
+            <clipPath id="c"><rect x="3.3" y="3.3" width="17.4" height="17.4" transform="rotate(-90 12 12)" /></clipPath>
+          </defs>
+          <g clip-path="url(#c)">
+            <path d="M0,9 L24,9" stroke="#1e40af" stroke-width="3" opacity="{{ o }}" />
+            <path d="M0,15 L24,15" stroke="#1e40af" stroke-width="3" opacity="{{ o }}" />
+          </g>
+        </svg>
+        """;
+
+    [Fact]
+    public void A_Driven_Opacity_Of_One_Draws_No_Layer()
+        => AssertExpressionsRenderTheSame(
+            "ExprOpaqueLayer",
+            DrivenOpacityUnderAClip,
+            new object?[] { 1f },
+            DrivenOpacityUnderAClip.Replace(" opacity=\"{{ o }}\"", ""));
+
+    [Fact]
+    public void A_Driven_Opacity_Below_One_Keeps_Its_Layer()
+        => AssertExpressionsRenderTheSame(
+            "ExprTranslucentLayer",
+            DrivenOpacityUnderAClip,
+            new object?[] { 0.4f },
+            DrivenOpacityUnderAClip.Replace("{{ o }}", "0.4"));
+
+    [Fact]
     public void Opacity_And_Nested_Transforms()
         => AssertRendersTheSame("Layers", """
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
