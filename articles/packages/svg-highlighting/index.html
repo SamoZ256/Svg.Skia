@@ -147,7 +147,7 @@
 <p><code>Svg.Highlighting</code> splits an SVG document into coloured pieces for a source view, and says what is wrong with it. It draws nothing and knows nothing about how the pieces are shown: no brushes, no controls, no UI framework. It is what <code>Svg.Viewer.Skia.Avalonia</code> colours its expression boxes with, and what it asks for a drawing's mistakes.</p>
 <p>It depends on <code>Svg.Expressions</code> for the expression language's own lexer and checker, and on <code>Svg.Custom</code> for the SVG parser's own converters. Both are there so that what is coloured and what is called wrong are decided by the things that actually read a drawing, rather than by a second description of them.</p>
 <h2 id="install">Install</h2>
-<pre><code class="language-bash">dotnet add package Svg.Highlighting
+<pre><code class="language-bash">dotnet add package SamoZ256.Svg.Highlighting --prerelease
 </code></pre>
 <h2 id="choose-this-package-when">Choose this package when</h2>
 <ul>

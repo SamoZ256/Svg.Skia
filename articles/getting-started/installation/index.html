@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Installation | Svg.Skia">
-<meta name="twitter:description" content="Installation NuGet packages Core renderer: dotnet add package Svg.Skia Uno control package: dotnet add package Svg.Controls.Skia.Uno .NET MAUI control package: dotnet add package Svg.Controls.Skia.Maui Avalonia controls backed by Skia: dotnet add package Svg.Controls.Skia.Avalonia Avalonia controls backed by the Avalonia drawing stack: dotnet add package Svg.Controls.Avalonia Inline SVG authoring for Avalonia XAML: dotnet add package SvgML.Avalonia Inline SVG authoring for .NET MAUI XAML:...">
+<meta name="twitter:description" content="Installation NuGet packages This fork publishes to nuget.org under the SamoZ256. prefix, because upstream owns the plain IDs there. Every version carries a -samoz.N suffix, which makes it a prerelease, hence --prerelease. The rest of these docs call each package by its project name, Svg.Skia for SamoZ256.Svg.Skia. Do not mix in upstream's packages: both ship the same assemblies. Core renderer: dotnet add package SamoZ256.Svg.Skia --prerelease...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Installation | Svg.Skia">
 <meta property="og:title" content="Installation | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Installation NuGet packages Core renderer: dotnet add package Svg.Skia Uno control package: dotnet add package Svg.Controls.Skia.Uno .NET MAUI control package: dotnet add package Svg.Controls.Skia.Maui Avalonia controls backed by Skia: dotnet add package Svg.Controls.Skia.Avalonia Avalonia controls backed by the Avalonia drawing stack: dotnet add package Svg.Controls.Avalonia Inline SVG authoring for Avalonia XAML: dotnet add package SvgML.Avalonia Inline SVG authoring for .NET MAUI XAML:...">
+<meta property="og:description" content="Installation NuGet packages This fork publishes to nuget.org under the SamoZ256. prefix, because upstream owns the plain IDs there. Every version carries a -samoz.N suffix, which makes it a prerelease, hence --prerelease. The rest of these docs call each package by its project name, Svg.Skia for SamoZ256.Svg.Skia. Do not mix in upstream's packages: both ship the same assemblies. Core renderer: dotnet add package SamoZ256.Svg.Skia --prerelease...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Installation | Svg.Skia">
   </head>
@@ -159,38 +159,42 @@
 <!-- lunet:summarize -->
 <h1 id="installation">Installation</h1>
 <h2 id="nuget-packages">NuGet packages</h2>
+<p>This fork publishes to nuget.org under the <code>SamoZ256.</code> prefix, because upstream owns the plain IDs
+there. Every version carries a <code>-samoz.N</code> suffix, which makes it a prerelease, hence <code>--prerelease</code>.
+The rest of these docs call each package by its project name, <code>Svg.Skia</code> for <code>SamoZ256.Svg.Skia</code>.
+Do not mix in upstream's packages: both ship the same assemblies.</p>
 <p>Core renderer:</p>
-<pre><code class="language-bash">dotnet add package Svg.Skia
+<pre><code class="language-bash">dotnet add package SamoZ256.Svg.Skia --prerelease
 </code></pre>
 <p>Uno control package:</p>
-<pre><code class="language-bash">dotnet add package Svg.Controls.Skia.Uno
+<pre><code class="language-bash">dotnet add package SamoZ256.Svg.Controls.Skia.Uno --prerelease
 </code></pre>
 <p>.NET MAUI control package:</p>
-<pre><code class="language-bash">dotnet add package Svg.Controls.Skia.Maui
+<pre><code class="language-bash">dotnet add package SamoZ256.Svg.Controls.Skia.Maui --prerelease
 </code></pre>
 <p>Avalonia controls backed by Skia:</p>
-<pre><code class="language-bash">dotnet add package Svg.Controls.Skia.Avalonia
+<pre><code class="language-bash">dotnet add package SamoZ256.Svg.Controls.Skia.Avalonia --prerelease
 </code></pre>
 <p>Avalonia controls backed by the Avalonia drawing stack:</p>
-<pre><code class="language-bash">dotnet add package Svg.Controls.Avalonia
+<pre><code class="language-bash">dotnet add package SamoZ256.Svg.Controls.Avalonia --prerelease
 </code></pre>
 <p>Inline SVG authoring for Avalonia XAML:</p>
-<pre><code class="language-bash">dotnet add package SvgML.Avalonia
+<pre><code class="language-bash">dotnet add package SamoZ256.SvgML.Avalonia --prerelease
 </code></pre>
 <p>Inline SVG authoring for .NET MAUI XAML:</p>
-<pre><code class="language-bash">dotnet add package SvgML.Maui
+<pre><code class="language-bash">dotnet add package SamoZ256.SvgML.Maui --prerelease
 </code></pre>
 <p>Inline SVG authoring for Uno Platform XAML:</p>
-<pre><code class="language-bash">dotnet add package SvgML.Uno
+<pre><code class="language-bash">dotnet add package SamoZ256.SvgML.Uno --prerelease
 </code></pre>
 <p>General-purpose Skia controls for Avalonia:</p>
-<pre><code class="language-bash">dotnet add package Skia.Controls.Avalonia
+<pre><code class="language-bash">dotnet add package SamoZ256.Skia.Controls.Avalonia --prerelease
 </code></pre>
 <p>Source generator:</p>
-<pre><code class="language-bash">dotnet add package Svg.SourceGenerator.Skia
+<pre><code class="language-bash">dotnet add package SamoZ256.Svg.SourceGenerator.Skia --prerelease
 </code></pre>
 <p>Converter as a global tool:</p>
-<pre><code class="language-bash">dotnet tool install -g Svg.Skia.Converter
+<pre><code class="language-bash">dotnet tool install -g SamoZ256.Svg.Skia.Converter --prerelease
 </code></pre>
 <h2 id="target-frameworks">Target frameworks</h2>
 <p>Most runtime packages in this repository multi-target:</p>
