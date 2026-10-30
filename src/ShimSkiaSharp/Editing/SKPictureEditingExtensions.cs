@@ -130,6 +130,64 @@ public static class SKPictureEditingExtensions
         return UpdatePathsRecursive(picture, predicate, update, mode, context, visited);
     }
 
+    /// <summary>
+    /// Whether the save-layer at <paramref name="index"/> draws what a plain save would, once its
+    /// paint's alpha is 255 — left to the caller, since generated code only learns it at run time.
+    /// </summary>
+    /// <remarks>
+    /// The paint alone does not decide it: a mask and an isolated group open an opaque source-over
+    /// layer too, and it is what keeps the DstIn or blend mode inside off the backdrop. Bounds do
+    /// not: they only size the layer, and where the scene's are too tight, skipping it draws what
+    /// they cut off (sr-equation's miter tip).
+    /// </remarks>
+    public static bool CanSaveInsteadOfLayer(this IList<CanvasCommand> commands, int index)
+    {
+        if (commands[index] is not SaveLayerCanvasCommand layer)
+        {
+            return false;
+        }
+
+        if (layer.Paint is { } paint &&
+            (paint.Color is null ||
+             paint.BlendMode != SKBlendMode.SrcOver ||
+             paint.Shader is { } ||
+             paint.ColorFilter is { } ||
+             paint.ImageFilter is { } ||
+             paint.PathEffect is { }))
+        {
+            return false;
+        }
+
+        var depth = 0;
+        for (var i = index + 1; i < commands.Count; i++)
+        {
+            switch (commands[i])
+            {
+                case SaveCanvasCommand or SaveLayerCanvasCommand:
+                    depth++;
+                    break;
+                case RestoreCanvasCommand:
+                    if (depth-- == 0)
+                    {
+                        return true;
+                    }
+                    break;
+                case DrawPictureCanvasCommand { Picture: { } picture } when !EnumerateCommands(picture).All(IsSourceOver):
+                    return false;
+            }
+
+            if (!IsSourceOver(commands[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsSourceOver(CanvasCommand command)
+        => !TryGetPaint(command, out var paint) || paint is null || paint.BlendMode == SKBlendMode.SrcOver;
+
     private static IEnumerable<CanvasCommand> EnumerateCommands(SKPicture picture)
     {
         if (picture.Commands is null)
