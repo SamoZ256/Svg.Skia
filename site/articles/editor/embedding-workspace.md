@@ -9,7 +9,7 @@ title: "Embedding SvgEditorWorkspace"
 ## Install
 
 ```bash
-dotnet add package Svg.Editor.Skia.Avalonia
+dotnet add package SamoZ256.Svg.Editor.Skia.Avalonia --prerelease
 ```
 
 ## Minimal host window

@@ -9,7 +9,7 @@ title: "Svg.Editor.Skia"
 ## Install
 
 ```bash
-dotnet add package Svg.Editor.Skia
+dotnet add package SamoZ256.Svg.Editor.Skia --prerelease
 ```
 
 ## Choose this package when

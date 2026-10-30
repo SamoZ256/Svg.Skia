@@ -15,7 +15,7 @@ against, and the position map that says where in the text each of them was writt
 ## Install
 
 ```bash
-dotnet add package Svg.SourceEditing
+dotnet add package SamoZ256.Svg.SourceEditing --prerelease
 ```
 
 ## Choose this package when

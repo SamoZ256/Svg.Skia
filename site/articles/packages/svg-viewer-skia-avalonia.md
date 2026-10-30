@@ -9,7 +9,7 @@ title: "Svg.Viewer.Skia.Avalonia"
 ## Install
 
 ```bash
-dotnet add package Svg.Viewer.Skia.Avalonia
+dotnet add package SamoZ256.Svg.Viewer.Skia.Avalonia --prerelease
 ```
 
 ## Choose this package when

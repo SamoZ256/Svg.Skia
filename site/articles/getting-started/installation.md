@@ -6,70 +6,75 @@ title: "Installation"
 
 ## NuGet packages
 
+This fork publishes to nuget.org under the `SamoZ256.` prefix, because upstream owns the plain IDs
+there. Every version carries a `-samoz.N` suffix, which makes it a prerelease, hence `--prerelease`.
+The rest of these docs call each package by its project name, `Svg.Skia` for `SamoZ256.Svg.Skia`.
+Do not mix in upstream's packages: both ship the same assemblies.
+
 Core renderer:
 
 ```bash
-dotnet add package Svg.Skia
+dotnet add package SamoZ256.Svg.Skia --prerelease
 ```
 
 Uno control package:
 
 ```bash
-dotnet add package Svg.Controls.Skia.Uno
+dotnet add package SamoZ256.Svg.Controls.Skia.Uno --prerelease
 ```
 
 .NET MAUI control package:
 
 ```bash
-dotnet add package Svg.Controls.Skia.Maui
+dotnet add package SamoZ256.Svg.Controls.Skia.Maui --prerelease
 ```
 
 Avalonia controls backed by Skia:
 
 ```bash
-dotnet add package Svg.Controls.Skia.Avalonia
+dotnet add package SamoZ256.Svg.Controls.Skia.Avalonia --prerelease
 ```
 
 Avalonia controls backed by the Avalonia drawing stack:
 
 ```bash
-dotnet add package Svg.Controls.Avalonia
+dotnet add package SamoZ256.Svg.Controls.Avalonia --prerelease
 ```
 
 Inline SVG authoring for Avalonia XAML:
 
 ```bash
-dotnet add package SvgML.Avalonia
+dotnet add package SamoZ256.SvgML.Avalonia --prerelease
 ```
 
 Inline SVG authoring for .NET MAUI XAML:
 
 ```bash
-dotnet add package SvgML.Maui
+dotnet add package SamoZ256.SvgML.Maui --prerelease
 ```
 
 Inline SVG authoring for Uno Platform XAML:
 
 ```bash
-dotnet add package SvgML.Uno
+dotnet add package SamoZ256.SvgML.Uno --prerelease
 ```
 
 General-purpose Skia controls for Avalonia:
 
 ```bash
-dotnet add package Skia.Controls.Avalonia
+dotnet add package SamoZ256.Skia.Controls.Avalonia --prerelease
 ```
 
 Source generator:
 
 ```bash
-dotnet add package Svg.SourceGenerator.Skia
+dotnet add package SamoZ256.Svg.SourceGenerator.Skia --prerelease
 ```
 
 Converter as a global tool:
 
 ```bash
-dotnet tool install -g Svg.Skia.Converter
+dotnet tool install -g SamoZ256.Svg.Skia.Converter --prerelease
 ```
 
 ## Target frameworks

@@ -9,7 +9,7 @@ title: "Svg.Animation"
 ## Install
 
 ```bash
-dotnet add package Svg.Animation
+dotnet add package SamoZ256.Svg.Animation --prerelease
 ```
 
 ## Choose this package when

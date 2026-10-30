@@ -5,6 +5,8 @@ title: "Packages"
 # Packages
 
 This section gives package-by-package coverage for every shippable library NuGet in the repository.
+Each is published to nuget.org with a `SamoZ256.` prefix, `SamoZ256.Svg.Skia` for `Svg.Skia`; see
+[Installation](../getting-started/installation).
 
 Packaged tools such as `Svg.Skia.Converter` and `svgc` stay documented under [Samples and Tools](../reference/samples-and-tools).
 

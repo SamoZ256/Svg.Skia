@@ -9,7 +9,7 @@ title: "CLI Conversion"
 ## Install
 
 ```bash
-dotnet tool install -g Svg.Skia.Converter
+dotnet tool install -g SamoZ256.Svg.Skia.Converter --prerelease
 ```
 
 ## Supported inputs and outputs

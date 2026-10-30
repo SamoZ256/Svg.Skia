@@ -11,7 +11,7 @@ Use [Svg.Controls.Skia.Maui](svg-controls-skia-maui) instead when the SVG alread
 ## Package
 
 ```bash
-dotnet add package SvgML.Maui
+dotnet add package SamoZ256.SvgML.Maui --prerelease
 ```
 
 Current packaged targets:

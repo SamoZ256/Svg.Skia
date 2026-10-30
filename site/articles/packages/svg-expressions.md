@@ -35,7 +35,7 @@ colouring and checking one for a source view is [Svg.Highlighting](svg-highlight
 ## Install
 
 ```bash
-dotnet add package Svg.Expressions
+dotnet add package SamoZ256.Svg.Expressions --prerelease
 ```
 
 You need it directly only to lex, parse or type-check expression text yourself. The packages above

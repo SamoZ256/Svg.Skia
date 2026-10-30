@@ -9,7 +9,7 @@ Use `Svg.Editor.Avalonia` when you want reusable editor UI parts without taking 
 ## Install
 
 ```bash
-dotnet add package Svg.Editor.Avalonia
+dotnet add package SamoZ256.Svg.Editor.Avalonia --prerelease
 ```
 
 If your custom shell also wants the reusable Skia-backed canvas shown below, reference `Svg.Editor.Skia.Avalonia` alongside `Svg.Editor.Avalonia`.

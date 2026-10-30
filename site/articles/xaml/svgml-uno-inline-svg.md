@@ -11,7 +11,7 @@ title: "SvgML.Uno Inline SVG"
 Install the package:
 
 ```bash
-dotnet add package SvgML.Uno
+dotnet add package SamoZ256.SvgML.Uno --prerelease
 ```
 
 Uno's current XAML source generator still expects third-party controls to arrive through explicit CLR namespace mappings. The reliable prefix-free pattern is to scope `xmlns="using:SvgML"` on the inline SVG subtree itself.

@@ -9,7 +9,7 @@ title: "Svg.Custom"
 ## Install
 
 ```bash
-dotnet add package Svg.Custom
+dotnet add package SamoZ256.Svg.Custom --prerelease
 ```
 
 ## Choose this package when

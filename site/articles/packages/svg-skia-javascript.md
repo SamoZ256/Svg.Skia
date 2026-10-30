@@ -9,7 +9,7 @@ title: "Svg.Skia.JavaScript"
 ## Install
 
 ```bash
-dotnet add package Svg.Skia.JavaScript
+dotnet add package SamoZ256.Svg.Skia.JavaScript --prerelease
 ```
 
 ## Enable JavaScript
