@@ -9,7 +9,7 @@ title: "Svg.Controls.Skia.Maui"
 ## Install
 
 ```bash
-dotnet add package Svg.Controls.Skia.Maui
+dotnet add package SamoZ256.Svg.Controls.Skia.Maui --prerelease
 ```
 
 The control uses SkiaSharp's MAUI host integration. Register it during app startup:

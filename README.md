@@ -5,9 +5,8 @@
 [![Build Status](https://dev.azure.com/wieslawsoltes/GitHub/_apis/build/status/wieslawsoltes.Svg.Skia?branchName=master)](https://dev.azure.com/wieslawsoltes/GitHub/_build/latest?definitionId=93&branchName=master)
 ![CI](https://github.com/wieslawsoltes/Svg.Skia/workflows/CI/badge.svg)
 
-[![NuGet](https://img.shields.io/nuget/v/svg.skia.svg)](https://www.nuget.org/packages/svg.skia)
-[![NuGet](https://img.shields.io/nuget/dt/svg.skia.svg)](https://www.nuget.org/packages/svg.skia)
-[![MyGet](https://img.shields.io/myget/svgskia-nightly/vpre/svg.skia.svg?label=myget)](https://www.myget.org/gallery/svgskia-nightly)
+[![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Skia)
+[![NuGet](https://img.shields.io/nuget/dt/SamoZ256.Svg.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Skia)
 
 [![GitHub release](https://img.shields.io/github/release/wieslawsoltes/svg.skia.svg)](https://github.com/wieslawsoltes/svg.skia)
 [![Github All Releases](https://img.shields.io/github/downloads/wieslawsoltes/svg.skia/total.svg)](https://github.com/wieslawsoltes/svg.skia)
@@ -15,32 +14,40 @@
 
 | Package ID | NuGet | Downloads |
 | --- | --- | --- |
-| `ShimSkiaSharp` | [![NuGet](https://img.shields.io/nuget/v/ShimSkiaSharp.svg)](https://www.nuget.org/packages/ShimSkiaSharp/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/ShimSkiaSharp.svg)](https://www.nuget.org/packages/ShimSkiaSharp/) |
-| `Skia.Controls.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Skia.Controls.Avalonia.svg)](https://www.nuget.org/packages/Skia.Controls.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Skia.Controls.Avalonia.svg)](https://www.nuget.org/packages/Skia.Controls.Avalonia/) |
-| `Svg.Animation` | [![NuGet](https://img.shields.io/nuget/v/Svg.Animation.svg)](https://www.nuget.org/packages/Svg.Animation/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Animation.svg)](https://www.nuget.org/packages/Svg.Animation/) |
-| `Svg.CodeGen.Skia` | [![NuGet](https://img.shields.io/nuget/v/Svg.CodeGen.Skia.svg)](https://www.nuget.org/packages/Svg.CodeGen.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.CodeGen.Skia.svg)](https://www.nuget.org/packages/Svg.CodeGen.Skia/) |
-| `Svg.Controls.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Controls.Avalonia.svg)](https://www.nuget.org/packages/Svg.Controls.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Controls.Avalonia.svg)](https://www.nuget.org/packages/Svg.Controls.Avalonia/) |
-| `Svg.Controls.Skia.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Controls.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Controls.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Avalonia/) |
-| `Svg.Controls.Skia.Maui` | [![NuGet](https://img.shields.io/nuget/v/Svg.Controls.Skia.Maui.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Maui/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Controls.Skia.Maui.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Maui/) |
-| `Svg.Controls.Skia.Uno` | [![NuGet](https://img.shields.io/nuget/v/Svg.Controls.Skia.Uno.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Uno/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Controls.Skia.Uno.svg)](https://www.nuget.org/packages/Svg.Controls.Skia.Uno/) |
-| `Svg.Custom` | [![NuGet](https://img.shields.io/nuget/v/Svg.Custom.svg)](https://www.nuget.org/packages/Svg.Custom/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Custom.svg)](https://www.nuget.org/packages/Svg.Custom/) |
-| `Svg.Editor.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Avalonia.svg)](https://www.nuget.org/packages/Svg.Editor.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Avalonia.svg)](https://www.nuget.org/packages/Svg.Editor.Avalonia/) |
-| `Svg.Editor.Core` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Core.svg)](https://www.nuget.org/packages/Svg.Editor.Core/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Core.svg)](https://www.nuget.org/packages/Svg.Editor.Core/) |
-| `Svg.Editor.Skia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Skia.svg)](https://www.nuget.org/packages/Svg.Editor.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Skia.svg)](https://www.nuget.org/packages/Svg.Editor.Skia/) |
-| `Svg.Editor.Skia.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Editor.Skia.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Editor.Skia.Avalonia/) |
-| `Svg.Editor.Svg` | [![NuGet](https://img.shields.io/nuget/v/Svg.Editor.Svg.svg)](https://www.nuget.org/packages/Svg.Editor.Svg/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Editor.Svg.svg)](https://www.nuget.org/packages/Svg.Editor.Svg/) |
-| `Svg.Model` | [![NuGet](https://img.shields.io/nuget/v/Svg.Model.svg)](https://www.nuget.org/packages/Svg.Model/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Model.svg)](https://www.nuget.org/packages/Svg.Model/) |
-| `Svg.SceneGraph` | [![NuGet](https://img.shields.io/nuget/v/Svg.SceneGraph.svg)](https://www.nuget.org/packages/Svg.SceneGraph/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.SceneGraph.svg)](https://www.nuget.org/packages/Svg.SceneGraph/) |
-| `Svg.Skia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Skia.svg)](https://www.nuget.org/packages/Svg.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Skia.svg)](https://www.nuget.org/packages/Svg.Skia/) |
-| `Svg.Skia.JavaScript` | [![NuGet](https://img.shields.io/nuget/v/Svg.Skia.JavaScript.svg)](https://www.nuget.org/packages/Svg.Skia.JavaScript/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Skia.JavaScript.svg)](https://www.nuget.org/packages/Svg.Skia.JavaScript/) |
-| `Svg.Skia.Converter` | [![NuGet](https://img.shields.io/nuget/v/Svg.Skia.Converter.svg)](https://www.nuget.org/packages/Svg.Skia.Converter/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Skia.Converter.svg)](https://www.nuget.org/packages/Svg.Skia.Converter/) |
-| `Svg.Viewer.Skia.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/Svg.Viewer.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Viewer.Skia.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.Viewer.Skia.Avalonia.svg)](https://www.nuget.org/packages/Svg.Viewer.Skia.Avalonia/) |
-| `Svg.SourceGenerator.Skia` | [![NuGet](https://img.shields.io/nuget/v/Svg.SourceGenerator.Skia.svg)](https://www.nuget.org/packages/Svg.SourceGenerator.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/Svg.SourceGenerator.Skia.svg)](https://www.nuget.org/packages/Svg.SourceGenerator.Skia/) |
-| `SvgML.Avalonia` | [![NuGet](https://img.shields.io/nuget/v/SvgML.Avalonia.svg)](https://www.nuget.org/packages/SvgML.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SvgML.Avalonia.svg)](https://www.nuget.org/packages/SvgML.Avalonia/) |
-| `SvgML.Maui` | [![NuGet](https://img.shields.io/nuget/v/SvgML.Maui.svg)](https://www.nuget.org/packages/SvgML.Maui/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SvgML.Maui.svg)](https://www.nuget.org/packages/SvgML.Maui/) |
-| `SvgML.Uno` | [![NuGet](https://img.shields.io/nuget/v/SvgML.Uno.svg)](https://www.nuget.org/packages/SvgML.Uno/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SvgML.Uno.svg)](https://www.nuget.org/packages/SvgML.Uno/) |
-| `svgc` | [![NuGet](https://img.shields.io/nuget/v/svgc.svg)](https://www.nuget.org/packages/svgc/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/svgc.svg)](https://www.nuget.org/packages/svgc/) |
-| `SvgToPng` | [![NuGet](https://img.shields.io/nuget/v/SvgToPng.svg)](https://www.nuget.org/packages/SvgToPng/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SvgToPng.svg)](https://www.nuget.org/packages/SvgToPng/) |
+| `SamoZ256.ShimSkiaSharp` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.ShimSkiaSharp.svg)](https://www.nuget.org/packages/SamoZ256.ShimSkiaSharp/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.ShimSkiaSharp.svg)](https://www.nuget.org/packages/SamoZ256.ShimSkiaSharp/) |
+| `SamoZ256.Skia.Controls.Avalonia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Skia.Controls.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Skia.Controls.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Skia.Controls.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Skia.Controls.Avalonia/) |
+| `SamoZ256.Svg.Animation` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Animation.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Animation/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Animation.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Animation/) |
+| `SamoZ256.Svg.CodeGen.Skia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.CodeGen.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.CodeGen.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.CodeGen.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.CodeGen.Skia/) |
+| `SamoZ256.Svg.CodeGen.Skia.Projects` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.CodeGen.Skia.Projects.svg)](https://www.nuget.org/packages/SamoZ256.Svg.CodeGen.Skia.Projects/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.CodeGen.Skia.Projects.svg)](https://www.nuget.org/packages/SamoZ256.Svg.CodeGen.Skia.Projects/) |
+| `SamoZ256.Svg.Controls.Avalonia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Controls.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Controls.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Avalonia/) |
+| `SamoZ256.Svg.Controls.Skia.Avalonia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Controls.Skia.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Controls.Skia.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Avalonia/) |
+| `SamoZ256.Svg.Controls.Skia.Maui` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Controls.Skia.Maui.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Maui/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Controls.Skia.Maui.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Maui/) |
+| `SamoZ256.Svg.Controls.Skia.Uno` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Controls.Skia.Uno.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Uno/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Controls.Skia.Uno.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Uno/) |
+| `SamoZ256.Svg.Custom` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Custom.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Custom/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Custom.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Custom/) |
+| `SamoZ256.Svg.Editor.Avalonia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Avalonia/) |
+| `SamoZ256.Svg.Editor.Core` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Core.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Core/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Core.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Core/) |
+| `SamoZ256.Svg.Editor.Skia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Skia/) |
+| `SamoZ256.Svg.Editor.Skia.Avalonia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Skia.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Skia.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Skia.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Skia.Avalonia/) |
+| `SamoZ256.Svg.Editor.Svg` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Svg.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Svg/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Svg.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Svg/) |
+| `SamoZ256.Svg.Expressions` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Expressions.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Expressions/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Expressions.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Expressions/) |
+| `SamoZ256.Svg.Expressions.Recipes` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Expressions.Recipes.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Expressions.Recipes/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Expressions.Recipes.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Expressions.Recipes/) |
+| `SamoZ256.Svg.Highlighting` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Highlighting.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Highlighting/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Highlighting.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Highlighting/) |
+| `SamoZ256.Svg.JavaScript` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.JavaScript.svg)](https://www.nuget.org/packages/SamoZ256.Svg.JavaScript/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.JavaScript.svg)](https://www.nuget.org/packages/SamoZ256.Svg.JavaScript/) |
+| `SamoZ256.Svg.Model` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Model.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Model/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Model.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Model/) |
+| `SamoZ256.Svg.PaintCode` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.PaintCode.svg)](https://www.nuget.org/packages/SamoZ256.Svg.PaintCode/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.PaintCode.svg)](https://www.nuget.org/packages/SamoZ256.Svg.PaintCode/) |
+| `SamoZ256.Svg.SceneGraph` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.SceneGraph.svg)](https://www.nuget.org/packages/SamoZ256.Svg.SceneGraph/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.SceneGraph.svg)](https://www.nuget.org/packages/SamoZ256.Svg.SceneGraph/) |
+| `SamoZ256.Svg.Skia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Skia/) |
+| `SamoZ256.Svg.Skia.Converter` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Skia.Converter.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Skia.Converter/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Skia.Converter.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Skia.Converter/) |
+| `SamoZ256.Svg.Skia.JavaScript` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Skia.JavaScript.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Skia.JavaScript/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Skia.JavaScript.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Skia.JavaScript/) |
+| `SamoZ256.Svg.SourceEditing` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.SourceEditing.svg)](https://www.nuget.org/packages/SamoZ256.Svg.SourceEditing/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.SourceEditing.svg)](https://www.nuget.org/packages/SamoZ256.Svg.SourceEditing/) |
+| `SamoZ256.Svg.SourceGenerator.Skia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.SourceGenerator.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.SourceGenerator.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.SourceGenerator.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.SourceGenerator.Skia/) |
+| `SamoZ256.Svg.Studio.Projects` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Studio.Projects.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Studio.Projects/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Studio.Projects.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Studio.Projects/) |
+| `SamoZ256.Svg.Viewer.Skia.Avalonia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Viewer.Skia.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Viewer.Skia.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Viewer.Skia.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Viewer.Skia.Avalonia/) |
+| `SamoZ256.svgc` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.svgc.svg)](https://www.nuget.org/packages/SamoZ256.svgc/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.svgc.svg)](https://www.nuget.org/packages/SamoZ256.svgc/) |
+| `SamoZ256.SvgML.Avalonia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.SvgML.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.SvgML.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.SvgML.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.SvgML.Avalonia/) |
+| `SamoZ256.SvgML.Maui` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.SvgML.Maui.svg)](https://www.nuget.org/packages/SamoZ256.SvgML.Maui/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.SvgML.Maui.svg)](https://www.nuget.org/packages/SamoZ256.SvgML.Maui/) |
+| `SamoZ256.SvgML.Uno` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.SvgML.Uno.svg)](https://www.nuget.org/packages/SamoZ256.SvgML.Uno/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.SvgML.Uno.svg)](https://www.nuget.org/packages/SamoZ256.SvgML.Uno/) |
+| `SamoZ256.SvgToPng` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.SvgToPng.svg)](https://www.nuget.org/packages/SamoZ256.SvgToPng/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.SvgToPng.svg)](https://www.nuget.org/packages/SamoZ256.SvgToPng/) |
 
 *Svg.Skia* is an [SVG](https://en.wikipedia.org/wiki/Scalable_Vector_Graphics) rendering library.
 
@@ -99,20 +106,14 @@ and [SVG 2 static subset support](site/articles/reference/svg-2-static-subset-su
 
 ## NuGet
 
-Svg.Skia is delivered as a NuGet package.
+This fork's packages are on nuget.org under the `SamoZ256.` prefix, because upstream owns the plain
+IDs there; the package table above lists them all. Every version carries a `-samoz.N` suffix, so ask
+for prereleases:
 
-You can find the packages here [NuGet](https://www.nuget.org/packages/Svg.Skia/) and install the package like this:
+`Install-Package SamoZ256.Svg.Skia -Pre`
 
-`Install-Package Svg.Skia`
-
-or by using nightly build feed:
-* Add `https://www.myget.org/F/svgskia-nightly/api/v2` to your package sources
-* Alternative nightly build feed `https://pkgs.dev.azure.com/wieslawsoltes/GitHub/_packaging/Nightly/nuget/v3/index.json`
-* Update your package using `Svg.Skia` feed
-
-and install the package like this:
-
-`Install-Package Svg.Skia -Pre`
+The assemblies inside keep upstream's names, so do not reference upstream's `Svg.Skia` packages
+alongside these.
 
 ## Usage
 
@@ -121,11 +122,11 @@ and install the package like this:
 #### Install Package
 
 ```
-dotnet add package Svg.Skia
+dotnet add package SamoZ256.Svg.Skia --prerelease
 ```
 
 ```
-Install-Package Svg.Skia
+Install-Package SamoZ256.Svg.Skia -Pre
 ```
 
 #### Linux native assets
@@ -137,7 +138,7 @@ prefer `SkiaSharp.NativeAssets.Linux.NoDependencies` instead of
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Svg.Skia" Version="..." />
+  <PackageReference Include="SamoZ256.Svg.Skia" Version="..." />
   <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="..." />
 </ItemGroup>
 ```
@@ -165,7 +166,7 @@ RID-specific applications for Alpine Linux, use a musl RID such as
 JavaScript support is opt-in:
 
 ```
-dotnet add package Svg.Skia.JavaScript
+dotnet add package SamoZ256.Svg.Skia.JavaScript --prerelease
 ```
 
 ```C#
@@ -394,11 +395,11 @@ compatibility bridging back into `SvgElement` mouse events.
 #### Install Package
 
 ```
-dotnet add package Svg.Controls.Skia.Avalonia
+dotnet add package SamoZ256.Svg.Controls.Skia.Avalonia --prerelease
 ```
 
 ```
-Install-Package Svg.Controls.Skia.Avalonia
+Install-Package SamoZ256.Svg.Controls.Skia.Avalonia -Pre
 ```
 
 ### Svg control
@@ -643,19 +644,19 @@ Use `SvgML.Maui` when the SVG element tree itself should be authored inline in
 #### Install Package
 
 ```
-dotnet add package Svg.Controls.Skia.Maui
+dotnet add package SamoZ256.Svg.Controls.Skia.Maui --prerelease
 ```
 
 ```
-dotnet add package SvgML.Maui
+dotnet add package SamoZ256.SvgML.Maui --prerelease
 ```
 
 ```
-Install-Package Svg.Controls.Skia.Maui
+Install-Package SamoZ256.Svg.Controls.Skia.Maui -Pre
 ```
 
 ```
-Install-Package SvgML.Maui
+Install-Package SamoZ256.SvgML.Maui -Pre
 ```
 
 Register the SkiaSharp MAUI host during startup. Add `UseSvgML()` only when
@@ -710,11 +711,11 @@ The MAUI packages currently target Android, iOS, and Mac Catalyst. See the
 #### Install Package
 
 ```
-dotnet add package Skia.Controls.Avalonia
+dotnet add package SamoZ256.Skia.Controls.Avalonia --prerelease
 ```
 
 ```
-Install-Package Skia.Controls.Avalonia
+Install-Package SamoZ256.Skia.Controls.Avalonia -Pre
 ```
 
 #### Canvas
@@ -734,7 +735,7 @@ CanvasControl.Draw += (_, e) =>
 ### Command-line tool
 
 ```
-dotnet tool install -g Svg.Skia.Converter
+dotnet tool install -g SamoZ256.Svg.Skia.Converter --prerelease
 ```
 
 ```
@@ -788,7 +789,7 @@ Add NuGet package reference to your `csproj`.
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Svg.SourceGenerator.Skia" Version="0.5.0" />
+  <PackageReference Include="SamoZ256.Svg.SourceGenerator.Skia" Version="*-*" />
 </ItemGroup>
 ```
 
@@ -822,8 +823,8 @@ public void Draw(SKCanvas canvas)
 ```
 ```xml
 <ItemGroup>
-  <PackageReference Include="Svg.SourceGenerator.Skia" Version="0.5.0" />
-  <PackageReference Include="Skia.Controls.Avalonia" Version="0.5.0" />
+  <PackageReference Include="SamoZ256.Svg.SourceGenerator.Skia" Version="*-*" />
+  <PackageReference Include="SamoZ256.Skia.Controls.Avalonia" Version="*-*" />
 </ItemGroup>
 ```
 
@@ -851,7 +852,7 @@ public void Draw(SKCanvas canvas)
 ### svgc Usage
 
 ```
-dotnet tool install -g svgc
+dotnet tool install -g SamoZ256.svgc --prerelease
 ```
 
 ```

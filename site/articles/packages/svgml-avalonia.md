@@ -11,7 +11,7 @@ The NuGet package name is `SvgML.Avalonia`, while the CLR namespace exposed to A
 ## Install
 
 ```bash
-dotnet add package SvgML.Avalonia
+dotnet add package SamoZ256.SvgML.Avalonia --prerelease
 ```
 
 ## Choose this package when

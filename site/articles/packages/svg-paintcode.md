@@ -17,7 +17,7 @@ written in double braces.
 ## Install
 
 ```bash
-dotnet add package Svg.PaintCode
+dotnet add package SamoZ256.Svg.PaintCode --prerelease
 ```
 
 ## Use it

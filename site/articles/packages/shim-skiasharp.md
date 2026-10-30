@@ -9,7 +9,7 @@ title: "ShimSkiaSharp"
 ## Install
 
 ```bash
-dotnet add package ShimSkiaSharp
+dotnet add package SamoZ256.ShimSkiaSharp --prerelease
 ```
 
 ## Choose this package when

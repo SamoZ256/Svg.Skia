@@ -25,7 +25,6 @@
 
   <PropertyGroup>
     <Description>The SVG expression language: lexer, parser and type checker, shared by the code generator and by runtime evaluation.</Description>
-    <PackageId>Svg.Expressions</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;expressions;parser;compiler;csharp;graphics</PackageTags>
   </PropertyGroup>

@@ -7,7 +7,7 @@ title: "Quickstart: Uno"
 ## Install
 
 ```bash
-dotnet add package Svg.Controls.Skia.Uno
+dotnet add package SamoZ256.Svg.Controls.Skia.Uno --prerelease
 ```
 
 ## Render a packaged asset

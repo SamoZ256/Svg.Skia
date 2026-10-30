@@ -57,9 +57,8 @@ jobs:
               IS_PRERELEASE="false"
             fi
           fi
-          # Only the suffix reaches the packages; the prefixes stay in Directory.Build.props. A fork
-          # release without one would be 5.2.2, which upstream owns on nuget.org, and whichever of the
-          # two a machine cached first silently wins.
+          # Only the suffix reaches the packages; the prefixes stay in Directory.Build.props, tracking
+          # upstream's, so the suffix is what numbers successive fork releases of the same base.
           if [[ "$VERSION" != *"-"* ]]; then
             echo "::error::Tag a fork release with a suffix, e.g. v5.2.2-samoz.1"
             exit 1
@@ -203,11 +202,11 @@ jobs:
           retention-days: 90
 
   publish-nuget:
-    name: Publish to GitHub Packages
+    name: Publish to nuget.org
     runs-on: ubuntu-latest
     needs: [build, pack, pack-maui]
     permissions:
-      packages: write
+      id-token: write
     steps:
       - name: Download NuGet packages
         uses: actions/download-artifact@v4
@@ -226,16 +225,23 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Not nuget.org: upstream owns most of these IDs there. GitHub Packages takes no .snupkg, and
-      # none are made — SourceLink.props embeds the PDBs instead.
-      - name: Publish to GitHub Packages
+      # Trusted Publishing: nuget.org trades this job's OIDC token for an API key that lasts an hour,
+      # under a policy for SamoZ256/Svg.Skia and release.yml that may publish new SamoZ256.* IDs.
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # No .snupkg is made: SourceLink.props embeds the PDBs instead.
+      - name: Publish to nuget.org
         run: |
           shopt -s nullglob
           for package in packages/*.nupkg; do
             echo "Publishing $package..."
             dotnet nuget push "$package" \
-              --api-key ${{ secrets.GITHUB_TOKEN }} \
-              --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json \
+              --api-key ${{ steps.login.outputs.NUGET_API_KEY }} \
+              --source https://api.nuget.org/v3/index.json \
               --skip-duplicate
           done
 

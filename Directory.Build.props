@@ -8,11 +8,13 @@
     <UnoVersionSuffix>$(VersionSuffix)</UnoVersionSuffix>
     <MauiVersionPrefix>10.0.0.12</MauiVersionPrefix>
     <MauiVersionSuffix>$(VersionSuffix)</MauiVersionSuffix>
-    <Authors>Wiesław Šoltés</Authors>
+    <!-- Upstream owns the unprefixed IDs on nuget.org. The assemblies keep their names, so an
+         app that also gets upstream's package transitively has two Svg.Skia.dll to choose from. -->
+    <PackageId>SamoZ256.$(MSBuildProjectName)</PackageId>
+    <Authors>Wiesław Šoltés, SamoZ256</Authors>
     <Company>Wiesław Šoltés</Company>
     <Copyright>Copyright © Wiesław Šoltés 2026</Copyright>
-    <PackageProjectUrl>https://github.com/wieslawsoltes/Svg.Skia</PackageProjectUrl>
-    <PackageIconUrl>https://raw.githubusercontent.com/wieslawsoltes/Svg.Skia/master/icon/SvgToPng.png</PackageIconUrl>
+    <PackageProjectUrl>https://github.com/SamoZ256/Svg.Skia</PackageProjectUrl>
   </PropertyGroup>
   <PropertyGroup>
     <AnalysisLevel>latest</AnalysisLevel>

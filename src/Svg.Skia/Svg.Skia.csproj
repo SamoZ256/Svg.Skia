@@ -24,7 +24,6 @@
 
   <PropertyGroup>
     <Description>An SVG rendering library.</Description>
-    <PackageId>Svg.Skia</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;vector graphics;rendering;2d;graphics;geometry;shapes;skiasharp;skia</PackageTags>
   </PropertyGroup>

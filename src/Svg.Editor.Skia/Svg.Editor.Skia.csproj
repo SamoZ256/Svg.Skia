@@ -12,7 +12,6 @@
 
   <PropertyGroup>
     <Description>Rendering and interaction helpers for the reusable SVG editor stack.</Description>
-    <PackageId>Svg.Editor.Skia</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;editor;rendering;hit-testing;skia</PackageTags>
   </PropertyGroup>

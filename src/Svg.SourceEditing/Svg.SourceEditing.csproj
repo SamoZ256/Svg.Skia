@@ -16,7 +16,6 @@
 
   <PropertyGroup>
     <Description>Edits the SVG expression extension's declarations as spans of a document's own text, so an editor can add or change a parameter without reformatting the file around it.</Description>
-    <PackageId>Svg.SourceEditing</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;expressions;editing;authoring;text;graphics</PackageTags>
   </PropertyGroup>

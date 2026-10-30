@@ -28,7 +28,6 @@
 
   <PropertyGroup>
     <Description>Custom build of the SVG rendering library.</Description>
-    <PackageId>Svg.Custom</PackageId>
     <PackageLicenseExpression>MS-PL</PackageLicenseExpression>
     <PackageTags>svg;vector graphics;rendering;2d;graphics;geometry;shapes</PackageTags>
   </PropertyGroup>

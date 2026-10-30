@@ -11,7 +11,7 @@ title: "SvgML.Maui Inline SVG"
 Install the package:
 
 ```bash
-dotnet add package SvgML.Maui
+dotnet add package SamoZ256.SvgML.Maui --prerelease
 ```
 
 Register the MAUI integrations during app startup:

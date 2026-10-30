@@ -10,7 +10,6 @@
     <NoWarn>CS1591</NoWarn>
     <IsPackable>true</IsPackable>
     <RootNamespace>Uno.Svg.Skia</RootNamespace>
-    <PackageId>Svg.Controls.Skia.Uno</PackageId>
     <Description>SVG controls for Uno Platform backed by Svg.Skia and SKCanvasElement.</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageTags>svg;skia;skiasharp;uno;winui;xaml;control;rendering</PackageTags>

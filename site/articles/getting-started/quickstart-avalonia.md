@@ -9,7 +9,7 @@ title: "Quickstart: Avalonia"
 Install:
 
 ```bash
-dotnet add package Svg.Controls.Skia.Avalonia
+dotnet add package SamoZ256.Svg.Controls.Skia.Avalonia --prerelease
 ```
 
 Render a file directly:
@@ -47,7 +47,7 @@ Use an SVG-backed brush:
 Install:
 
 ```bash
-dotnet add package Svg.Controls.Avalonia
+dotnet add package SamoZ256.Svg.Controls.Avalonia --prerelease
 ```
 
 The XAML shape is similar, but the namespace changes:

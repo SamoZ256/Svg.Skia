@@ -11,7 +11,7 @@ It depends on `Svg.Expressions` for the expression language's own lexer and chec
 ## Install
 
 ```bash
-dotnet add package Svg.Highlighting
+dotnet add package SamoZ256.Svg.Highlighting --prerelease
 ```
 
 ## Choose this package when

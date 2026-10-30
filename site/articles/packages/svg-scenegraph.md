@@ -9,7 +9,7 @@ title: "Svg.SceneGraph"
 ## Install
 
 ```bash
-dotnet add package Svg.SceneGraph
+dotnet add package SamoZ256.Svg.SceneGraph --prerelease
 ```
 
 ## Choose this package when

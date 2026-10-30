@@ -13,7 +13,6 @@
 
   <PropertyGroup>
     <Description>Reusable Avalonia views and controls for the SVG editor stack.</Description>
-    <PackageId>Svg.Editor.Avalonia</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;editor;avalonia;controls;panels</PackageTags>
   </PropertyGroup>

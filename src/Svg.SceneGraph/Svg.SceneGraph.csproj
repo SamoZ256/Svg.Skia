@@ -23,7 +23,6 @@
 
   <PropertyGroup>
     <Description>Retained SVG scene graph core.</Description>
-    <PackageId>Svg.SceneGraph</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;scene graph;rendering;2d;graphics;geometry;shapes;model</PackageTags>
   </PropertyGroup>

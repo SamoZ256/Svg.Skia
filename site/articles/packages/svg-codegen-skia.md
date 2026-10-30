@@ -9,7 +9,7 @@ title: "Svg.CodeGen.Skia"
 ## Install
 
 ```bash
-dotnet add package Svg.CodeGen.Skia
+dotnet add package SamoZ256.Svg.CodeGen.Skia --prerelease
 ```
 
 ## Choose this package when

@@ -12,7 +12,6 @@
 
   <PropertyGroup>
     <Description>Core editor session and document state abstractions for SVG editing.</Description>
-    <PackageId>Svg.Editor.Core</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;editor;state;session;avalonia;skia</PackageTags>
   </PropertyGroup>

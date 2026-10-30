@@ -9,7 +9,7 @@ title: "Svg.Controls.Avalonia"
 ## Install
 
 ```bash
-dotnet add package Svg.Controls.Avalonia
+dotnet add package SamoZ256.Svg.Controls.Avalonia --prerelease
 ```
 
 ## Choose this package when

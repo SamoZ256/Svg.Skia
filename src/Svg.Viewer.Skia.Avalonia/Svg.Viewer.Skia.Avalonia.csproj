@@ -13,7 +13,6 @@
 
   <PropertyGroup>
     <Description>Reusable Avalonia SVG viewer: open a drawing, zoom and pan it, and drive the parameters it declares through the SVG expression extension.</Description>
-    <PackageId>Svg.Viewer.Skia.Avalonia</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;viewer;avalonia;skia;zoom;pan;expressions;parameters</PackageTags>
   </PropertyGroup>

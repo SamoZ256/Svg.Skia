@@ -9,7 +9,7 @@ title: "SvgML.Uno"
 ## Package
 
 ```bash
-dotnet add package SvgML.Uno
+dotnet add package SamoZ256.SvgML.Uno --prerelease
 ```
 
 Current package target:

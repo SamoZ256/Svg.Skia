@@ -9,7 +9,7 @@ title: "Svg.Editor.Svg"
 ## Install
 
 ```bash
-dotnet add package Svg.Editor.Svg
+dotnet add package SamoZ256.Svg.Editor.Svg --prerelease
 ```
 
 ## Choose this package when

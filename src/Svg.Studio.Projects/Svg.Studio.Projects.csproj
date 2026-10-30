@@ -13,7 +13,6 @@
 
   <PropertyGroup>
     <Description>Reads and writes Svg Studio's .svgstudio projects, and exports one to C# the way the app's File → Export… does, without the app.</Description>
-    <PackageId>Svg.Studio.Projects</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;skia;skiasharp;codegen;project;studio;graphics</PackageTags>
   </PropertyGroup>

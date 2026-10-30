@@ -12,7 +12,6 @@
 
   <PropertyGroup>
     <Description>SVG document mutation services and models for the reusable editor stack.</Description>
-    <PackageId>Svg.Editor.Svg</PackageId>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;editor;document;properties;resources</PackageTags>
   </PropertyGroup>

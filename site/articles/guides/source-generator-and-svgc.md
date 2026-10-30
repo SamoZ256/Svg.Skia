@@ -19,7 +19,7 @@ Add the package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Svg.SourceGenerator.Skia" Version="*" />
+  <PackageReference Include="SamoZ256.Svg.SourceGenerator.Skia" Version="*-*" />
 </ItemGroup>
 ```
 

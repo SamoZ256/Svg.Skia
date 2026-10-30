@@ -9,7 +9,7 @@ title: "Svg.Model"
 ## Install
 
 ```bash
-dotnet add package Svg.Model
+dotnet add package SamoZ256.Svg.Model --prerelease
 ```
 
 ## Choose this package when
