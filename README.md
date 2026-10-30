@@ -801,7 +801,8 @@ Include `svg` assets file in your `csproj`.
 </ItemGroup>
 ```
 
-Use generated `SKPicture` using static `Picture` property from `Sample` class.
+Draw it with `Sample.Draw`, or call `Sample.Record()` for a picture of your own to keep and dispose;
+the class keeps none.
 
 ```C#
 using SkiaSharp;
@@ -809,7 +810,7 @@ using Assets;
 
 public void Draw(SKCanvas canvas)
 {
-    canvas.DrawPicture(Sample.Picture);
+    Sample.Draw(canvas);
 }
 ```
 
@@ -828,6 +829,14 @@ public void Draw(SKCanvas canvas)
 </ItemGroup>
 ```
 
+`C#`
+```C#
+public static class Pictures
+{
+    public static SKPicture Tiger { get; } = AvaloniaSample.Tiger.Record();
+}
+```
+
 `xaml`
 ```xaml
 <Window xmlns="https://github.com/avaloniaui"
@@ -841,7 +850,7 @@ public void Draw(SKCanvas canvas)
         x:Class="AvaloniaSample.MainWindow"
         Title="AvaloniaSample">
     <Window.Resources>
-        <skp:SKPictureImage x:Key="TigeImage" Source="{x:Static local:Tiger.Picture}" />
+        <skp:SKPictureImage x:Key="TigeImage" Source="{x:Static local:Pictures.Tiger}" />
     </Window.Resources>
     <Grid>
         <Image Source="{StaticResource TigeImage}" />
@@ -874,7 +883,6 @@ Options:
   --emit <emit>                      What the output file receives: csharp, or svg for the document the recipe produced [default: ]
   --singleFile <singlefile>          Emit every drawing of the batch into one C# file at this path [default: ]
   --helperScope <helperscope>        Where shared helpers go in a single file: file (C# 11), internal, or perClass [default: ]
-  --cache <cache>                    Keep the last picture Draw built and reuse it while the arguments are unchanged: none, lastValue or lastValueLocked [default: ]
   --text-layout <text-layout>        What to do with text an expression drives: strict refuses it, baked writes the default in, relaxed draws it from the argument and gives up the layout rules that cannot follow a string [default: ]
   -n, --namespace <namespace>        The generated C# namespace name [default: ]
   -c, --class <class>                The generated C# class name [default: ]
@@ -894,7 +902,7 @@ svgc -i home.svg -o Home.cs --scale 2
 ```
 
 The drawing is resized before it is compiled, so the generated code draws at that size — nothing
-scales the picture afterwards, and `Picture.CullRect` reports the size that was asked for.
+scales the picture afterwards, and the `CullRect` of what `Record()` returns is the size that was asked for.
 
 The aspect ratio is always kept. A width or a height on its own derives the other, and a pair
 that does not match the drawing's own shape fits it into that box and centres it rather than
@@ -921,7 +929,7 @@ A whole build — the drawings and the settings they share — is described by o
 </svgc>
 ```
 
-The settings are `recipe`, `namespace`, `class`, `emit`, `cache`, `helperScope`, `singleFile`,
+The settings are `recipe`, `namespace`, `class`, `emit`, `helperScope`, `singleFile`,
 `skiaSharp`, `width`, `height` and `scale`; an `<svg>` takes `input`, `output`, `namespace`,
 `class`, `recipe`, `width`, `height` and `scale`. Paths resolve against the project's own
 directory, so it describes the same build wherever it is run from.

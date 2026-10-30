@@ -52,7 +52,6 @@ public static class ProjectImport
 
         Carry(source.Root, document.Root);
 
-        document.Root.Cache = source.Root.Cache;
         document.Root.HelperScope = source.Root.HelperScope;
         document.Root.SkiaSharp = source.Root.SkiaSharp;
 

@@ -30,7 +30,7 @@ CanvasControl.Draw += (_, e) =>
 This control is a natural companion to `Svg.Skia` because `SKSvg.Picture` can be assigned directly:
 
 ```xml
-<local:SKPictureControl Picture="{x:Static local:Tiger.Picture}" Stretch="Uniform" />
+<local:SKPictureControl Picture="{x:Static local:Pictures.Tiger}" Stretch="Uniform" />
 ```
 
 ## `SKPictureImage`
@@ -40,7 +40,7 @@ Use `SKPictureImage` when a normal Avalonia `Image` should render an `SKPicture`
 ```xml
 <Image>
   <Image.Source>
-    <local:SKPictureImage Source="{x:Static local:Camera.Picture}" />
+    <local:SKPictureImage Source="{x:Static local:Pictures.Camera}" />
   </Image.Source>
 </Image>
 ```

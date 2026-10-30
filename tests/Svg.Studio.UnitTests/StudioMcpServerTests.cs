@@ -1166,13 +1166,13 @@ public class StudioMcpServerTests : IDisposable
         Assert.DoesNotContain("value", schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
 
         var unknown = await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "colour", ["value"] = "red" });
-        var projects = await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "cache", ["value"] = "lastValue" });
+        var projects = await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "helperScope", ["value"] = "internal" });
         var named = await Call(client, "set_node", new() { ["node"] = "", ["setting"] = "name", ["value"] = "Icons" });
         var nothing = await Call(client, "set_node", new() { ["node"] = "0", ["setting"] = "scale", ["value"] = "0" });
 
         Assert.All(new[] { unknown, projects, named, nothing }, result => Assert.True(result.IsError, Text(result)));
         Assert.StartsWith("0 has no setting called 'colour';", Text(unknown), StringComparison.Ordinal);
-        Assert.StartsWith("0 has no setting called 'cache';", Text(projects), StringComparison.Ordinal);
+        Assert.StartsWith("0 has no setting called 'helperScope';", Text(projects), StringComparison.Ordinal);
         Assert.StartsWith("(project) has no setting called 'name';", Text(named), StringComparison.Ordinal);
         Assert.Contains("has to be a positive number", Text(nothing), StringComparison.Ordinal);
         Assert.False(workspace.CanUndo);

@@ -1096,12 +1096,6 @@ public sealed class ProjectRoot : ProjectGroup
     {
     }
 
-    public SvgPictureCache? Cache
-    {
-        get => Setting("cache") is { } value ? SvgcProject.ParseCache(value) : null;
-        set => Element.SetAttributeValue("cache", value is { } cache ? CacheText(cache) : null);
-    }
-
     public SvgHelperScope? HelperScope
     {
         get => Setting("helperScope") is { } value ? SvgcProject.ParseHelperScope(value) : null;
@@ -1198,14 +1192,6 @@ public sealed class ProjectRoot : ProjectGroup
                 "templates",
                 "A project's templates have to be an <e:templates> block.");
 
-    /// <summary>A cache mode as the file spells it, which is also what the export's picker writes.</summary>
-    internal static string CacheText(SvgPictureCache cache) => cache switch
-    {
-        SvgPictureCache.LastValue => "lastValue",
-        SvgPictureCache.LastValueLocked => "lastValueLocked",
-        _ => "none"
-    };
-
     /// <summary>A helper scope as the file spells it.</summary>
     internal static string ScopeText(SvgHelperScope scope) => scope switch
     {
@@ -1252,7 +1238,7 @@ public sealed class ProjectDocument
 
     private static readonly string[] s_settings =
     {
-        "namespace", "class", "cache", "helperScope", "skiaSharp",
+        "namespace", "class", "helperScope", "skiaSharp",
         "width", "height", "scale", "padding", "api", "resizing", "context", "order", "body", "typeface"
     };
 
@@ -1383,7 +1369,6 @@ public sealed class ProjectDocument
         }
 
         // Touched here so a bad value is a read error rather than a surprise at build time.
-        _ = document.Root.Cache;
         _ = document.Root.HelperScope;
         _ = document.Root.SkiaSharp;
         Validate(document.Root);
@@ -1446,7 +1431,6 @@ public sealed class ProjectDocument
             Root.Namespace,
             Root.Class,
             null,
-            Root.Cache,
             Root.HelperScope,
             Root.SkiaSharp,
             null,

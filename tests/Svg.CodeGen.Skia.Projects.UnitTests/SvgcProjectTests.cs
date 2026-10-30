@@ -20,7 +20,6 @@ public class SvgcProjectTests
               <namespace>HouseIcons</namespace>
               <class>Fallback</class>
               <emit>csharp</emit>
-              <cache>lastValueLocked</cache>
               <helperScope>internal</helperScope>
               <skiaSharp>3</skiaSharp>
               <singleFile>Generated/Icons.cs</singleFile>
@@ -34,7 +33,6 @@ public class SvgcProjectTests
         Assert.Equal("HouseIcons", project.Namespace);
         Assert.Equal("Fallback", project.Class);
         Assert.Equal(SvgEmit.CSharp, project.Emit);
-        Assert.Equal(SvgPictureCache.LastValueLocked, project.Cache);
         Assert.Equal(SvgHelperScope.Internal, project.HelperScope);
         Assert.Equal(SkiaSharpTarget.V3, project.SkiaSharp);
         Assert.Equal(Path.Combine(Base, "Generated/Icons.cs"), project.SingleFile);
@@ -218,7 +216,6 @@ public class SvgcProjectTests
         Assert.Null(project.Namespace);
         Assert.Null(project.Class);
         Assert.Null(project.Emit);
-        Assert.Null(project.Cache);
         Assert.Null(project.HelperScope);
         Assert.Null(project.SkiaSharp);
         Assert.Null(project.SingleFile);
@@ -278,7 +275,7 @@ public class SvgcProjectTests
     [InlineData("""<svgc><svg /></svgc>""", "missing an input")]
     [InlineData("""<project><svg input="a.svg" /></project>""", "must be <svgc>")]
     [InlineData("""<svgc><emit>xml</emit></svgc>""", "not an output format")]
-    [InlineData("""<svgc><cache>always</cache></svgc>""", "not a cache mode")]
+    [InlineData("""<svgc><cache>none</cache></svgc>""", "<cache> is not a project setting")]
     [InlineData("""<svgc><helperScope>global</helperScope></svgc>""", "not a helper scope")]
     [InlineData("""<svgc><skiaSharp>2</skiaSharp></svgc>""", "not a SkiaSharp version")]
     [InlineData("""<svgc><width>wide</width></svgc>""", "not a width")]
@@ -306,12 +303,6 @@ public class SvgcProjectTests
     [InlineData("", SvgEmit.CSharp)]
     [InlineData(null, SvgEmit.CSharp)]
     public void Emit_Values(string? value, SvgEmit expected) => Assert.Equal(expected, SvgcProject.ParseEmit(value));
-
-    [Theory]
-    [InlineData("none", SvgPictureCache.None)]
-    [InlineData("lastValue", SvgPictureCache.LastValue)]
-    [InlineData("lastValueLocked", SvgPictureCache.LastValueLocked)]
-    public void Cache_Values(string value, SvgPictureCache expected) => Assert.Equal(expected, SvgcProject.ParseCache(value));
 
     [Theory]
     [InlineData("strict", SvgTextLayout.Strict)]

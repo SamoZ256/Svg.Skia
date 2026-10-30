@@ -98,15 +98,19 @@ public class SkiaCSharpRenderTests
             Assert.Equal(new SKRect(rect.Left, rect.Top, rect.Right, rect.Bottom), type!.GetField(name, BindingFlags.Public | BindingFlags.Static)!.GetValue(null));
         }
 
-        // A document with no declarations generates `private static SKPicture Record()`; one with
-        // parameters generates a public one taking them.
-        var record = type!.GetMethod("Record", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+        var record = type!.GetMethod("Record", BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(record);
 
         var picture = record!.Invoke(null, arguments) as SKPicture;
         Assert.NotNull(picture);
 
-        return picture!;
+        // Draw disposes the picture it recorded as soon as it has drawn it, which no other row runs.
+        using var recorder = new SKPictureRecorder();
+        type.GetMethod("Draw")!.Invoke(null, new object?[] { recorder.BeginRecording(picture!.CullRect) }.Concat(arguments).ToArray());
+        using var drawn = recorder.EndRecording();
+        AssertSamePicture($"{className}-draw", picture, drawn);
+
+        return picture;
     }
 
     private static Assembly Compile(string code, string name, params string[] alongside)
@@ -191,7 +195,7 @@ public class SkiaCSharpRenderTests
 
         var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
 
-        using var recorded = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, arguments)!;
+        using var recorded = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, arguments)!;
         AssertSamePicture($"{name}-direct", runtime, recorded);
 
         var cull = runtime.CullRect;
@@ -1376,7 +1380,7 @@ public class SkiaCSharpRenderTests
         Assert.DoesNotContain("SKFontManager", code);
 
         var type = Compile(code, "TypefaceTemplate").GetType($"{Namespace}.TypefaceTemplate")!;
-        using var generated = (SKPicture)type.GetMethod("Record", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, null)!;
+        using var generated = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, null)!;
 
         AssertSamePicture("TypefaceTemplate", runtime!, generated);
         AssertDrawsDirectlyTheSame("TypefaceTemplateDirect", model!, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), typeface: template);

@@ -195,7 +195,7 @@ public static class SvgExpressionAttributes
     /// <param name="others">The drawing's other boxes, which a name may not repeat.</param>
     /// <remarks>
     /// Asked by the generator, which refuses the build, and by an editor, which says so while the name
-    /// is typed. <c>Record</c>, <c>Draw</c> and <c>Picture</c> are the generated class's own members.
+    /// is typed. <c>Record</c> and <c>Draw</c> are the generated class's own members.
     /// A keyword is fine, being emitted verbatim.
     /// </remarks>
     public static string? WhyNotBox(string name, string? className, IEnumerable<string> others)
@@ -212,7 +212,7 @@ public static class SvgExpressionAttributes
             return $"'{name}' is not a name a class can declare: use letters, digits and underscore, not starting with a digit.";
         }
 
-        if (name is "Record" or "Draw" or "Picture" || string.Equals(name, className, StringComparison.Ordinal))
+        if (name is "Record" or "Draw" || string.Equals(name, className, StringComparison.Ordinal))
         {
             return $"'{name}' is a name the generated class already uses.";
         }

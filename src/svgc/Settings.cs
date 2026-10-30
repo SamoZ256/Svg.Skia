@@ -13,7 +13,6 @@ internal class Settings
     // setting by matching the option name, so '--singleFile' has to land on 'SingleFile'.
     public System.IO.FileInfo? SingleFile { get; set; }
     public string? HelperScope { get; set; }
-    public string? Cache { get; set; }
     public string? Emit { get; set; }
     public string? SkiaSharp { get; set; }
 

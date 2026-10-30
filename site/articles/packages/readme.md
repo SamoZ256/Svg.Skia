@@ -53,7 +53,7 @@ Packaged tools such as `Svg.Skia.Converter` and `svgc` stay documented under [Sa
 | Package | Start here when | Guide |
 | --- | --- | --- |
 | `Svg.CodeGen.Skia` | You want to turn the intermediate picture model into checked-in or pipeline-generated C# code. | [Svg.CodeGen.Skia](svg-codegen-skia) |
-| `Svg.SourceGenerator.Skia` | You want `.svg` assets turned into generated `Picture` classes during the build. | [Svg.SourceGenerator.Skia](svg-sourcegenerator-skia) |
+| `Svg.SourceGenerator.Skia` | You want `.svg` assets turned into generated picture classes during the build. | [Svg.SourceGenerator.Skia](svg-sourcegenerator-skia) |
 
 ## Choosing quickly
 

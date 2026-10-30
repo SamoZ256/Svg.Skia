@@ -5668,7 +5668,7 @@ public class MainWindowProjectTests : IDisposable
 
         Open(window, window, "Properties");
 
-        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Control>(), control => control.Tag is "skiaSharp" or "cache" or "api");
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Control>(), control => control.Tag is "skiaSharp" or "api");
 
         var dialog = new ExportSettings(window.Workspace!.Document.Root);
         var pickers = dialog.Form.GetLogicalDescendants().OfType<ComboBox>().ToDictionary(picker => (string)picker.Tag!);
@@ -5727,11 +5727,6 @@ public class MainWindowProjectTests : IDisposable
 
         dialog.Set("api", "PaintCodeResources.VectorIconsResource");
         dialog.Set("body", "direct");
-        dialog.Set("cache", "lastValue");
-        Assert.False(dialog.Accept());
-        Assert.Contains("no picture to cache", dialog.Fault);
-
-        dialog.Set("cache", null);
         dialog.Set("order", "accentColorOn level");
         dialog.Set("typeface", "Fonts.Get(\"{family}\")");
         Assert.True(dialog.Accept());
