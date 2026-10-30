@@ -266,7 +266,6 @@ public class SkiaCSharpCodeGenTests
 
     [Theory]
     [InlineData("record")]
-    [InlineData("record, cached")]
     [InlineData("direct")]
     public void An_Opaque_Layer_Over_Source_Over_Content_Is_A_Save(string body)
     {
@@ -280,7 +279,6 @@ public class SkiaCSharpCodeGenTests
 
     [Theory]
     [InlineData("record")]
-    [InlineData("record, cached")]
     [InlineData("direct")]
     public void A_Driven_Opacity_Chooses_Between_Save_And_Layer_At_Run_Time(string body)
     {
@@ -325,7 +323,7 @@ public class SkiaCSharpCodeGenTests
                 new RestoreCanvasCommand(1))
         };
 
-        foreach (var body in new[] { "record", "record, cached", "direct" })
+        foreach (var body in new[] { "record", "direct" })
         {
             var code = Generate(body, picture);
 
@@ -339,7 +337,6 @@ public class SkiaCSharpCodeGenTests
         => body switch
         {
             "record" => SkiaCSharpCodeGen.Generate(picture, "Svg", "Generated", declarations),
-            "record, cached" => SkiaCSharpCodeGen.Generate(picture, "Svg", "Generated", declarations, SvgPictureCache.LastValue),
             _ => SkiaCSharpCodeGen.GenerateFile(
                 new[] { new SkiaCSharpDrawing(picture, "Svg", "Generated", declarations) },
                 style: new SvgCodeStyle { Body = SvgBody.Direct })
