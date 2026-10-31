@@ -172,7 +172,7 @@
 </table>
 <p>The generated class includes:</p>
 <ul>
-<li>a static <code>Picture</code> property,</li>
+<li>a static <code>Record()</code> method returning a new picture, which the caller owns,</li>
 <li>a static <code>Draw(SKCanvas)</code> method,</li>
 <li>all SkiaSharp object creation and disposal logic required to reconstruct the picture.</li>
 </ul>
@@ -208,7 +208,7 @@ if (svg.Load(&quot;Assets/icon.svg&quot;) is not null &amp;&amp; svg.Model is no
 <p>A project build (<code>svgc</code>'s, or Svg Studio's project export) writes it as a constant of the generated class:</p>
 <pre><code class="language-csharp">public static readonly SKRect @LevelRect = new SKRect(2f, 6f, 28f, 24f);
 </code></pre>
-<p>The numbers are in the generated picture's coordinates: after the viewBox, any size or padding the build applies, and every transform above the element, so a turned box gives the upright box around it. A box a parameter moves is measured at the declared defaults, with a warning. The build skips two kinds of mark: one under <code>&lt;defs&gt;</code>, and one with no place of its own in the drawing, such as a mark inside a <code>&lt;clipPath&gt;</code>. It warns about the second. A name that is not letters, digits and underscores, is used twice, or clashes with <code>Record</code>, <code>Draw</code>, <code>Picture</code> or the class itself stops the build. A direct <code>SkiaCSharpCodeGen.GenerateFile</code> caller passes the boxes on <code>SkiaCSharpDrawing</code>. The source generator and Svg Studio's export of a lone drawing ignore the mark. The <a href="/Svg.Skia/articles/packages/svg-paintcode">PaintCode import</a> writes one for every shape named <code>Embed&lt;X&gt;</code>, and <a href="/Svg.Skia/articles/guides/svg-studio#boxes-for-the-code-that-draws-it">Svg Studio</a> shows and names them.</p>
+<p>The numbers are in the generated picture's coordinates: after the viewBox, any size or padding the build applies, and every transform above the element, so a turned box gives the upright box around it. A box a parameter moves is measured at the declared defaults, with a warning. The build skips two kinds of mark: one under <code>&lt;defs&gt;</code>, and one with no place of its own in the drawing, such as a mark inside a <code>&lt;clipPath&gt;</code>. It warns about the second. A name that is not letters, digits and underscores, is used twice, or clashes with <code>Record</code>, <code>Draw</code> or the class itself stops the build. A direct <code>SkiaCSharpCodeGen.GenerateFile</code> caller passes the boxes on <code>SkiaCSharpDrawing</code>. The source generator and Svg Studio's export of a lone drawing ignore the mark. The <a href="/Svg.Skia/articles/packages/svg-paintcode">PaintCode import</a> writes one for every shape named <code>Embed&lt;X&gt;</code>, and <a href="/Svg.Skia/articles/guides/svg-studio#boxes-for-the-code-that-draws-it">Svg Studio</a> shows and names them.</p>
 <h2 id="shaping-the-generated-file">Shaping the generated file</h2>
 <p><code>GenerateFile</code> takes an <code>SvgCodeStyle</code>. Every member left at its default writes the file the
 generator always has, byte for byte. A project build reads the same settings from the project:
@@ -221,7 +221,7 @@ picture and drawing that. Each matrix the drawing sets is composed onto the call
 canvas, so drawing under a transform gives the same pixels as recording and then drawing. A path,
 and a paint that no argument changes, is built once in the static constructor and read from a
 field. A paint that follows an argument is still built on every draw. <code>Record</code> stays, and records
-<code>Draw</code>. A picture cache has nothing to keep in this mode, so the two together are refused.</p>
+<code>Draw</code>.</p>
 <h3 id="naming-typefaces">Naming typefaces</h3>
 <p>The recorded picture holds whatever typeface the compiling machine found. Where <em>SF UI Display</em> is
 not installed, that is <em>Times</em>. <code>typeface</code> replaces the font-manager lookup with an expression from

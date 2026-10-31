@@ -171,7 +171,7 @@
 <h2 id="output-shape">Output shape</h2>
 <p>For each <code>.svg</code> file, the generator emits a C# source file containing a generated class with:</p>
 <ul>
-<li>a static <code>Picture</code> property,</li>
+<li>a static <code>Record()</code> method returning a new picture, which the caller owns,</li>
 <li>a static <code>Draw(SKCanvas)</code> method,</li>
 <li>generated code produced by <a href="/Svg.Skia/articles/packages/svg-codegen-skia">Svg.CodeGen.Skia</a>.</li>
 </ul>
@@ -185,10 +185,17 @@
 <p>Once the build runs, use the generated classes directly:</p>
 <pre><code class="language-csharp">using MyApp.Generated;
 
-var picture = Camera.Picture;
+using var picture = Camera.Record();
 </code></pre>
-<p>In Avalonia, pair it with <a href="/Svg.Skia/articles/packages/skia-controls-avalonia">Skia.Controls.Avalonia</a>:</p>
-<pre><code class="language-xml">&lt;SKPictureControl Picture=&quot;{x:Static local:Camera.Picture}&quot; Stretch=&quot;Uniform&quot; /&gt;
+<p>The class keeps no picture of its own, so keep what <code>Record</code> returns for as long as it is shown. In
+Avalonia, a static of your own is what XAML reaches, paired with
+<a href="/Svg.Skia/articles/packages/skia-controls-avalonia">Skia.Controls.Avalonia</a>:</p>
+<pre><code class="language-csharp">public static class Pictures
+{
+    public static SKPicture Camera { get; } = MyApp.Generated.Camera.Record();
+}
+</code></pre>
+<pre><code class="language-xml">&lt;SKPictureControl Picture=&quot;{x:Static local:Pictures.Camera}&quot; Stretch=&quot;Uniform&quot; /&gt;
 </code></pre>
 <h2 id="important-project-setup-notes">Important project setup notes</h2>
 <ul>

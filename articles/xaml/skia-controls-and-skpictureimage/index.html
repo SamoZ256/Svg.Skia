@@ -162,13 +162,13 @@
 </code></pre>
 <h2 id="skpicturecontrol"><code>SKPictureControl</code></h2>
 <p>This control is a natural companion to <code>Svg.Skia</code> because <code>SKSvg.Picture</code> can be assigned directly:</p>
-<pre><code class="language-xml">&lt;local:SKPictureControl Picture=&quot;{x:Static local:Tiger.Picture}&quot; Stretch=&quot;Uniform&quot; /&gt;
+<pre><code class="language-xml">&lt;local:SKPictureControl Picture=&quot;{x:Static local:Pictures.Tiger}&quot; Stretch=&quot;Uniform&quot; /&gt;
 </code></pre>
 <h2 id="skpictureimage"><code>SKPictureImage</code></h2>
 <p>Use <code>SKPictureImage</code> when a normal Avalonia <code>Image</code> should render an <code>SKPicture</code>:</p>
 <pre><code class="language-xml">&lt;Image&gt;
   &lt;Image.Source&gt;
-    &lt;local:SKPictureImage Source=&quot;{x:Static local:Camera.Picture}&quot; /&gt;
+    &lt;local:SKPictureImage Source=&quot;{x:Static local:Pictures.Camera}&quot; /&gt;
   &lt;/Image.Source&gt;
 &lt;/Image&gt;
 </code></pre>

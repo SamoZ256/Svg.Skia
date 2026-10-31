@@ -209,20 +209,20 @@
 </code></pre>
 <h2 id="skpicturecontrol"><code>SKPictureControl</code></h2>
 <p>This is the natural bridge from <code>Svg.Skia</code> or generated pictures into Avalonia:</p>
-<pre><code class="language-xml">&lt;SKPictureControl Picture=&quot;{x:Static local:Tiger.Picture}&quot;
+<pre><code class="language-xml">&lt;SKPictureControl Picture=&quot;{x:Static local:Pictures.Tiger}&quot;
                   Stretch=&quot;Uniform&quot; /&gt;
 </code></pre>
 <p>It is especially useful with:</p>
 <ul>
 <li><code>SKSvg.Picture</code> from <a href="/Svg.Skia/articles/packages/svg-skia">Svg.Skia</a>,</li>
-<li>generated <code>Picture</code> classes from <a href="/Svg.Skia/articles/packages/svg-sourcegenerator-skia">Svg.SourceGenerator.Skia</a>,</li>
+<li>a picture kept from a generated class's <code>Record()</code>, from <a href="/Svg.Skia/articles/packages/svg-sourcegenerator-skia">Svg.SourceGenerator.Skia</a>,</li>
 <li>picture output produced by your own SkiaSharp pipeline.</li>
 </ul>
 <h2 id="skpictureimage"><code>SKPictureImage</code></h2>
 <p>When an Avalonia <code>Image</code> needs to display a picture instead of a control hosting it:</p>
 <pre><code class="language-xml">&lt;Image&gt;
   &lt;Image.Source&gt;
-    &lt;SKPictureImage Source=&quot;{x:Static local:Camera.Picture}&quot; /&gt;
+    &lt;SKPictureImage Source=&quot;{x:Static local:Pictures.Camera}&quot; /&gt;
   &lt;/Image.Source&gt;
 &lt;/Image&gt;
 </code></pre>

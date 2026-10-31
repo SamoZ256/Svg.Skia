@@ -186,7 +186,7 @@ out and the build generates them in that order too.</li>
 it: <code>namespace</code>, <code>class</code>, <code>padding</code> and the <code>width</code>/<code>height</code>/<code>scale</code> trio, which moves as one. A
 namespace that starts with a dot continues the one above it: <code>.Large</code> under <code>Demo.Icons</code> is
 <code>Demo.Icons.Large</code>, and follows the project's when that is renamed. The project's own namespace is
-written in full, having nothing above it to continue. The project also carries <code>cache</code>,
+written in full, having nothing above it to continue. The project also carries
 <code>helperScope</code> and <code>skiaSharp</code>, and what shapes the file: <code>body</code>,
 <code>typeface</code>, and an API class (<code>api</code>, <code>resizing</code>, <code>context</code>, <code>order</code>), with <code>method</code> and
 <code>parameters</code> on a drawing (see <a href="/Svg.Skia/articles/packages/svg-codegen-skia#shaping-the-generated-file">shaping the generated file</a>).
@@ -205,7 +205,7 @@ one name.</li>
 </ul>
 <p><code>File → Export…</code> writes the project through the build <code>svgc</code> runs, so the two cannot come to
 disagree about what the project says. Another project's build can write the same file without the
-app, through <a href="/Svg.Skia/articles/packages/svg-studio-projects">Svg.Studio.Projects</a>. The settings only an export reads (<code>cache</code>, <code>helperScope</code>,
+app, through <a href="/Svg.Skia/articles/packages/svg-studio-projects">Svg.Studio.Projects</a>. The settings only an export reads (<code>helperScope</code>,
 <code>skiaSharp</code> and the ones shaping the file) are asked for there rather than shown in Properties.</p>
 <h2 id="opening-one">Opening one</h2>
 <p><code>File → Open</code>, a drop anywhere on the window including an empty one, or a path on the command line.
@@ -393,7 +393,7 @@ row as <code>red in style</code>, and the row takes nothing: the declaration win
 changed under <strong>Inline style</strong> instead.</p>
 <h2 id="code-that-calls-it-the-way-paintcodes-did">Code that calls it the way PaintCode's did</h2>
 <p><code>File → Export…</code> asks for the settings only an export reads before it asks where the file goes:
-the picture cache, the helper methods, the SkiaSharp version, how <code>Draw</code> draws (record a picture,
+the helper methods, the SkiaSharp version, how <code>Draw</code> draws (record a picture,
 or straight onto the canvas), the <strong>Typeface</strong> expression, and a <strong>PaintCode-style API</strong> block with
 the class, the resizing enum, the text context type and the argument order. The answers are kept in
 the project, where a build exporting it reads them too, so the next export opens on them; changing them is one step

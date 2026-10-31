@@ -151,7 +151,7 @@ generator they expose.</p>
 <ul>
 <li><strong><code>Svg.SourceGenerator.Skia</code></strong> runs inside the compiler, on <code>.svg</code> files the project already owns.</li>
 <li><strong><code>src/svgc</code></strong> is a command-line tool run as its own step, and reaches the options the
-generator does not: recipes, resizing, batching, caching and the SkiaSharp target.</li>
+generator does not: recipes, resizing, batching and the SkiaSharp target.</li>
 </ul>
 <h2 id="roslyn-source-generator">Roslyn source generator</h2>
 <p>Add the package:</p>
@@ -177,17 +177,21 @@ property, and then to <code>Svg</code>; <code>ClassName</code> falls back to the
 with anything not valid in an identifier replaced by <code>_</code> — <code>pservers-pattern-01-b.svg</code> becomes
 <code>Svg_pservers_pattern_01_b</code>.</p>
 <h3 id="what-comes-out">What comes out</h3>
-<p>For an ordinary drawing, a static picture built once at type initialisation:</p>
+<p><code>Record</code> returns a new picture, which the caller owns and disposes. <code>Draw</code> records one, draws it and
+disposes it:</p>
 <pre><code class="language-csharp">public static class Camera
 {
-    public static SKPicture Picture { get; }
+    public static SKPicture Record()
     public static void Draw(SKCanvas skCanvas)
 }
 </code></pre>
+<p>The class keeps no picture, so nothing it drew stays in memory. To draw one picture many times, call
+<code>Record</code> once and keep the result for as long as it is shown. The source generator always records; a
+project build can emit a <code>Draw</code> that skips the recording, with
+<a href="/Svg.Skia/articles/packages/svg-codegen-skia#drawing-straight-onto-the-canvas"><code>body</code> <code>direct</code></a>.</p>
 <p>For a drawing using the <a href="/Svg.Skia/articles/packages/svg-expressions">expression extension</a>, the parameters it
-declares become C# parameters in the order the document declares them, with their declared defaults,
-and there is <strong>no</strong> <code>Picture</code> property — there is no single picture to have, since the drawing depends
-on its arguments:</p>
+declares become C# parameters of both, in the order the document declares them, with their declared
+defaults:</p>
 <pre><code class="language-csharp">public static class Expressions
 {
     public static SKPicture Record(float t = 0f, float amp = 1f, bool bold = false)
@@ -365,14 +369,6 @@ and for producing a parametric <code>.svg</code> to open in the <a href="/Svg.Sk
 <p>It needs a recipe (without one the output would be a copy of the input) and cannot be combined with
 a resize or a single file: the conversion rewrites text and never compiles a drawing, and an SVG
 document holds one drawing where a C# file holds any number.</p>
-<h3 id="caching-the-last-picture">Caching the last picture</h3>
-<pre><code class="language-bash">svgc -i badge.svg -o Badge.cs -r badge.recipe --cache lastValue
-</code></pre>
-<p><code>--cache</code> gives <code>Draw</code> a one-entry memo, so redrawing with unchanged arguments reuses the picture
-instead of recording it again — worth it for a parametric drawing on a slider or an animation.
-<code>lastValueLocked</code> is the same guarded by a lock held across the draw, for a drawing shared between
-threads. It applies only to parameterised drawings; one without parameters already caches better
-than this, as a single picture built in the static constructor.</p>
 <h3 id="a-whole-build-in-one-project-file">A whole build in one project file</h3>
 <p>More than one drawing goes in an XML project file rather than a shell loop:</p>
 <pre><code class="language-xml">&lt;!-- icons.svgcproj --&gt;
@@ -380,7 +376,6 @@ than this, as a single picture built in the static constructor.</p>
   &lt;recipe&gt;icons.recipe&lt;/recipe&gt;
   &lt;namespace&gt;Demo.Icons&lt;/namespace&gt;
   &lt;singleFile&gt;Icons.cs&lt;/singleFile&gt;
-  &lt;cache&gt;lastValue&lt;/cache&gt;
   &lt;padding&gt;10%&lt;/padding&gt;
 
   &lt;svg input=&quot;home.svg&quot; class=&quot;Home&quot; /&gt;
@@ -456,10 +451,6 @@ than pointing at them — and opens one of these by converting it. See
 <td>Where shared helpers live in that file: <code>file</code> (default, C# 11 file-local), <code>internal</code>, or <code>perClass</code></td>
 </tr>
 <tr>
-<td><code>--cache</code></td>
-<td><code>none</code> (default), <code>lastValue</code>, <code>lastValueLocked</code></td>
-</tr>
-<tr>
 <td><code>--skiaSharp</code></td>
 <td>The SkiaSharp major version the output is compiled against: <code>4</code> (default) or <code>3</code></td>
 </tr>
@@ -499,8 +490,8 @@ a family of drawings and not every drawing uses every value:</p>
 <li>generation is part of a separate asset-preparation step,</li>
 <li>you want checked-in generated files,</li>
 <li>a custom pipeline needs direct control over names and destinations,</li>
-<li>or you need something the generator does not expose: a recipe, a resize, a batch in one file, a
-draw cache, or SkiaSharp 3 as the target.</li>
+<li>or you need something the generator does not expose: a recipe, a resize, a batch in one file,
+or SkiaSharp 3 as the target.</li>
 </ul>
 <p>The two are not exclusive. A common arrangement is <code>svgc --emit svg</code> to parameterise an icon set
 once, the resulting drawings checked in, and the source generator compiling them on every build.</p>
