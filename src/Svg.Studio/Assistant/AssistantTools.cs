@@ -278,7 +278,7 @@ public sealed class AssistantTools
         Add(SetDeclarations, "set_declarations", "Replaces the declarations block of a group, or of the project, as a single undo step.");
         Add(Declare, "declare", "Adds one parameter or let to a drawing, a group or the project, or changes one, as a single undo step: what is left out stays as it is, and to renames it with every use, through every drawing and group under a group or the project (not the project's templates). A new parameter needs a type, a new let an expression; a name a group above declares is refused, naming the group to declare it on.");
         Add(Find, "find", "Finds where something is in the project, each drawing as it stands: group and drawing names, element ids, attribute values and text between tags containing the words given, and the {{ }} expressions and lets naming a declared name, matched whole. Does not search the project's templates.");
-        Add(SetNode, "set_node", "Changes one setting of a group, a drawing or the project, as a single undo step. The settings an export reads, helperScope, skiaSharp, body, typeface, api, resizing, context and order, are the project's alone; name, x and y a group's or drawing's; and method and parameters a drawing's. A width or height clears a scale, and a scale both.");
+        Add(SetNode, "set_node", "Changes one setting of a group, a drawing or the project, as a single undo step. The settings an export reads, helperScope, skiaSharp, body, typeface, api, resizing, context and order, are the project's alone; name, x and y a group's or drawing's; and method and parameters a drawing's. A width or height clears a scale, and a scale both. fontsFolder is the project's too: a folder of more .otf and .ttf files beside it, relative to its folder, such as ../fonts.");
         Add(Save, "save", "Saves the project, or the drawing in front when it is a file of its own. Given a path, saves a project never saved, or a drawing of no project's, there: the drawing's tab then saves to it, and its undo history starts again.");
         Add(Export, "export", "Writes what is open to a file outside the project: with a project open, every drawing of it as one C# file, as Export in the File menu does, after taking in the edits of the tab in front; with none, the drawing in front, as C# where the path ends .cs and as SVG where it ends .svg. Text the project's C# cannot write out is laid out as the person chooses where they can be asked, and baked where not, unless they chose for good.");
         Add(NewProject, "new_project", "Starts a new, empty project in place of the one open, closing its tabs; where it or a tab of it holds changes not saved, asks the person whether to throw them away, and is refused where they cannot be asked. Nothing is written until save is given a path.");
@@ -694,6 +694,20 @@ public sealed class AssistantTools
                 text.Append("Declares: ").Append(string.Join(", ", declares)).Append('\n');
             }
 
+            // So what is written in a font-family is a face the fonts hold, the same on every machine.
+            if (found is ProjectRoot project)
+            {
+                if (project.Owner.Faces() is { Count: > 0 } faces)
+                {
+                    text.Append("Measures text with: ").Append(string.Join(", ", faces.Select(face => $"{ProjectDocument.Spoken(face.Provider.Typeface)} ({face.File})"))).Append('\n');
+                }
+
+                foreach (var problem in project.Owner.FontProblems())
+                {
+                    text.Append("Font trouble: ").Append(problem).Append('\n');
+                }
+            }
+
             text.Append(Inherits(found));
 
             if (_window.Pending(found) is { } typed)
@@ -805,8 +819,7 @@ public sealed class AssistantTools
                 {
                     var project = workspace.Document.Flatten((drawing, text));
                     var item = project.Items.Single();
-                    var settings = SvgcBuildSettings.For(project);
-                    var loader = new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings()));
+                    var (settings, loader) = workspace.Document.Prepare(project, log.Add);
 
                     // Export's answer where the person gave one; asked, it is baked unless they choose
                     // otherwise, and a text it freezes is among the warnings.
@@ -1900,7 +1913,7 @@ public sealed class AssistantTools
 
     private Task<string> SetNode(
         [Description("The node path of the group or drawing; empty for the project itself.")] string node,
-        [Description("A group takes name, namespace, class, padding, width, height, scale, x and y, and a drawing method and parameters as well; the project takes namespace, class, padding, width, height and scale, and the settings an export reads: helperScope, skiaSharp, body, typeface, api, resizing, context and order. A padding is a fraction of the drawing's size, 0.1 or 10% for a tenth, given once for every side or two to four times in the order CSS gives them.")] string setting,
+        [Description("A group takes name, namespace, class, padding, width, height, scale, x and y, and a drawing method and parameters as well; the project takes namespace, class, padding, width, height and scale, and the settings an export reads: helperScope, skiaSharp, body, typeface, api, resizing, context and order, and fontsFolder, a folder of more fonts beside it such as ../fonts. A padding is a fraction of the drawing's size, 0.1 or 10% for a tenth, given once for every side or two to four times in the order CSS gives them.")] string setting,
         [Description("The new value; left out or empty, the setting is cleared and inherited again.")] string? value = null)
         => Ui(() =>
         {
@@ -2271,6 +2284,7 @@ public sealed class AssistantTools
                 SvgAspect => "its drawing changed",
                 CodeAspect => Declarations((ProjectGroup)before, (ProjectGroup)after),
                 PlaceAspect => $"its place {old ?? "unset"} → {@new ?? "unset"}",
+                _ when ProjectPackage.HoldsFont(aspect) => old is null ? $"adds the font {aspect}" : @new is null ? $"takes out the font {aspect}" : $"changes the font {aspect}",
                 _ => $"{aspect} {Quoted(old)} → {Quoted(@new)}"
             };
         }
@@ -2340,6 +2354,15 @@ public sealed class AssistantTools
                 break;
         }
 
+        // After the switch rather than a case of it: the root is a group too, whose code is an aspect.
+        if (node is ProjectRoot root)
+        {
+            foreach (var face in root.Owner.Faces().Where(face => root.Owner.Fonts.ContainsKey(face.File)))
+            {
+                aspects[face.File] = face.Hash;
+            }
+        }
+
         return aspects;
     }
 
@@ -2406,7 +2429,8 @@ public sealed class AssistantTools
             return (null, $"'{revision}' is not a revision; name a commit, a branch or a tag, such as HEAD~1.");
         }
 
-        var files = await git.Files(revision).ConfigureAwait(true);
+        var fonts = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+        var files = await git.Files(revision, fonts).ConfigureAwait(true);
 
         // One of those calls can open another project, whose nodes would then be read against this one's revision.
         if (!ReferenceEquals(_window.Workspace, asked))
@@ -2421,7 +2445,7 @@ public sealed class AssistantTools
 
         try
         {
-            return (ProjectDocument.Read(files, System.IO.Path.Combine(git.Directory, git.Name)), string.Empty);
+            return (ProjectDocument.Read(files, fonts, System.IO.Path.Combine(git.Directory, git.Name)), string.Empty);
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
         {
@@ -2607,6 +2631,11 @@ public sealed class AssistantTools
         if (Located(path, existing: true, out var why) is not { } file)
         {
             return why;
+        }
+
+        if (ProjectPackage.IsFont(file))
+        {
+            return $"{file} is a font, which is not opened but joins the open project: the person drops it on Studio's window, or picks Add fonts… in the project's Properties. get_node on the project lists the fonts it measures with.";
         }
 
         var was = _window.Workspace;

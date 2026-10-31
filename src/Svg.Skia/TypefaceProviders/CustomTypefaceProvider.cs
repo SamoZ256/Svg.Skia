@@ -9,7 +9,8 @@ namespace Svg.Skia.TypefaceProviders;
 
 public sealed class CustomTypefaceProvider : ITypefaceProvider, IDisposable
 {
-    public static readonly char[] s_fontFamilyTrim = { '\'' };
+    // Both quotes, as SkiaModel trims a candidate: the per-character path hands a provider the family as written.
+    public static readonly char[] s_fontFamilyTrim = { '\'', '"' };
 
     public SkiaSharp.SKTypeface? Typeface { get; set; }
 

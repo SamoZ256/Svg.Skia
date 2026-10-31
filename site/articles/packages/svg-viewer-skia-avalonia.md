@@ -65,7 +65,8 @@ await Viewer.LoadAsync("badge.svg");
 | `SelectedElement` / `ElementSelected` | Which element is picked |
 | `SnapsToGrid` / `Grid` / `SnapChanged` | Landing a drag on a grid rather than where the pointer stopped — a move puts the element's own corner on a line, a handle puts the edge it is dragging on one, a turn lands on `Grid.Turn` degrees, and the drawing's own edges do the same. The two are held apart: `Grid` is the steps whether or not anything is landing on them, and `SnapsToGrid` is the toolbar's toggle, which raises `SnapChanged` when a hand rather than the host flips it. The lines are in the space the canvas draws in, so a host arranging several drawings gets one grid across all of them |
 | `SidePanels` | Panels of your own, arranged beside the viewer's like any other: foldable, carried to either side or the foot, dropped behind one of the viewer's own. The default sits the first of them beside the element tree. A pane the stored arrangement has never heard of is given a place rather than left out |
-| `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be |
+| `Rewrite` / `Notice` | Drawing a document derived from the file — an svgc project applying a recipe — and saying, of each build, what only the host can see is wrong with it |
+| `TypefaceProviders` | The fonts a drawing's text is measured and drawn with, kept through every rebuild; their families are what a font's **▾** offers |
 | `DeclarationTarget` | Where the parameter panel writes, when the drawing's declarations are not in the drawing |
 | `FileDialogService` | Custom storage or picker integration |
 | `Canvas` | Direct access to the surface for zoom and pan; `Grabs` says whether a press is on the line round a rectangle rather than inside it, which is how a host lets a drawing be carried without taking the presses that belong to the shapes in it; `Show` lays out several drawings at once — with `SvgViewerFrame`s drawn under them where a host wants to say that some belong together — and `Rearrange` lays the same set out again without re-fitting, so a host that moves one of them keeps the view on the rest. `TryGetPlacementAt` says which drawing a click fell on, and `Grip` with `Moved` lets a press take hold of something and carry it |
@@ -448,8 +449,9 @@ Everything else still works from the text: `Source` is it and a save writes it, 
 goes back through the rewrite. Where the declarations then belong to whatever made them rather than
 to the drawing, a host sets `DeclarationTarget` to say where the parameter panel should write;
 `ISvgViewerDeclarationTarget` is the seam to it. Left unset the commands go into the drawing, which
-is what a drawing declaring for itself wants. `Notice` is where a host says a rewrite could not be
-set up at all; it appears on the status line beside the viewer's own count of what is wrong.
+is what a drawing declaring for itself wants. `Notice` is where a host says what only it can see — a
+font the drawing asks for that the host's fonts lack — asked of every build, so it follows an edit;
+it appears on the status line beside the viewer's own count of what is wrong.
 
 ## Two things worth knowing
 

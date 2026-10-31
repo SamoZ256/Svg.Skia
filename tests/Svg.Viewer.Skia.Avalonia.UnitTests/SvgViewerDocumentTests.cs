@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Svg.Expressions;
 using Svg.Skia;
+using Svg.Skia.TypefaceProviders;
 using Xunit;
 
 namespace Svg.Viewer.Skia.Avalonia.UnitTests;
@@ -47,6 +48,27 @@ public class SvgViewerDocumentTests
     public void A_Document_That_Is_Not_Svg_Fails_To_Load()
     {
         Assert.ThrowsAny<Exception>(() => SvgViewerDocument.LoadFromSvg("not markup at all"));
+    }
+
+    /// <summary>A rebuild draws with the fonts the drawing was loaded with, unless it is given others.</summary>
+    [Fact]
+    public void A_Rebuild_Keeps_The_Fonts_It_Was_Loaded_With()
+    {
+        var fonts = new ITypefaceProvider[] { new CustomTypefaceProvider(SvgViewerElementPanelTests.Font("Yellowtail-Regular.ttf")), new FontManagerTypefaceProvider() };
+
+        using var document = SvgViewerDocument.LoadFromSvg(Plain, null, default, null, fonts);
+        using var once = document.Reload(Plain);
+        using var twice = once.Reload(Plain, default);
+        using var thrice = twice.Reload(Plain, default, null);
+
+        Assert.Equal(fonts, document.Svg.Settings.TypefaceProviders);
+        Assert.Equal(fonts, thrice.Svg.Settings.TypefaceProviders);
+
+        var other = new ITypefaceProvider[] { new DefaultTypefaceProvider() };
+
+        using var given = thrice.Reload(Plain, default, null, other);
+
+        Assert.Equal(other, given.Svg.Settings.TypefaceProviders);
     }
 
     /// <summary>The plain drawing a rewrite is given, and what it makes of it.</summary>

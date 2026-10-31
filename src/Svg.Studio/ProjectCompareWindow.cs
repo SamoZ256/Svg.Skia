@@ -9,6 +9,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Skia;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Svg.Skia.TypefaceProviders;
 
 namespace Svg.Studio;
 
@@ -70,7 +71,8 @@ public sealed class ProjectCompareWindow : Window
     /// project as its settings, and a node that is not there as saying so.
     /// </summary>
     /// <param name="owned">Where the loaded document goes, for the caller to dispose once the picture is gone.</param>
-    internal static Control Rendered(ProjectNode? node, ICollection<IDisposable> owned)
+    /// <param name="typefaces">What a drawing is drawn with, where not the fonts of its own project.</param>
+    internal static Control Rendered(ProjectNode? node, ICollection<IDisposable> owned, IReadOnlyList<ITypefaceProvider>? typefaces = null)
     {
         if (node is null)
         {
@@ -79,15 +81,22 @@ public sealed class ProjectCompareWindow : Window
 
         if (node is not ProjectDrawing drawing)
         {
+            // The size too, which tells a font replaced by another copy of the same face.
+            var fonts = node is ProjectRoot root
+                ? root.Owner.Faces().Where(face => root.Owner.Fonts.ContainsKey(face.File))
+                    .Select(face => $"{face.File}: {ProjectDocument.Spoken(face.Provider.Typeface)}, {face.Bytes.Length:N0} bytes")
+                : Enumerable.Empty<string>();
+
             return Note(string.Join(
                 Environment.NewLine,
                 node.Element.Attributes().Where(attribute => !attribute.IsNamespaceDeclaration)
-                    .Select(attribute => $"{attribute.Name.LocalName}=\"{attribute.Value}\"")));
+                    .Select(attribute => $"{attribute.Name.LocalName}=\"{attribute.Value}\"")
+                    .Concat(fonts)));
         }
 
         try
         {
-            var document = GroupPanel.Load(drawing.Text, drawing);
+            var document = GroupPanel.Load(drawing.Text, drawing, typefaces: typefaces);
 
             owned.Add(document);
 

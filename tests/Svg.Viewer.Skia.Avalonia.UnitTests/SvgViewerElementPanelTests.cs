@@ -15,6 +15,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Svg.Expressions;
+using Svg.Skia.TypefaceProviders;
 using Svg.SourceEditing;
 using Xunit;
 
@@ -1277,6 +1278,74 @@ public class SvgViewerElementPanelTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("""<rect x="0" y="0" width="24" height="24" fill="#00ff00" mask="url(#mask)" />""", viewer.Source);
+
+        window.Close();
+    }
+
+    /// <summary>A text, whose font the menu beside its row picks.</summary>
+    private const string Lettered = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="24">
+          <text x="4" y="18" font-family="Arial">Ab</text>
+        </svg>
+        """;
+
+    /// <summary>One of resvg's test fonts, which the suite reads from its submodule.</summary>
+    internal static string Font(string name)
+    {
+        var path = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, "../../../../../externals/resvg/crates/resvg/tests/fonts", name));
+
+        Assert.True(System.IO.File.Exists(path), path);
+
+        return path;
+    }
+
+    /// <summary>
+    /// The families of the fonts a host gives, each once, and never the machine's: a family only this
+    /// machine has is one another machine measures with a font of its own.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_Font_Menu_Offers_The_Families_Of_The_Hosts_Fonts()
+    {
+        var held = new Held(Lettered);
+        var yellowtail = Font("Yellowtail-Regular.ttf");
+
+        held.Panel.Typefaces = () => new ITypefaceProvider[]
+        {
+            new CustomTypefaceProvider(yellowtail),
+            new CustomTypefaceProvider(Font("NotoSans-Regular.ttf")),
+            new CustomTypefaceProvider(Font("NotoSans-Bold.ttf")),
+            new FontManagerTypefaceProvider(),
+            new DefaultTypefaceProvider()
+        };
+
+        var window = held.Show("0");
+        var pick = Control(window, "choices", "font-family");
+
+        Click(pick);
+
+        var offered = Offered(pick);
+
+        Assert.Equal(new[] { "Yellowtail", "Noto Sans" }, offered.Select(Said));
+
+        offered.Single(item => Said(item) == "Yellowtail").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("font-family=\"Yellowtail\"", held.Text);
+        Assert.Equal(1, held.Writes);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Without_Fonts_Of_The_Hosts_The_Font_Menu_Offers_SVGs_Generic_Families()
+    {
+        var held = new Held(Lettered);
+        var window = held.Show("0");
+        var pick = Control(window, "choices", "font-family");
+
+        Click(pick);
+
+        Assert.Equal(new[] { "sans-serif", "serif", "monospace", "cursive", "fantasy" }, Offered(pick).Select(Said));
 
         window.Close();
     }

@@ -170,6 +170,75 @@ public class MainWindowAutosaveTests : IDisposable
         Assert.False(File.Exists(ProjectRecovery.For(path)));
     }
 
+    /// <summary>
+    /// A font added since the save is in the copy, and the fonts already saved are not copied again
+    /// but taken from the folder: the copy is written every few seconds.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Font_Added_Since_The_Save_Is_Copied_And_Restored()
+    {
+        var path = Write("icons.svgstudio", Project);
+
+        Directory.CreateDirectory(Path.Combine(path, "fonts"));
+        File.Copy(ProjectFontsTests.Font("NotoSans-Regular.ttf"), Path.Combine(path, "fonts", "NotoSans-Regular.ttf"));
+
+        var window = await Host(path);
+
+        Assert.True(await window.AddFontsAsync(new[] { ProjectFontsTests.Font("NotoSans-Bold.ttf") }));
+
+        _now = _now.AddSeconds(31d);
+        Assert.True(Recovery(window).Pulse());
+
+        using (var zip = System.IO.Compression.ZipFile.OpenRead(ProjectRecovery.For(path)))
+        {
+            Assert.Equal(0, zip.GetEntry("fonts/NotoSans-Regular.ttf")!.Length);
+            Assert.Equal(new FileInfo(ProjectFontsTests.Font("NotoSans-Bold.ttf")).Length, zip.GetEntry("fonts/NotoSans-Bold.ttf")!.Length);
+        }
+
+        // Opened again as after a crash, with the copy still there and nothing else changed.
+        var asked = 0;
+        var again = Empty();
+
+        again.ConfirmDiscardRecovery = _ =>
+        {
+            asked++;
+
+            return Task.FromResult(false);
+        };
+
+        await again.OpenAsync(new[] { path });
+        Dispatcher.UIThread.RunJobs();
+
+        var fonts = again.Workspace!.Document.Fonts;
+
+        Assert.Equal(1, asked);
+        Assert.True(again.Workspace.IsEdited);
+        Assert.Equal(new[] { "fonts/NotoSans-Bold.ttf", "fonts/NotoSans-Regular.ttf" }, fonts.Keys);
+        Assert.True(fonts["fonts/NotoSans-Bold.ttf"].Span.SequenceEqual(File.ReadAllBytes(ProjectFontsTests.Font("NotoSans-Bold.ttf"))));
+        Assert.True(fonts["fonts/NotoSans-Regular.ttf"].Span.SequenceEqual(File.ReadAllBytes(ProjectFontsTests.Font("NotoSans-Regular.ttf"))));
+    }
+
+    /// <summary>A copy an older Studio kept has no fonts in it, which is not the same as the project having none.</summary>
+    [AvaloniaFact]
+    public async Task A_Copy_Without_Fonts_Keeps_The_Folders()
+    {
+        var path = Write("icons.svgstudio", Project);
+
+        Directory.CreateDirectory(Path.Combine(path, "fonts"));
+        File.Copy(ProjectFontsTests.Font("NotoSans-Regular.ttf"), Path.Combine(path, "fonts", "NotoSans-Regular.ttf"));
+        Kept(path, Project.Replace("scale=\"2\"", "scale=\"6\"", StringComparison.Ordinal));
+
+        var window = Empty();
+
+        window.ConfirmDiscardRecovery = _ => Task.FromResult(false);
+
+        await window.OpenAsync(new[] { path });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("scale=\"6\"", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
+        Assert.Equal(new[] { "fonts/NotoSans-Regular.ttf" }, window.Workspace.Document.Fonts.Keys);
+    }
+
     [AvaloniaFact]
     public async Task A_Copy_That_Differs_Is_Offered_And_Restoring_Leaves_It_Unsaved()
     {

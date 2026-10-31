@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -84,6 +85,26 @@ public class ProjectGitTests : IDisposable
         Assert.Equal(
             new[] { "star.svg", "studio.xml" },
             (await git.Files("HEAD"))!.Keys.OrderBy(path => path, StringComparer.Ordinal));
+    }
+
+    /// <summary>A revision's fonts come out of the same archive as its drawings, as the bytes they are.</summary>
+    [Fact]
+    public async Task A_Revisions_Fonts_Are_Read_As_Bytes_Beside_Its_Files()
+    {
+        var git = await Repository();
+        var font = ProjectFontsTests.Font("NotoSans-Regular.ttf");
+
+        Directory.CreateDirectory(Path.Combine(Folder, "fonts"));
+        File.Copy(font, Path.Combine(Folder, "fonts", "NotoSans-Regular.ttf"));
+        await git.Commit("Add the icons and their font");
+
+        var fonts = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+        var files = await git.Files("HEAD", fonts);
+
+        Assert.Equal(new[] { "fonts/NotoSans-Regular.ttf" }, fonts.Keys);
+        Assert.True(fonts["fonts/NotoSans-Regular.ttf"].Span.SequenceEqual(File.ReadAllBytes(font)));
+        Assert.Equal((await git.Files("HEAD"))!.Keys.OrderBy(path => path, StringComparer.Ordinal), files!.Keys.OrderBy(path => path, StringComparer.Ordinal));
+        Assert.DoesNotContain(files.Keys, path => path.StartsWith("fonts/", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -7,6 +7,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Svg.Skia.TypefaceProviders;
 
 namespace Svg.Studio;
 
@@ -36,7 +37,7 @@ public sealed class ProjectMergeWindow : Window
 
         foreach (var conflict in merge.Conflicts)
         {
-            rows.Children.Add(Row(conflict));
+            rows.Children.Add(Row(conflict, merge.Typefaces));
         }
 
         var resolve = new Button { Content = "Resolve", IsDefault = true };
@@ -74,7 +75,7 @@ public sealed class ProjectMergeWindow : Window
         _owned.Clear();
     }
 
-    private Control Row(ProjectConflict conflict)
+    private Control Row(ProjectConflict conflict, IReadOnlyList<ITypefaceProvider>? typefaces)
     {
         var group = "conflict" + conflict.GetHashCode();
 
@@ -98,8 +99,8 @@ public sealed class ProjectMergeWindow : Window
         theirs.IsCheckedChanged += (_, _) => Chose(theirs, ProjectSide.Theirs);
 
         var sides = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Height = 180 };
-        var ours = Choosing(ProjectCompareWindow.Side("Mine", ProjectCompareWindow.Rendered(conflict.Ours, _owned)), mine);
-        var others = Choosing(ProjectCompareWindow.Side("Theirs", ProjectCompareWindow.Rendered(conflict.Theirs, _owned)), theirs);
+        var ours = Choosing(ProjectCompareWindow.Side("Mine", ProjectCompareWindow.Rendered(conflict.Ours, _owned, typefaces)), mine);
+        var others = Choosing(ProjectCompareWindow.Side("Theirs", ProjectCompareWindow.Rendered(conflict.Theirs, _owned, typefaces)), theirs);
 
         Grid.SetColumn(others, 1);
         sides.Children.Add(ours);

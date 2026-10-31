@@ -206,6 +206,45 @@ public class SkiaSvgAssetLoaderCachingTests
         Assert.True(secondProvider.CallCount > 0);
     }
 
+    /// <summary>
+    /// A family written in double quotes finds its custom provider per character as well as for the
+    /// run: the run's path trimmed both quotes, and the per-character one handed the provider the
+    /// family as written, which measured the glyphs with whatever the machine had.
+    /// </summary>
+    [Fact]
+    public void A_Double_Quoted_Family_Is_Measured_With_Its_Custom_Font()
+    {
+        var font = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "crates", "resvg", "tests", "fonts", "Yellowtail-Regular.ttf"));
+
+        Assert.True(File.Exists(font));
+
+        string Drawn(string family)
+        {
+            using var svg = new SKSvg();
+
+            svg.Settings.TypefaceProviders!.Insert(0, new CustomTypefaceProvider(font));
+            svg.FromSvg($"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40"><text x="190" y="30" text-anchor="end" font-size="20" font-family="{family}">Yellowtail</text></svg>""");
+
+            return string.Join(";", Text(svg.Model!));
+        }
+
+        static IEnumerable<string> Text(SKPicture picture)
+            => picture.Commands!.SelectMany(command => command switch
+            {
+                DrawTextCanvasCommand text => new[] { $"{text.Text}@{text.X}" },
+                DrawTextBlobCanvasCommand blob => new[] { $"{blob.TextBlob?.Text}@{blob.X}" },
+                DrawPositionedTextRunCanvasCommand run => run.Fragments!.Select(fragment => $"{fragment.Text}@{fragment.Point.X}"),
+                DrawPictureCanvasCommand { Picture: { } nested } => Text(nested),
+                _ => Array.Empty<string>()
+            });
+
+        var plain = Drawn("Yellowtail");
+
+        Assert.Contains("Yellowtail@", plain, StringComparison.Ordinal);
+        Assert.Equal(plain, Drawn("&quot;Yellowtail&quot;"));
+        Assert.NotNull(new CustomTypefaceProvider(font).FromFamilyName("\"Yellowtail\"", NativeTypefaceWeight.Normal, NativeTypefaceWidth.Normal, NativeTypefaceSlant.Upright));
+    }
+
     [Fact]
     public void Load_W3CWoffFontFaceRegistersDocumentTypeface()
     {

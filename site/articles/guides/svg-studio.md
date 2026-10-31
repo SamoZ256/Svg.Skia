@@ -18,6 +18,8 @@ icons.svgstudio/
   Large/              a group
     group.xml         the group's settings and what it declares
     badge-large.svg
+  fonts/              the .otf and .ttf files its text is measured with
+    NotoSans-Bold.ttf
 ```
 
 ```xml
@@ -72,6 +74,25 @@ icons.svgstudio/
 disagree about what the project says. Another project's build can write the same file without the
 app, through [Svg.Studio.Projects](../packages/svg-studio-projects). The settings only an export reads (`helperScope`,
 `skiaSharp` and the ones shaping the file) are asked for there rather than shown in Properties.
+
+## Fonts
+
+A project carries the fonts its text is measured with, in the `fonts` folder at its root. Drop
+`.otf` or `.ttf` files anywhere on the window, or pick **Add fonts…** in the project's
+**Properties**, and they join the project the way a drawing does: the project is edited, undo takes
+them out again, the next save writes them and the recovery copy keeps them. **Properties** lists
+each face with **✕** to take it out, and **More fonts from** names a folder beside the project as
+well (`fontsFolder="../fonts"`, relative to the project's folder), whose fonts come after its own.
+
+The tabs, the board, `File → Export…`, the assistant's code and a build through Svg.Studio.Projects
+all measure with those files, so every machine writes the same C#. A text whose family, weight or
+style they do not hold is said on its tab's status line and among the export's warnings — even where
+the machine has that font installed, since another machine would measure it with a font of its own.
+A project with no fonts measures with the machine's, and says only of a family the machine lacks. A
+font's **▾** in **Attributes** offers the families the project's fonts hold.
+
+A font both sides of a merge changed is not settled in the **Changes** panel: keep one with
+`git checkout --ours` or `--theirs` and `git add`, as it says, and **Resolve…** settles the rest.
 
 ## Opening one
 
@@ -248,7 +269,8 @@ it, which is most of them.
 ## The recovery copy
 
 Studio keeps a copy of the project under your application data while it has work that is not on disk
-— sooner as more piles up behind it, and never the project's own files. Saving throws the copy away,
+— sooner as more piles up behind it, and never the project's own files. Fonts added since the last
+save are in it too; the ones already saved are not copied again. Saving throws the copy away,
 and so does closing the window, so a copy waiting when you open a project again is one Studio never
 got to throw away. It offers it back, and restoring puts the work in the window without touching the
 project.
@@ -276,8 +298,8 @@ Typing into one of the empty rows adds it.
 
 Some rows have a control beside the box, which writes into it. A colour has a swatch that opens a
 picker; an opacity or a stop's offset has a slider; an attribute SVG spells a handful of values for —
-a line cap, a text's alignment, a fill's `none` or a gradient the drawing holds — has a **▾** listing
-them; and **↑**/**↓** step a number in its box, by ten with Shift and a tenth with Alt. The picker
+a line cap, a text's alignment, a fill's `none` or a gradient the drawing holds, a font the project's
+fonts hold — has a **▾** listing them; and **↑**/**↓** step a number in its box, by ten with Shift and a tenth with Alt. The picker
 writes once when it closes and the slider once when it is let go, so either is one step to undo. On
 a row an expression drives, the swatch and the slider show what the expression comes to and are
 locked; picking from the **▾**, like typing a value, lets the expression go.

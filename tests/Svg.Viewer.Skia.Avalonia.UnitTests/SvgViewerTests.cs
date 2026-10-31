@@ -19,6 +19,7 @@ using Avalonia.VisualTree;
 using SkiaSharp;
 using Svg.Expressions;
 using Svg.Highlighting;
+using Svg.Skia.TypefaceProviders;
 using Svg.SourceEditing;
 using Xunit;
 
@@ -62,6 +63,62 @@ public class SvgViewerTests
         Dispatcher.UIThread.RunJobs();
 
         return (window, viewer);
+    }
+
+    /// <summary>The host's sentence is asked of every build, so it follows what is drawn; null says nothing.</summary>
+    [AvaloniaFact]
+    public async Task A_Hosts_Notice_Is_Asked_Of_Every_Build()
+    {
+        var (window, viewer) = Host();
+        var asked = new List<SvgViewerDocument>();
+        string? said = "a font is missing";
+
+        viewer.Notice = built =>
+        {
+            asked.Add(built);
+
+            return said;
+        };
+
+        Assert.True(await viewer.LoadTextAsync(Parametric));
+        Dispatcher.UIThread.RunJobs();
+
+        var note = viewer.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Name == "NoteText");
+
+        Assert.Equal("a font is missing", note.Text);
+        Assert.Same(viewer.Document, asked[^1]);
+
+        said = null;
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(viewer.Document, asked[^1]);
+        Assert.False(note.IsVisible);
+
+        window.Close();
+    }
+
+    /// <summary>The fonts a host gives are what every build of the drawing measures and draws with.</summary>
+    [AvaloniaFact]
+    public async Task A_Hosts_Fonts_Reach_Every_Build()
+    {
+        var (window, viewer) = Host();
+        var fonts = new ITypefaceProvider[] { new CustomTypefaceProvider(SvgViewerElementPanelTests.Font("Yellowtail-Regular.ttf")), new DefaultTypefaceProvider() };
+
+        viewer.TypefaceProviders = fonts;
+
+        Assert.True(await viewer.LoadTextAsync(Parametric));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(fonts, viewer.Svg!.Settings.TypefaceProviders);
+
+        Assert.True(viewer.Rebuild());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(fonts, viewer.Svg!.Settings.TypefaceProviders);
+
+        window.Close();
     }
 
     /// <summary>

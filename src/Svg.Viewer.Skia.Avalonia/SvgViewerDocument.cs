@@ -8,6 +8,7 @@ using System.Text;
 using System.Xml;
 using Svg.Expressions;
 using Svg.Skia;
+using Svg.Skia.TypefaceProviders;
 using Svg.SourceEditing;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -99,7 +100,8 @@ public sealed class SvgViewerDocument : IDisposable
 
     /// <summary>The drawing at <paramref name="path"/>, built from what <paramref name="rewrite"/> makes of it.</summary>
     /// <remarks><see cref="Rewrite"/> says what that is for.</remarks>
-    public static SvgViewerDocument Load(string path, SvgSizeRequest request, Func<string, string>? rewrite)
+    /// <param name="typefaces">What its text is measured and drawn with, or null for the machine's fonts.</param>
+    public static SvgViewerDocument Load(string path, SvgSizeRequest request, Func<string, string>? rewrite, IReadOnlyList<ITypefaceProvider>? typefaces = null)
     {
         if (path is null)
         {
@@ -129,7 +131,7 @@ public sealed class SvgViewerDocument : IDisposable
         // Before the SKSvg exists, so a rewrite that refuses the drawing does not leak one.
         var rewritten = rewrite is { } && source is { } ? rewrite(source) : null;
 
-        var svg = new SKSvg();
+        var svg = New(typefaces);
 
         var built = rewritten is { }
             // Through a stream and the file's directory, the way Reload does: what is drawn is not
@@ -161,11 +163,13 @@ public sealed class SvgViewerDocument : IDisposable
 
     /// <summary>The drawing <paramref name="svgText"/> holds, built from what <paramref name="rewrite"/> makes of it.</summary>
     /// <remarks><see cref="Rewrite"/> says what that is for.</remarks>
+    /// <param name="typefaces">What its text is measured and drawn with, or null for the machine's fonts.</param>
     public static SvgViewerDocument LoadFromSvg(
         string svgText,
         string? path,
         SvgSizeRequest request,
-        Func<string, string>? rewrite)
+        Func<string, string>? rewrite,
+        IReadOnlyList<ITypefaceProvider>? typefaces = null)
     {
         if (svgText is null)
         {
@@ -174,7 +178,7 @@ public sealed class SvgViewerDocument : IDisposable
 
         var built = rewrite is { } ? rewrite(svgText) : svgText;
 
-        var svg = new SKSvg();
+        var svg = New(typefaces);
 
         if (Text(svg, request, built, BaseUri(path)) is null)
         {
@@ -230,7 +234,8 @@ public sealed class SvgViewerDocument : IDisposable
     /// whose recipe was edited, or taken off. The document's own is the one it was built with, so a
     /// rebuild that used it would go on applying a recipe that no longer covers the drawing.
     /// </remarks>
-    public SvgViewerDocument Reload(string svgText, SvgSizeRequest request, Func<string, string>? rewrite)
+    /// <param name="typefaces">What its text is measured and drawn with, or null for what it was built with.</param>
+    public SvgViewerDocument Reload(string svgText, SvgSizeRequest request, Func<string, string>? rewrite, IReadOnlyList<ITypefaceProvider>? typefaces = null)
     {
         if (svgText is null)
         {
@@ -239,7 +244,8 @@ public sealed class SvgViewerDocument : IDisposable
 
         var built = rewrite is { } ? rewrite(svgText) : svgText;
 
-        var svg = new SKSvg();
+        // The fonts this one was built with where none are given, so a rebuild keeps them.
+        var svg = New(typefaces ?? (IEnumerable<ITypefaceProvider>?)Svg.Settings.TypefaceProviders);
 
         if (Text(svg, request, built, BaseUri()) is null)
         {
@@ -249,6 +255,19 @@ public sealed class SvgViewerDocument : IDisposable
 
         // The text, not what was built from it: this document's source is still the file's own.
         return Describe(svg, Path, svgText, ByteOrderMark, rewrite);
+    }
+
+    /// <summary>A drawing to build, measuring and drawing with <paramref name="typefaces"/> where they are given.</summary>
+    private static SKSvg New(IEnumerable<ITypefaceProvider>? typefaces)
+    {
+        var svg = new SKSvg();
+
+        if (typefaces is { })
+        {
+            svg.Settings.TypefaceProviders = new List<ITypefaceProvider>(typefaces);
+        }
+
+        return svg;
     }
 
     /// <summary>Builds <paramref name="svg"/> from text, resolving what it references against <paramref name="baseUri"/>.</summary>

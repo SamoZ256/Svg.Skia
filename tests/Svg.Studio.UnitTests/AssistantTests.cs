@@ -2489,7 +2489,7 @@ public class AssistantTests : IDisposable
 
         Assert.StartsWith("(project) sized.svgstudio\n", project, StringComparison.Ordinal);
         Assert.Contains("\nnamespace=\"Demo.Icons\"\n", project, StringComparison.Ordinal);
-        Assert.Contains("\nUnset: class, helperScope, skiaSharp, width, height, scale, padding, api, resizing, context, order, body, typeface\n", project, StringComparison.Ordinal);
+        Assert.Contains("\nUnset: class, helperScope, skiaSharp, width, height, scale, padding, api, resizing, context, order, body, typeface, fontsFolder\n", project, StringComparison.Ordinal);
         Assert.Contains("Hands down no size", project, StringComparison.Ordinal);
 
         Assert.StartsWith("0 group Badges\n", group, StringComparison.Ordinal);

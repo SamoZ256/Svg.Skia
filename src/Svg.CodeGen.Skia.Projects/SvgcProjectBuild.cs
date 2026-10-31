@@ -45,6 +45,13 @@ public sealed class SvgcBuildSettings
 
     public SvgCodeStyle Style { get; set; } = SvgCodeStyle.Default;
 
+    /// <summary>What the host has to say about a drawing once it is compiled, each logged as a warning against it.</summary>
+    /// <remarks>
+    /// A hook rather than a check of this project's own, because what is said needs what only the host
+    /// knows: Svg.Studio asks it which of a drawing's typefaces its project's fonts do not hold.
+    /// </remarks>
+    public Func<SKPicture, IEnumerable<string>>? Warnings { get; set; }
+
     /// <summary>The settings a project asks for, with the built-in defaults under them.</summary>
     /// <remarks>
     /// What a caller with no options of its own wants. <c>svgc</c> starts here and lays its flags
@@ -387,6 +394,14 @@ public static class SvgcProjectBuild
             log?.Invoke($"warning: {Path.GetFileName(item.Input)}: {SvgExpressionSubstitution.Describe(element, name)} is frozen at its default, "
                 + "because the drawing is measured with it and the positions are written down. "
                 + "The generated code draws the default whatever it is given.");
+        }
+
+        if (log is { } && settings.Warnings is { } warn)
+        {
+            foreach (var said in warn(picture))
+            {
+                log($"warning: {Path.GetFileName(item.Input)}: {said}");
+            }
         }
 
         return new SkiaCSharpDrawing(
