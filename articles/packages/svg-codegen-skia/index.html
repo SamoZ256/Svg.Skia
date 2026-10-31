@@ -220,8 +220,10 @@ generator always has, byte for byte. A project build reads the same settings fro
 picture and drawing that. Each matrix the drawing sets is composed onto the caller's matrix by the
 canvas, so drawing under a transform gives the same pixels as recording and then drawing. A path,
 and a paint that no argument changes, is built once in the static constructor and read from a
-field. A paint that follows an argument is still built on every draw. <code>Record</code> stays, and records
-<code>Draw</code>.</p>
+field. A paint that follows an argument is still built on every draw. A filled rect, round rect,
+oval or circle with no layer open around it builds no path in either body: it is drawn with
+<code>DrawRect</code>, <code>DrawRoundRect</code>, <code>DrawOval</code> or <code>DrawCircle</code>, as the renderer draws it. <code>Record</code> stays,
+and records <code>Draw</code>.</p>
 <h3 id="naming-typefaces">Naming typefaces</h3>
 <p>The recorded picture holds whatever typeface the compiling machine found. Where <em>SF UI Display</em> is
 not installed, that is <em>Times</em>. <code>typeface</code> replaces the font-manager lookup with an expression from
