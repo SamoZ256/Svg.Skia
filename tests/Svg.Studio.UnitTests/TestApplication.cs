@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Markup.Xaml.Styling;
@@ -63,8 +65,39 @@ internal static class TestStores
 /// </remarks>
 internal static class TestClock
 {
+    private static int s_lent;
+
     [ModuleInitializer]
     internal static void Stop() => SvgViewerDragScroll.Now = () => 0L;
+
+    /// <summary>The real clock, for a test about scrolling, held still again once the last test that asked for it is done.</summary>
+    /// <remarks>
+    /// Lent and counted rather than taken back in each class's Dispose: a test waiting on real time
+    /// lets other tests run on the dispatcher, and one of them ending stopped the clock under it —
+    /// on Linux CI, 14 ms into a five-second wait for the tab strip to scroll.
+    /// </remarks>
+    internal static IDisposable Real()
+    {
+        if (Interlocked.Increment(ref s_lent) == 1)
+        {
+            SvgViewerDragScroll.Now = Stopwatch.GetTimestamp;
+        }
+
+        return new Lent();
+    }
+
+    private sealed class Lent : IDisposable
+    {
+        private int _returned;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _returned, 1) == 0 && Interlocked.Decrement(ref s_lent) == 0)
+            {
+                Stop();
+            }
+        }
+    }
 }
 
 /// <summary>A keychain that forgets everything when the run ends.</summary>

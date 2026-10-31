@@ -81,12 +81,7 @@ public class MainWindowProjectTests : IDisposable
         return path;
     }
 
-    public void Dispose()
-    {
-        // Still again after the one test here that lets the drag scroll run on real time.
-        TestClock.Stop();
-        Scratch.Delete(_directory);
-    }
+    public void Dispose() => Scratch.Delete(_directory);
 
     /// <summary>A window with <paramref name="path"/> opened through the route a drop also ends in.</summary>
     private static async Task<MainWindow> Host(string path, string? layout = null)
@@ -7261,7 +7256,7 @@ public class MainWindowProjectTests : IDisposable
     [AvaloniaFact]
     public async Task A_Drawing_Held_At_The_Foot_Of_The_Tree_Scrolls_It_And_Lands_Where_It_Is_Let_Go()
     {
-        SvgViewerDragScroll.Now = System.Diagnostics.Stopwatch.GetTimestamp;
+        using var clock = TestClock.Real();
 
         var crowded = "<studio namespace=\"Demo.Icons\">"
             + string.Concat(Enumerable.Range(0, 40).Select(i => $"<group name=\"g{i:00}\">{Holding($"d{i:00}")}</group>"))
