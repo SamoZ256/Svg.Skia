@@ -180,8 +180,9 @@ reference it already.</p>
 <p>}%%}</p>
 <p>The whole attribute value must be the expression. A value that merely <em>contains</em> braces is left
 alone — <code>fill=&quot;url(#g) {{ x }}&quot;</code> is an ordinary (invalid) value, not an expression.</p>
-<p><code>transform</code> is the one exception, and it moves the rule one level down rather than dropping it: there
-an expression is the whole of one function <strong>argument</strong>, and one value may hold several.</p>
+<p><code>transform</code> and <code>stroke-dasharray</code> are the exceptions, and they move the rule one level down rather
+than dropping it: there an expression is the whole of one function <strong>argument</strong>, or of one item of
+the dash list, and one value may hold several.</p>
 <p>{%%{</p>
 <pre><code class="language-xml">&lt;rect transform=&quot;translate({{ dx }}, 0) rotate({{ angle }} 32 32)&quot; width=&quot;64&quot; height=&quot;64&quot; /&gt;
 </code></pre>
@@ -328,6 +329,11 @@ stays smooth.</p>
 <td><code>stroke-dashoffset</code></td>
 <td>number</td>
 <td>Where along the dash pattern the stroke starts, in user units. Refused nowhere — a dash removes paint from a stroke rather than adding any, so no value it binds to can leave bounds measured with that stroke already in them. Inert on an element with no <code>stroke-dasharray</code>, exactly as a literal is. A drawing that dashes a ring at its own circumference and drives this draws an arc of any sweep, which is what a progress ring is.</td>
+</tr>
+<tr>
+<td><code>stroke-dasharray</code></td>
+<td>number, per item</td>
+<td>One expression drives one dash or gap length, in user units, and <code>pathLength</code> scales it as it does a literal. Unbound, an item reads as 1 rather than 0, since a list that sums to nothing records no dash for the expressions to ride on. An item that binds below nothing, or a list that sums to nothing, is SVG's invalid dash array and strokes solid. With <code>stroke-dashoffset</code> it draws an arc both of whose ends move: the dash is the sweep, the gap the rest of the ring.</td>
 </tr>
 <tr>
 <td><code>visibility</code></td>
