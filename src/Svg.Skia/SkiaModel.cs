@@ -13,60 +13,6 @@ public partial class SkiaModel
 {
     private static readonly char[] s_fontFamilyTrimChars = { '\'', '"' };
 
-    private sealed class DrawPictureState
-    {
-        private int _saveDepth;
-        private int _saveLayerDepth;
-        private int _singleLayerSaveDepth;
-        private List<int>? _nestedLayerSaveDepths;
-
-        public int SaveLayerDepth => _saveLayerDepth;
-
-        public void Save(bool isLayer)
-        {
-            _saveDepth++;
-            if (isLayer)
-            {
-                _saveLayerDepth++;
-                if (_saveLayerDepth == 1)
-                {
-                    _singleLayerSaveDepth = _saveDepth;
-                }
-                else
-                {
-                    (_nestedLayerSaveDepths ??= new List<int>(2)).Add(_saveDepth);
-                }
-            }
-        }
-
-        public void Restore()
-        {
-            if (_saveDepth == 0)
-            {
-                return;
-            }
-
-            if (_saveLayerDepth > 0 && CurrentLayerSaveDepth == _saveDepth)
-            {
-                if (_saveLayerDepth == 1)
-                {
-                    _singleLayerSaveDepth = 0;
-                }
-                else
-                {
-                    _nestedLayerSaveDepths!.RemoveAt(_saveLayerDepth - 2);
-                }
-
-                _saveLayerDepth--;
-            }
-
-            _saveDepth--;
-        }
-
-        private int CurrentLayerSaveDepth
-            => _saveLayerDepth == 1 ? _singleLayerSaveDepth : _nestedLayerSaveDepths![_saveLayerDepth - 2];
-    }
-
     private static readonly Dictionary<string, string[]> s_genericFontFamilyMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["sans-serif"] = new[] { "sans-serif", "Helvetica Neue", "Helvetica", "Arial", "Roboto", "Segoe UI", "DejaVu Sans" },
@@ -2270,7 +2216,7 @@ public partial class SkiaModel
         {
             if (commands is { Count: > 0 })
             {
-                DrawPictureCommandsCore(picture, skCanvas, state: new DrawPictureState());
+                DrawPictureCommandsCore(picture, skCanvas, state: new SaveLayerTracker());
             }
             else
             {
@@ -2512,7 +2458,7 @@ public partial class SkiaModel
         CanvasCommand canvasCommand,
         SkiaSharp.SKCanvas skCanvas,
         bool wireframe,
-        DrawPictureState? state)
+        SaveLayerTracker? state)
     {
         switch (canvasCommand)
         {
@@ -2645,7 +2591,7 @@ public partial class SkiaModel
                             break;
                         }
 
-                        if (TryDrawDirectFilledPrimitivePath(skCanvas, paint, drawPathCanvasCommand.Paint, drawPathCanvasCommand.Path, state))
+                        if (TryDrawDirectFilledPrimitivePath(skCanvas, paint, drawPathCanvasCommand, state))
                         {
                             break;
                         }
@@ -2807,7 +2753,7 @@ public partial class SkiaModel
         _cacheComplexRenderPaintsForCurrentPicture |= cacheRepeatedPictureObjects;
         try
         {
-            DrawPictureCommandsCore(picture, skCanvas, state: new DrawPictureState());
+            DrawPictureCommandsCore(picture, skCanvas, state: new SaveLayerTracker());
         }
         finally
         {
@@ -2820,7 +2766,7 @@ public partial class SkiaModel
         SKPicture picture,
         SkiaSharp.SKCanvas skCanvas,
         bool wireframe = false,
-        DrawPictureState? state = null)
+        SaveLayerTracker? state = null)
     {
         var commands = picture.Commands;
         if (commands is null)
@@ -2881,26 +2827,10 @@ public partial class SkiaModel
     private bool TryDrawDirectFilledPrimitivePath(
         SkiaSharp.SKCanvas skCanvas,
         SkiaSharp.SKPaint paint,
-        SKPaint sourcePaint,
-        SKPath? sourcePath,
-        DrawPictureState? state)
+        DrawPathCanvasCommand command,
+        SaveLayerTracker? state)
     {
-        if (sourcePath?.Commands is not { Count: 1 } commands)
-        {
-            return false;
-        }
-
-        if (sourcePaint.Style != SKPaintStyle.Fill)
-        {
-            return false;
-        }
-
-        if (state is null || state.SaveLayerDepth > 0)
-        {
-            return false;
-        }
-
-        switch (commands[0])
+        switch (state?.Primitive(command))
         {
             case AddRectPathCommand addRect:
                 skCanvas.DrawRect(ToSKRect(addRect.Rect), paint);

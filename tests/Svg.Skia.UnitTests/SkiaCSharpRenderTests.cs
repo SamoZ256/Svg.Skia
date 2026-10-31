@@ -27,8 +27,7 @@ namespace Svg.Skia.UnitTests;
 /// Nothing else ever draws generated code, so an emitter change can be green across the whole suite
 /// and still produce a wrong picture. Most cases start both paths from the same <c>ShimPicture</c>,
 /// so a difference can only be the emitter's; the <c>expectedMarkup</c> cases compare two different
-/// models, and so avoid the axis-aligned rect that does not rasterise identically through both
-/// (~850 antialiased edge pixels, RMS 0.0045, with no expressions involved).
+/// models.
 /// </remarks>
 public class SkiaCSharpRenderTests
 {
@@ -208,6 +207,12 @@ public class SkiaCSharpRenderTests
 
         AssertSamePicture($"{name}-direct-transformed", expected, actual);
     }
+
+    private static string Code(ShimPicture model, string name, SvgBody body, SvgExpressionDeclarations? declarations = null)
+        => SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations ?? SvgExpressionDeclarations.Empty) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Body = body });
 
     private static SKPicture Transformed(SKRect cull, Action<SKCanvas> draw)
     {
@@ -432,6 +437,55 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
+    // Drawn as a path, a rect's top and bottom edges rasterise apart from the DrawRect the renderer
+    // uses (symbol-widget-small, RMS 0.0165); a rect with corners square is what shows it.
+    [Fact]
+    public void A_Lone_Filled_Primitive_Is_Drawn_As_The_Renderer_Draws_It()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="2.3" y="3.7" width="8.4" height="5.1" fill="#ef4444" />
+              <rect x="13.2" y="1.6" width="8.3" height="7.9" rx="2" fill="#0ea5e9" />
+              <circle cx="6.4" cy="16.6" r="4.3" fill="#22c55e" />
+              <ellipse cx="17.3" cy="17.1" rx="5.1" ry="3.3" fill="#a855f7" />
+            </svg>
+            """;
+
+        AssertRendersTheSame("LonePrimitives", svg);
+
+        var code = Code(Model(svg), "LonePrimitives", SvgBody.Direct);
+        Assert.Contains(".DrawRect(new SKRect(", code);
+        Assert.Contains(".DrawRoundRect(new SKRect(", code);
+        Assert.Contains(".DrawOval(new SKRect(", code);
+        Assert.Contains(".DrawCircle(", code);
+        Assert.DoesNotContain(".DrawPath(", code);
+        Assert.DoesNotContain("SKPath", code);
+    }
+
+    [Fact]
+    public void A_Stroked_Layered_Or_Longer_Path_Is_Still_Drawn_As_A_Path()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="2.3" y="3.7" width="8.4" height="5.1" fill="none" stroke="#ef4444" />
+              <g opacity="0.5">
+                <rect x="13.2" y="1.6" width="8.3" height="7.9" fill="#0ea5e9" />
+                <rect x="14.2" y="2.6" width="2.3" height="2.9" fill="#111827" />
+              </g>
+              <g style="isolation: isolate">
+                <rect x="2.2" y="13.6" width="8.3" height="7.9" fill="#22c55e" />
+              </g>
+              <path d="M 13.3 13.7 H 21.6 V 21.2 H 13.3 Z" fill="#a855f7" />
+            </svg>
+            """;
+
+        AssertRendersTheSame("PathPrimitives", svg);
+
+        var code = Code(Model(svg), "PathPrimitives", SvgBody.Direct);
+        Assert.DoesNotContain(".DrawRect(", code);
+        Assert.Equal(5, code.Split(".DrawPath(").Length - 1);
+    }
+
     [Fact]
     public void Strokes()
         => AssertRendersTheSame("Strokes", """
@@ -543,9 +597,7 @@ public class SkiaCSharpRenderTests
 
     [Fact]
     public void An_Expression_Value_Reaches_The_Paint()
-        // The placeholder is grey, so red can only come from the expression. A circle rather than a
-        // rect: an axis-aligned rect with edges inside the canvas rasterises differently through the
-        // two paths (~850 edge pixels, RMS 0.0045) for reasons unrelated to expressions.
+        // The placeholder is grey, so red can only come from the expression.
         => AssertExpressionsRenderTheSame(
             "ExprValue",
             """
@@ -681,6 +733,30 @@ public class SkiaCSharpRenderTests
               <rect x="4" y="8" width="10" height="6" transform="skewX(20)" fill="#ff0000" />
             </svg>
             """);
+
+    [Fact]
+    public void A_Driven_Size_Leaves_A_Lone_Rect_Drawn_As_A_Rect()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="s" type="number" default="1" /></e:code></defs>
+              <rect x="2.3" y="3.7" width="8.4" height="5.1" transform="scale({{ s }})" fill="#ff0000" />
+            </svg>
+            """;
+
+        AssertExpressionsRenderTheSame(
+            "ExprLoneRect",
+            svg,
+            new object?[] { 1.7f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="2.3" y="3.7" width="8.4" height="5.1" transform="scale(1.7)" fill="#ff0000" />
+            </svg>
+            """);
+
+        var code = Code(Model(svg), "ExprLoneRect", SvgBody.Direct, SvgExpressionDeclarations.Parse(svg));
+        Assert.Contains(".DrawRect(new SKRect(", code);
+    }
 
     [Fact]
     public void A_Conditional_Expression_Value_Reaches_The_Paint()

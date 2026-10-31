@@ -498,6 +498,60 @@ public class EditingHelpersTests
         Assert.True(commands.CanSaveInsteadOfLayer(0));
     }
 
+    [Fact]
+    public void SaveLayerTracker_Primitive_IsTheLoneShapeOfAFill()
+    {
+        var tracker = new SaveLayerTracker();
+        var shapes = new PathCommand[]
+        {
+            new AddRectPathCommand(SKRect.Create(1, 2, 3, 4)),
+            new AddRoundRectPathCommand(SKRect.Create(1, 2, 3, 4), 1, 1),
+            new AddOvalPathCommand(SKRect.Create(1, 2, 3, 4)),
+            new AddCirclePathCommand(2, 3, 1)
+        };
+
+        foreach (var shape in shapes)
+        {
+            Assert.Same(shape, tracker.Primitive(Fill(SKPaintStyle.Fill, shape)));
+            Assert.Null(tracker.Primitive(Fill(SKPaintStyle.Stroke, shape)));
+            Assert.Null(tracker.Primitive(Fill(SKPaintStyle.StrokeAndFill, shape)));
+            Assert.Null(tracker.Primitive(Fill(SKPaintStyle.Fill, shape, new ClosePathCommand())));
+        }
+
+        Assert.Null(tracker.Primitive(Fill(SKPaintStyle.Fill, new MoveToPathCommand(1, 1))));
+    }
+
+    [Fact]
+    public void SaveLayerTracker_Primitive_IsNoneWhileALayerIsOpen()
+    {
+        var tracker = new SaveLayerTracker();
+        var rect = Fill(SKPaintStyle.Fill, new AddRectPathCommand(SKRect.Create(1, 2, 3, 4)));
+
+        tracker.Save(isLayer: false);
+        Assert.NotNull(tracker.Primitive(rect));
+
+        tracker.Save(isLayer: true);
+        tracker.Save(isLayer: false);
+        Assert.Null(tracker.Primitive(rect));
+
+        tracker.Restore();
+        Assert.Null(tracker.Primitive(rect));
+
+        tracker.Restore();
+        Assert.NotNull(tracker.Primitive(rect));
+    }
+
+    private static DrawPathCanvasCommand Fill(SKPaintStyle style, params PathCommand[] commands)
+    {
+        var path = new SKPath();
+        foreach (var command in commands)
+        {
+            path.Add(command);
+        }
+
+        return new DrawPathCanvasCommand(path, new SKPaint { Style = style });
+    }
+
     private static DrawPathCanvasCommand Draw(SKBlendMode blendMode = SKBlendMode.SrcOver)
         => new(new SKPath(), new SKPaint { BlendMode = blendMode });
 

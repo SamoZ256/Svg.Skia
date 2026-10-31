@@ -94,8 +94,10 @@ generator always has, byte for byte. A project build reads the same settings fro
 picture and drawing that. Each matrix the drawing sets is composed onto the caller's matrix by the
 canvas, so drawing under a transform gives the same pixels as recording and then drawing. A path,
 and a paint that no argument changes, is built once in the static constructor and read from a
-field. A paint that follows an argument is still built on every draw. `Record` stays, and records
-`Draw`.
+field. A paint that follows an argument is still built on every draw. A filled rect, round rect,
+oval or circle with no layer open around it builds no path in either body: it is drawn with
+`DrawRect`, `DrawRoundRect`, `DrawOval` or `DrawCircle`, as the renderer draws it. `Record` stays,
+and records `Draw`.
 
 ### Naming typefaces
 
