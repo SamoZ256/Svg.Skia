@@ -2567,7 +2567,10 @@ public partial class SkiaModel
                 {
                     if (drawPictureCanvasCommand.Picture is { } picture)
                     {
+                        // The recording was made with no layer open: under one it would draw as
+                        // DrawRect the lone rects that replaying the picture draws as paths.
                         if (!wireframe &&
+                            state is not { SaveLayerDepth: > 0 } &&
                             TryGetReusableRenderPicture(picture, _cacheComplexRenderPaintsForCurrentPicture, out var cachedPicture))
                         {
                             skCanvas.DrawPicture(cachedPicture);
