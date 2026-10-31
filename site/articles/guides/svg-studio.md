@@ -53,7 +53,7 @@ icons.svgstudio/
   it: `namespace`, `class`, `padding` and the `width`/`height`/`scale` trio, which moves as one. A
   namespace that starts with a dot continues the one above it: `.Large` under `Demo.Icons` is
   `Demo.Icons.Large`, and follows the project's when that is renamed. The project's own namespace is
-  written in full, having nothing above it to continue. The project also carries `cache`,
+  written in full, having nothing above it to continue. The project also carries
   `helperScope` and `skiaSharp`, and what shapes the file: `body`,
   `typeface`, and an API class (`api`, `resizing`, `context`, `order`), with `method` and
   `parameters` on a drawing (see [shaping the generated file](../packages/svg-codegen-skia#shaping-the-generated-file)).
@@ -72,7 +72,7 @@ icons.svgstudio/
 
 `File → Export…` writes the project through the build `svgc` runs, so the two cannot come to
 disagree about what the project says. Another project's build can write the same file without the
-app, through [Svg.Studio.Projects](../packages/svg-studio-projects). The settings only an export reads (`cache`, `helperScope`,
+app, through [Svg.Studio.Projects](../packages/svg-studio-projects). The settings only an export reads (`helperScope`,
 `skiaSharp` and the ones shaping the file) are asked for there rather than shown in Properties.
 
 ## Fonts
@@ -322,7 +322,7 @@ changed under **Inline style** instead.
 ## Code that calls it the way PaintCode's did
 
 `File → Export…` asks for the settings only an export reads before it asks where the file goes:
-the picture cache, the helper methods, the SkiaSharp version, how `Draw` draws (record a picture,
+the helper methods, the SkiaSharp version, how `Draw` draws (record a picture,
 or straight onto the canvas), the **Typeface** expression, and a **PaintCode-style API** block with
 the class, the resizing enum, the text context type and the argument order. The answers are kept in
 the project, where a build exporting it reads them too, so the next export opens on them; changing them is one step

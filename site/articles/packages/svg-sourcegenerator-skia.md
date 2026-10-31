@@ -40,7 +40,7 @@ Then add one or more SVG files as `AdditionalFiles`:
 
 For each `.svg` file, the generator emits a C# source file containing a generated class with:
 
-- a static `Picture` property,
+- a static `Record()` method returning a new picture, which the caller owns,
 - a static `Draw(SKCanvas)` method,
 - generated code produced by [Svg.CodeGen.Skia](svg-codegen-skia).
 
@@ -58,13 +58,22 @@ Once the build runs, use the generated classes directly:
 ```csharp
 using MyApp.Generated;
 
-var picture = Camera.Picture;
+using var picture = Camera.Record();
 ```
 
-In Avalonia, pair it with [Skia.Controls.Avalonia](skia-controls-avalonia):
+The class keeps no picture of its own, so keep what `Record` returns for as long as it is shown. In
+Avalonia, a static of your own is what XAML reaches, paired with
+[Skia.Controls.Avalonia](skia-controls-avalonia):
+
+```csharp
+public static class Pictures
+{
+    public static SKPicture Camera { get; } = MyApp.Generated.Camera.Record();
+}
+```
 
 ```xml
-<SKPictureControl Picture="{x:Static local:Camera.Picture}" Stretch="Uniform" />
+<SKPictureControl Picture="{x:Static local:Pictures.Camera}" Stretch="Uniform" />
 ```
 
 ## Important project setup notes

@@ -501,12 +501,6 @@ public sealed class SvgcProjectRoot : SvgcProjectGroup
         set => SetSetting("emit", value?.ToString().ToLowerInvariant());
     }
 
-    public SvgPictureCache? Cache
-    {
-        get => GetSetting("cache") is { } value ? SvgcProject.ParseCache(value) : null;
-        set => SetSetting("cache", value is { } cache ? CacheText(cache) : null);
-    }
-
     public SvgHelperScope? HelperScope
     {
         get => GetSetting("helperScope") is { } value ? SvgcProject.ParseHelperScope(value) : null;
@@ -542,13 +536,6 @@ public sealed class SvgcProjectRoot : SvgcProjectGroup
         GetSetting("order"),
         GetSetting("body"),
         GetSetting("typeface"));
-
-    private static string CacheText(SvgPictureCache cache) => cache switch
-    {
-        SvgPictureCache.LastValue => "lastValue",
-        SvgPictureCache.LastValueLocked => "lastValueLocked",
-        _ => "none"
-    };
 
     private static string ScopeText(SvgHelperScope scope) => scope switch
     {
@@ -634,7 +621,7 @@ public sealed class SvgcProjectDocument
 {
     private static readonly string[] s_settings =
     {
-        "recipe", "namespace", "class", "emit", "cache", "helperScope", "singleFile", "skiaSharp",
+        "recipe", "namespace", "class", "emit", "helperScope", "singleFile", "skiaSharp",
         "width", "height", "scale", "padding", "api", "resizing", "context", "order", "body", "typeface"
     };
 
@@ -771,7 +758,6 @@ public sealed class SvgcProjectDocument
 
         // Touched here so a bad value is a parse error, as it was when every setting was read eagerly.
         _ = root.Emit;
-        _ = root.Cache;
         _ = root.HelperScope;
         _ = root.SkiaSharp;
         Validate(root);
@@ -811,7 +797,6 @@ public sealed class SvgcProjectDocument
             Root.Namespace,
             Root.Class,
             Root.Emit,
-            Root.Cache,
             Root.HelperScope,
             Root.SkiaSharp,
             Resolve(Root.SingleFile, BaseDirectory),

@@ -29,13 +29,15 @@ public class SkiaCSharpCodeGenExpressionTests
         """;
 
     [Fact]
-    public void Document_Without_Declarations_Keeps_The_Cached_Shape()
+    public void Document_Without_Declarations_Keeps_No_Picture()
     {
         var code = Generate(Plain);
 
-        Assert.Contains("public static SKPicture Picture { get; }", code);
-        Assert.Contains("private static SKPicture Record()", code);
+        Assert.Contains("public static SKPicture Record()", code);
         Assert.Contains("public static void Draw(SKCanvas skCanvas)", code);
+        Assert.Contains("using (var skPicture = Record())", code);
+        Assert.DoesNotContain("SKPicture Picture", code);
+        Assert.DoesNotContain("static Generated()", code);
         Assert.Contains("new SKColor(128, 128, 128, 255)", code);
     }
 
@@ -63,7 +65,7 @@ public class SkiaCSharpCodeGenExpressionTests
     }
 
     [Fact]
-    public void Parameters_Become_The_Record_Signature_And_Drop_The_Static_Cache()
+    public void Parameters_Become_The_Record_Signature()
     {
         var code = Generate("""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
@@ -84,7 +86,6 @@ public class SkiaCSharpCodeGenExpressionTests
         Assert.Contains("using (var skPicture = Record(t, bold))", code);
         Assert.Contains("skCanvas.DrawPicture(skPicture);", code);
 
-        // A picture built from arguments cannot be cached in a static field.
         Assert.DoesNotContain("public static SKPicture Picture { get; }", code);
         Assert.DoesNotContain("static Generated()", code);
     }

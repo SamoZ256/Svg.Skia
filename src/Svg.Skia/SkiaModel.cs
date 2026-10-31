@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using ShimSkiaSharp;
+using ShimSkiaSharp.Editing;
 using Svg.Skia.TypefaceProviders;
 
 namespace Svg.Skia;
@@ -2829,6 +2830,17 @@ public partial class SkiaModel
 
         for (var i = 0; i < commands.Count; i++)
         {
+            // Under an antialiased clip a layer that changes nothing still costs most of the drawing
+            // (blinds180ltr: 59.7 µs, 8.0 µs without). It stays a layer to the state, whose primitive
+            // shortcut would otherwise trade DrawPath for DrawRect and part from the C# export.
+            if (commands[i] is SaveLayerCanvasCommand { Paint: null or { Color.Alpha: 255 } } &&
+                commands.CanSaveInsteadOfLayer(i))
+            {
+                skCanvas.Save();
+                state?.Save(isLayer: true);
+                continue;
+            }
+
             Draw(commands[i], skCanvas, wireframe, state);
         }
     }

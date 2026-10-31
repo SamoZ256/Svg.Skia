@@ -51,7 +51,7 @@ public class SvgcProjectBuildTests : IDisposable
     {
         var target = Path("Out.cs");
         var project = new SvgcProject(
-            null, "Demo", null, null, null, null, null, target, null, null, null, null,
+            null, "Demo", null, null, null, null, target, null, null, null, null,
             new[] { new SvgcProjectItem("Badge", null, null, "Badge", null, source: Drawing) });
         var settings = SvgcBuildSettings.For(project);
         var asked = new List<SKPicture>();
@@ -99,7 +99,7 @@ public class SvgcProjectBuildTests : IDisposable
         var target = Path("Out.cs");
 
         var project = new SvgcProject(
-            null, "Demo", null, null, null, null, null, target, null, null, null, null,
+            null, "Demo", null, null, null, null, target, null, null, null, null,
             new[] { new SvgcProjectItem("Badge", null, null, "Badge", null, source: drawing) });
 
         var settings = SvgcBuildSettings.For(project);
@@ -395,7 +395,7 @@ public class SvgcProjectBuildTests : IDisposable
     public void An_Api_Without_A_Single_File_Is_Refused()
     {
         var project = new SvgcProject(
-            null, "Demo", null, null, null, null, null, null, null, null, null, null,
+            null, "Demo", null, null, null, null, null, null, null, null, null,
             new[] { new SvgcProjectItem("Badge", Path("Badge.cs"), null, "Badge", null, source: Drawing) })
         {
             Style = new SvgCodeStyle { Api = "Icons" }

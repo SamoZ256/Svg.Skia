@@ -430,6 +430,85 @@ public class EditingHelpersTests
         Assert.Equal(nameof(DrawTextCanvasCommand), visited[0]);
     }
 
+    [Fact]
+    public void CanSaveInsteadOfLayer_HoldsForSourceOverContent_WhateverTheAlpha()
+    {
+        Assert.True(Layer(new SKPaint(), Draw()).CanSaveInsteadOfLayer(0));
+        Assert.True(Layer(new SKPaint { Color = new SKColor(255, 255, 255, 51) }, Draw()).CanSaveInsteadOfLayer(0));
+        Assert.True(Layer(null, Draw()).CanSaveInsteadOfLayer(0));
+    }
+
+    [Fact]
+    public void CanSaveInsteadOfLayer_RefusesALayerPaintThatChangesSomething()
+    {
+        var paints = new Dictionary<string, SKPaint>
+        {
+            ["blend mode"] = new() { BlendMode = SKBlendMode.Multiply },
+            ["colour filter"] = new() { ColorFilter = SKColorFilter.CreateLumaColor() },
+            ["image filter"] = new() { ImageFilter = SKImageFilter.CreateBlur(2, 2) },
+            ["shader"] = new() { Shader = SKShader.CreateColor(new SKColor(0, 0, 0, 255), SKColorSpace.Srgb) },
+            ["path effect"] = new() { PathEffect = SKPathEffect.CreateDash(new[] { 1f, 1f }, 0) },
+            ["no colour"] = new() { Color = null }
+        };
+
+        foreach (var (because, paint) in paints)
+        {
+            Assert.False(Layer(paint, Draw()).CanSaveInsteadOfLayer(0), because);
+        }
+    }
+
+    [Fact]
+    public void CanSaveInsteadOfLayer_RefusesALayerThatKeepsADstInOffTheBackdrop()
+    {
+        // The shape a mask records: opaque source-over outside, DstIn inside.
+        var mask = Layer(
+            new SKPaint(),
+            Draw(),
+            new SaveLayerCanvasCommand(1, new SKPaint { BlendMode = SKBlendMode.DstIn }),
+            Draw(),
+            new RestoreCanvasCommand(1));
+
+        Assert.False(mask.CanSaveInsteadOfLayer(0));
+        Assert.False(mask.CanSaveInsteadOfLayer(2));
+    }
+
+    [Fact]
+    public void CanSaveInsteadOfLayer_LooksInsideNestedPictures()
+    {
+        var nested = new SKPicture(SKRect.Create(0, 0, 10, 10), new List<CanvasCommand> { Draw(SKBlendMode.Multiply) });
+
+        Assert.False(Layer(new SKPaint(), new DrawPictureCanvasCommand(nested)).CanSaveInsteadOfLayer(0));
+    }
+
+    [Fact]
+    public void CanSaveInsteadOfLayer_StopsAtItsOwnRestore()
+    {
+        var commands = Layer(new SKPaint(), new SaveCanvasCommand(1), Draw(), new RestoreCanvasCommand(1), Draw());
+        commands.Add(Draw(SKBlendMode.Multiply));
+
+        Assert.True(commands.CanSaveInsteadOfLayer(0));
+    }
+
+    [Fact]
+    public void CanSaveInsteadOfLayer_IgnoresBounds()
+    {
+        var commands = Layer(new SKPaint(), Draw());
+        commands[0] = new SaveLayerCanvasCommand(0, new SKPaint(), SKRect.Create(0, 0, 10, 10));
+
+        Assert.True(commands.CanSaveInsteadOfLayer(0));
+    }
+
+    private static DrawPathCanvasCommand Draw(SKBlendMode blendMode = SKBlendMode.SrcOver)
+        => new(new SKPath(), new SKPaint { BlendMode = blendMode });
+
+    private static List<CanvasCommand> Layer(SKPaint? paint, params CanvasCommand[] inside)
+    {
+        var commands = new List<CanvasCommand> { new SaveLayerCanvasCommand(0, paint) };
+        commands.AddRange(inside);
+        commands.Add(new RestoreCanvasCommand(0));
+        return commands;
+    }
+
     private sealed class TrackingVisitor : ICanvasCommandVisitor
     {
         private readonly IList<string> _visited;
