@@ -1106,6 +1106,84 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_Dash_Array_Expression_Value_Reaches_The_Paint()
+        // An arc whose two ends both move: the dash is the sweep, the gap the rest of the ring.
+        => AssertExpressionsRenderTheSame(
+            "ExprDashArray",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="arc" type="number" default="0" /></e:code></defs>
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="3"
+                      stroke-dasharray="{{ arc }} {{ 50.2655 - arc }}" stroke-dashoffset="{{ arc / 2 }}" />
+            </svg>
+            """,
+            new object?[] { 30f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="3"
+                      stroke-dasharray="30 20.2655" stroke-dashoffset="15" />
+            </svg>
+            """);
+
+    [Fact]
+    public void An_Odd_Dash_Array_Expression_Repeats_As_A_Written_One_Does()
+        => AssertExpressionsRenderTheSame(
+            "ExprDashArrayOdd",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="dash" type="number" default="1" /></e:code></defs>
+              <g stroke="#b45309" fill="none" stroke-width="3" stroke-dasharray="{{ dash }} 2 3">
+                <circle cx="12" cy="12" r="8" />
+              </g>
+            </svg>
+            """,
+            new object?[] { 6f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g stroke="#b45309" fill="none" stroke-width="3" stroke-dasharray="6 2 3">
+                <circle cx="12" cy="12" r="8" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Driven_Dash_Array_Is_Normalised_By_PathLength()
+        => AssertExpressionsRenderTheSame(
+            "ExprDashArrayPathLength",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="arc" type="number" default="0" /></e:code></defs>
+              <circle cx="12" cy="12" r="8" pathLength="20" fill="none" stroke="#0f766e" stroke-width="3"
+                      stroke-dasharray="{{ arc }} {{ 20 - arc }}" />
+            </svg>
+            """,
+            new object?[] { 13f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="8" pathLength="20" fill="none" stroke="#0f766e" stroke-width="3"
+                      stroke-dasharray="13 7" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Dash_Array_That_Binds_Invalid_Strokes_Solid()
+        => AssertExpressionsRenderTheSame(
+            "ExprDashArrayInvalid",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="arc" type="number" default="1" /></e:code></defs>
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="3"
+                      stroke-dasharray="{{ arc }} 4" />
+            </svg>
+            """,
+            new object?[] { -2f },
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="3" />
+            </svg>
+            """);
+
+    [Fact]
     public void A_False_Visibility_Expression_Draws_Nothing()
         // The conditional becomes `if (shown)`, so the subtree has to disappear from the drawing
         // rather than merely be painted differently.

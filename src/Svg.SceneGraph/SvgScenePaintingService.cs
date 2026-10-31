@@ -832,11 +832,21 @@ internal static class SvgScenePaintingService
         // the identity on one: the single thing a literal gets that an expression would miss is
         // pathLength's own scale, and folding it in here is what lands the two on the same distance.
         // Multiply folds itself away where the document names no pathLength, which is almost all.
+        var scale = SymNode.Literal(normalization.AuthorToActualScale);
         var driven = SvgSceneExpressions.TryGet(svgElement, SvgSceneExpressions.StrokeDashOffset) is { } shift
-            ? SymNode.Multiply(shift, SymNode.Literal(normalization.AuthorToActualScale))
+            ? SymNode.Multiply(shift, scale)
             : null;
 
-        return SKPathEffect.CreateDash(intervals, phase, driven);
+        // Laid out as the intervals are, an odd list written twice over, and scaled as the phase is.
+        var items = SvgSceneExpressions.TryGetDashArray(svgElement);
+        var lengths = items is { Length: var written } && written == count ? new SymNode?[intervals.Length] : null;
+
+        for (var i = 0; lengths is { } && i < intervals.Length; i++)
+        {
+            lengths[i] = items![i % count] is { } item ? SymNode.Multiply(item, scale) : null;
+        }
+
+        return SKPathEffect.CreateDash(intervals, phase, driven, lengths);
     }
 
     private static void SetDash(SvgVisualElement svgVisualElement, SKPaint skPaint, SKRect skBounds, SKPath? geometryPath)

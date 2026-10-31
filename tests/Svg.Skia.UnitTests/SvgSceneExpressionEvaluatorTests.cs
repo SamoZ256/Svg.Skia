@@ -330,6 +330,33 @@ public class SvgSceneExpressionEvaluatorTests
     }
 
     [Fact]
+    public void A_Dash_Array_Expression_Becomes_The_Intervals_And_Loses_Its_Expressions()
+    {
+        var markup = Wrap(
+            """<e:param name="arc" type="number" />""",
+            """<circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="2" stroke-dasharray="{{ arc }} 4 {{ 20 - arc }}" />""");
+
+        var dash = Assert.IsType<DashPathEffect>(SinglePaint(BuildAndEvaluate(markup, ("arc", ExprValue.Number(15f)))).PathEffect);
+
+        // An odd list is written twice over, the expressions with it.
+        Assert.Equal(new[] { 15f, 4f, 5f, 15f, 4f, 5f }, dash.Intervals);
+        Assert.Null(dash.IntervalExpressions);
+    }
+
+    /// <summary>SVG strokes an invalid dash array solid, and a driven one is no exception.</summary>
+    [Theory]
+    [InlineData(-1f)]
+    [InlineData(0f)]
+    public void A_Dash_Array_That_Binds_Invalid_Strokes_Solid(float arc)
+    {
+        var markup = Wrap(
+            """<e:param name="arc" type="number" />""",
+            """<circle cx="12" cy="12" r="8" fill="none" stroke="#0f766e" stroke-width="2" stroke-dasharray="{{ arc }} {{ arc }}" />""");
+
+        Assert.Null(SinglePaint(BuildAndEvaluate(markup, ("arc", ExprValue.Number(arc)))).PathEffect);
+    }
+
+    [Fact]
     public void A_Dash_Nothing_Drives_Comes_Back_As_The_Same_Path_Effect()
     {
         var markup = Wrap(

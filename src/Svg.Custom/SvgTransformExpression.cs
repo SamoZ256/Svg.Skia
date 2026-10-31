@@ -162,6 +162,12 @@ public static class SvgTransformExpression
     /// <summary>The attribute this splits. Named here so the three lift sites cannot spell it apart.</summary>
     public const string Name = "transform";
 
+    /// <summary>
+    /// The other attribute split per item: a dash array is read as the arguments of one function
+    /// with no name and no parentheses, which is all a list is.
+    /// </summary>
+    public const string DashArrayName = "stroke-dasharray";
+
     /// <summary>Whether <paramref name="value"/> is worth splitting at all.</summary>
     public static bool Holds(string? value)
         => value is { } && value.IndexOf(Open, StringComparison.Ordinal) >= 0;
@@ -174,6 +180,23 @@ public static class SvgTransformExpression
     /// braces it could not place, because the callers are a parser that must not fail a document and
     /// a source view whose job is to say where the fault is.
     /// </remarks>
+    public static SvgTransformExpressionValue Parse(string localName, string? value)
+    {
+        if (localName != DashArrayName)
+        {
+            return Parse(value);
+        }
+
+        var text = value ?? string.Empty;
+        var functions = new List<SvgTransformExpressionFunction>();
+        var stray = new List<SvgTransformExpressionArgument>();
+
+        ReadArguments(text, DashArrayName, 0, functions, stray, endsList: true);
+
+        return new SvgTransformExpressionValue(text, functions, stray);
+    }
+
+    /// <summary>Splits a <c>transform</c> value into its functions and arguments.</summary>
     public static SvgTransformExpressionValue Parse(string? value)
     {
         var text = value ?? string.Empty;
@@ -220,10 +243,12 @@ public static class SvgTransformExpression
     /// </summary>
     /// <remarks>
     /// One where the slot scales and zero everywhere else, so an unbound <c>scale</c> draws the shape
-    /// at the size it was authored rather than collapsing it to a point.
+    /// at the size it was authored rather than collapsing it to a point. A dash item has no value
+    /// that does nothing, and one rather than nought because an array summing to nought is dropped
+    /// while it is recorded, taking the expressions that were to ride on it with it.
     /// </remarks>
     internal static string Identity(string function, int index)
-        => (function == "scale" && index < 2) || (function == "matrix" && (index == 0 || index == 3))
+        => function == DashArrayName || (function == "scale" && index < 2) || (function == "matrix" && (index == 0 || index == 3))
             ? "1"
             : "0";
 
@@ -233,7 +258,8 @@ public static class SvgTransformExpression
         string name,
         int start,
         List<SvgTransformExpressionFunction> functions,
-        List<SvgTransformExpressionArgument> stray)
+        List<SvgTransformExpressionArgument> stray,
+        bool endsList = false)
     {
         var arguments = new List<SvgTransformExpressionArgument>();
         var index = start;
@@ -264,7 +290,7 @@ public static class SvgTransformExpression
 
             var character = text[index];
 
-            if (character == ')')
+            if (character == ')' && !endsList)
             {
                 Flush(text, name, token, index, arguments, stray);
                 functions.Add(new SvgTransformExpressionFunction(name, arguments));
@@ -288,8 +314,16 @@ public static class SvgTransformExpression
             index++;
         }
 
-        // Unclosed, so the arguments read so far belong to nothing that can be applied.
         Flush(text, name, token, text.Length, arguments, stray);
+
+        if (endsList)
+        {
+            functions.Add(new SvgTransformExpressionFunction(name, arguments));
+
+            return text.Length;
+        }
+
+        // Unclosed, so the arguments read so far belong to nothing that can be applied.
 
         foreach (var argument in arguments)
         {

@@ -840,7 +840,7 @@ namespace Svg
                 // malformed number for a value that is well formed, while asking it about the
                 // stand-in still reports the faults that are real -- a rotate written with two
                 // arguments is one whether or not an expression drives them.
-                attributeValue = SvgTransformExpression.Parse(attributeValue).Placeholder;
+                attributeValue = SvgTransformExpression.Parse(attributeName, attributeValue).Placeholder;
             }
 
             if (IsEventDescriptorAttribute(element, attributeName) ||

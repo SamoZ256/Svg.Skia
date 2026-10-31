@@ -153,13 +153,13 @@ public class SvgSourceAttributesTests
         var source = """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
               <defs><e:code><e:param name="w" type="number" default="4" /></e:code></defs>
-              <rect stroke-dasharray="{{ w }}" />
+              <rect stroke-miterlimit="{{ w }}" />
             </svg>
             """;
 
         var one = Assert.Single(SvgSourceDiagnostics.Analyse(source));
 
-        Assert.StartsWith("'stroke-dasharray' does not take an expression.", one.Message);
+        Assert.StartsWith("'stroke-miterlimit' does not take an expression.", one.Message);
 
         // Which ones do, rather than in which order: the list is read off the extension's own table
         // of placeholders, and what that enumerates in is not worth pinning.

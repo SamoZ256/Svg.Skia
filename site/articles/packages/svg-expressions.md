@@ -58,8 +58,9 @@ An expression is written directly in the attribute it drives, wrapped in double 
 The whole attribute value must be the expression. A value that merely *contains* braces is left
 alone — `fill="url(#g) {%{{{ x }}}%}"` is an ordinary (invalid) value, not an expression.
 
-`transform` is the one exception, and it moves the rule one level down rather than dropping it: there
-an expression is the whole of one function **argument**, and one value may hold several.
+`transform` and `stroke-dasharray` are the exceptions, and they move the rule one level down rather
+than dropping it: there an expression is the whole of one function **argument**, or of one item of
+the dash list, and one value may hold several.
 
 {%{
 {%%{
@@ -189,6 +190,7 @@ stays smooth.
 | `stroke-width` | number | The stroke's width in user units. Refused where a driven transform is, and for the same reason: a stroke that grows paints outside bounds something already measured. |
 | `stop-opacity` | number | Scales one gradient stop's alpha. |
 | `stroke-dashoffset` | number | Where along the dash pattern the stroke starts, in user units. Refused nowhere — a dash removes paint from a stroke rather than adding any, so no value it binds to can leave bounds measured with that stroke already in them. Inert on an element with no `stroke-dasharray`, exactly as a literal is. A drawing that dashes a ring at its own circumference and drives this draws an arc of any sweep, which is what a progress ring is. |
+| `stroke-dasharray` | number, per item | One expression drives one dash or gap length, in user units, and `pathLength` scales it as it does a literal. Unbound, an item reads as 1 rather than 0, since a list that sums to nothing records no dash for the expressions to ride on. An item that binds below nothing, or a list that sums to nothing, is SVG's invalid dash array and strokes solid. With `stroke-dashoffset` it draws an arc both of whose ends move: the dash is the sweep, the gap the rest of the ring. |
 | `visibility` | boolean | `true` meaning visible. Wraps the element's drawing in a condition. |
 | `display` | boolean | `true` meaning displayed. Wraps the element and its subtree in a condition. |
 | `transform` | number, per argument | One expression drives one argument of one function. Unbound, an argument reads as the identity of **its slot** — 0 for an offset, an angle or a rotation centre, 1 for a scale factor — rather than one constant for all of them, since an unbound `scale` of 0 would leave no shape on screen to bind to. |

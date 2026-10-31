@@ -363,7 +363,7 @@ public static class SvgSceneExpressionEvaluator
             return clone;
         }
 
-        /// <summary>A dash whose phase was written as an expression, with it resolved.</summary>
+        /// <summary>A dash whose phase or intervals were written as expressions, with them resolved.</summary>
         /// <remarks>
         /// The same instance where nothing drives it, so a literal dash keeps the sharing the rest
         /// of this walk is built on. Where something does, the answer is always a new effect even
@@ -371,19 +371,50 @@ public static class SvgSceneExpressionEvaluator
         ///
         /// A phase that binds to nothing at all is written as nought rather than refused -- unlike a
         /// length it cannot make the dash invalid, and a pattern shifted by nothing is the dash the
-        /// document already draws.
+        /// document already draws. An interval that binds to nothing, or below nought, or a pattern
+        /// that sums to nothing, is SVG's invalid dash array, which strokes solid: null, as
+        /// <c>CreateDash</c> answers the same array written as literals.
         /// </remarks>
         private SKPathEffect? RewritePathEffect(SKPathEffect? pathEffect)
         {
-            if (pathEffect is not DashPathEffect { PhaseExpression: { } expression } dash || dash.Intervals is null)
+            if (pathEffect is not DashPathEffect { Intervals: { } intervals } dash ||
+                (dash.PhaseExpression is null && dash.IntervalExpressions is null))
             {
                 return pathEffect;
             }
 
-            var phase = SvgSceneSymEvaluator.Evaluate(expression, ExprType.Number, _evaluator).AsNumber;
+            var lengths = intervals;
 
-            return SKPathEffect.CreateDash(dash.Intervals, float.IsNaN(phase) || float.IsInfinity(phase) ? 0f : phase);
+            if (dash.IntervalExpressions is { } driven)
+            {
+                lengths = new float[intervals.Length];
+                var sum = 0f;
+
+                for (var i = 0; i < lengths.Length; i++)
+                {
+                    lengths[i] = driven[i] is { } length ? Number(length) : intervals[i];
+
+                    if (float.IsNaN(lengths[i]) || float.IsInfinity(lengths[i]) || lengths[i] < 0f)
+                    {
+                        return null;
+                    }
+
+                    sum += lengths[i];
+                }
+
+                if (sum <= 0f)
+                {
+                    return null;
+                }
+            }
+
+            var phase = dash.PhaseExpression is { } shift ? Number(shift) : dash.Phase;
+
+            return SKPathEffect.CreateDash(lengths, float.IsNaN(phase) || float.IsInfinity(phase) ? 0f : phase);
         }
+
+        private float Number(SymNode expression)
+            => SvgSceneSymEvaluator.Evaluate(expression, ExprType.Number, _evaluator).AsNumber;
 
         private float RewriteStrokeWidth(SKPaint paint)
             => paint.StrokeWidthExpression is { } expression

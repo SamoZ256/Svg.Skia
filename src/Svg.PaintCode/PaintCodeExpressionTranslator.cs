@@ -373,8 +373,10 @@ internal sealed class PaintCodeExpressionTranslator
         var text = _source.Substring(start, _at - start);
 
         // The target grammar has no exponent form, so a number that only prints with one cannot go.
+        // Not rounded as geometry is: pac-man's lips add 0.00001 so a shut mouth is a whole turn
+        // rather than none, and four places wrote it as nought.
         return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-            ? Literal(PaintCodeDeclarations.Number(value))
+            ? Literal(value.ToString("0.###############", CultureInfo.InvariantCulture))
             : Refuse($"'{text}' is not a number this can write");
     }
 
