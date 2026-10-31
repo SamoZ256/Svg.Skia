@@ -201,15 +201,52 @@ asks whoever exports, or follows their preference, so a build has to say:</p>
 </table>
 <p><code>Survey()</code> lists what <code>Baked</code> would freeze, and is empty for a project of ordinary icons. See
 <a href="/Svg.Skia/articles/guides/svg-studio#text-an-export-cannot-write-out">text an export cannot write out</a>.</p>
-<p>Text is measured with Skia, as in Studio, so the package brings SkiaSharp's native library with it.
-Studio and a build on the same machine write the same file; text exported on another machine follows
-the fonts installed there.</p>
+<p>Text is measured with Skia, as in Studio, so the package brings SkiaSharp's native library with it.</p>
+<h2 id="fonts">Fonts</h2>
+<p>A project's text is measured with the fonts it holds — the <code>.otf</code> and <code>.ttf</code> files in the <code>fonts</code>
+folder at the root of the <code>.svgstudio</code> — then with those of the folder <code>fontsFolder</code> names beside
+it, and only then with the machine's. With the project's fonts every machine writes the same file,
+and Studio and a build agree.</p>
+<table class="table">
+<thead>
+<tr>
+<th>Member</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Fonts</code></td>
+<td>The fonts the project holds, by path inside it, as bytes. <code>Load</code> reads them; <code>Read(files, path)</code> holds none, so save over a package only a document <code>Load</code> read</td>
+</tr>
+<tr>
+<td><code>TypefaceProviders()</code></td>
+<td>What its text is measured with, for an <code>SKSvg</code> of your own: <code>svg.Settings.TypefaceProviders = new List&lt;ITypefaceProvider&gt;(project.TypefaceProviders())</code></td>
+</tr>
+<tr>
+<td><code>FontProblems()</code></td>
+<td>A font Skia cannot read, a <code>fontsFolder</code> that is not there</td>
+</tr>
+<tr>
+<td><code>MissingFonts(picture)</code></td>
+<td>Each face or character a drawing's text asks for that the fonts do not hold</td>
+</tr>
+</tbody>
+</table>
+<p>An export warns of both: the fonts' problems, and each face a drawing asks for that the project's
+fonts lack, even where the machine has it, since another machine would not. A project with no fonts
+warns only of a family the machine lacks.</p>
+<p>Keep fonts out of line-ending conversion with <code>*.otf binary</code> and <code>*.ttf binary</code> in
+<code>.gitattributes</code>. A font kept in Git LFS that was never pulled is a pointer, which reads as a font
+Skia cannot read. An older package measures without a project's fonts, and refuses a project that
+sets <code>fontsFolder</code>.</p>
 <h2 id="in-an-msbuild-build">In an MSBuild build</h2>
 <p>A console project of one line does the export:</p>
 <pre><code class="language-csharp">Svg.Studio.ProjectDocument.Load(args[0]).Export(args[1], Svg.SvgTextLayout.Baked, Console.WriteLine);
 </code></pre>
 <p>The project that compiles the result runs it before compiling, and only when a file of the
-<code>.svgstudio</code> has changed since the last export:</p>
+<code>.svgstudio</code> — its fonts included — has changed since the last export. A <code>fontsFolder</code> beside it
+wants its own line among the inputs:</p>
 <pre><code class="language-xml">&lt;ItemGroup&gt;
   &lt;IconsProject Include=&quot;Icons.svgstudio/**&quot; /&gt;
   &lt;Compile Include=&quot;$(IntermediateOutputPath)Icons.g.cs&quot; /&gt;

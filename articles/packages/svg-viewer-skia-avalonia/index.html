@@ -290,7 +290,11 @@
 </tr>
 <tr>
 <td><code>Rewrite</code> / <code>Notice</code></td>
-<td>Drawing a document derived from the file — an svgc project applying a recipe — and saying so when it cannot be</td>
+<td>Drawing a document derived from the file — an svgc project applying a recipe — and saying, of each build, what only the host can see is wrong with it</td>
+</tr>
+<tr>
+<td><code>TypefaceProviders</code></td>
+<td>The fonts a drawing's text is measured and drawn with, kept through every rebuild; their families are what a font's <strong>▾</strong> offers</td>
 </tr>
 <tr>
 <td><code>DeclarationTarget</code></td>
@@ -652,8 +656,9 @@ Everything else still works from the text: <code>Source</code> is it and a save 
 goes back through the rewrite. Where the declarations then belong to whatever made them rather than
 to the drawing, a host sets <code>DeclarationTarget</code> to say where the parameter panel should write;
 <code>ISvgViewerDeclarationTarget</code> is the seam to it. Left unset the commands go into the drawing, which
-is what a drawing declaring for itself wants. <code>Notice</code> is where a host says a rewrite could not be
-set up at all; it appears on the status line beside the viewer's own count of what is wrong.</p>
+is what a drawing declaring for itself wants. <code>Notice</code> is where a host says what only it can see — a
+font the drawing asks for that the host's fonts lack — asked of every build, so it follows an edit;
+it appears on the status line beside the viewer's own count of what is wrong.</p>
 <h2 id="two-things-worth-knowing">Two things worth knowing</h2>
 <p>It does <strong>not</strong> host <code>Avalonia.Svg.Skia.Svg</code>. That control sizes itself to the drawing it fits, so it cannot fill a viewport and its zoom is bounded by its own clip. The viewer draws onto <code>SKCanvasControl</code> and owns the transform, which is what makes fit and actual-size exact.</p>
 <p>Loading is the only work off the UI thread. Binding a value evaluates a model that is already compiled, on the UI thread, coalesced to one call per frame, so a slider drag stays smooth and two changes keep the order they were made in.</p>
