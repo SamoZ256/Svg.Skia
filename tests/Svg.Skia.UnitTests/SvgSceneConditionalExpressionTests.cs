@@ -210,7 +210,7 @@ public class SvgSceneConditionalExpressionTests
         Assert.Contains("if (shown)", code);
 
         var ifAt = code.IndexOf("if (shown)", System.StringComparison.Ordinal);
-        var drawAt = code.IndexOf(".DrawPath(", System.StringComparison.Ordinal);
+        var drawAt = code.IndexOf(".DrawRect(", System.StringComparison.Ordinal);
 
         Assert.True(ifAt >= 0 && drawAt > ifAt, "The draw must be emitted inside the conditional.");
     }

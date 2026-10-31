@@ -23,13 +23,14 @@ public class SkiaCSharpSingleFileTests
     }
 
     /// <summary>A drawing whose fill needs the hsl helper, so helper placement is observable.</summary>
+    // A path rather than a rect: a lone filled rect is drawn with DrawRect and builds no path.
     private static SkiaCSharpDrawing Tinted(string namespaceName, string className) => Drawing(
         namespaceName,
         className,
         """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
           <defs><e:code><e:param name="h" type="number" default="0" /></e:code></defs>
-          <rect x="0" y="0" width="10" height="10" fill="{{ hsl(h, 50%, 50%) }}" />
+          <path d="M 0 0 H 10 V 10 H 0 Z" fill="{{ hsl(h, 50%, 50%) }}" />
         </svg>
         """);
 

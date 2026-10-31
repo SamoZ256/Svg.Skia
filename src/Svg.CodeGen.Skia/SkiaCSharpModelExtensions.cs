@@ -2060,6 +2060,13 @@ public static class SkiaCSharpModelExtensions
     }
 
     public static void ToSKPicture(this SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+        => ToSKPicture(picture, counter, sb, indent, layers: null);
+
+    /// <param name="layers">
+    /// The layers open around a picture the drawing draws, which it replays under as the renderer
+    /// does; a shader's or an image filter's picture is recorded on its own, under none.
+    /// </param>
+    private static void ToSKPicture(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SaveLayerTracker? layers)
     {
         // A picture inside the drawing is still recorded, and what it builds is disposed with it.
         var direct = counter.Direct;
@@ -2071,11 +2078,11 @@ public static class SkiaCSharpModelExtensions
         {
             if (direct)
             {
-                ToCanvas(picture, counter, sb, indent, statics);
+                ToCanvas(picture, counter, sb, indent, statics, layers);
             }
             else
             {
-                ToRecording(picture, counter, sb, indent);
+                ToRecording(picture, counter, sb, indent, layers);
             }
         }
         finally
@@ -2085,7 +2092,7 @@ public static class SkiaCSharpModelExtensions
     }
 
     /// <summary>The drawing's commands onto the canvas <c>Draw</c> was given, under whatever it already holds.</summary>
-    private static void ToCanvas(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, StringBuilder? statics)
+    private static void ToCanvas(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, StringBuilder? statics, SaveLayerTracker? layers)
     {
         var counterCanvas = ++counter.Canvas;
         var canvas = $"{counter.CanvasVarName}{counterCanvas}";
@@ -2094,12 +2101,12 @@ public static class SkiaCSharpModelExtensions
         sb.AppendLine($"{indent}var skBase{counterCanvas} = {canvas}.TotalMatrix;");
         sb.AppendLine($"{indent}var skSave{counterCanvas} = {canvas}.Save();");
 
-        Commands(picture?.Commands, counter, sb, indent, counterCanvas, statics ?? new StringBuilder());
+        Commands(picture?.Commands, counter, sb, indent, counterCanvas, statics ?? new StringBuilder(), layers ?? new SaveLayerTracker());
 
         sb.AppendLine($"{indent}{canvas}.RestoreToCount(skSave{counterCanvas});");
     }
 
-    private static void ToRecording(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    private static void ToRecording(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SaveLayerTracker? layers)
     {
         var counterPicture = counter.Picture;
 
@@ -2115,7 +2122,7 @@ public static class SkiaCSharpModelExtensions
         sb.AppendLine($"{indent}var {counter.PictureRecorderVarName}{counterPictureRecorder} = new SKPictureRecorder();");
         sb.AppendLine($"{indent}var {counter.CanvasVarName}{counterCanvas} = {counter.PictureRecorderVarName}{counterPictureRecorder}.BeginRecording({picture.CullRect.ToSKRect()});");
 
-        Commands(picture.Commands, counter, sb, indent, counterCanvas, statics: null);
+        Commands(picture.Commands, counter, sb, indent, counterCanvas, statics: null, layers ?? new SaveLayerTracker());
 
         sb.AppendLine($"{indent}var {counter.PictureVarName}{counterPicture} = {counter.PictureRecorderVarName}{counterPictureRecorder}.EndRecording();");
         sb.AppendLine($"{indent}{counter.PictureRecorderVarName}{counterPictureRecorder}?.Dispose();");
@@ -2132,7 +2139,8 @@ public static class SkiaCSharpModelExtensions
         StringBuilder sb,
         string indent,
         int counterCanvas,
-        StringBuilder? statics)
+        StringBuilder? statics,
+        SaveLayerTracker layers)
     {
         if (commands is null)
         {
@@ -2185,11 +2193,13 @@ public static class SkiaCSharpModelExtensions
                 case SaveCanvasCommand _:
                     {
                         sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
+                        layers.Save(isLayer: false);
                         break;
                     }
                 case RestoreCanvasCommand _:
                     {
                         sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Restore();");
+                        layers.Restore();
                         break;
                     }
                 case SetMatrixCanvasCommand setMatrixCanvasCommand:
@@ -2262,6 +2272,9 @@ public static class SkiaCSharpModelExtensions
                     }
                 case SaveLayerCanvasCommand saveLayerCanvasCommand:
                     {
+                        // A layer to the tracker even where it is drawn as a save, as the renderer counts it.
+                        layers.Save(isLayer: true);
+
                         // Under an antialiased clip a layer that changes nothing still costs most of
                         // the drawing (blinds180ltr: 59.7 µs, 8.0 µs without).
                         var inert = commands.CanSaveInsteadOfLayer(index);
@@ -2394,7 +2407,7 @@ public static class SkiaCSharpModelExtensions
                         if (drawPictureCanvasCommand.Picture is { })
                         {
                             var counterChildPicture = ++counter.Picture;
-                            drawPictureCanvasCommand.Picture.ToSKPicture(counter, sb, indent);
+                            ToSKPicture(drawPictureCanvasCommand.Picture, counter, sb, indent, layers);
                             sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawPicture({counter.PictureVarName}{counterChildPicture});");
                             sb.AppendLine($"{indent}{counter.PictureVarName}{counterChildPicture}?.Dispose();");
                         }
@@ -2404,11 +2417,26 @@ public static class SkiaCSharpModelExtensions
                     {
                         if (drawPathCanvasCommand.Path is { } && drawPathCanvasCommand.Paint is { })
                         {
-                            var counterPath = ++counter.Path;
-                            drawPathCanvasCommand.Path.ToSKPath(counter, sb, indent);
+                            var primitive = layers.Primitive(drawPathCanvasCommand) switch
+                            {
+                                AddRectPathCommand rect => $"DrawRect({rect.Rect.ToSKRect()}, ",
+                                AddRoundRectPathCommand roundRect => $"DrawRoundRect({roundRect.Rect.ToSKRect()}, {roundRect.Rx.ToFloatString()}, {roundRect.Ry.ToFloatString()}, ",
+                                AddOvalPathCommand oval => $"DrawOval({oval.Rect.ToSKRect()}, ",
+                                AddCirclePathCommand circle => $"DrawCircle({circle.X.ToFloatString()}, {circle.Y.ToFloatString()}, {circle.Radius.ToFloatString()}, ",
+                                _ => null
+                            };
+                            var counterPath = primitive is null ? ++counter.Path : -1;
+                            if (primitive is null)
+                            {
+                                drawPathCanvasCommand.Path.ToSKPath(counter, sb, indent);
+                            }
                             var counterPaint = ++counter.Paint;
                             drawPathCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
-                            if (drawPathCanvasCommand.Paint.IsStrokeNonScaling &&
+                            if (primitive is { })
+                            {
+                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.{primitive}{counter.PaintVarName}{counterPaint});");
+                            }
+                            else if (drawPathCanvasCommand.Paint.IsStrokeNonScaling &&
                                 drawPathCanvasCommand.Paint.Style == SKPaintStyle.Stroke)
                             {
                                 var counterNonScalingPath = ++counter.Path;
@@ -2472,7 +2500,10 @@ public static class SkiaCSharpModelExtensions
                             }
 
                             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Dispose();");
-                            sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}?.Dispose();");
+                            if (primitive is null)
+                            {
+                                sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}?.Dispose();");
+                            }
                         }
                         break;
                     }
