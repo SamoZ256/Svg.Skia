@@ -848,7 +848,8 @@ public partial class SkiaModel
         return !string.Equals(providerTypeface.FamilyName, candidate, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsGenericFontFamilyName(string candidate)
+    /// <summary>Whether <paramref name="candidate"/> is one of CSS's generic families, which the resolver accepts in whatever family the machine gives for it.</summary>
+    public static bool IsGenericFontFamilyName(string candidate)
     {
         return candidate.Equals("serif", StringComparison.OrdinalIgnoreCase) ||
                candidate.Equals("sans-serif", StringComparison.OrdinalIgnoreCase) ||

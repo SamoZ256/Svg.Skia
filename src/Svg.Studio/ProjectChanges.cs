@@ -76,7 +76,7 @@ public static class ProjectChanges
         var keys = now.Select(KeyOf).ToHashSet(StringComparer.Ordinal);
         var changes = new List<ProjectChange>();
 
-        if (before is { } && Settings(before.Root) != Settings(after.Root))
+        if (before is { } && (Settings(before.Root) != Settings(after.Root) || !ProjectPackage.Same(before.Fonts, after.Fonts)))
         {
             changes.Add(new ProjectChange(string.Empty, ProjectChangeKind.Settings, before.Root, after.Root));
         }
@@ -268,4 +268,7 @@ public sealed class ProjectMerge
     public ProjectMerge(IReadOnlyList<ProjectConflict> conflicts) => Conflicts = conflicts;
 
     public IReadOnlyList<ProjectConflict> Conflicts { get; }
+
+    /// <summary>What both sides are drawn with: the project's fonts as committed, since a conflict's sides are lone files of no project.</summary>
+    public IReadOnlyList<Svg.Skia.TypefaceProviders.ITypefaceProvider>? Typefaces { get; init; }
 }

@@ -39,7 +39,8 @@ internal enum SvgViewerAttributeControl
 /// <summary>What the element panel knows about one attribute beyond its name.</summary>
 /// <param name="Choices">
 /// Values in SVG's spelling. <c>#tag</c> stands for a <c>url(#id)</c> to each <c>&lt;tag&gt;</c> the
-/// drawing gives an id.
+/// drawing gives an id, and <c>@fonts</c> for the families of the host's fonts, or SVG's generic
+/// families where it has none.
 /// </param>
 /// <param name="Usual">The elements the row is listed on unasked, or null for none.</param>
 internal sealed record SvgViewerAttribute(
@@ -136,7 +137,7 @@ internal static class SvgViewerAttributes
         }),
         (SvgViewerAttributeGroup.Text, new[]
         {
-            ("font-family", "Font", Plain, "sans-serif|serif|monospace|cursive|fantasy", Texts),
+            ("font-family", "Font", Plain, "@fonts", Texts),
             ("font-size", "Font size", Number, "", Texts),
             ("font-weight", "Font weight", Plain, "normal|bold|lighter|bolder|100|200|300|400|500|600|700|800|900", Texts),
             ("font-style", "Font style", Plain, "normal|italic|oblique", Texts),

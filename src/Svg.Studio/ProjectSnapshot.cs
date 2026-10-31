@@ -131,6 +131,19 @@ public static class ProjectSnapshot
         return () => root.PutBlock("templates", was);
     }
 
+    /// <summary>The fonts the project holds, which every edit of them replaces rather than changes.</summary>
+    public static Action Fonts(ProjectDocument document)
+    {
+        if (document is null)
+        {
+            throw new ArgumentNullException(nameof(document));
+        }
+
+        var was = document.Fonts;
+
+        return () => document.Fonts = was;
+    }
+
     /// <summary>Several captures as one, in the order they were given.</summary>
     /// <remarks>For a gesture that touches more than one thing — a paste is a node and a place.</remarks>
     public static Action All(params Action[] captured)

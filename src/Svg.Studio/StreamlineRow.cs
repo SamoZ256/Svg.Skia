@@ -249,7 +249,7 @@ public sealed class StreamlineRow
     {
         try
         {
-            return SvgViewerDocument.LoadFromSvg(text, null, default, target is { } ? own => ProjectDeclarations.Built(target, own) : null);
+            return SvgViewerDocument.LoadFromSvg(text, null, default, target is { } ? own => ProjectDeclarations.Built(target, own) : null, target?.Owner.TypefaceProviders());
         }
         catch (Exception)
         {

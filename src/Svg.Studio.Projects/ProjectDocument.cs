@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -849,6 +850,11 @@ public class ProjectGroup : ProjectNode
         var children = Children.ToList();
         var taken = ProjectPackage.Reserved();
 
+        if (this is ProjectRoot)
+        {
+            taken.Add(ProjectPackage.FontFolder);
+        }
+
         foreach (var child in children)
         {
             if (child.Segment is { } kept && !(ProjectPackage.Fits(kept, child.Name, child is ProjectGroup) && taken.Add(kept)))
@@ -1155,6 +1161,13 @@ public sealed class ProjectRoot : ProjectGroup
         set => Element.SetAttributeValue("typeface", Trimmed(value));
     }
 
+    /// <summary>A folder of more fonts beside the project, relative to its folder, or null for the fonts it holds alone.</summary>
+    public string? FontsFolder
+    {
+        get => Setting("fontsFolder");
+        set => Element.SetAttributeValue("fontsFolder", Trimmed(value));
+    }
+
     /// <summary>The settings that shape the generated file, as one value.</summary>
     public SvgCodeStyle Style => SvgcProject.ParseStyle(
         Setting("api"),
@@ -1227,8 +1240,9 @@ public sealed class ProjectRoot : ProjectGroup
 /// <remarks>
 /// <para>
 /// The format is <c>.svgstudio</c>, a folder: <c>studio.xml</c> for the project's own settings, an
-/// <c>.svg</c> per drawing, and a folder with a <c>group.xml</c> per group. Settings are attributes
-/// wherever they appear, and a group hands its own down to everything under it.
+/// <c>.svg</c> per drawing, a folder with a <c>group.xml</c> per group, and a <c>fonts</c> folder of
+/// the project's <c>.otf</c> and <c>.ttf</c> files. Settings are attributes wherever they appear, and
+/// a group hands its own down to everything under it.
 /// </para>
 /// <para>
 /// Each file is held as an <see cref="SvgSourceDocument"/> rather than as a plain tree, which is the
@@ -1241,7 +1255,7 @@ public sealed class ProjectRoot : ProjectGroup
 /// build <c>svgc</c> runs rather than a second implementation of it.
 /// </para>
 /// </remarks>
-public sealed class ProjectDocument
+public sealed partial class ProjectDocument
 {
     /// <summary>Where a drawing's settings are written, inside its own <c>&lt;metadata&gt;</c>.</summary>
     public static readonly XNamespace Studio = "https://svg.skia/studio/1.0";
@@ -1253,7 +1267,7 @@ public sealed class ProjectDocument
     private static readonly string[] s_settings =
     {
         "namespace", "class", "cache", "helperScope", "skiaSharp",
-        "width", "height", "scale", "padding", "api", "resizing", "context", "order", "body", "typeface"
+        "width", "height", "scale", "padding", "api", "resizing", "context", "order", "body", "typeface", "fontsFolder"
     };
 
     /// <summary>The expression extension, as a namespace rather than as the string it is declared as.</summary>
@@ -1276,7 +1290,7 @@ public sealed class ProjectDocument
 
     /// <summary>What the folder held as last read or written, so a save writes only what changed.</summary>
     /// <remarks>Set for a copy recovered over the folder, which stands in for what was read from it.</remarks>
-    internal Dictionary<string, string>? Disk { get; set; }
+    internal (Dictionary<string, string> Files, Dictionary<string, ReadOnlyMemory<byte>> Fonts)? Disk { get; set; }
 
     /// <summary>The settings <paramref name="node"/> can carry, which are what the reader takes back but where a drawing was imported from.</summary>
     internal static IReadOnlyList<string> Settings(ProjectNode node)
@@ -1303,7 +1317,14 @@ public sealed class ProjectDocument
     {
         try
         {
-            return Path is { } path && Disk is { } disk && ProjectPackage.Exists(path) && !ProjectPackage.Same(ProjectPackage.Read(path), disk);
+            if (Path is not { } path || Disk is not { } disk || !ProjectPackage.Exists(path))
+            {
+                return false;
+            }
+
+            var fonts = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+
+            return !ProjectPackage.Same(ProjectPackage.Read(path, fonts), disk.Files) || !ProjectPackage.Same(fonts, disk.Fonts);
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
@@ -1317,10 +1338,11 @@ public sealed class ProjectDocument
         var folder = ProjectPackage.Find(path)
                      ?? throw new SvgcProjectException($"'{path}' is not a project. A project is a folder ending in {ProjectPackage.Extension}.");
 
-        var files = ProjectPackage.Read(folder);
-        var document = Read(files, folder);
+        var fonts = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+        var files = ProjectPackage.Read(folder, fonts);
+        var document = Read(files, fonts, folder);
 
-        document.Disk = files;
+        document.Disk = (files, fonts);
 
         return document;
     }
@@ -1331,14 +1353,20 @@ public sealed class ProjectDocument
     /// have to be found and corrected rather than simply typed.
     /// </remarks>
     public static ProjectDocument Empty()
-        => Read(new Dictionary<string, string> { [ProjectPackage.Manifest] = Blank }, null);
+        => Read(new Dictionary<string, string> { [ProjectPackage.Manifest] = Blank }, s_noFonts, null);
 
     /// <summary>The project <paramref name="files"/> hold, read as the folder at <paramref name="path"/>.</summary>
     /// <remarks>
     /// For files that are a project's but are not the project's folder — a copy of unsaved work, a
-    /// commit — which is read as the project it is a copy of rather than as where it was kept.
+    /// commit — which is read as the project it is a copy of rather than as where it was kept. It
+    /// holds no fonts, which are not text, and so a save of it leaves a folder's fonts as they are;
+    /// <see cref="Load"/> reads a folder's.
     /// </remarks>
-    public static ProjectDocument Read(IReadOnlyDictionary<string, string> files, string? path)
+    public static ProjectDocument Read(IReadOnlyDictionary<string, string> files, string? path) => Read(files, null, path);
+
+    /// <summary>The project <paramref name="files"/> and <paramref name="fonts"/> hold, read as the folder at <paramref name="path"/>.</summary>
+    /// <param name="fonts">Its fonts, or null where they were never read, which a save then leaves alone.</param>
+    internal static ProjectDocument Read(IReadOnlyDictionary<string, string> files, IReadOnlyDictionary<string, ReadOnlyMemory<byte>>? fonts, string? path)
     {
         if (!files.TryGetValue(ProjectPackage.Manifest, out var text))
         {
@@ -1353,7 +1381,11 @@ public sealed class ProjectDocument
                 $"{ProjectPackage.Manifest}: the root must be <studio>, but was <{manifest.Document.Root.Name.LocalName}>.");
         }
 
-        var document = new ProjectDocument(manifest, path);
+        var document = new ProjectDocument(manifest, path)
+        {
+            Fonts = fonts?.ToImmutableSortedDictionary(StringComparer.Ordinal) ?? s_noFonts,
+            _fontsUnread = fonts is null
+        };
 
         RequireKnownAttributes(document.Root.Element, s_settings, "studio", ProjectPackage.Manifest);
         ReadBlocks(document.Root, ProjectPackage.Manifest);
@@ -1470,17 +1502,18 @@ public sealed class ProjectDocument
     /// <exception cref="SvgcProjectException">The project asks for a build that cannot be made.</exception>
     /// <remarks>
     /// Also throws what the build does for a faulty expression or recipe, and IO errors. Text is
-    /// measured with Skia, as in Studio, so on one machine both write the same file.
+    /// measured with Skia and the project's fonts, as in Studio, so every machine with those fonts
+    /// writes the same file; a text asking for a face or a character they do not hold is warned of.
     /// </remarks>
     public IReadOnlyList<string> Export(string target, SvgTextLayout textLayout, Action<string>? log = null)
     {
         var project = Flatten();
-        var settings = SvgcBuildSettings.For(project);
+        var (settings, loader) = Prepare(project, log);
 
         settings.SingleFile = target;
         settings.TextLayout = textLayout;
 
-        return SvgcProjectBuild.Run(project, settings, Loader(), log);
+        return SvgcProjectBuild.Run(project, settings, loader, log);
     }
 
     /// <summary>What an export would freeze at its default: text an expression drives. Empty for ordinary icons.</summary>
@@ -1488,11 +1521,10 @@ public sealed class ProjectDocument
     public IReadOnlyList<string> Survey((ProjectDrawing Drawing, string Text)? front = null)
     {
         var project = Flatten(front, alone: false);
+        var (settings, loader) = Prepare(project, null);
 
-        return SvgcProjectBuild.Survey(project, SvgcBuildSettings.For(project), Loader());
+        return SvgcProjectBuild.Survey(project, settings, loader);
     }
-
-    private static SkiaSvgAssetLoader Loader() => new(new SkiaModel(new SKSvgSettings()));
 
     /// <summary>Every file of the project as it would be written, by <c>/</c>-separated path.</summary>
     /// <remarks>Names whatever has no file yet, which is why a save and this agree on where things go.</remarks>
@@ -1532,15 +1564,23 @@ public sealed class ProjectDocument
             throw new SvgcProjectException($"'{full}' is a folder that is not a project, so the project is not saved into it.");
         }
 
-        var disk = string.Equals(full, Path, StringComparison.Ordinal) && Disk is { } kept
+        var fonts = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+        (Dictionary<string, string> Files, Dictionary<string, ReadOnlyMemory<byte>> Fonts) disk = string.Equals(full, Path, StringComparison.Ordinal) && Disk is { } kept
             ? kept
-            : Directory.Exists(full)
-                ? ProjectPackage.Read(full)
-                : new Dictionary<string, string>(StringComparer.Ordinal);
+            : (Directory.Exists(full)
+                ? ProjectPackage.Read(full, fonts)
+                : new Dictionary<string, string>(StringComparer.Ordinal), fonts);
 
         try
         {
-            ProjectPackage.Write(full, Files(), disk);
+            // The text first: a first save stopped after the fonts would leave a folder that is not
+            // yet a project, which the next save then refuses to write into.
+            ProjectPackage.Write(full, Files(), disk.Files);
+
+            if (!_fontsUnread)
+            {
+                ProjectPackage.Write(full, Fonts, disk.Fonts);
+            }
         }
         finally
         {

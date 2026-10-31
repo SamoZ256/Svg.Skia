@@ -45,6 +45,37 @@ public class SvgcProjectBuildTests : IDisposable
         Assert.Equal(File.ReadAllText(Path("file.cs")), File.ReadAllText(Path("text.cs")));
     }
 
+    /// <summary>What a host says of a compiled drawing is a warning against it; a survey, which says only what would freeze, does not ask.</summary>
+    [Fact]
+    public void What_The_Host_Says_Of_A_Drawing_Is_A_Warning_Against_It()
+    {
+        var target = Path("Out.cs");
+        var project = new SvgcProject(
+            null, "Demo", null, null, null, null, null, target, null, null, null, null,
+            new[] { new SvgcProjectItem("Badge", null, null, "Badge", null, source: Drawing) });
+        var settings = SvgcBuildSettings.For(project);
+        var asked = new List<SKPicture>();
+        var log = new List<string>();
+
+        settings.SingleFile = target;
+        settings.Warnings = picture =>
+        {
+            asked.Add(picture);
+
+            return new[] { "its font is missing" };
+        };
+
+        SvgcProjectBuild.Run(project, settings, new NoAssets(), log.Add);
+
+        Assert.Contains("warning: Badge: its font is missing", log);
+        Assert.NotEmpty(Assert.Single(asked).Commands!);
+
+        asked.Clear();
+        SvgcProjectBuild.Survey(project, settings, new NoAssets());
+
+        Assert.Empty(asked);
+    }
+
     /// <summary>A drawing whose words the author drives, laid out the one way that can carry it.</summary>
     private const string Driven = """
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0"

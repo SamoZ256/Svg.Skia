@@ -140,9 +140,9 @@ public sealed class ProjectGit
     /// CRLF on disk, and every drawing would compare as changed. One process for the lot, since a
     /// project runs to a thousand files and a process each takes seconds. Not <c>cat-file --batch
     /// --filters</c>, whose header gives the size before the filters ran, so its output cannot be
-    /// cut into files.
+    /// cut into files. The project's fonts go into <paramref name="fonts"/> as the bytes they are.
     /// </remarks>
-    public async Task<Dictionary<string, string>?> Files(string revision)
+    public async Task<Dictionary<string, string>?> Files(string revision, IDictionary<string, ReadOnlyMemory<byte>>? fonts = null)
     {
         var (code, output, _) = await Run(new[] { "archive", "--format=tar", revision, "--", Name }, null).ConfigureAwait(false);
 
@@ -162,7 +162,8 @@ public sealed class ProjectGit
             if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile)
                 || entry.DataStream is not { } data
                 || !entry.Name.StartsWith(root, StringComparison.Ordinal)
-                || !ProjectPackage.Holds(entry.Name[root.Length..]))
+                || entry.Name[root.Length..] is not { } relative
+                || !(ProjectPackage.Holds(relative) || fonts is { } && ProjectPackage.HoldsFont(relative)))
             {
                 continue;
             }
@@ -170,7 +171,15 @@ public sealed class ProjectGit
             using var bytes = new MemoryStream();
 
             data.CopyTo(bytes);
-            files[entry.Name[root.Length..]] = decoder.GetString(bytes.ToArray());
+
+            if (ProjectPackage.HoldsFont(relative))
+            {
+                fonts![relative] = bytes.ToArray();
+            }
+            else
+            {
+                files[relative] = decoder.GetString(bytes.ToArray());
+            }
         }
 
         return files.Count > 0 ? files : null;

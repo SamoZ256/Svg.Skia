@@ -23,6 +23,7 @@ using Avalonia.VisualTree;
 using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.Skia;
+using Svg.Skia.TypefaceProviders;
 using Svg.SourceEditing;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -133,7 +134,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     private IReadOnlyList<SvgViewerParameter> _rows = Array.Empty<SvgViewerParameter>();
     private int _loadVersion;
     private bool _applyQueued;
-    private string? _notice;
+    private Func<SvgViewerDocument, string?>? _notice;
     private IReadOnlyList<SvgViewerPane> _sidePanels = Array.Empty<SvgViewerPane>();
     private bool _arranges = true;
 
@@ -196,6 +197,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // The anchor rather than the row on screen, which a filter can hide while the panel still shows it.
         _element.NewClipRequested = property => _elementTree.SelectedAddresses is [var row, ..] && NewClip(row, property);
         _element.ClipRequested = (content, property) => _elementTree.SelectedAddresses is [var row, ..] && ApplyClip(content, row, property);
+        _element.Typefaces = () => _document?.Svg.Settings.TypefaceProviders;
 
         _canvas.KeyDown += OnCanvasKeyDown;
 
@@ -430,6 +432,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// next load, which is the caller's to make.
     /// </remarks>
     public Func<string, string>? Rewrite { get; set; }
+
+    /// <summary>
+    /// What a drawing's text is measured and drawn with, or null for the machine's fonts.
+    /// </summary>
+    /// <remarks>
+    /// For a host whose drawings carry their own fonts — a Svg.Studio project. Applied on every
+    /// build, as <see cref="SizeRequest"/> is; it takes effect on the next load, which is the caller's to make.
+    /// </remarks>
+    public IReadOnlyList<ITypefaceProvider>? TypefaceProviders { get; set; }
 
     /// <summary>How the viewer asks what parameter to declare. Replaceable, and faked in tests.</summary>
     public ISvgViewerParameterDialogService ParameterDialogService { get; set; } = new SvgViewerParameterDialogService();
@@ -1787,19 +1798,20 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 new[] { new SvgViewerPick(new SvgViewerPlacement(open.Svg, default), node.AddressKey) });
 
     /// <summary>
-    /// A standing sentence from the host about the open drawing, said with the viewer's own.
+    /// A standing sentence from the host about the open drawing as built, said with the viewer's own.
     /// </summary>
     /// <remarks>
-    /// For trouble only the host can see — an svgc project whose recipe will not apply to this
-    /// drawing, so what is on screen is not what the project builds. The status line under the
-    /// drawing is the only place already saying that kind of thing about it.
+    /// For trouble only the host can see — a project whose fonts lack a face the drawing asks for, so
+    /// what is on screen is not what every machine measures. Asked of every build, so it follows an
+    /// edit; null or empty says nothing. The status line under the drawing is the only place already
+    /// saying that kind of thing about it.
     /// </remarks>
-    public string? Notice
+    public Func<SvgViewerDocument, string?>? Notice
     {
         get => _notice;
         set
         {
-            _notice = string.IsNullOrEmpty(value) ? null : value;
+            _notice = value;
             ShowTrouble();
         }
     }
@@ -1873,12 +1885,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     public Task<bool> LoadAsync(string path)
-        => LoadCoreAsync(() => SvgViewerDocument.Load(path, SizeRequest, Rewrite), Path.GetFileName(path));
+        => LoadCoreAsync(() => SvgViewerDocument.Load(path, SizeRequest, Rewrite, TypefaceProviders), Path.GetFileName(path));
 
     /// <summary>Opens a drawing that is held as text — one a project keeps inline.</summary>
     /// <param name="name">What to call it, since there is no file to take a name from.</param>
     public Task<bool> LoadTextAsync(string svgText, string? name = null)
-        => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText, null, SizeRequest, Rewrite), name);
+        => LoadCoreAsync(() => SvgViewerDocument.LoadFromSvg(svgText, null, SizeRequest, Rewrite, TypefaceProviders), name);
 
     public Task<bool> LoadAsync(Stream stream)
         => LoadCoreAsync(() => SvgViewerDocument.Load(stream), null);
@@ -2385,7 +2397,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         {
             // This viewer's rewrite and not the document's, which is the one it was loaded with: a
             // host that has edited its recipe since is asking for exactly that difference.
-            rebuilt = open.Reload(svgText, SizeRequest, Rewrite);
+            rebuilt = open.Reload(svgText, SizeRequest, Rewrite, TypefaceProviders);
         }
         catch (Exception)
         {
@@ -3300,11 +3312,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private string? Note()
     {
-        if (_document is null)
+        if (_document is not { } open)
         {
-            return _notice;
+            return null;
         }
 
+        var notice = _notice?.Invoke(open) is { Length: > 0 } said ? said : null;
         var found = Diagnostics();
 
         var errors = 0;
@@ -3327,20 +3340,18 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // those six errors would be the status bar saying a working file is broken.
         if (errors == 0 && warnings == 0)
         {
-            return _notice;
+            return notice;
         }
 
-        var said = errors == 0
+        var counts = errors == 0
             ? Count(warnings, "warning")
             : warnings == 0
                 ? Count(errors, "error")
                 : $"{Count(errors, "error")} and {Count(warnings, "warning")}";
 
-        var counted = said;
-
         // Both, on the one line there is. The host's comes first: it is about the drawing as a
         // whole, and the count is about the parts of it.
-        return _notice is { } notice ? $"{notice} · {counted}" : counted;
+        return notice is { } ? $"{notice} · {counts}" : counts;
     }
 
     private static string Count(int many, string what) => many == 1 ? $"1 {what}" : $"{many} {what}s";

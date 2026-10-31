@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Microsoft.Extensions.AI;
+using Svg.Skia.TypefaceProviders;
 using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 using static Svg.Studio.UnitTests.ProjectGitTests;
@@ -149,6 +150,152 @@ public class ChangesPanelTests : IDisposable
         Assert.Equal("home", row.Header);
         Assert.NotNull(row.HeaderTemplate);
         Assert.Null(Rows(window).Single(item => item.Tag is ProjectRoot).HeaderTemplate);
+
+        window.Close();
+    }
+
+    /// <summary>The project's fonts into its package, as a file manager would put them there.</summary>
+    private void Hold(string font, string name)
+    {
+        Directory.CreateDirectory(Path.Combine(File, "fonts"));
+        System.IO.File.Copy(ProjectFontsTests.Font(font), Path.Combine(File, "fonts", name), overwrite: true);
+    }
+
+    /// <summary>An added font is a change of the project's, until the commit that takes it.</summary>
+    [AvaloniaFact]
+    public async Task An_Added_Font_Is_A_Change_Until_It_Is_Committed()
+    {
+        Committed();
+
+        var window = await Host();
+
+        Assert.True(await window.AddFontsAsync(new[] { ProjectFontsTests.Font("NotoSans-Regular.ttf") }));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(ProjectChangeKind.Settings, Assert.Single(window.Changes.Changes).Kind);
+
+        await window.SaveAsync();
+        await window.Changes.Commit("Add a font");
+
+        Assert.Contains("icons.svgstudio/fonts/NotoSans-Regular.ttf", Git(Work, "ls-tree", "-r", "--name-only", "HEAD"), StringComparison.Ordinal);
+        Assert.Empty(window.Changes.Changes);
+
+        window.Close();
+    }
+
+    /// <summary>A branch that differs only in a font is still another project to switch to.</summary>
+    [AvaloniaFact]
+    public async Task Switching_To_A_Branch_That_Changes_Only_A_Font_Reopens_The_Project()
+    {
+        Committed();
+        Git(Work, "switch", "-c", "other");
+        Hold("NotoSans-Regular.ttf", "NotoSans-Regular.ttf");
+        Git(Work, "add", "-A");
+        Git(Work, "commit", "-m", "Add a font");
+        Git(Work, "switch", "main");
+
+        var window = await Host();
+
+        Assert.Empty(window.Workspace!.Document.Fonts);
+
+        await window.Changes.Switch("other");
+
+        Assert.Equal(new[] { "fonts/NotoSans-Regular.ttf" }, window.Workspace!.Document.Fonts.Keys);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A font is not merged here: Studio says how to keep one side with git, before anything is
+    /// taken, so the merge is still whole to finish there.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Font_Both_Sides_Changed_Is_Left_To_Git_By_Name()
+    {
+        Committed();
+        Hold("NotoSans-Regular.ttf", "Face.ttf");
+        Git(Work, "add", "-A");
+        Git(Work, "commit", "-m", "A font");
+        Git(Work, "switch", "-c", "other");
+        Hold("NotoSans-Bold.ttf", "Face.ttf");
+        Git(Work, "commit", "-am", "Theirs");
+        Git(Work, "switch", "main");
+        Hold("NotoSans-Italic.ttf", "Face.ttf");
+        Git(Work, "commit", "-am", "Ours");
+
+        var window = await Host();
+        var said = new List<string>();
+        var asked = Asked(window);
+
+        window.Announce = (_, message) =>
+        {
+            said.Add(message);
+
+            return Task.CompletedTask;
+        };
+
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+
+        await window.Changes.Resolve();
+
+        Assert.Contains(said, message => message.Contains("fonts/Face.ttf is a font both sides changed", StringComparison.Ordinal)
+                                         && message.Contains("git checkout --ours -- \"icons.svgstudio/fonts/Face.ttf\"", StringComparison.Ordinal));
+        Assert.Equal(0, asked());
+        Assert.True(await window.Changes.Git!.InMerge());
+
+        window.Close();
+    }
+
+    /// <summary>A conflict's sides are lone files of no project, drawn with the fonts the project committed.</summary>
+    [AvaloniaFact]
+    public async Task A_Merge_Draws_Both_Sides_With_The_Projects_Fonts()
+    {
+        Committed();
+        Hold("NotoSans-Regular.ttf", "NotoSans-Regular.ttf");
+        Git(Work, "add", "-A");
+        Git(Work, "commit", "-m", "A font");
+        Git(Work, "switch", "-c", "other");
+        System.IO.File.WriteAllText(Home, System.IO.File.ReadAllText(Home).Replace("#00ff00", "#0000ff", StringComparison.Ordinal));
+        Git(Work, "commit", "-am", "Theirs");
+        Git(Work, "switch", "main");
+        System.IO.File.WriteAllText(Home, System.IO.File.ReadAllText(Home).Replace("#00ff00", "#ff0000", StringComparison.Ordinal));
+        Git(Work, "commit", "-am", "Ours");
+
+        var window = await Host();
+        ProjectMerge? offered = null;
+
+        window.ResolveConflicts = merge =>
+        {
+            offered = merge;
+
+            return Task.FromResult<bool?>(null);
+        };
+
+        Assert.Contains("CONFLICT", MergeInATerminal(), StringComparison.Ordinal);
+
+        await window.Changes.Resolve();
+
+        Assert.NotNull(offered);
+        Assert.Equal("Noto Sans", Assert.IsType<CustomTypefaceProvider>(offered!.Typefaces![0]).FamilyName);
+
+        window.Close();
+    }
+
+    /// <summary>What get_changes says of a font, which the project's settings row stands for.</summary>
+    [AvaloniaFact]
+    public async Task The_Assistant_Is_Told_Which_Font_Was_Added()
+    {
+        Committed();
+
+        var window = await Host();
+
+        Assert.True(await window.AddFontsAsync(new[] { ProjectFontsTests.Font("NotoSans-Regular.ttf") }));
+        Dispatcher.UIThread.RunJobs();
+
+        var changes = await Call(window, "get_changes", new());
+
+        Assert.Contains("adds the font fonts/NotoSans-Regular.ttf", changes, StringComparison.Ordinal);
+        Assert.DoesNotContain("templates", changes, StringComparison.Ordinal);
 
         window.Close();
     }

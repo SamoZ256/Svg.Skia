@@ -126,6 +126,7 @@ public partial class MainWindow : Window
         ConfirmDiscardRecovery = message => Ask("Recovered work", message, "Discard the copy", "Restore");
         ConfirmConvert = AskConvert;
         AskWhereToSave = AskSaveProject;
+        AskForFonts = AskFonts;
         ShowSettings = ShowSettingsWindow;
         ConfirmRelax = AskRelax;
         AskExportSettings = AskExport;
@@ -468,7 +469,11 @@ public partial class MainWindow : Window
     {
         var opened = true;
 
-        foreach (var path in paths)
+        // Taken out first: a font inside a project's folder would otherwise open the project, and a
+        // font is never a tab. It joins the project open, once any project among the paths is.
+        var fonts = paths.Where(ProjectPackage.IsFont).ToList();
+
+        foreach (var path in paths.Where(path => !ProjectPackage.IsFont(path)))
         {
             if (IsProject(path))
             {
@@ -503,6 +508,11 @@ public partial class MainWindow : Window
             {
                 CloseTab(empty);
             }
+        }
+
+        if (fonts.Count > 0)
+        {
+            opened &= await AddFontsAsync(fonts, notes).ConfigureAwait(true);
         }
 
         return opened;
@@ -802,13 +812,13 @@ public partial class MainWindow : Window
             return false;
         }
 
-        if (document.Path is { } named && ProjectRecovery.Waiting(named, document.Files()) is { } waiting)
+        if (document.Path is { } named && ProjectRecovery.Waiting(named, document) is { } waiting)
         {
             if (await ConfirmDiscardRecovery(Recovered(named, waiting)).ConfigureAwait(true))
             {
                 ProjectRecovery.Delete(waiting);
             }
-            else if (Restored(named, waiting) is { } recovered)
+            else if (Restored(named, waiting, document) is { } recovered)
             {
                 // As read from the folder, so a pull after the restore is a change to it.
                 recovered.Disk = document.Disk;
@@ -973,12 +983,14 @@ public partial class MainWindow : Window
     /// is the project and not a file in application data. A copy that cannot be read is said once
     /// and then ignored — the project itself is still there to open.
     /// </remarks>
-    private ProjectDocument? Restored(string path, string recovery)
+    private ProjectDocument? Restored(string path, string recovery, ProjectDocument folder)
     {
         try
         {
-            return ProjectRecovery.Read(recovery) is { } files
-                ? ProjectDocument.Read(files, path)
+            var fonts = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+
+            return ProjectRecovery.Read(recovery, fonts) is { } files
+                ? ProjectDocument.Read(files, ProjectRecovery.Fonts(fonts, folder.Fonts), path)
                 : null;
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
@@ -1109,7 +1121,7 @@ public partial class MainWindow : Window
 
     /// <summary>The copy kept of <paramref name="document"/>'s file, holding work never saved into it; null where none is, or it is the open project's own, which closing it throws away on purpose.</summary>
     private string? Kept(ProjectDocument document)
-        => document.Path is { } file && ProjectRecovery.Waiting(file, document.Files()) is { } copy && copy != _recovery?.Path ? copy : null;
+        => document.Path is { } file && ProjectRecovery.Waiting(file, document) is { } copy && copy != _recovery?.Path ? copy : null;
 
     /// <summary>Whether a tab belongs to the open project, and goes when the project does.</summary>
     private static bool Owned(TabItem item) => item.Tag is ProjectNode;
@@ -1607,6 +1619,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (carried.Files is { Count: > 0 } fonts && fonts.All(ProjectPackage.IsFont))
+        {
+            await AddFontsAsync(fonts).ConfigureAwait(true);
+
+            return;
+        }
+
         if (carried.Drawing is { } drawing)
         {
             // Straight in, with no file written anywhere: the project holds the drawings, so a
@@ -1680,6 +1699,118 @@ public partial class MainWindow : Window
         await ShowAsync(group).ConfigureAwait(true);
 
         return group;
+    }
+
+    /// <summary>
+    /// Puts font files into the open project as one step, refusing what is not a font and a face
+    /// the project holds already.
+    /// </summary>
+    /// <remarks>
+    /// Public for the reason <see cref="AddDrawingsAsync"/> is. What joined is not announced: it shows
+    /// in the project's Properties, and in the text drawn again with it.
+    /// </remarks>
+    /// <returns>Whether every file joined.</returns>
+    public async Task<bool> AddFontsAsync(IReadOnlyList<string> paths, List<string>? notes = null)
+    {
+        if (paths.Count == 0)
+        {
+            return true;
+        }
+
+        if (_workspace is not { } workspace)
+        {
+            await ChangesPanel.Say(Announce, "Fonts belong to a project", "Open one, or start one with Project → New, then drop them on it.", notes).ConfigureAwait(true);
+
+            return false;
+        }
+
+        var document = workspace.Document;
+        var fonts = document.Fonts.ToBuilder();
+
+        // The project's own faces: a second file of one could never be used, since the first of
+        // them that matches is the one a text is measured with.
+        var held = document.Faces()
+            .Where(face => document.Fonts.ContainsKey(face.File) && face.Provider.Typeface is { })
+            .Select(face => (face.File, Typeface: face.Provider.Typeface!))
+            .ToList();
+        var folder = document.Fonts.Keys.FirstOrDefault() is { } first ? first[..(first.IndexOf('/') + 1)] : ProjectPackage.FontFolder + "/";
+        var taken = new HashSet<string>(document.Fonts.Keys.Select(Path.GetFileNameWithoutExtension).Select(stem => stem!), StringComparer.OrdinalIgnoreCase);
+        var added = new List<string>();
+        var refused = new List<string>();
+
+        foreach (var path in paths)
+        {
+            var leaf = Path.GetFileName(path);
+            byte[] bytes;
+
+            // A picker that was typed a name past its filter: anything else is a file no open reads back.
+            if (!ProjectPackage.IsFont(leaf))
+            {
+                refused.Add($"{leaf} is not an .otf or a .ttf file.");
+                continue;
+            }
+
+            try
+            {
+                bytes = File.ReadAllBytes(path);
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                refused.Add($"{leaf}: {failure.Message}");
+                continue;
+            }
+
+            if (ProjectDocument.Face(bytes).Provider.Typeface is not { } face)
+            {
+                refused.Add($"{leaf} is not a font Skia can read; a Git LFS pointer that was never pulled reads like this.");
+                continue;
+            }
+
+            if (held.FirstOrDefault(one => one.Typeface.FamilyName == face.FamilyName && one.Typeface.FontStyle.Weight == face.FontStyle.Weight
+                                           && one.Typeface.FontStyle.Width == face.FontStyle.Width && one.Typeface.FontStyle.Slant == face.FontStyle.Slant) is { File: { } twin })
+            {
+                refused.Add($"{leaf} is {ProjectDocument.Spoken(face)}, which the project has already as {twin}; to use this file instead, take that one out first.");
+                continue;
+            }
+
+            var key = folder + ProjectPackage.Segment(Path.GetFileNameWithoutExtension(leaf), taken, group: true) + Path.GetExtension(leaf);
+
+            fonts[key] = bytes;
+            held.Add((key, face));
+            added.Add(ProjectDocument.Spoken(face));
+        }
+
+        if (added.Count > 0)
+        {
+            var next = fonts.ToImmutable();
+
+            workspace.Do(added.Count == 1 ? $"add font {added[0]}" : $"add {added.Count} fonts", () => ProjectSnapshot.Fonts(document), () => document.Fonts = next);
+        }
+
+        if (refused.Count > 0)
+        {
+            await ChangesPanel.Say(Announce, refused.Count == 1 ? "That font couldn't be added" : "Some fonts couldn't be added", string.Join(Environment.NewLine, refused), notes).ConfigureAwait(true);
+        }
+
+        return refused.Count == 0;
+    }
+
+    /// <summary>Asks which font files to add; none where nothing can be picked.</summary>
+    private async Task<IReadOnlyList<string>> AskFonts()
+    {
+        if (!StorageProvider.CanOpen)
+        {
+            return Array.Empty<string>();
+        }
+
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Add fonts to the project",
+            AllowMultiple = true,
+            FileTypeFilter = new List<FilePickerFileType> { StudioFileDialogService.Fonts }
+        }).ConfigureAwait(true);
+
+        return files.Select(file => file.TryGetLocalPath()).Where(path => path is { Length: > 0 }).Select(path => path!).ToList();
     }
 
     /// <summary>Asks which drawing to add, and adds it.</summary>
@@ -2432,7 +2563,13 @@ public partial class MainWindow : Window
 
         if (node is ProjectGroup group)
         {
-            var board = new GroupPanel(workspace, group) { TargetOf = DrawingOf, ArrangesPanels = false, Streamline = _streamline };
+            var board = new GroupPanel(workspace, group)
+            {
+                TargetOf = DrawingOf,
+                ArrangesPanels = false,
+                Streamline = _streamline,
+                AddFonts = async () => await AddFontsAsync(await AskForFonts().ConfigureAwait(true)).ConfigureAwait(true)
+            };
 
             board.SettingChanged += (_, _) => Reread();
 
@@ -2469,6 +2606,11 @@ public partial class MainWindow : Window
 
         viewer.SizeRequest = ProjectWorkspace.SizeOf(drawing);
 
+        viewer.TypefaceProviders = drawing.Owner.TypefaceProviders();
+
+        // Asked of every build, so a font-family typed into the source is judged as it is typed.
+        viewer.Notice = built => FontNotice(drawing.Owner, built);
+
         viewer.ClassName = () => drawing.ClassName;
 
         // What the groups above it declare, written into it on the way to being drawn. Source stays
@@ -2488,6 +2630,12 @@ public partial class MainWindow : Window
 
         await viewer.LoadTextAsync(drawing.Text, drawing.Name).ConfigureAwait(true);
     }
+
+    /// <summary>What a tab says of the fonts its drawing is measured with: the first face or character the project's fonts lack, or null.</summary>
+    private static string? FontNotice(ProjectDocument project, SvgViewerDocument built)
+        => project.MissingFonts(built.Svg.Model) is { Count: > 0 } said
+            ? said.Count == 1 ? said[0] : $"{said[0]} (and {said.Count - 1} more about fonts)"
+            : null;
 
     /// <summary>Which group above <paramref name="drawing"/> declares <paramref name="name"/>, if any.</summary>
     /// <remarks>
@@ -2590,12 +2738,27 @@ public partial class MainWindow : Window
             }
 
             var request = ProjectWorkspace.SizeOf(drawing);
+            var fonts = drawing.Owner.TypefaceProviders();
+            var refonted = !ReferenceEquals(viewer.TypefaceProviders, fonts);
 
             // The drawing itself can have been written from somewhere else — a group's Attributes
             // tab, which writes into the project as it goes.
             var changed = !string.Equals(viewer.Source, drawing.Text, StringComparison.Ordinal);
 
-            if ((request.Equals(viewer.SizeRequest) && !changed) || viewer.IsSourceModified)
+            viewer.TypefaceProviders = fonts;
+
+            // A tab holding edits of its own keeps them, and is drawn from them in the fonts now given.
+            if (viewer.IsSourceModified)
+            {
+                if (refonted)
+                {
+                    viewer.Rebuild();
+                }
+
+                continue;
+            }
+
+            if (request.Equals(viewer.SizeRequest) && !changed && !refonted)
             {
                 continue;
             }
@@ -3817,6 +3980,9 @@ public partial class MainWindow : Window
     /// </remarks>
     public Func<string?, Task<string?>> AskWhereToSave { get; set; }
 
+    /// <summary>How the window asks which font files to add to the project. Replaceable, and faked in tests.</summary>
+    public Func<Task<IReadOnlyList<string>>> AskForFonts { get; set; }
+
     /// <summary>
     /// How the window asks whether a PaintCode document may be converted, and on what terms.
     /// </summary>
@@ -4433,6 +4599,13 @@ public partial class MainWindow : Window
         {
             Patterns = new[] { "*.svgstudio", ProjectPackage.Manifest, "*.svgcproj" },
             MimeTypes = new[] { "inode/directory", "application/xml" }
+        };
+
+        internal static readonly FilePickerFileType Fonts = new("Fonts")
+        {
+            Patterns = new[] { "*.otf", "*.ttf" },
+            AppleUniformTypeIdentifiers = new[] { "public.opentype-font", "public.truetype-ttf-font" },
+            MimeTypes = new[] { "font/otf", "font/ttf" }
         };
 
         internal static readonly FilePickerFileType Drawings = new("Svg Files")

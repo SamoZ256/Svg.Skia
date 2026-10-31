@@ -21,6 +21,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Svg.Expressions;
+using Svg.Skia.TypefaceProviders;
 using Svg.SourceEditing;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -143,6 +144,15 @@ public sealed class SvgViewerElementPanel : UserControl
 
     /// <summary>The class the drawing generates, which a box may not be named after; asked each time, since it can be renamed.</summary>
     public Func<string?>? ClassName { get; set; }
+
+    /// <summary>What the drawing's text is measured with, whose families the font menu offers; asked as it opens.</summary>
+    /// <remarks>
+    /// The fonts a host gives, never the machine's: a family only this machine has is the one an
+    /// export elsewhere would measure with another font.
+    /// </remarks>
+    public Func<IEnumerable<ITypefaceProvider>?>? Typefaces { get; set; }
+
+    private static readonly string[] s_genericFamilies = { "sans-serif", "serif", "monospace", "cursive", "fantasy" };
 
     /// <summary>
     /// Clips or masks the element shown with a new clip path or mask covering it, as the
@@ -923,13 +933,30 @@ public sealed class SvgViewerElementPanel : UserControl
         line.Children.Add(pick);
     }
 
-    /// <summary>The choices with each <c>#tag</c> spelt out as a reference to every such element with an id.</summary>
+    /// <summary>The choices with each <c>#tag</c> spelt out as a reference to every such element with an id, and <c>@fonts</c> as the families to hand.</summary>
     private IEnumerable<string> Expanded(IReadOnlyList<string> choices)
     {
         var document = Open()?.Document;
 
         foreach (var choice in choices)
         {
+            if (choice == "@fonts")
+            {
+                var families = (Typefaces?.Invoke() ?? Enumerable.Empty<ITypefaceProvider>())
+                    .OfType<CustomTypefaceProvider>()
+                    .Select(face => face.FamilyName)
+                    .Where(family => family.Length > 0)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+
+                foreach (var family in families.Count > 0 ? families : (IEnumerable<string>)s_genericFamilies)
+                {
+                    yield return family;
+                }
+
+                continue;
+            }
+
             if (!choice.StartsWith("#", StringComparison.Ordinal))
             {
                 yield return choice;

@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -112,16 +113,17 @@ public sealed class ProjectRecovery
     /// delete failed is identical and worth nobody's question — so the text answers both, and the
     /// dates are left to say when.
     /// </remarks>
-    public static string? Waiting(string path, IReadOnlyDictionary<string, string> files)
+    public static string? Waiting(string path, ProjectDocument document)
     {
         var recovery = For(path);
+        var fonts = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
 
-        if (Read(recovery) is not { } kept)
+        if (Read(recovery, fonts) is not { } kept)
         {
             return null;
         }
 
-        if (ProjectPackage.Same(kept, files))
+        if (ProjectPackage.Same(kept, document.Files()) && ProjectPackage.Same(Fonts(fonts, document.Fonts), document.Fonts))
         {
             Delete(recovery);
 
@@ -132,7 +134,10 @@ public sealed class ProjectRecovery
     }
 
     /// <summary>The files a copy holds, by path inside the project, or null where there is none to read.</summary>
-    public static IReadOnlyDictionary<string, string>? Read(string recovery)
+    public static IReadOnlyDictionary<string, string>? Read(string recovery) => Read(recovery, null);
+
+    /// <summary>The files a copy holds, and its fonts into <paramref name="fonts"/>, which <see cref="Fonts"/> makes whole.</summary>
+    public static IReadOnlyDictionary<string, string>? Read(string recovery, IDictionary<string, ReadOnlyMemory<byte>>? fonts)
     {
         try
         {
@@ -151,6 +156,16 @@ public sealed class ProjectRecovery
 
                 stream.CopyTo(bytes);
 
+                if (ProjectPackage.HoldsFont(entry.FullName))
+                {
+                    if (fonts is { })
+                    {
+                        fonts[entry.FullName] = bytes.ToArray();
+                    }
+
+                    continue;
+                }
+
                 // Decoded rather than read as text, which strips a byte order mark: the mark is a
                 // character of the project, the same as it is when one is opened.
                 files[entry.FullName] = new UTF8Encoding(false).GetString(bytes.ToArray());
@@ -162,6 +177,38 @@ public sealed class ProjectRecovery
         {
             return null;
         }
+    }
+
+    /// <summary>The fonts a copy holds, an empty one standing for the font of that name in <paramref name="folder"/>.</summary>
+    /// <remarks>
+    /// A copy holding no font at all is taken to be an older Studio's, which kept none, and so keeps
+    /// the folder's: otherwise the next save would delete them. Taking every font out is the one
+    /// edit a crash then loses.
+    /// </remarks>
+    public static ImmutableSortedDictionary<string, ReadOnlyMemory<byte>> Fonts(
+        IReadOnlyDictionary<string, ReadOnlyMemory<byte>> kept,
+        ImmutableSortedDictionary<string, ReadOnlyMemory<byte>> folder)
+    {
+        if (kept.Count == 0)
+        {
+            return folder;
+        }
+
+        var fonts = folder.Clear().ToBuilder();
+
+        foreach (var (path, bytes) in kept)
+        {
+            if (bytes.Length > 0)
+            {
+                fonts[path] = bytes;
+            }
+            else if (folder.TryGetValue(path, out var had))
+            {
+                fonts[path] = had;
+            }
+        }
+
+        return fonts.ToImmutable();
     }
 
     public static void Delete(string recovery)
@@ -303,6 +350,20 @@ public sealed class ProjectRecovery
                     using var stream = zip.CreateEntry(path, CompressionLevel.NoCompression).Open();
 
                     stream.Write(new UTF8Encoding(false).GetBytes(text));
+                }
+
+                var disk = _workspace.Document.Disk?.Fonts;
+
+                // Empty for a font the folder holds as it is here, which the restore takes from the
+                // folder: a copy every few seconds should not copy megabytes nobody changed.
+                foreach (var (path, bytes) in _workspace.Document.Fonts)
+                {
+                    using var stream = zip.CreateEntry(path, CompressionLevel.NoCompression).Open();
+
+                    if (disk is null || !disk.TryGetValue(path, out var had) || !had.Equals(bytes))
+                    {
+                        stream.Write(bytes.Span);
+                    }
                 }
             }
 

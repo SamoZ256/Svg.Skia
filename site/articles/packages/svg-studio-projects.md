@@ -61,8 +61,29 @@ asks whoever exports, or follows their preference, so a build has to say:
 [text an export cannot write out](../guides/svg-studio#text-an-export-cannot-write-out).
 
 Text is measured with Skia, as in Studio, so the package brings SkiaSharp's native library with it.
-Studio and a build on the same machine write the same file; text exported on another machine follows
-the fonts installed there.
+
+## Fonts
+
+A project's text is measured with the fonts it holds — the `.otf` and `.ttf` files in the `fonts`
+folder at the root of the `.svgstudio` — then with those of the folder `fontsFolder` names beside
+it, and only then with the machine's. With the project's fonts every machine writes the same file,
+and Studio and a build agree.
+
+| Member | |
+| --- | --- |
+| `Fonts` | The fonts the project holds, by path inside it, as bytes. `Load` reads them; `Read(files, path)` holds none, so save over a package only a document `Load` read |
+| `TypefaceProviders()` | What its text is measured with, for an `SKSvg` of your own: `svg.Settings.TypefaceProviders = new List<ITypefaceProvider>(project.TypefaceProviders())` |
+| `FontProblems()` | A font Skia cannot read, a `fontsFolder` that is not there |
+| `MissingFonts(picture)` | Each face or character a drawing's text asks for that the fonts do not hold |
+
+An export warns of both: the fonts' problems, and each face a drawing asks for that the project's
+fonts lack, even where the machine has it, since another machine would not. A project with no fonts
+warns only of a family the machine lacks.
+
+Keep fonts out of line-ending conversion with `*.otf binary` and `*.ttf binary` in
+`.gitattributes`. A font kept in Git LFS that was never pulled is a pointer, which reads as a font
+Skia cannot read. An older package measures without a project's fonts, and refuses a project that
+sets `fontsFolder`.
 
 ## In an MSBuild build
 
@@ -73,7 +94,8 @@ Svg.Studio.ProjectDocument.Load(args[0]).Export(args[1], Svg.SvgTextLayout.Baked
 ```
 
 The project that compiles the result runs it before compiling, and only when a file of the
-`.svgstudio` has changed since the last export:
+`.svgstudio` — its fonts included — has changed since the last export. A `fontsFolder` beside it
+wants its own line among the inputs:
 
 ```xml
 <ItemGroup>

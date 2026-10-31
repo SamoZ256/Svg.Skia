@@ -220,7 +220,7 @@ public sealed class ChangesPanel : UserControl
             var hash = await git.Head().ConfigureAwait(true);
             var head = _head is { } known && known.Hash == hash
                 ? known
-                : (hash, hash is { } ? Parsed(await git.Files("HEAD").ConfigureAwait(true), Path.Combine(git.Directory, git.Name)) : null);
+                : (hash, hash is { } ? await Parsed(git, "HEAD").ConfigureAwait(true) : null);
             var merging = await git.InMerge().ConfigureAwait(true);
             var rebasing = await git.Rebasing().ConfigureAwait(true);
             var branches = await git.Branches().ConfigureAwait(true);
@@ -543,6 +543,14 @@ public sealed class ChangesPanel : UserControl
 
             foreach (var conflicted in await git.Conflicts().ConfigureAwait(true))
             {
+                // Refused before anything is taken, so the merge is still whole for git to finish.
+                if (ProjectPackage.HoldsFont(conflicted))
+                {
+                    throw new SvgcProjectException(
+                        $"{conflicted} is a font both sides changed, which Studio cannot merge. Keep one side with git in {git.Directory}: "
+                        + $"git checkout --ours -- \"{git.Name}/{conflicted}\" (or --theirs), then git add it, or git rm it to keep the side that deleted it; Resolve… then settles the rest.");
+                }
+
                 if (!ProjectPackage.Holds(conflicted))
                 {
                     throw new SvgcProjectException($"{conflicted} is not a drawing or a group of the project.");
@@ -553,7 +561,7 @@ public sealed class ChangesPanel : UserControl
                 conflicts.Add(new ProjectConflict(conflicted, ours, theirs, added: @base is null));
             }
 
-            merge = new ProjectMerge(conflicts);
+            merge = new ProjectMerge(conflicts) { Typefaces = (await Parsed(git, "HEAD").ConfigureAwait(true))?.TypefaceProviders() };
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException or ProjectGitException)
         {
@@ -662,11 +670,15 @@ public sealed class ChangesPanel : UserControl
         await Reopen(path).ConfigureAwait(true);
     }
 
-    private static ProjectDocument? Parsed(IReadOnlyDictionary<string, string>? files, string path)
+    /// <summary>The project at <paramref name="revision"/>, with the fonts it held then.</summary>
+    private static async Task<ProjectDocument?> Parsed(ProjectGit git, string revision)
     {
+        var fonts = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+        var files = await git.Files(revision, fonts).ConfigureAwait(true);
+
         try
         {
-            return files is { } ? ProjectDocument.Read(files, path) : null;
+            return files is { } ? ProjectDocument.Read(files, fonts, Path.Combine(git.Directory, git.Name)) : null;
         }
         catch (Exception failure) when (failure is SvgcProjectException or SvgRecipeException)
         {
@@ -887,14 +899,18 @@ public sealed class ChangesPanel : UserControl
 
         var after = Read(path);
 
-        if (!conflicted && (after.Count != before.Count || after.Any(file => !before.TryGetValue(file.Key, out var was) || was != file.Value)))
+        if (!conflicted && !(ProjectPackage.Same(after.Files, before.Files) && ProjectPackage.Same(after.Fonts, before.Fonts)))
         {
             await Reopened(path, tracking).ConfigureAwait(true);
         }
     }
 
-    private static Dictionary<string, string> Read(string path)
-        => ProjectPackage.Exists(path) ? ProjectPackage.Read(path) : new Dictionary<string, string>();
+    private static (Dictionary<string, string> Files, Dictionary<string, ReadOnlyMemory<byte>> Fonts) Read(string path)
+    {
+        var fonts = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+
+        return (ProjectPackage.Exists(path) ? ProjectPackage.Read(path, fonts) : new Dictionary<string, string>(), fonts);
+    }
 
     private Task Remote(string doing, string failed, Func<ProjectGit, Task> command)
         => _git is { } git ? Run(doing, failed, () => command(git)) : Task.CompletedTask;

@@ -12,7 +12,8 @@ namespace Svg.Studio;
 
 /// <summary>
 /// A project on disk: a <c>.svgstudio</c> folder holding <c>studio.xml</c>, one <c>.svg</c> per
-/// drawing, and a folder with a <c>group.xml</c> per group.
+/// drawing, a folder with a <c>group.xml</c> per group, and a <c>fonts</c> folder of the
+/// <c>.otf</c> and <c>.ttf</c> files its text is measured with.
 /// </summary>
 /// <remarks>
 /// A folder rather than one file so that git merges a project the way it merges anything else: two
@@ -27,6 +28,9 @@ public static class ProjectPackage
     public const string GroupFile = "group.xml";
 
     public const string DrawingExtension = ".svg";
+
+    /// <summary>The folder at the project's root its fonts are kept in, which no group of the root may take.</summary>
+    internal const string FontFolder = "fonts";
 
     private const int Longest = 64;
 
@@ -80,13 +84,32 @@ public static class ProjectPackage
                || leaf.EndsWith(DrawingExtension, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Whether a path in a project is one of its fonts: an <c>.otf</c> or <c>.ttf</c> straight inside its <c>fonts</c> folder.</summary>
+    /// <remarks>
+    /// Apart from <see cref="Holds"/>, which a font must never pass: whatever it holds makes a group
+    /// of the folder it is in. Spelled either way, since <c>Fonts</c> and <c>fonts</c> are one folder on
+    /// macOS and Windows; what a save leaves behind, <c>X.ttf.~tmp</c> or <c>X.ttf.~case</c>, is not a font.
+    /// </remarks>
+    internal static bool HoldsFont(string relative)
+        => relative.Split('/') is [var folder, var leaf]
+           && folder.Equals(FontFolder, StringComparison.OrdinalIgnoreCase)
+           && !leaf.StartsWith(".", StringComparison.Ordinal)
+           && IsFont(leaf);
+
+    /// <summary>Whether a file's name is an .otf's or a .ttf's, which are the fonts a project holds.</summary>
+    internal static bool IsFont(string name)
+        => name.EndsWith(".otf", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Every file the project at <paramref name="folder"/> is made of, by <c>/</c>-separated path.</summary>
     /// <remarks>
     /// Decoded rather than read as text, which strips a byte order mark: the mark is a character of
     /// the document here, and a file would lose three bytes on the first save. Anything else in the
     /// folder is left alone, and so never deleted.
     /// </remarks>
-    public static Dictionary<string, string> Read(string folder)
+    public static Dictionary<string, string> Read(string folder) => Read(folder, null);
+
+    /// <summary>Every file the project at <paramref name="folder"/> is made of, and its fonts into <paramref name="fonts"/>, as they are.</summary>
+    internal static Dictionary<string, string> Read(string folder, IDictionary<string, ReadOnlyMemory<byte>>? fonts)
     {
         var files = new Dictionary<string, string>(StringComparer.Ordinal);
         var decoder = new UTF8Encoding(false);
@@ -99,6 +122,10 @@ public static class ProjectPackage
             {
                 files[relative] = decoder.GetString(File.ReadAllBytes(file));
             }
+            else if (fonts is { } && HoldsFont(relative))
+            {
+                fonts[relative] = File.ReadAllBytes(file);
+            }
         }
 
         return files;
@@ -107,6 +134,10 @@ public static class ProjectPackage
     /// <summary>Whether two sets of a project's files are the same files holding the same text.</summary>
     public static bool Same(IReadOnlyDictionary<string, string> files, IReadOnlyDictionary<string, string> other)
         => files.Count == other.Count && files.All(file => other.TryGetValue(file.Key, out var text) && text == file.Value);
+
+    /// <summary>Whether two sets of a project's fonts are the same files holding the same bytes.</summary>
+    internal static bool Same(IReadOnlyDictionary<string, ReadOnlyMemory<byte>> fonts, IReadOnlyDictionary<string, ReadOnlyMemory<byte>> other)
+        => fonts.Count == other.Count && fonts.All(font => other.TryGetValue(font.Key, out var bytes) && bytes.Span.SequenceEqual(font.Value.Span));
 
     /// <summary>
     /// Writes <paramref name="files"/> into <paramref name="folder"/>, touching only what differs from
@@ -118,6 +149,28 @@ public static class ProjectPackage
     /// <paramref name="disk"/> says exactly how far it got, so the next save finishes the job.
     /// </remarks>
     public static void Write(string folder, IReadOnlyDictionary<string, string> files, Dictionary<string, string> disk)
+        => Write(folder, files, disk, (had, text) => had == text, (path, text) => File.WriteAllText(path, text, new UTF8Encoding(false)));
+
+    /// <summary>Writes a project's fonts as <see cref="Write(string, IReadOnlyDictionary{string, string}, Dictionary{string, string})"/> writes its files.</summary>
+    internal static void Write(string folder, IReadOnlyDictionary<string, ReadOnlyMemory<byte>> fonts, Dictionary<string, ReadOnlyMemory<byte>> disk)
+        => Write(
+            folder,
+            fonts,
+            disk,
+            (had, bytes) => had.Span.SequenceEqual(bytes.Span),
+            (path, bytes) =>
+            {
+                using var stream = File.Create(path);
+
+                stream.Write(bytes.Span);
+            });
+
+    private static void Write<T>(
+        string folder,
+        IReadOnlyDictionary<string, T> files,
+        Dictionary<string, T> disk,
+        Func<T, T, bool> same,
+        Action<string, T> put)
     {
         Directory.CreateDirectory(folder);
 
@@ -126,7 +179,7 @@ public static class ProjectPackage
 
         foreach (var (relative, text) in files)
         {
-            if (disk.TryGetValue(relative, out var had) && had == text)
+            if (disk.TryGetValue(relative, out var had) && same(had, text))
             {
                 continue;
             }
@@ -142,7 +195,7 @@ public static class ProjectPackage
 
             var temporary = path + ".~tmp";
 
-            File.WriteAllText(temporary, text, new UTF8Encoding(false));
+            put(temporary, text);
             File.Move(temporary, path, overwrite: true);
 
             disk[relative] = text;

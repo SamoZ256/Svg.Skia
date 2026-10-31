@@ -23,6 +23,7 @@ using Svg.Editor.Skia;
 using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.Skia;
+using Svg.Skia.TypefaceProviders;
 using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
 
@@ -426,6 +427,7 @@ public sealed class GroupPanel : UserControl
 
         _element.NewClipRequested = property => _elementWanted is { } row && NewClip(row, property);
         _element.ClipRequested = (content, property) => _elementWanted is { } row && ApplyClip(content, row, property);
+        _element.Typefaces = () => _elementOf?.Document.Svg.Settings.TypefaceProviders;
 
         _canvas.ViewChanged += (_, _) =>
         {
@@ -633,6 +635,20 @@ public sealed class GroupPanel : UserControl
     /// <see cref="ParameterDialogService"/> is: a menu is not something a test can click.
     /// </remarks>
     public Func<IReadOnlyList<ProjectNode>, Task<ProjectNode?>>? ChooseOwner { get; set; }
+
+    /// <summary>Asks for fonts and adds them to the project, offered in its Properties only where a host wires it.</summary>
+    /// <remarks>Shown again when set, since a host sets it after the Properties are first laid out.</remarks>
+    public Func<Task>? AddFonts
+    {
+        get => _addFonts;
+        set
+        {
+            _addFonts = value;
+            ShowProperties(Described);
+        }
+    }
+
+    private Func<Task>? _addFonts;
 
     /// <summary>Which drawing each placement on the board came from, in the board's order.</summary>
     /// <remarks>
@@ -1434,7 +1450,8 @@ public sealed class GroupPanel : UserControl
     /// </param>
     /// <param name="path">Where a drawing of no project's is, which what it references resolves against.</param>
     /// <exception cref="InvalidOperationException">The text is not readable as SVG.</exception>
-    internal static SvgViewerDocument Load(string text, ProjectNode? node, string? path = null)
+    /// <param name="typefaces">What its text is measured with, where not the fonts of the project <paramref name="node"/> is in.</param>
+    internal static SvgViewerDocument Load(string text, ProjectNode? node, string? path = null, IReadOnlyList<ITypefaceProvider>? typefaces = null)
     {
         var document = SvgViewerDocument.LoadFromSvg(
             text,
@@ -1445,7 +1462,8 @@ public sealed class GroupPanel : UserControl
                 ProjectDrawing drawing => own => ProjectDeclarations.Built(drawing, own),
                 ProjectGroup group => own => ProjectDeclarations.Built(group, own),
                 _ => null
-            });
+            },
+            typefaces ?? node?.Owner.TypefaceProviders());
 
         // Whatever binding throws, clamp's ArgumentException too, leaves it on its placeholders, as
         // the drawing's own tab does; let out, it would leak the document.
@@ -3503,25 +3521,27 @@ public sealed class GroupPanel : UserControl
         var text = TargetOf?.Invoke(drawing)?.Text ?? drawing.Text;
         var declared = ProjectDeclarations.Declared(drawing);
         var sizing = Sizing(drawing);
+        var fonts = drawing.Owner.TypefaceProviders();
 
         if (was is { } already
             && string.Equals(already.Text, text, StringComparison.Ordinal)
             && string.Equals(already.Declared, declared, StringComparison.Ordinal)
-            && already.Sizing == sizing)
+            && already.Sizing == sizing
+            && ReferenceEquals(already.Fonts, fonts))
         {
             return already;
         }
 
         try
         {
-            return new Drawn(drawing, text, declared, sizing, Load(text, drawing), null);
+            return new Drawn(drawing, text, declared, sizing, fonts, Load(text, drawing, typefaces: fonts), null);
         }
         catch (Exception failure)
         {
             // Anything: this is user data reaching a parser, and it arrives as an XmlException, a
             // FormatException, one of the IO exceptions or the loader's own refusal. A narrower set
             // would eventually let one through, and one bad drawing would cost the whole tab.
-            return new Drawn(drawing, text, declared, sizing, null, failure.Message);
+            return new Drawn(drawing, text, declared, sizing, fonts, null, failure.Message);
         }
     }
 
@@ -3766,6 +3786,7 @@ public sealed class GroupPanel : UserControl
         string Text,
         string Declared,
         (float?, float?, float?, string?) Sizing,
+        IReadOnlyList<ITypefaceProvider> Fonts,
         SvgViewerDocument? Document,
         string? Fault)
     {
@@ -3823,6 +3844,7 @@ public sealed class GroupPanel : UserControl
         ["height"] = ("Height", "pixels"),
         ["scale"] = ("Scale", "factor, e.g. 2"),
         ["padding"] = ("Padding", "CSS-style, e.g. 10% or 0.1 0.2"),
+        ["fontsFolder"] = ("More fonts from", "a folder beside the project, e.g. ../fonts"),
         // No hint: a place inherits from nobody, and anything shown behind the box would read as one.
         ["x"] = ("X", null),
         ["y"] = ("Y", null)
@@ -3867,9 +3889,57 @@ public sealed class GroupPanel : UserControl
             Add("y");
         }
 
+        if (node is ProjectRoot root)
+        {
+            Heading("Fonts");
+
+            foreach (var face in root.Owner.Faces().Where(face => root.Owner.Fonts.ContainsKey(face.File)))
+            {
+                _properties.Children.Add(FontRow(root.Owner, face));
+            }
+
+            if (AddFonts is { } add)
+            {
+                _properties.Children.Add(Buttons(Command(
+                    "Add fonts…",
+                    "Add .otf or .ttf files, which a save puts inside the project. Dropping them on the window adds them too.",
+                    async () => await add())));
+            }
+
+            Add("fontsFolder");
+        }
+
         void Heading(string text) => _properties.Children.Add(GroupPanel.Heading(text));
 
         void Add(string name) => _properties.Children.Add(Row(node, name));
+    }
+
+    /// <summary>A font the project holds, as its face and its file, with a button that takes it out.</summary>
+    private Control FontRow(ProjectDocument project, ProjectFace face)
+    {
+        var spoken = ProjectDocument.Spoken(face.Provider.Typeface);
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        var name = new TextBlock
+        {
+            Text = $"{spoken} · {face.File[(face.File.IndexOf('/') + 1)..]}",
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+
+        ToolTip.SetTip(name, face.File);
+
+        var remove = Command(
+            "✕",
+            "Take this font out of the project; a save deletes its file.",
+            () => Workspace.Do($"remove font {spoken}", () => ProjectSnapshot.Fonts(project), () => project.Fonts = project.Fonts.Remove(face.File)));
+
+        remove.Tag = face.File;
+
+        row.Children.Add(name);
+        row.Children.Add(Buttons(remove));
+
+        return row;
     }
 
     /// <summary>A setting's label, with the attribute the file writes as its tooltip.</summary>
@@ -3970,6 +4040,9 @@ public sealed class GroupPanel : UserControl
                 break;
             case "parameters":
                 ((ProjectDrawing)node).Parameters = value;
+                break;
+            case "fontsFolder":
+                ((ProjectRoot)node).FontsFolder = value;
                 break;
         }
     }
@@ -4179,6 +4252,15 @@ public sealed class GroupPanel : UserControl
                 break;
             case "padding":
                 break;
+            case "fontsFolder" when value is { } && node.Owner.Path is null:
+                throw new SvgcProjectException("Save the project first: a fonts folder is found from the project's own folder, which it does not have yet.");
+            case "fontsFolder" when value is { } && (System.IO.Path.IsPathRooted(value) || value.IndexOfAny(new[] { '\\', ':' }) >= 0):
+                throw new SvgcProjectException("Give the fonts folder relative to the project's folder, with / between folders, e.g. ../fonts: a path of this machine's is found on no other.");
+            case "fontsFolder" when value is { } && ProjectPackage.Find(System.IO.Path.Combine(node.Owner.Path!, value)) is { } inside
+                                       && string.Equals(inside, node.Owner.Path, StringComparison.OrdinalIgnoreCase):
+                throw new SvgcProjectException("A fonts folder is one beside the project, e.g. ../fonts; a font the project holds itself is added with Add fonts….");
+            case "fontsFolder":
+                break;
             // Every caller asks for a setting the node's form or ProjectDocument.Settings offers, so anything else is its mistake.
             default:
                 throw new ArgumentOutOfRangeException(nameof(name), name, "There is no such setting.");
@@ -4201,6 +4283,7 @@ public sealed class GroupPanel : UserControl
         "namespace" => node.Namespace,
         "class" => node.Class,
         "padding" => node.Padding,
+        "fontsFolder" => (node as ProjectRoot)?.FontsFolder,
         "x" => node.X is { } x ? Number(x) : null,
         "y" => node.Y is { } y ? Number(y) : null,
         "width" => node.Width is { } width ? Number(width) : null,
