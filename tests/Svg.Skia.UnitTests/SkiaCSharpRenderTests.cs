@@ -486,6 +486,33 @@ public class SkiaCSharpRenderTests
         Assert.Equal(5, code.Split(".DrawPath(").Length - 1);
     }
 
+    // The second conversion of a model draws a nested picture from a recording made with no layer
+    // open, which drew this rect with DrawRect where the first, replaying it, drew a path.
+    [Fact]
+    public void A_Picture_Inside_A_Layer_Draws_The_Same_On_Every_Conversion()
+    {
+        var nested = new ShimSkiaSharp.SKPictureRecorder();
+        var nestedCanvas = nested.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        var rect = new ShimSkiaSharp.SKPath();
+        rect.AddRect(ShimSkiaSharp.SKRect.Create(2.3f, 3.7f, 8.4f, 5.1f));
+        nestedCanvas.DrawPath(rect, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Fill, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0xef, 0x44, 0x44, 0xff) });
+
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.SaveLayer(new ShimSkiaSharp.SKPaint { Color = new ShimSkiaSharp.SKColor(0, 0, 0, 128) });
+        canvas.DrawPicture(nested.EndRecording());
+        canvas.Restore();
+        var model = recorder.EndRecording();
+
+        var skiaModel = new SkiaModel(new SKSvgSettings());
+        using var first = skiaModel.ToSKPicture(model);
+        using var second = skiaModel.ToSKPicture(model);
+        AssertSamePicture("NestedInLayer-again", first!, second!);
+
+        using var generated = Generated(model, "NestedInLayer", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture("NestedInLayer", second!, generated);
+    }
+
     [Fact]
     public void Strokes()
         => AssertRendersTheSame("Strokes", """
