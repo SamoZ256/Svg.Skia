@@ -263,12 +263,27 @@ internal static class ExprHelpers
             $"private static float {Tangent}(float degrees) => (float)Math.Tan(Math.PI * degrees / 180d);"
         }),
 
-        // What SvgSceneExpressionEvaluator does with a bound phase, so the two agree about a
-        // binding that comes to nothing: a pattern shifted by nothing is the dash as written.
+        // What SvgSceneExpressionEvaluator does with a bound dash, so the two agree about a binding
+        // that comes to nothing: a pattern shifted by nothing is the dash as written, and an invalid
+        // array strokes solid. null! because the generated file's nullable context is the caller's.
         new(Dash, new[]
         {
             $"private static SKPathEffect {Dash}(float[] intervals, float phase)",
-            "    => SKPathEffect.CreateDash(intervals, float.IsNaN(phase) || float.IsInfinity(phase) ? 0f : phase);"
+            "{",
+            "    var sum = 0f;",
+            "",
+            "    foreach (var interval in intervals)",
+            "    {",
+            "        if (float.IsNaN(interval) || float.IsInfinity(interval) || interval < 0f)",
+            "        {",
+            "            return null!;",
+            "        }",
+            "",
+            "        sum += interval;",
+            "    }",
+            "",
+            "    return sum <= 0f ? null! : SKPathEffect.CreateDash(intervals, float.IsNaN(phase) || float.IsInfinity(phase) ? 0f : phase);",
+            "}"
         })
     };
 }

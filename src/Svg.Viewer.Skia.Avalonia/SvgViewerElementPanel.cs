@@ -1101,7 +1101,7 @@ public sealed class SvgViewerElementPanel : UserControl
                 return stray;
             }
 
-            foreach (var function in SvgTransformExpression.Parse(written).Functions)
+            foreach (var function in SvgTransformExpression.Parse(name, written).Functions)
             {
                 foreach (var argument in function.Arguments)
                 {
@@ -1184,7 +1184,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
         try
         {
-            var arguments = SvgTransformExpression.Parse(written);
+            var arguments = SvgTransformExpression.Parse(name, written);
 
             // The whole transform as it currently stands, since one argument's number says
             // nothing about where the shape ends up.

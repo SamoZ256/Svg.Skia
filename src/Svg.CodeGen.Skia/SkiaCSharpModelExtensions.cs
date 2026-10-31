@@ -1362,14 +1362,28 @@ public static class SkiaCSharpModelExtensions
                         return;
                     }
 
-                    if (dashPathEffect.PhaseExpression is { } driven)
+                    if (dashPathEffect.PhaseExpression is { } || dashPathEffect.IntervalExpressions is { })
                     {
-                        // Through the helper rather than CreateDash, because what the phase binds to
-                        // is not known here and the renderer answers a nonsense one with nought.
+                        // Through the helper rather than CreateDash, because what the dash binds to
+                        // is not known here and the renderer answers a nonsense one: a phase with
+                        // nought, an interval with a solid stroke.
+                        var intervals = new StringBuilder("new float[] { ");
+
+                        for (var i = 0; i < dashPathEffect.Intervals.Length; i++)
+                        {
+                            intervals.Append(dashPathEffect.IntervalExpressions?[i] is { } length
+                                ? SymCSharpEmitter.Emit(length, ExprType.Number)
+                                : dashPathEffect.Intervals[i].ToFloatString()).Append(", ");
+                        }
+
+                        var phase = dashPathEffect.PhaseExpression is { } shift
+                            ? SymCSharpEmitter.Emit(shift, ExprType.Number)
+                            : dashPathEffect.Phase.ToFloatString();
+
                         sb.Append($"{indent}var {counter.PathEffectVarName}{counterPathEffect} = ");
                         sb.AppendLine($"{ExprHelpers.Dash}(");
-                        sb.AppendLine($"{indent}    {dashPathEffect.Intervals.ToFloatArray()},");
-                        sb.AppendLine($"{indent}    {SymCSharpEmitter.Emit(driven, ExprType.Number)});");
+                        sb.AppendLine($"{indent}    {intervals}}},");
+                        sb.AppendLine($"{indent}    {phase});");
 
                         return;
                     }

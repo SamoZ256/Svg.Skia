@@ -56,12 +56,16 @@ internal static class SvgSceneExpressions
     /// the child.
     /// </remarks>
     internal static SymNode? TryGet(SvgElement? element, string localName)
+        => Lifted(element, localName) is { } text ? SymNode.Source(text) : null;
+
+    /// <summary>The text lifted out of <paramref name="localName"/>, found the way <see cref="TryGet"/> finds it.</summary>
+    private static string? Lifted(SvgElement? element, string localName)
     {
         for (var current = element; current is { }; current = current.Parent)
         {
-            if (Own(current, localName) is { } expression)
+            if (Own(current, localName) is { } text)
             {
-                return expression;
+                return text;
             }
 
             if (!SvgExpressionAttributes.IsInherited(localName) || Declares(current, localName))
@@ -73,8 +77,8 @@ internal static class SvgSceneExpressions
         return null;
     }
 
-    /// <summary>The expression this element carries itself, ignoring what it inherits.</summary>
-    private static SymNode? Own(SvgElement element, string localName)
+    /// <summary>The text this element carries itself, ignoring what it inherits.</summary>
+    private static string? Own(SvgElement element, string localName)
     {
         var attributes = element.CustomAttributes;
 
@@ -90,7 +94,7 @@ internal static class SvgSceneExpressions
 
         text = text?.Trim();
 
-        return string.IsNullOrEmpty(text) ? null : SymNode.Source(text!);
+        return string.IsNullOrEmpty(text) ? null : text;
     }
 
     /// <summary>
@@ -143,6 +147,38 @@ internal static class SvgSceneExpressions
         }
 
         return new SymMatrix(transforms);
+    }
+
+    /// <summary>
+    /// What drives each item of <c>stroke-dasharray</c>, null for an item written as a literal, or
+    /// null throughout where nothing drives it.
+    /// </summary>
+    /// <remarks>
+    /// A literal is left to the number already recorded for it, which has had its units resolved.
+    /// </remarks>
+    internal static SymNode?[]? TryGetDashArray(SvgElement? element)
+    {
+        if (Lifted(element, SvgTransformExpression.DashArrayName) is not { } value)
+        {
+            return null;
+        }
+
+        var written = SvgTransformExpression.Parse(SvgTransformExpression.DashArrayName, value);
+
+        if (!written.Any || written.Stray.Count > 0)
+        {
+            return null;
+        }
+
+        var arguments = written.Functions[0].Arguments;
+        var items = new SymNode?[arguments.Count];
+
+        for (var index = 0; index < items.Length; index++)
+        {
+            items[index] = arguments[index].Expression is { } expression ? SymNode.Source(expression) : null;
+        }
+
+        return items;
     }
 
     /// <summary>One function, filled out to the arity the model folds it at.</summary>

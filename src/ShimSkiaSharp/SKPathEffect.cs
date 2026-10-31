@@ -9,14 +9,14 @@ public abstract record SKPathEffect : IDeepCloneable<SKPathEffect>
     public static SKPathEffect CreateDash(float[] intervals, float phase)
         => new DashPathEffect(intervals, phase);
 
-    /// <summary>A dash whose phase an expression drives.</summary>
+    /// <summary>A dash whose phase, or any of whose intervals, an expression drives.</summary>
     /// <remarks>
     /// The expression rides beside the number rather than instead of it, the way
     /// <see cref="SKColor.Expression"/> sits beside a colour's bytes: what was recorded still draws
     /// on its own, and binding replaces it.
     /// </remarks>
-    public static SKPathEffect CreateDash(float[] intervals, float phase, SymNode? phaseExpression)
-        => new DashPathEffect(intervals, phase) { PhaseExpression = phaseExpression };
+    public static SKPathEffect CreateDash(float[] intervals, float phase, SymNode? phaseExpression, SymNode?[]? intervalExpressions = null)
+        => new DashPathEffect(intervals, phase) { PhaseExpression = phaseExpression, IntervalExpressions = intervalExpressions };
 
     public SKPathEffect DeepClone() => DeepClone(new CloneContext());
 
@@ -37,7 +37,8 @@ public abstract record SKPathEffect : IDeepCloneable<SKPathEffect>
                 // paint is cloned.
                 DashPathEffect dashPathEffect => new DashPathEffect(CloneHelpers.CloneArray(dashPathEffect.Intervals, context), dashPathEffect.Phase)
                 {
-                    PhaseExpression = dashPathEffect.PhaseExpression
+                    PhaseExpression = dashPathEffect.PhaseExpression,
+                    IntervalExpressions = CloneHelpers.CloneArray(dashPathEffect.IntervalExpressions)
                 },
                 _ => throw new NotSupportedException($"Unsupported {nameof(SKPathEffect)} type: {GetType().Name}.")
             };
@@ -60,4 +61,10 @@ public record DashPathEffect(float[]? Intervals, float Phase) : SKPathEffect
     /// expressions still draws the dash the document was written with.
     /// </remarks>
     public SymNode? PhaseExpression { get; init; }
+
+    /// <summary>
+    /// What drives each interval, null for one that is recorded as it stands, or null where none is
+    /// driven. As long as <see cref="Intervals"/>, an odd count included.
+    /// </summary>
+    public SymNode?[]? IntervalExpressions { get; init; }
 }

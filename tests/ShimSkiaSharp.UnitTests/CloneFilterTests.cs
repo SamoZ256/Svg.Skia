@@ -95,6 +95,18 @@ public class CloneFilterTests
     }
 
     [Fact]
+    public void SKPathEffect_DeepClone_KeepsTheExpressionsDrivingTheIntervals()
+    {
+        var driven = SymNode.Source("arc");
+        SKPathEffect effect = SKPathEffect.CreateDash(new float[] { 1f, 2f }, 0f, null, new SymNode?[] { driven, null });
+
+        var typed = Assert.IsType<DashPathEffect>(effect.DeepClone());
+
+        Assert.Equal(new SymNode?[] { driven, null }, typed.IntervalExpressions);
+        Assert.NotSame(((DashPathEffect)effect).IntervalExpressions, typed.IntervalExpressions);
+    }
+
+    [Fact]
     public void SKImageFilter_DeepClone_ClonesArithmetic()
     {
         var background = CloneTestData.CreateLeafImageFilter();
