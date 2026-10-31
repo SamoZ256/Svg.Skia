@@ -213,13 +213,6 @@ class Program
         };
         rootCommand.AddOption(optionHelperScope);
 
-        var optionCache = new Option(new[] { "--cache" }, "Keep the last picture Draw built and reuse it while the arguments are unchanged: none, lastValue or lastValueLocked")
-        {
-            IsRequired = false,
-            Argument = new Argument<string?>(getDefaultValue: () => null)
-        };
-        rootCommand.AddOption(optionCache);
-
         var optionTextLayout = new Option(new[] { "--text-layout" }, "What to do with text an expression drives: strict refuses it, baked writes the default in, relaxed draws it from the argument and gives up the layout rules that cannot follow a string")
         {
             IsRequired = false,
@@ -261,7 +254,6 @@ class Program
                 // A flag beats the project file, which beats the built-in default — the ordinary
                 // convention, and the reason every one of these is nullable up to this point.
                 var emit = settings.Emit is { } ? SvgcProject.ParseEmit(settings.Emit) : project?.Emit ?? SvgEmit.CSharp;
-                var cache = settings.Cache is { } ? SvgcProject.ParseCache(settings.Cache) : project?.Cache ?? SvgPictureCache.None;
                 var scope = settings.HelperScope is { } ? SvgcProject.ParseHelperScope(settings.HelperScope) : project?.HelperScope ?? SvgHelperScope.FileLocal;
                 var skiaSharp = settings.SkiaSharp is { } ? SvgcProject.ParseSkiaSharpTarget(settings.SkiaSharp) : project?.SkiaSharp ?? SkiaSharpTarget.V4;
                 var textLayout = SvgcProject.ParseTextLayout(settings.TextLayout);
@@ -289,7 +281,6 @@ class Program
                 var build = new SvgcBuildSettings
                 {
                     Emit = emit,
-                    Cache = cache,
                     HelperScope = scope,
                     SkiaSharp = skiaSharp,
                     TextLayout = textLayout,

@@ -124,7 +124,6 @@ public sealed class SvgcProject
         string? namespaceName,
         string? className,
         SvgEmit? emit,
-        SvgPictureCache? cache,
         SvgHelperScope? helperScope,
         SkiaSharpTarget? skiaSharp,
         string? singleFile,
@@ -138,7 +137,6 @@ public sealed class SvgcProject
         Namespace = namespaceName;
         Class = className;
         Emit = emit;
-        Cache = cache;
         HelperScope = helperScope;
         SkiaSharp = skiaSharp;
         SingleFile = singleFile;
@@ -156,8 +154,6 @@ public sealed class SvgcProject
     public string? Class { get; }
 
     public SvgEmit? Emit { get; }
-
-    public SvgPictureCache? Cache { get; }
 
     public SvgHelperScope? HelperScope { get; }
 
@@ -200,14 +196,6 @@ public sealed class SvgcProject
         null or "" or "csharp" => SvgEmit.CSharp,
         "svg" => SvgEmit.Svg,
         _ => throw new SvgcProjectException($"'{value}' is not an output format. Expected csharp or svg.")
-    };
-
-    public static SvgPictureCache ParseCache(string? value) => value?.Trim().ToLowerInvariant() switch
-    {
-        null or "" or "none" => SvgPictureCache.None,
-        "lastvalue" => SvgPictureCache.LastValue,
-        "lastvaluelocked" => SvgPictureCache.LastValueLocked,
-        _ => throw new SvgcProjectException($"'{value}' is not a cache mode. Expected none, lastValue or lastValueLocked.")
     };
 
     public static SvgHelperScope ParseHelperScope(string? value) => value?.Trim().ToLowerInvariant() switch

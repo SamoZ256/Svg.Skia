@@ -53,14 +53,14 @@ CanvasControl.Draw += (_, e) =>
 This is the natural bridge from `Svg.Skia` or generated pictures into Avalonia:
 
 ```xml
-<SKPictureControl Picture="{x:Static local:Tiger.Picture}"
+<SKPictureControl Picture="{x:Static local:Pictures.Tiger}"
                   Stretch="Uniform" />
 ```
 
 It is especially useful with:
 
 - `SKSvg.Picture` from [Svg.Skia](svg-skia),
-- generated `Picture` classes from [Svg.SourceGenerator.Skia](svg-sourcegenerator-skia),
+- a picture kept from a generated class's `Record()`, from [Svg.SourceGenerator.Skia](svg-sourcegenerator-skia),
 - picture output produced by your own SkiaSharp pipeline.
 
 ## `SKPictureImage`
@@ -70,7 +70,7 @@ When an Avalonia `Image` needs to display a picture instead of a control hosting
 ```xml
 <Image>
   <Image.Source>
-    <SKPictureImage Source="{x:Static local:Camera.Picture}" />
+    <SKPictureImage Source="{x:Static local:Pictures.Camera}" />
   </Image.Source>
 </Image>
 ```

@@ -27,8 +27,6 @@ public sealed class SvgcBuildSettings
 {
     public SvgEmit Emit { get; set; } = SvgEmit.CSharp;
 
-    public SvgPictureCache Cache { get; set; } = SvgPictureCache.None;
-
     public SvgHelperScope HelperScope { get; set; } = SvgHelperScope.FileLocal;
 
     public SkiaSharpTarget SkiaSharp { get; set; } = SkiaSharpTarget.V4;
@@ -62,7 +60,6 @@ public sealed class SvgcBuildSettings
         return new SvgcBuildSettings
         {
             Emit = project.Emit ?? SvgEmit.CSharp,
-            Cache = project.Cache ?? SvgPictureCache.None,
             HelperScope = project.HelperScope ?? SvgHelperScope.FileLocal,
             SkiaSharp = project.SkiaSharp ?? SkiaSharpTarget.V4,
             TextLayout = SvgTextLayout.Strict,
@@ -140,7 +137,6 @@ public static class SvgcProjectBuild
                     drawings,
                     settings.HelperScope,
                     HelperClassNameFor(settings.HelperScope, singleFile),
-                    settings.Cache,
                     settings.SkiaSharp,
                     settings.Style));
 
@@ -189,7 +185,6 @@ public static class SvgcProjectBuild
         var asked = new SvgcBuildSettings
         {
             Emit = settings.Emit,
-            Cache = settings.Cache,
             HelperScope = settings.HelperScope,
             SkiaSharp = settings.SkiaSharp,
             TextLayout = SvgTextLayout.Baked,
@@ -310,7 +305,6 @@ public static class SvgcProjectBuild
             ? SkiaCSharpCodeGen.GenerateFile(
                 new[] { drawing },
                 SvgHelperScope.PerClass,
-                cache: settings.Cache,
                 skiaSharp: settings.SkiaSharp,
                 style: new SvgCodeStyle { Body = settings.Style.Body, Typeface = settings.Style.Typeface })
             : null;

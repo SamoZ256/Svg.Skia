@@ -587,7 +587,7 @@ public class AssistantTests : IDisposable
         var chat = new ScriptedChat(
             Call("set_node", new() { ["node"] = "0", ["setting"] = "colour", ["value"] = "red" }),
             Call("set_node", new() { ["node"] = "0", ["setting"] = "Name", ["value"] = "Tags" }),
-            Call("set_node", new() { ["node"] = "0", ["setting"] = "cache", ["value"] = "lastValue" }),
+            Call("set_node", new() { ["node"] = "0", ["setting"] = "helperScope", ["value"] = "internal" }),
             Say("Refused."));
 
         await Send(window, chat, "set what Badges does not take");
@@ -595,20 +595,20 @@ public class AssistantTests : IDisposable
         Assert.Equal(3, chat.Results.Count);
         Assert.StartsWith("0 has no setting called 'colour';", chat.Results[0], StringComparison.Ordinal);
         Assert.StartsWith("0 has no setting called 'Name';", chat.Results[1], StringComparison.Ordinal);
-        Assert.StartsWith("0 has no setting called 'cache';", chat.Results[2], StringComparison.Ordinal);
+        Assert.StartsWith("0 has no setting called 'helperScope';", chat.Results[2], StringComparison.Ordinal);
         Assert.All(chat.Results, result => Assert.Contains("name, namespace, class", result, StringComparison.Ordinal));
         Assert.Equal("Badges", badges.Name);
-        Assert.Null(badges.Element.Attribute("cache"));
+        Assert.Null(badges.Element.Attribute("helperScope"));
         Assert.False(workspace.CanUndo);
         Assert.False(workspace.IsEdited);
 
         // Which the project itself still takes.
-        var own = new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "cache", ["value"] = "lastValue" }), Say("Set."));
+        var own = new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "helperScope", ["value"] = "internal" }), Say("Set."));
 
-        await Send(window, own, "cache the project");
+        await Send(window, own, "scope the project's helpers");
 
         Assert.Contains("one undo step", own.Results[0], StringComparison.Ordinal);
-        Assert.Equal(SvgPictureCache.LastValue, root.Cache);
+        Assert.Equal(SvgHelperScope.Internal, root.HelperScope);
     }
 
     [AvaloniaFact]
@@ -741,7 +741,7 @@ public class AssistantTests : IDisposable
         var required = tool.JsonSchema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
 
         Assert.DoesNotContain("value", required);
-        Assert.Contains("cache, helperScope, skiaSharp", tool.Description, StringComparison.Ordinal);
+        Assert.Contains("reads, helperScope, skiaSharp", tool.Description, StringComparison.Ordinal);
 
         var chat = new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "namespace" }), Say("Cleared."));
 
@@ -794,16 +794,16 @@ public class AssistantTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Project));
         var root = window.Workspace!.Document.Root;
 
-        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "cache", ["value"] = "lastValue" }), Say("Cached.")), "cache");
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "helperScope", ["value"] = "internal" }), Say("Scoped.")), "helperScope");
         await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "api", ["value"] = "Icons.Api" }), Say("Named.")), "api");
 
-        Assert.Equal(Svg.CodeGen.Skia.SvgPictureCache.LastValue, root.Cache);
+        Assert.Equal(Svg.CodeGen.Skia.SvgHelperScope.Internal, root.HelperScope);
         Assert.Equal("Icons.Api", root.Api);
 
         var steps = window.Workspace!.UndoLabel;
 
-        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "cache", ["value"] = "always" }), Say("No.")), "bad cache");
-        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "0", ["setting"] = "cache", ["value"] = "none" }), Say("No.")), "group cache");
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "helperScope", ["value"] = "always" }), Say("No.")), "bad helperScope");
+        await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "0", ["setting"] = "helperScope", ["value"] = "file" }), Say("No.")), "group helperScope");
         await Send(window, new ScriptedChat(Call("set_node", new() { ["node"] = "", ["setting"] = "name", ["value"] = "Root" }), Say("No.")), "root name");
         var method = new ScriptedChat(Call("set_node", new() { ["node"] = "0", ["setting"] = "method", ["value"] = "drawX" }), Say("No."));
 
@@ -812,7 +812,7 @@ public class AssistantTests : IDisposable
         // Refused, rather than thrown out of a write that casts the group to a drawing.
         Assert.Contains("has no setting called 'method'", method.Results.Single(), StringComparison.Ordinal);
 
-        Assert.Equal(Svg.CodeGen.Skia.SvgPictureCache.LastValue, root.Cache);
+        Assert.Equal(Svg.CodeGen.Skia.SvgHelperScope.Internal, root.HelperScope);
         Assert.NotEqual("Root", root.Name);
         Assert.Equal(steps, window.Workspace!.UndoLabel);
     }
@@ -2489,7 +2489,7 @@ public class AssistantTests : IDisposable
 
         Assert.StartsWith("(project) sized.svgstudio\n", project, StringComparison.Ordinal);
         Assert.Contains("\nnamespace=\"Demo.Icons\"\n", project, StringComparison.Ordinal);
-        Assert.Contains("\nUnset: class, cache, helperScope, skiaSharp, width, height, scale, padding, api, resizing, context, order, body, typeface\n", project, StringComparison.Ordinal);
+        Assert.Contains("\nUnset: class, helperScope, skiaSharp, width, height, scale, padding, api, resizing, context, order, body, typeface\n", project, StringComparison.Ordinal);
         Assert.Contains("Hands down no size", project, StringComparison.Ordinal);
 
         Assert.StartsWith("0 group Badges\n", group, StringComparison.Ordinal);

@@ -25,7 +25,7 @@ The `samples/` directory covers both end-user scenarios and repository-internal 
 
 - `Svg.Skia.Converter`: packaged conversion tool and NativeAOT notes.
 - `svgc`: manual SVG-to-C# generator.
-- `Svg.SourceGenerator.Skia.Sample`: demonstrates generated `Picture` classes.
+- `Svg.SourceGenerator.Skia.Sample`: demonstrates generated drawing classes and their `Record()`.
 - `SvgToPng`: Windows sample focused on raster conversion.
 
 ## Generator validation helpers

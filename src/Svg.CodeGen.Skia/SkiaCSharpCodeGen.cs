@@ -43,26 +43,6 @@ public enum SkiaSharpTarget
     V4
 }
 
-/// <summary>Whether <c>Draw</c> keeps the picture it built, and whether it guards it.</summary>
-public enum SvgPictureCache
-{
-    /// <summary>Record a picture per call and dispose it. Draw stays stateless.</summary>
-    None,
-
-    /// <summary>
-    /// Keep the last picture and reuse it while the arguments are unchanged. Draw becomes
-    /// stateful and is <b>not</b> safe to call from several threads: one can replace and dispose
-    /// the picture another is midway through drawing.
-    /// </summary>
-    LastValue,
-
-    /// <summary>
-    /// As <see cref="LastValue"/>, guarded by a lock held across the draw. Releasing it any
-    /// earlier would reopen the race the lock exists to close.
-    /// </summary>
-    LastValueLocked
-}
-
 /// <summary>How a drawing's <c>Draw</c> puts it on the canvas it is given.</summary>
 public enum SvgBody
 {
@@ -71,7 +51,7 @@ public enum SvgBody
 
     /// <summary>
     /// Draw onto the canvas itself, from paths and paints built once where nothing the caller
-    /// passes changes them. Nothing is left to cache, so it does not combine with <see cref="SvgPictureCache"/>.
+    /// passes changes them.
     /// </summary>
     Direct
 }
@@ -171,14 +151,6 @@ public static class SkiaCSharpCodeGen
 {
     public const string DefaultHelperClassName = "SvgExpressionHelpers";
 
-    private const string CacheLockField = "s_cacheLock";
-
-    private const string CachedPictureField = "s_cachedPicture";
-
-    // Every remembered argument shares this prefix, so none of them can collide with the two
-    // fields above however the parameter is named.
-    private static string ArgumentField(string parameterName) => "s_arg_" + parameterName;
-
     public static string Generate(SKPicture picture, string namespaceName, string className)
         => Generate(picture, namespaceName, className, SvgExpressionDeclarations.Empty);
 
@@ -187,7 +159,6 @@ public static class SkiaCSharpCodeGen
         string namespaceName,
         string className,
         SvgExpressionDeclarations? declarations,
-        SvgPictureCache cache = SvgPictureCache.None,
         SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4,
         IReadOnlyList<string>? frozen = null)
     {
@@ -197,7 +168,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine($"{{");
-        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, cache, skiaSharp, frozen, bounds: null, SvgCodeStyle.Default).Text);
+        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, skiaSharp, frozen, bounds: null, SvgCodeStyle.Default).Text);
         sb.AppendLine($"}}");
 
         return sb.ToString();
@@ -215,7 +186,6 @@ public static class SkiaCSharpCodeGen
         IReadOnlyList<SkiaCSharpDrawing> drawings,
         SvgHelperScope scope = SvgHelperScope.FileLocal,
         string helperClassName = DefaultHelperClassName,
-        SvgPictureCache cache = SvgPictureCache.None,
         SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4,
         SvgCodeStyle? style = null)
     {
@@ -249,7 +219,7 @@ public static class SkiaCSharpCodeGen
 
         var built = drawings.ToDictionary(
             drawing => drawing,
-            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, cache, skiaSharp, drawing.Frozen, drawing.Bounds, style));
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, skiaSharp, drawing.Frozen, drawing.Bounds, style));
 
         var facade = style.Api is { } api
             ? SkiaCSharpFacade.Build(api, drawings.Select(drawing => (drawing, built[drawing].Parameters, built[drawing].WithDefaults)).ToList(), style)
@@ -388,23 +358,11 @@ public static class SkiaCSharpCodeGen
     private static bool IsIdentifier(char c) => c == '_' || char.IsLetterOrDigit(c);
 
     /// <summary>Refuses a box whose name the emitted class could not declare.</summary>
-    /// <remarks>
-    /// The cache's private fields on top of the shared rule, which an editor asks too and which has no
-    /// business knowing them.
-    /// </remarks>
     private static void RefuseBounds(string className, IReadOnlyList<(string Name, SKRect Rect)> bounds)
     {
         for (var i = 0; i < bounds.Count; i++)
         {
-            var name = bounds[i].Name;
-            var why = SvgExpressionAttributes.WhyNotBox(name, className, bounds.Take(i).Select(box => box.Name));
-
-            if (why is null && (name is CacheLockField or CachedPictureField || name.StartsWith(ArgumentField(string.Empty), StringComparison.Ordinal)))
-            {
-                why = $"'{name}' is a name the generated class already uses.";
-            }
-
-            if (why is { })
+            if (SvgExpressionAttributes.WhyNotBox(bounds[i].Name, className, bounds.Take(i).Select(box => box.Name)) is { } why)
             {
                 throw new ExprException($"'{className}' cannot declare that box: {why}", 0);
             }
@@ -436,7 +394,6 @@ public static class SkiaCSharpCodeGen
         string className,
         SvgExpressionDeclarations? declarations,
         bool includeHelpers,
-        SvgPictureCache cache,
         SkiaSharpTarget skiaSharp,
         IReadOnlyList<string>? frozen,
         IReadOnlyList<(string Name, SKRect Rect)>? bounds,
@@ -446,11 +403,6 @@ public static class SkiaCSharpCodeGen
         bounds ??= Array.Empty<(string, SKRect)>();
 
         var direct = style.Body == SvgBody.Direct;
-
-        if (direct && cache != SvgPictureCache.None)
-        {
-            throw new ExprException($"'{className}' is drawn directly, which leaves no picture to cache. Set the cache to none.", 0);
-        }
 
         RefuseBounds(className, bounds);
 
@@ -504,11 +456,7 @@ public static class SkiaCSharpCodeGen
         var withDefaults = declarations.EmitsDefaultArguments();
         var parameterList = BuildParameterList(parameters, withDefaults);
         var argumentList = string.Join(", ", parameters.Select(p => p.Name));
-
-        // A document with no parameters already caches better than this: one picture built in
-        // the static constructor, drawn with no comparison at all.
-        var cached = cache != SvgPictureCache.None && isParameterized;
-        var locked = cached && cache == SvgPictureCache.LastValueLocked;
+        var drawParameterList = isParameterized ? $"SKCanvas {counter.CanvasVarName}, {parameterList}" : $"SKCanvas {counter.CanvasVarName}";
 
         var sb = new StringBuilder();
 
@@ -535,73 +483,34 @@ public static class SkiaCSharpCodeGen
             sb.AppendLine($"");
         }
 
-        if (cached)
-        {
-            if (locked)
-            {
-                sb.AppendLine($"        private static readonly object {CacheLockField} = new object();");
-                sb.AppendLine($"");
-            }
-
-            sb.AppendLine($"        private static SKPicture {CachedPictureField};");
-            sb.AppendLine($"");
-
-            foreach (var parameter in parameters)
-            {
-                sb.AppendLine($"        private static {ExprCompiler.CSharpTypeOf(parameter.Type)} {ArgumentField(parameter.Name)};");
-            }
-
-            sb.AppendLine($"");
-        }
-
         foreach (var (type, name) in counter.StaticFields)
         {
             sb.AppendLine($"        private static readonly {type} s_{name};");
         }
 
+        // A direct drawing keeps the paths and paints no argument changes. Its picture is the caller's
+        // to keep: held here, it would stay for the life of the process once anything had drawn it.
         if (counter.StaticFields.Count > 0)
         {
             sb.AppendLine($"");
-        }
-
-        if (!isParameterized)
-        {
-            sb.AppendLine($"        public static SKPicture Picture {{ get; }}");
-            sb.AppendLine($"");
-        }
-
-        // A picture built from parameters cannot be cached in a static field, so the
-        // parameterless shape is kept exactly as it was for documents without declarations.
-        if (!isParameterized || counter.StaticFields.Count > 0)
-        {
             sb.AppendLine($"        static {className}()");
             sb.AppendLine($"        {{");
             sb.Append(statics);
-
-            // After the fields, which the drawing it records reads.
-            if (!isParameterized)
-            {
-                sb.AppendLine($"            Picture = Record();");
-            }
-
             sb.AppendLine($"        }}");
             sb.AppendLine($"");
         }
 
+        sb.AppendLine($"        public static SKPicture Record({parameterList})");
+
         if (direct)
         {
-            sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
             sb.AppendLine($"        {{");
             sb.AppendLine($"            using var {counter.PictureRecorderVarName} = new SKPictureRecorder();");
             sb.AppendLine($"            Draw({string.Join(", ", new[] { $"{counter.PictureRecorderVarName}.BeginRecording({picture.CullRect.ToSKRect()})" }.Concat(parameters.Select(p => p.Name)))});");
             sb.AppendLine($"            return {counter.PictureRecorderVarName}.EndRecording();");
             sb.AppendLine($"        }}");
             sb.AppendLine($"");
-            sb.AppendLine($"        public static void Draw({string.Join(", ", new[] { $"SKCanvas {counter.CanvasVarName}" }.Concat(isParameterized ? new[] { parameterList } : Array.Empty<string>()))})");
-        }
-        else
-        {
-            sb.AppendLine($"        {(isParameterized ? "public" : "private")} static SKPicture Record({parameterList})");
+            sb.AppendLine($"        public static void Draw({drawParameterList})");
         }
 
         sb.AppendLine($"        {{");
@@ -631,80 +540,18 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"        }}");
 
-        // Drawn directly, Draw is the body above; caching was refused for it.
-        if (cached)
-        {
-            sb.AppendLine($"");
-
-            // Drawing happens every frame and arguments move on a hover or a theme flip. A miss
-            // costs one comparison per parameter against the cost of recording.
-            sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
-            sb.AppendLine($"        {{");
-
-            if (locked)
-            {
-                // The draw stays inside the lock: releasing it earlier would let another thread
-                // replace and dispose the picture midway through playback.
-                sb.AppendLine($"            lock ({CacheLockField})");
-                sb.AppendLine($"            {{");
-            }
-
-            // One more level of nesting once the lock is there.
-            var cacheIndent = locked ? "                " : "            ";
-
-            // A float argument of NaN never equals itself, so it misses every time. That costs a
-            // re-record and nothing else.
-            var tests = new List<string> { $"{CachedPictureField} is null" };
-            tests.AddRange(parameters.Select(p => $"|| {ArgumentField(p.Name)} != {p.Name}"));
-
-            for (var i = 0; i < tests.Count; i++)
-            {
-                var open = i == 0 ? "if (" : "    ";
-                var close = i == tests.Count - 1 ? ")" : string.Empty;
-
-                sb.AppendLine($"{cacheIndent}{open}{tests[i]}{close}");
-            }
-
-            sb.AppendLine($"{cacheIndent}{{");
-            sb.AppendLine($"{cacheIndent}    {CachedPictureField}?.Dispose();");
-            sb.AppendLine($"{cacheIndent}    {CachedPictureField} = Record({argumentList});");
-
-            foreach (var parameter in parameters)
-            {
-                sb.AppendLine($"{cacheIndent}    {ArgumentField(parameter.Name)} = {parameter.Name};");
-            }
-
-            sb.AppendLine($"{cacheIndent}}}");
-            sb.AppendLine($"");
-            sb.AppendLine($"{cacheIndent}{counter.CanvasVarName}.DrawPicture({CachedPictureField});");
-
-            if (locked)
-            {
-                sb.AppendLine($"            }}");
-            }
-
-            sb.AppendLine($"        }}");
-        }
-        else if (isParameterized && !direct)
+        if (!direct)
         {
             sb.AppendLine($"");
 
             // Built for this call and unable to escape, so Draw disposes it at a known point.
             // Record keeps its own contract: what it returns, the caller owns.
-            sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName}, {parameterList})");
+            sb.AppendLine($"        public static void Draw({drawParameterList})");
             sb.AppendLine($"        {{");
             sb.AppendLine($"            using (var {counter.PictureVarName} = Record({argumentList}))");
             sb.AppendLine($"            {{");
             sb.AppendLine($"                {counter.CanvasVarName}.DrawPicture({counter.PictureVarName});");
             sb.AppendLine($"            }}");
-            sb.AppendLine($"        }}");
-        }
-        else if (!direct)
-        {
-            sb.AppendLine($"");
-            sb.AppendLine($"        public static void Draw(SKCanvas {counter.CanvasVarName})");
-            sb.AppendLine($"        {{");
-            sb.AppendLine($"            {counter.CanvasVarName}.DrawPicture(Picture);");
             sb.AppendLine($"        }}");
         }
 

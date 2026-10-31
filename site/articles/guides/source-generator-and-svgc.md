@@ -11,7 +11,7 @@ generator they expose.
 
 - **`Svg.SourceGenerator.Skia`** runs inside the compiler, on `.svg` files the project already owns.
 - **`src/svgc`** is a command-line tool run as its own step, and reaches the options the
-  generator does not: recipes, resizing, batching, caching and the SkiaSharp target.
+  generator does not: recipes, resizing, batching and the SkiaSharp target.
 
 ## Roslyn source generator
 
@@ -49,20 +49,25 @@ with anything not valid in an identifier replaced by `_` — `pservers-pattern-0
 
 ### What comes out
 
-For an ordinary drawing, a static picture built once at type initialisation:
+`Record` returns a new picture, which the caller owns and disposes. `Draw` records one, draws it and
+disposes it:
 
 ```csharp
 public static class Camera
 {
-    public static SKPicture Picture { get; }
+    public static SKPicture Record()
     public static void Draw(SKCanvas skCanvas)
 }
 ```
 
+The class keeps no picture, so nothing it drew stays in memory. To draw one picture many times, call
+`Record` once and keep the result for as long as it is shown. The source generator always records; a
+project build can emit a `Draw` that skips the recording, with
+[`body` `direct`](../packages/svg-codegen-skia#drawing-straight-onto-the-canvas).
+
 For a drawing using the [expression extension](../packages/svg-expressions), the parameters it
-declares become C# parameters in the order the document declares them, with their declared defaults,
-and there is **no** `Picture` property — there is no single picture to have, since the drawing depends
-on its arguments:
+declares become C# parameters of both, in the order the document declares them, with their declared
+defaults:
 
 ```csharp
 public static class Expressions
@@ -281,18 +286,6 @@ It needs a recipe (without one the output would be a copy of the input) and cann
 a resize or a single file: the conversion rewrites text and never compiles a drawing, and an SVG
 document holds one drawing where a C# file holds any number.
 
-### Caching the last picture
-
-```bash
-svgc -i badge.svg -o Badge.cs -r badge.recipe --cache lastValue
-```
-
-`--cache` gives `Draw` a one-entry memo, so redrawing with unchanged arguments reuses the picture
-instead of recording it again — worth it for a parametric drawing on a slider or an animation.
-`lastValueLocked` is the same guarded by a lock held across the draw, for a drawing shared between
-threads. It applies only to parameterised drawings; one without parameters already caches better
-than this, as a single picture built in the static constructor.
-
 ### A whole build in one project file
 
 More than one drawing goes in an XML project file rather than a shell loop:
@@ -303,7 +296,6 @@ More than one drawing goes in an XML project file rather than a shell loop:
   <recipe>icons.recipe</recipe>
   <namespace>Demo.Icons</namespace>
   <singleFile>Icons.cs</singleFile>
-  <cache>lastValue</cache>
   <padding>10%</padding>
 
   <svg input="home.svg" class="Home" />
@@ -349,7 +341,6 @@ than pointing at them — and opens one of these by converting it. See
 | `--padding` | Room to leave around the drawing inside that size, in CSS order: `10%`, `"5% 10%"`, `"5% 10% 0 10%"` |
 | `--singleFile` | Emit a batch into one C# file |
 | `--helperScope` | Where shared helpers live in that file: `file` (default, C# 11 file-local), `internal`, or `perClass` |
-| `--cache` | `none` (default), `lastValue`, `lastValueLocked` |
 | `--skiaSharp` | The SkiaSharp major version the output is compiled against: `4` (default) or `3` |
 | `--text-layout` | What to do with text an expression drives and the layout was measured with: `strict` (default) refuses the drawing, `baked` writes the default in and warns, `relaxed` draws the argument and gives the layout rules up |
 
@@ -393,8 +384,8 @@ Use `svgc` when:
 - generation is part of a separate asset-preparation step,
 - you want checked-in generated files,
 - a custom pipeline needs direct control over names and destinations,
-- or you need something the generator does not expose: a recipe, a resize, a batch in one file, a
-  draw cache, or SkiaSharp 3 as the target.
+- or you need something the generator does not expose: a recipe, a resize, a batch in one file,
+  or SkiaSharp 3 as the target.
 
 The two are not exclusive. A common arrangement is `svgc --emit svg` to parameterise an icon set
 once, the resulting drawings checked in, and the source generator compiling them on every build.

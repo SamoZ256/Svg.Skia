@@ -22,7 +22,6 @@ public sealed class ExportSettings
     /// <summary>Each setting in the order it is asked, with what it is called and what its empty box says.</summary>
     private static readonly (string Name, string Label, string? Hint)[] s_settings =
     {
-        ("cache", "Picture cache", null),
         ("helperScope", "Helper methods", null),
         ("skiaSharp", "SkiaSharp version", null),
         ("body", "Draw", null),
@@ -39,13 +38,6 @@ public sealed class ExportSettings
     /// </summary>
     private static readonly Dictionary<string, (string Label, string? Value, string Tip)[]> s_choices = new(StringComparer.Ordinal)
     {
-        ["cache"] = new (string, string?, string)[]
-        {
-            ("Default (none)", null, "Not written in the project, so a build records a picture on every draw."),
-            ("None: record on every draw", ProjectRoot.CacheText(SvgPictureCache.None), "Draw records a picture per call and disposes it, and stays stateless."),
-            ("Keep the last picture", ProjectRoot.CacheText(SvgPictureCache.LastValue), "Reuses the last picture while the arguments are unchanged. Not safe to draw from several threads."),
-            ("Keep the last picture, locked for threads", ProjectRoot.CacheText(SvgPictureCache.LastValueLocked), "As above, guarded by a lock held across the draw.")
-        },
         ["helperScope"] = new (string, string?, string)[]
         {
             ("Default (one file-local class)", null, "Not written in the project, so a build puts the helpers in one file-local class."),
@@ -63,7 +55,7 @@ public sealed class ExportSettings
         {
             ("Default (record a picture)", null, "Not written in the project, so Draw records a picture and draws it."),
             ("Record a picture, then draw it", ProjectRoot.BodyText(SvgBody.Record), "Draw records the drawing into a picture and draws that."),
-            ("Straight onto the canvas", ProjectRoot.BodyText(SvgBody.Direct), "Draw draws onto the canvas it is given, from paths and paints built once. Takes no picture cache.")
+            ("Straight onto the canvas", ProjectRoot.BodyText(SvgBody.Direct), "Draw draws onto the canvas it is given, from paths and paints built once.")
         }
     };
 
@@ -132,13 +124,6 @@ public sealed class ExportSettings
             {
                 Validate(name, value);
             }
-
-            // The one pairing a build refuses, said while the pickers are still on screen.
-            if (values["body"] == ProjectRoot.BodyText(SvgBody.Direct)
-                && values["cache"] is { } cache && cache != ProjectRoot.CacheText(SvgPictureCache.None))
-            {
-                throw new SvgcProjectException("Drawn straight onto the canvas, Draw has no picture to cache. Set the picture cache to none.");
-            }
         }
         catch (SvgcProjectException refused)
         {
@@ -188,9 +173,6 @@ public sealed class ExportSettings
             case "order":
                 SvgcProject.ParseNames(value);
                 break;
-            case "cache":
-                SvgcProject.ParseCache(value);
-                break;
             case "helperScope":
                 SvgcProject.ParseHelperScope(value);
                 break;
@@ -210,9 +192,6 @@ public sealed class ExportSettings
         {
             // Nothing is the attribute taken away. The parsers read an empty value as the default,
             // which wrote the default out instead.
-            case "cache":
-                root.Cache = value is null ? null : SvgcProject.ParseCache(value);
-                break;
             case "helperScope":
                 root.HelperScope = value is null ? null : SvgcProject.ParseHelperScope(value);
                 break;
@@ -243,7 +222,6 @@ public sealed class ExportSettings
     /// <summary>What the project says for <paramref name="name"/>, spelled as the file and the pickers spell it.</summary>
     internal static string? Value(ProjectRoot root, string name) => name switch
     {
-        "cache" => root.Cache is { } cache ? ProjectRoot.CacheText(cache) : null,
         "helperScope" => root.HelperScope is { } scope ? ProjectRoot.ScopeText(scope) : null,
         "skiaSharp" => root.SkiaSharp is { } target ? ProjectRoot.SkiaSharpText(target) : null,
         "body" => root.Body is { } body ? ProjectRoot.BodyText(body) : null,
