@@ -121,15 +121,88 @@ public class PaintCodeFaultRenderTests
         });
     }
 
+    /// <summary>
+    /// A wedge whose angles are driven draws where PaintCode's own code puts it, whichever end
+    /// moves. Both moving is pac-man, whose mouth came out of the import shut at every value.
+    /// </summary>
+    /// <remarks>
+    /// The expected side is PaintCode's C# export, character for character:
+    /// <c>AddArc(rect, -start, start - end + (end &gt; start ? 360 * ceil((end - start) / 360) : 0))</c>,
+    /// then a line to the middle. A driven end is saved at 1, which is what x and y default to, so
+    /// the expression lands on the angle without an offset.
+    /// </remarks>
+    [Theory]
+    [InlineData(true, false, 200, 30)]
+    [InlineData(false, true, 30, 300)]
+    [InlineData(true, true, -0.00001, 0.00001)]
+    [InlineData(true, true, -24, 24)]
+    [InlineData(true, true, 100, -100)]
+    [InlineData(true, true, 10, 800)]
+    public void A_Driven_Wedge_Opens_Where_PaintCode_Opens_It(bool driveStart, bool driveEnd, double start, double end)
+    {
+        var bindings = new Dictionary<string, PaintCodeBinding>();
+
+        if (driveStart)
+        {
+            bindings["startAngle"] = new("x", PaintCodeValueKind.Number, 1, null, null, null, null, null);
+        }
+
+        if (driveEnd)
+        {
+            bindings["endAngle"] = new("y", PaintCodeValueKind.Number, 1, null, null, null, null, null);
+        }
+
+        var wedge = new PaintCodeShape(
+            "Wedge",
+            PaintCodeShapeKind.Oval,
+            Box(5, 5, 20, 20),
+            bindings,
+            null,
+            new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, s_red.Red, s_red.Green, s_red.Blue, 1), null),
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            new PaintCodeShapeMetrics(0, true, true, true, true, driveStart ? 1 : start, driveEnd ? 1 : end, true, 0, 0));
+
+        var values = new Dictionary<string, ExprValue>
+        {
+            ["x"] = ExprValue.Number((float)start),
+            ["y"] = ExprValue.Number((float)end)
+        };
+
+        Compares(Written(wedge), canvas =>
+        {
+            var sweep = start - end + (end > start ? 360 * Math.Ceiling((end - start) / 360) : 0);
+
+            using var builder = new SKPathBuilder();
+
+            builder.AddArc(SKRect.Create(5, 5, 20, 20), (float)-start, (float)sweep);
+            builder.LineTo(15, 15);
+            builder.Close();
+
+            using var path = builder.Detach();
+
+            canvas.DrawPath(path, Paint(s_red));
+        }, values, WedgeThreshold);
+    }
+
+    /// <summary>
+    /// A wedge is drawn as a stroke and PaintCode's is filled, and the stroked rim reaches a
+    /// fraction of a pixel further at low alpha: these measure 0.0066 to 0.0135, and the same
+    /// wedges turned a single degree measure 0.020 to 0.027.
+    /// </summary>
+    private const double WedgeThreshold = 0.017;
+
     private static SKColor Accent => new(251, 62, 114);
 
-    private static void Compares(string svg, Action<SKCanvas> expected)
+    private static void Compares(string svg, Action<SKCanvas> expected, Dictionary<string, ExprValue>? values = null, double threshold = Threshold)
     {
         using var loaded = new SKSvg();
 
         loaded.FromSvg(svg);
 
-        var picture = loaded.SetExpressionValues(new Dictionary<string, ExprValue>()) ?? loaded.Picture;
+        var picture = loaded.SetExpressionValues(values ?? new Dictionary<string, ExprValue>()) ?? loaded.Picture;
 
         Assert.NotNull(picture);
 
@@ -139,8 +212,8 @@ public class PaintCodeFaultRenderTests
         var difference = ImageHelper.CompareImages(actual, drawn);
 
         Assert.True(
-            difference <= Threshold,
-            $"{difference.ToString("F5", CultureInfo.InvariantCulture)} from what PaintCode draws, allowed {Threshold.ToString("F3", CultureInfo.InvariantCulture)}.\n{svg}");
+            difference <= threshold,
+            $"{difference.ToString("F5", CultureInfo.InvariantCulture)} from what PaintCode draws, allowed {threshold.ToString("F3", CultureInfo.InvariantCulture)}.\n{svg}");
     }
 
     private static Image<Rgba32> Drawn(Action<SKCanvas> draw)

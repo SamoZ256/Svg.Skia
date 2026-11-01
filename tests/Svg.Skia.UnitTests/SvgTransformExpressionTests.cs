@@ -75,6 +75,28 @@ public class SvgTransformExpressionTests
         Assert.Equal("translate(0, 0)", value.Placeholder);
     }
 
+    /// <summary>A dash array is a list, read as the arguments of one function with no name.</summary>
+    [Fact]
+    public void A_Dash_Array_Is_Split_Into_Its_Items()
+    {
+        var value = SvgTransformExpression.Parse("stroke-dasharray", "{{ min(a, b) }}, 4 {{ c }}");
+
+        var items = Assert.Single(value.Functions).Arguments;
+
+        Assert.Equal(new[] { "min(a, b)", null, "c" }, items.Select(item => item.Expression));
+        Assert.Empty(value.Stray);
+
+        // One rather than nought, so the stand-in still records a dash for the expressions to ride on.
+        Assert.Equal("1, 4 1", value.Placeholder);
+    }
+
+    [Fact]
+    public void Braces_That_Are_Not_A_Whole_Dash_Item_Drive_Nothing()
+    {
+        Assert.Single(SvgTransformExpression.Parse("stroke-dasharray", "4{{ a }} 2").Stray);
+        Assert.Contains("one item", SvgExpressionAttributes.WhyUnsupported("stroke-dasharray", "4{{ a }} 2"));
+    }
+
     [Fact]
     public void An_Expression_That_Is_Not_A_Whole_Argument_Drives_Nothing()
     {

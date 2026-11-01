@@ -645,15 +645,22 @@ public class PaintCodeSvgWriterTests
         bool closed,
         double size = 28,
         PaintCodePaint? fill = null,
-        PaintCodePaint? stroke = null)
+        PaintCodePaint? stroke = null,
+        string? other = null)
         => new(
             "Selected",
             PaintCodeShapeKind.Oval,
             new PaintCodeFrame(0, -size, size, size, default, 0, 1, 1, 1, false, true),
-            new Dictionary<string, PaintCodeBinding>
-            {
-                [property] = new(expression, PaintCodeValueKind.Number, value, null, null, null, null, null)
-            },
+            other is null
+                ? new Dictionary<string, PaintCodeBinding>
+                {
+                    [property] = new(expression, PaintCodeValueKind.Number, value, null, null, null, null, null)
+                }
+                : new Dictionary<string, PaintCodeBinding>
+                {
+                    [property] = new(expression, PaintCodeValueKind.Number, value, null, null, null, null, null),
+                    [other] = new("y", PaintCodeValueKind.Number, 1, null, null, null, null, null)
+                },
             null,
             fill ?? PaintCodePaint.None,
             stroke ?? PaintCodePaint.None,
@@ -670,11 +677,12 @@ public class PaintCodeSvgWriterTests
     /// </summary>
     /// <remarks>
     /// SVG bakes an arc into path data, where no expression can reach, so the sweep was written at
-    /// whatever angle the document was saved with and a level indicator never moved. What a dash
-    /// leaves showing is a length along the path, and on a circle a length is an angle.
+    /// whatever angle the document was saved with and a level indicator never moved. On a circle a
+    /// length is an angle: the dash is the sweep, the gap the rest of the circle, and the offset how
+    /// far the arc's end has moved from the angle the circle starts at.
     ///
-    /// The numbers are PaintCode's own for analog-level: a 28-unit circle, the arc starting at 270
-    /// and running clockwise, so the path starts at six o'clock and the ring is 87.9646 round.
+    /// The numbers are PaintCode's own for analog-level: a 28-unit circle, the arc ending at 270, so
+    /// the path starts at six o'clock and the ring is 87.9646 round.
     /// </remarks>
     [Fact]
     public void A_Driven_Arc_Is_A_Circle_A_Dash_Cuts_To_Length()
@@ -683,16 +691,16 @@ public class PaintCodeSvgWriterTests
         var stroke = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 0, 0, 0, 1), null);
         var written = Written(Arc("endAngle", "x", 1, 270, 270, closed: false, stroke: stroke), notes);
 
-        Assert.Equal("M14,28A14 14 0 1 1 14,0A14 14 0 1 1 14,28", written.Attribute("d")!.Value);
-        Assert.Equal("87.9646 87.9646", written.Attribute("stroke-dasharray")!.Value);
+        Assert.Equal("M14,28A14 14 0 1 0 14,0A14 14 0 1 0 14,28", written.Attribute("d")!.Value);
 
-        // The part of the circle the arc does not cover, in PaintCode's own sum: the sweep from the
-        // angle that stays put to the driven one, a whole turn for each one it has gone past, and
-        // the offset back to the angle the drawing was saved at.
+        // PaintCode's own sum: the sweep from the end to the start, a whole turn for each one the
+        // end has gone past it, and the offset back to the angle the drawing was saved at.
+        const string turn = "clamp(270 - ((x) + 269) + 360 * max(0, ceil((((x) + 269) - 270) / 360)), 0, 360) / 360";
+
         Assert.Equal(
-            "{{ clamp(360 - (270 - ((x) + 269) + 360 * max(0, ceil((((x) + 269) - 270) / 360))), 0, 360) * 0.2443 }}",
-            written.Attribute("stroke-dashoffset")!.Value);
-
+            $"{{{{ {turn} * 87.9646 }}}} {{{{ (1 - {turn}) * 87.9646 }}}}",
+            written.Attribute("stroke-dasharray")!.Value);
+        Assert.Equal("{{ (270 - ((x) + 269)) / 360 * 87.9646 }}", written.Attribute("stroke-dashoffset")!.Value);
         Assert.Empty(notes);
     }
 
@@ -712,15 +720,15 @@ public class PaintCodeSvgWriterTests
         var fill = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 255, 0, 0, 1), null);
         var written = Written(Arc("endAngle", "x", 1, 90, 90, closed: true, size: 16, fill: fill), notes);
 
-        Assert.Equal("M8,4A4 4 0 1 1 8,12A4 4 0 1 1 8,4", written.Attribute("d")!.Value);
+        Assert.Equal("M8,4A4 4 0 1 0 8,12A4 4 0 1 0 8,4", written.Attribute("d")!.Value);
         Assert.Equal("none", written.Attribute("fill")!.Value);
         Assert.Equal("#ff0000", written.Attribute("stroke")!.Value);
         Assert.Equal("8", written.Attribute("stroke-width")!.Value);
-        Assert.Equal("25.1327 25.1327", written.Attribute("stroke-dasharray")!.Value);
+        Assert.EndsWith("* 25.1327 }}", written.Attribute("stroke-dasharray")!.Value, StringComparison.Ordinal);
         Assert.Empty(notes);
     }
 
-    /// <summary>A driven start runs from the end that stays put, which is the other way round.</summary>
+    /// <summary>A driven start leaves the circle starting where the arc does, so nothing is offset.</summary>
     [Fact]
     public void A_Driven_Start_Turns_From_The_End_That_Stays_Put()
     {
@@ -730,7 +738,28 @@ public class PaintCodeSvgWriterTests
 
         // Anticlockwise, from the fixed end at -90.
         Assert.Equal("M14,28A14 14 0 1 0 14,0A14 14 0 1 0 14,28", written.Attribute("d")!.Value);
-        Assert.StartsWith("{{ clamp(360 - (((x) + 269) - -90", written.Attribute("stroke-dashoffset")!.Value, StringComparison.Ordinal);
+        Assert.StartsWith("{{ clamp(((x) + 269) - -90 + ", written.Attribute("stroke-dasharray")!.Value, StringComparison.Ordinal);
+        Assert.Equal("0", written.Attribute("stroke-dashoffset")!.Value);
+        Assert.Empty(notes);
+    }
+
+    /// <summary>
+    /// Both ends driven, as pac-man's lips are: the dash measures the sweep between the two and the
+    /// offset carries it round to where the end has gone.
+    /// </summary>
+    [Fact]
+    public void An_Arc_Driven_At_Both_Ends_Moves_Both()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var fill = new PaintCodePaint(PaintCodePaintKind.Color, new PaintCodeColor(string.Empty, 255, 206, 0, 1), null);
+        var written = Written(Arc("startAngle", "x", 1, 1, 1, closed: true, fill: fill, other: "endAngle"), notes);
+
+        const string turn = "clamp((x) - (y) + 360 * max(0, ceil(((y) - (x)) / 360)), 0, 360) / 360";
+
+        Assert.Equal(
+            $"{{{{ {turn} * 43.9823 }}}} {{{{ (1 - {turn}) * 43.9823 }}}}",
+            written.Attribute("stroke-dasharray")!.Value);
+        Assert.Equal("{{ (1 - (y)) / 360 * 43.9823 }}", written.Attribute("stroke-dashoffset")!.Value);
         Assert.Empty(notes);
     }
 

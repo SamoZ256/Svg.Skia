@@ -105,7 +105,9 @@ public static class SvgExpressionAttributes
         // so the stand-in is computed from what was written rather than read from the column above:
         // an unbound scale has to read as 1 where an unbound translate reads as 0. The type is what
         // one argument is; the attribute as a whole is not a number.
-        ["transform"] = ("", ExprType.Number, false, false, true)
+        ["transform"] = ("", ExprType.Number, false, false, true),
+        // Per item as well, read as a list rather than as functions. Inherited, as the property is.
+        ["stroke-dasharray"] = ("", ExprType.Number, true, false, true)
     };
 
     /// <summary>The text of a <c>&lt;text&gt;</c> or a <c>&lt;tspan&gt;</c>, as a lifted expression.</summary>
@@ -172,9 +174,11 @@ public static class SvgExpressionAttributes
 
         // Supported, and still doing nothing: the braces are somewhere inside the value that is not
         // one whole argument, which is the rule one level down from the one above.
-        if (IsInArguments(localName) && value is { } && SvgTransformExpression.Parse(value).Stray.Count > 0)
+        if (IsInArguments(localName) && value is { } && SvgTransformExpression.Parse(localName, value).Stray.Count > 0)
         {
-            return $"An expression in '{localName}' has to be the whole of one function argument, as in translate({Open} dx {Close} 0).";
+            return localName == SvgTransformExpression.DashArrayName
+                ? $"An expression in '{localName}' has to be the whole of one item, as in {Open} dash {Close} 4."
+                : $"An expression in '{localName}' has to be the whole of one function argument, as in translate({Open} dx {Close} 0).";
         }
 
         return null;
@@ -359,7 +363,7 @@ public static class SvgExpressionAttributes
 
         if (IsInArguments(localName))
         {
-            var written = SvgTransformExpression.Parse(value);
+            var written = SvgTransformExpression.Parse(localName, value);
 
             if (!written.Any)
             {

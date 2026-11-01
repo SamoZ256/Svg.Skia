@@ -150,7 +150,7 @@ internal sealed class PaintCodeSvgWriter
                 path.SetAttributeValue("fill", "none");
                 path.SetAttributeValue("stroke", "#ffffff");
                 path.SetAttributeValue("stroke-width", Number(dashed.Width ?? 0));
-                path.SetAttributeValue("stroke-dasharray", $"{Number(dashed.Circumference)} {Number(dashed.Circumference)}");
+                path.SetAttributeValue("stroke-dasharray", dashed.DashArray);
                 path.SetAttributeValue("stroke-dashoffset", dashed.Offset);
 
                 Transform(path, clip, null);
@@ -713,7 +713,7 @@ internal sealed class PaintCodeSvgWriter
             Stroke(element, shape);
         }
 
-        element.SetAttributeValue("stroke-dasharray", $"{Number(sweeping.Circumference)} {Number(sweeping.Circumference)}");
+        element.SetAttributeValue("stroke-dasharray", sweeping.DashArray);
         element.SetAttributeValue("stroke-dashoffset", sweeping.Offset);
     }
 
@@ -1288,24 +1288,24 @@ internal sealed class PaintCodeSvgWriter
 
     /// <summary>An arc whose sweep an expression drives, as the dashed circle that draws it.</summary>
     /// <remarks>
-    /// <see cref="Data"/> is the whole circle from the arc's own start; <see cref="Offset"/> is what
-    /// the dash is shifted by, which is the part of the circle the arc does not cover;
-    /// <see cref="Width"/> is set for a wedge, which is drawn as a circle of half the radius stroked
-    /// its whole width, and null for an arc that was already a stroke.
+    /// <see cref="Data"/> is the whole circle from the arc's saved end; <see cref="DashArray"/> is the
+    /// arc and the rest of the circle; <see cref="Offset"/> is how far the arc's end has moved from
+    /// where the circle starts; <see cref="Width"/> is set for a wedge, which is drawn as a circle of
+    /// half the radius stroked its whole width, and null for an arc that was already a stroke.
     /// </remarks>
     private readonly struct Sweeping
     {
-        internal Sweeping(string data, double circumference, string offset, double? width)
+        internal Sweeping(string data, string dashArray, string offset, double? width)
         {
             Data = data;
-            Circumference = circumference;
+            DashArray = dashArray;
             Offset = offset;
             Width = width;
         }
 
         internal string Data { get; }
 
-        internal double Circumference { get; }
+        internal string DashArray { get; }
 
         internal string Offset { get; }
 
@@ -1317,9 +1317,9 @@ internal sealed class PaintCodeSvgWriter
     /// </summary>
     /// <remarks>
     /// PaintCode turns an arc from a fixed angle to a driven one; SVG bakes an arc into path data,
-    /// where no expression can reach. A circle dashed at its own circumference draws the same arc,
-    /// because what a dash leaves showing is a length along the path and a length along a circle is
-    /// an angle -- so the sweep becomes the dash's offset, which an expression <em>can</em> drive.
+    /// where no expression can reach. A dashed circle draws the same arc, because a length along a
+    /// circle is an angle -- so the sweep becomes the dash, the rest of the circle its gap, and
+    /// where the arc's end has moved to the offset, all of which an expression <em>can</em> drive.
     ///
     /// Only a circle. On an ellipse arc length is not proportional to angle, the outline offset by
     /// half a stroke is not an ellipse, and neither the rim nor a wedge's straight edges would land
@@ -1346,8 +1346,6 @@ internal sealed class PaintCodeSvgWriter
         string? refusal =
             !PaintCodePathData.IsRound(shape)
                 ? "an ellipse's arc is not proportional to its angle, so a dash cannot place its end"
-            : start && end
-                ? "both ends of the arc are driven and a dash can only measure one of them"
             : metrics.IsClosed && stroked
                 ? "a closed arc is outlined round its two straight edges as well, which one dashed circle cannot draw"
             : !metrics.IsClosed && !stroked
@@ -1365,21 +1363,11 @@ internal sealed class PaintCodeSvgWriter
             return null;
         }
 
-        // The angle that stays put, and the expression that moves.
-        var fixedAngle = start ? metrics.EndAngle : metrics.StartAngle;
-
-        // Expression and Produced have already said why, where they answer nothing, and the arc
-        // keeps the angle it was saved with.
-        if (Expression(shape, property, shape.Name) is not { } written ||
-            Produced(shape, property, shape.Name) is not { } produced)
+        if (End(shape, "startAngle", metrics.StartAngle) is not { } from ||
+            End(shape, "endAngle", metrics.EndAngle) is not { } to)
         {
             return null;
         }
-
-        // The difference between what the expression comes to and the angle the drawing was saved
-        // at, added back the way a driven transform's is.
-        var shift = Number((start ? metrics.StartAngle : metrics.EndAngle) - produced);
-        var code = shift == "0" ? written : $"({written}) + {shift}";
 
         var box = PaintCodePathData.Box(shape);
         var radius = box.Width / 2;
@@ -1389,25 +1377,48 @@ internal sealed class PaintCodeSvgWriter
         // the tangent, which is the radial direction -- so the caps are the wedge's straight edges
         // rather than an approximation of them.
         var drawn = metrics.IsClosed ? radius / 2 : radius;
-        var circumference = 2 * Math.PI * drawn;
+        var circumference = Number(2 * Math.PI * drawn);
 
-        // PaintCode's own sum, written out: the sweep from the fixed angle to the driven one, and a
-        // whole turn for every one the driven end has gone past it. Ceil of nought or less is nought
-        // or less, so max(0, ...) is the ternary its generated code writes.
-        var sweep = start
-            ? $"({code}) - {Number(fixedAngle)} + 360 * max(0, ceil(({Number(fixedAngle)} - ({code})) / 360))"
-            : $"{Number(fixedAngle)} - ({code}) + 360 * max(0, ceil((({code}) - {Number(fixedAngle)}) / 360))";
+        // PaintCode's own sum, written out: the sweep from the end to the start, and a whole turn
+        // for every one the end has gone past it. Ceil of nought or less is nought or less, so
+        // max(0, ...) is the ternary its generated code writes. Clamped for the reason Skia clamps
+        // its own sweep: past a whole turn it draws the whole of it, and below nothing nothing.
+        var turn = $"clamp({from} - {to} + 360 * max(0, ceil(({to} - {from}) / 360)), 0, 360) / 360";
 
-        // What the dash hides, which is the rest of the circle. Clamped for the reason Skia clamps
-        // its own sweep: past a whole turn it draws the whole of it, and below nothing it draws
-        // nothing.
-        var offset = Braces($"clamp(360 - ({sweep}), 0, 360) * {Number(circumference / 360)}");
-
+        // The gap is the rest of the circle, so the pattern repeats once round it exactly and an arc
+        // across the point the circle starts at carries on past it rather than being cut there.
         return new Sweeping(
-            PaintCodePathData.Ring(box.X + radius, box.Y + radius, drawn, fixedAngle, !start),
-            circumference,
-            offset,
+            PaintCodePathData.Ring(box.X + radius, box.Y + radius, drawn, metrics.EndAngle, false),
+            $"{Braces($"{turn} * {circumference}")} {Braces($"(1 - {turn}) * {circumference}")}",
+            end ? Braces($"({Number(metrics.EndAngle)} - {to}) / 360 * {circumference}") : "0",
             metrics.IsClosed ? radius : null);
+    }
+
+    /// <summary>
+    /// One end of an arc: the angle the drawing was saved with, or the expression driving it in
+    /// brackets, or null where the expression answers nothing and the arc keeps the angle it had.
+    /// </summary>
+    /// <remarks>
+    /// Expression and Produced have already said why, where they answer nothing. The difference
+    /// between what the expression comes to and the angle the drawing was saved at is added back
+    /// the way a driven transform's is.
+    /// </remarks>
+    private string? End(PaintCodeShape shape, string property, double saved)
+    {
+        if (!shape.Bindings.ContainsKey(property))
+        {
+            return Number(saved);
+        }
+
+        if (Expression(shape, property, shape.Name) is not { } written ||
+            Produced(shape, property, shape.Name) is not { } produced)
+        {
+            return null;
+        }
+
+        var shift = Number(saved - produced);
+
+        return shift == "0" ? $"({written})" : $"(({written}) + {shift})";
     }
 
     /// <summary>Binds <paramref name="attribute"/> to what drives <paramref name="property"/>.</summary>

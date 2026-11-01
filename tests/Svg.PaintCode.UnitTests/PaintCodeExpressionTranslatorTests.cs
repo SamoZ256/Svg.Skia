@@ -43,6 +43,9 @@ public class PaintCodeExpressionTranslatorTests
     // The joins that do nothing, which is how its editor spells a property that follows a variable.
     [InlineData("x + 0", "x")]
     [InlineData("x * 1", "x")]
+    // A literal as precise as it was written: rounded as geometry is, pac-man's epsilon became a join
+    // that does nothing and was dropped, and its shut mouth drew nothing instead of a whole turn.
+    [InlineData("x * 2 + 0.00001", "x * 2 + 0.00001")]
     public void An_Expression_Is_Rewritten_Into_One_The_Extension_Reads(string source, string expected)
     {
         Assert.True(PaintCodeExpressionTranslator.TryTranslate(source, Scope(), out var expression, out var refusal), refusal);
