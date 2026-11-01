@@ -224,6 +224,11 @@ field. A paint that follows an argument is still built on every draw. A filled r
 oval or circle with no layer open around it builds no path in either body: it is drawn with
 <code>DrawRect</code>, <code>DrawRoundRect</code>, <code>DrawOval</code> or <code>DrawCircle</code>, as the renderer draws it. <code>Record</code> stays,
 and records <code>Draw</code>.</p>
+<p>Both bodies leave out what <code>ShimSkiaSharp</code>'s <code>CommandPlan</code> finds draws nothing: an antialiased clip
+around content that lies inside it, which Skia would otherwise blend everything under through a
+coverage mask, and a group opacity over a single shape, whose alpha is multiplied into that shape's
+paint instead — at run time, when the opacity is an expression. A clip over a driven transform or
+stroke width is kept, since some value could carry the content across it.</p>
 <h3 id="naming-typefaces">Naming typefaces</h3>
 <p>The recorded picture holds whatever typeface the compiling machine found. Where <em>SF UI Display</em> is
 not installed, that is <em>Times</em>. <code>typeface</code> replaces the font-manager lookup with an expression from

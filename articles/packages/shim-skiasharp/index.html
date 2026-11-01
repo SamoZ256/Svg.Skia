@@ -243,6 +243,7 @@ foreach (var command in picture.Commands ?? Array.Empty&lt;CanvasCommand&gt;())
 <p><code>ShimSkiaSharp</code> fills that gap.</p>
 <h2 id="editing-support">Editing support</h2>
 <p>The editing helpers under <code>ShimSkiaSharp.Editing</code> let you update paints, paths, and command graphs either in place or with clone-on-write behavior. That makes the package useful outside SVG scenarios as well.</p>
+<p><code>CommandPlan.For</code> reads a command list once and says what a back end may leave out without changing what is drawn: an antialiased clip that contains, exactly, everything drawn under it, and a layer a plain save draws the same — opaque over source-over content, or fading one shape, whose paint then takes the layer's alpha. Both back ends in this repository draw from it, so the renderer and the generated C# leave out the same things. With <code>symbolic: true</code> it keeps whatever an expression could change, as generated code needs; the model itself is left as recorded.</p>
 <h2 id="relationship-to-other-packages">Relationship to other packages</h2>
 <ul>
 <li><a href="/Svg.Skia/articles/packages/svg-model">Svg.Model</a> produces <code>ShimSkiaSharp</code> pictures and drawables from SVG input.</li>
