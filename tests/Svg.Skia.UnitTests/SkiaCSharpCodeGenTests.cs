@@ -282,7 +282,7 @@ public class SkiaCSharpCodeGenTests
     [InlineData("direct")]
     public void A_Driven_Opacity_Chooses_Between_Save_And_Layer_At_Run_Time(string body)
     {
-        // A line has no area, so its layer has no bounds, as on each of blinds180ltr's slats.
+        // Two strokes may overlap, so their layer cannot fold into either.
         const string svg = """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="20" height="20">
               <defs>
@@ -290,7 +290,10 @@ public class SkiaCSharpCodeGenTests
                   <e:param name="o" type="number" default="1" />
                 </e:code>
               </defs>
-              <path d="M0,10 L20,10" stroke="#204060" stroke-width="2" opacity="{{ o }}" />
+              <g opacity="{{ o }}">
+                <path d="M0,10 L20,10" stroke="#204060" stroke-width="2" />
+                <path d="M10,0 L10,20" stroke="#204060" stroke-width="2" />
+              </g>
             </svg>
             """;
         var document = SvgService.FromSvg(svg);
@@ -300,7 +303,7 @@ public class SkiaCSharpCodeGenTests
 
         Assert.Matches(@"if \(skPaint\d+\.Color\.Alpha == 255\)", code);
         Assert.Matches(OwnSave, code);
-        Assert.Matches(@"SaveLayer\(skPaint\d+\);", code);
+        Assert.Matches(@"SaveLayer\((new SKRect\([^)]*\), )?skPaint\d+\);", code);
     }
 
     [Theory]
@@ -312,7 +315,7 @@ public class SkiaCSharpCodeGenTests
     {
         var picture = kind switch
         {
-            "translucent" => Layered(new SKPaint { Color = new SKColor(255, 255, 255, 51) }),
+            "translucent" => Layered(new SKPaint { Color = new SKColor(255, 255, 255, 51) }, Path()),
             "blend mode" => Layered(new SKPaint { BlendMode = SKBlendMode.Multiply }),
             "colour filter" => Layered(new SKPaint { ColorFilter = SKColorFilter.CreateLumaColor() }),
             // Opaque and source-over itself, but what keeps the DstIn inside off the backdrop.
@@ -331,6 +334,83 @@ public class SkiaCSharpCodeGenTests
             Assert.DoesNotMatch(OwnSave, code);
             Assert.DoesNotContain("Color.Alpha == 255", code);
         }
+    }
+
+    [Theory]
+    [InlineData("record")]
+    [InlineData("direct")]
+    public void A_Translucent_Layer_Over_One_Shape_Folds_Into_Its_Paint(string body)
+    {
+        var code = Generate(body, Layered(new SKPaint { Color = new SKColor(255, 255, 255, 51) }));
+
+        Assert.DoesNotContain("SaveLayer", code);
+        Assert.Matches(OwnSave, code);
+        Assert.Matches(@"(skPaint\d+)\.ColorF = \1\.ColorF\.WithAlpha\(\1\.ColorF\.Alpha \* \(\(51 \* \(1 / 255f\)\)\)\);", code);
+    }
+
+    [Theory]
+    [InlineData("record")]
+    [InlineData("direct")]
+    public void A_Driven_Opacity_Over_One_Shape_Multiplies_Its_Paint_At_Run_Time(string body)
+    {
+        // As on each of blinds180ltr's slats: a line has no area, and its fill draws nothing.
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="20" height="20">
+              <defs>
+                <e:code>
+                  <e:param name="o" type="number" default="1" />
+                </e:code>
+              </defs>
+              <path d="M0,10 L20,10" stroke="#204060" stroke-width="2" opacity="{{ o }}" />
+            </svg>
+            """;
+        var document = SvgService.FromSvg(svg);
+        var picture = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())));
+
+        var code = Generate(body, picture!, SvgExpressionDeclarations.Parse(svg));
+
+        Assert.DoesNotContain("SaveLayer", code);
+        Assert.DoesNotContain("Color.Alpha == 255", code);
+        Assert.Matches(@"\.ColorF\.Alpha \* \(\(\(.*\)\.Alpha \* \(1 / 255f\)\)\)\);", code);
+    }
+
+    [Theory]
+    [InlineData("record")]
+    [InlineData("direct")]
+    public void A_Clip_That_Cuts_Nothing_Is_Not_Emitted(string body)
+    {
+        var inside = Clipped(SKMatrix.Identity, null);
+        var cutting = Clipped(SKMatrix.CreateTranslation(4, 0), null);
+        var driven = Clipped(
+            SKMatrix.CreateTranslation(1, 0),
+            new SymMatrix(new[] { new SymTransform(SymTransformOp.Translate, new[] { SymNode.Source("x"), SymNode.Zero }) }));
+        var declarations = SvgExpressionDeclarations.Parse("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="x" type="number" default="1" /></e:code></defs>
+            </svg>
+            """);
+
+        Assert.DoesNotContain(".ClipPath(", Generate(body, inside));
+        Assert.Contains(".ClipPath(", Generate(body, cutting));
+        Assert.Contains(".ClipPath(", Generate(body, driven, declarations));
+    }
+
+    // A rotated frame clipping a shape inside it, as a PaintCode symbol records, the shape moved by
+    // `offset` after the clip.
+    private static SKPicture Clipped(SKMatrix offset, SymMatrix? driven)
+    {
+        var frame = new SKPath();
+        frame.AddRect(SKRect.Create(0f, 0f, 10f, 10f));
+        var turn = SKMatrix.CreateRotationDegrees(0.5f, 5f, 5f);
+        return new SKPicture(SKRect.Create(0f, 0f, 10f, 10f), new List<CanvasCommand>
+        {
+            new SaveCanvasCommand(0),
+            new SetMatrixCanvasCommand(turn, turn, null, null),
+            new ClipPathCanvasCommand(new ClipPath { Clips = new List<PathClip> { new() { Path = frame } } }, SKClipOperation.Intersect, true),
+            new SetMatrixCanvasCommand(offset, turn.PreConcat(offset), driven, driven),
+            Path(),
+            new RestoreCanvasCommand(0)
+        });
     }
 
     private static string Generate(string body, SKPicture picture, SvgExpressionDeclarations? declarations = null)

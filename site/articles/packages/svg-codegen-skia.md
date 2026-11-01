@@ -99,6 +99,12 @@ oval or circle with no layer open around it builds no path in either body: it is
 `DrawRect`, `DrawRoundRect`, `DrawOval` or `DrawCircle`, as the renderer draws it. `Record` stays,
 and records `Draw`.
 
+Both bodies leave out what `ShimSkiaSharp`'s `CommandPlan` finds draws nothing: an antialiased clip
+around content that lies inside it, which Skia would otherwise blend everything under through a
+coverage mask, and a group opacity over a single shape, whose alpha is multiplied into that shape's
+paint instead — at run time, when the opacity is an expression. A clip over a driven transform or
+stroke width is kept, since some value could carry the content across it.
+
 ### Naming typefaces
 
 The recorded picture holds whatever typeface the compiling machine found. Where *SF UI Display* is
