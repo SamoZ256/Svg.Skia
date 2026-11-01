@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -9,6 +10,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using ShimSkiaSharp.Editing;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.Expressions;
@@ -596,12 +598,97 @@ public class SkiaCSharpRenderTests
             DrivenOpacityUnderAClip.Replace(" opacity=\"{{ o }}\"", ""));
 
     [Fact]
-    public void A_Driven_Opacity_Below_One_Keeps_Its_Layer()
+    public void A_Driven_Opacity_Below_One_Fades_Each_Line_As_A_Written_One_Does()
         => AssertExpressionsRenderTheSame(
             "ExprTranslucentLayer",
             DrivenOpacityUnderAClip,
             new object?[] { 0.4f },
             DrivenOpacityUnderAClip.Replace("{{ o }}", "0.4"));
+
+    // A PaintCode symbol: its frame, a fraction of a degree off upright, clipping content that stays
+    // well inside it. The miter limit of 10 reaches past the frame only where a join is that sharp.
+    private const string FramedSymbol = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <defs><clipPath id="frame"><rect width="20" height="20" /></clipPath></defs>
+          <g transform="translate(12,12) rotate(0.5) translate(-10,-10)" clip-path="url(#frame)">
+            <circle cx="10" cy="10" r="7" fill="#7c3aed" />
+            <path d="M3,15 L8,9 L12,12 L17,5" fill="none" stroke="#facc15" stroke-width="1.5" stroke-miterlimit="10" />
+          </g>
+        </svg>
+        """;
+
+    [Fact]
+    public void A_Clip_That_Cuts_Nothing_Draws_As_If_It_Were_Not_There()
+    {
+        var commands = Model(FramedSymbol).Commands!;
+        Assert.Contains(Enumerable.Range(0, commands.Count), CommandPlan.For(commands, symbolic: true).Skips);
+
+        AssertExpressionsRenderTheSame("UncutClip", FramedSymbol, expectedMarkup: FramedSymbol.Replace(" clip-path=\"url(#frame)\"", ""));
+    }
+
+    // One shape under a group opacity, against the same group kept a layer by a second shape the
+    // first hides: what the layer composited, and what the folded paint draws instead.
+    private const string FadedShape = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+          <rect width="24" height="24" fill="#facc15" />
+          <g opacity="0.4"><circle cx="12" cy="12" r="7.3" fill="#7c3aed" /></g>
+        </svg>
+        """;
+
+    [Fact]
+    public void A_Layer_Folded_Into_Its_Shape_Draws_As_The_Layer_Did_But_For_Rounding()
+    {
+        AssertRendersTheSame("FoldedLayer", FadedShape);
+
+        // A layer's composite rounds once more than a faded paint: 19,183 of the circle's pixels
+        // move by 1/255 and 5 by 2/255, as the same circle drawn with fill-opacity does.
+        const double rounding = 0.0011;
+        var layered = FadedShape.Replace("<g opacity=\"0.4\">", "<g opacity=\"0.4\"><circle cx=\"12\" cy=\"12\" r=\"3\" />");
+        var directory = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            using var folded = new SkiaModel(new SKSvgSettings()).ToSKPicture(Model(FadedShape));
+            using var layer = new SkiaModel(new SKSvgSettings()).ToSKPicture(Model(layered));
+            ImageHelper.CompareImages(
+                "FoldedLayer-vs-layer",
+                Draw(folded!, Path.Combine(directory, "folded.png")),
+                Draw(layer!, Path.Combine(directory, "layer.png")),
+                rounding);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_Layer_Over_A_Fill_And_Its_Stroke_Stays_A_Layer()
+        => AssertRendersTheSame("OverlappingLayer", FadedShape.Replace(
+            "<g opacity=\"0.4\"><circle cx=\"12\" cy=\"12\" r=\"7.3\" fill=\"#7c3aed\" /></g>",
+            "<circle cx=\"12\" cy=\"12\" r=\"7.3\" fill=\"#7c3aed\" stroke=\"#1e40af\" stroke-width=\"3\" opacity=\"0.4\" />"));
+
+    // Blinds' slats: what the clip hides depends on how far the level slides them, so the export
+    // keeps it at every level while the interpreter, knowing the level, drops it where they fit.
+    private const string SlidingSlats = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code><e:param name="level" type="number" default="0" /></e:code>
+            <clipPath id="c"><rect x="2" y="2" width="20" height="20" transform="rotate(-90 12 12)" /></clipPath>
+          </defs>
+          <g clip-path="url(#c)">
+            <g transform="translate(0,{{ level }})">
+              <path d="M6,8 L18,8" stroke="#1e40af" stroke-width="3" />
+              <path d="M6,14 L18,14" stroke="#1e40af" stroke-width="3" />
+            </g>
+          </g>
+        </svg>
+        """;
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(9f)]
+    public void A_Clip_Over_Driven_Geometry_Is_Kept_For_Every_Value(float level)
+        => AssertExpressionsRenderTheSame($"SlidingSlats{level}", SlidingSlats, new object?[] { level }, SlidingSlats.Replace("{{ level }}", level.ToString(CultureInfo.InvariantCulture)));
 
     [Fact]
     public void Opacity_And_Nested_Transforms()

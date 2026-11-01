@@ -88,6 +88,8 @@ Live `SkiaSharp` objects are excellent for rendering, but they are not ideal whe
 
 The editing helpers under `ShimSkiaSharp.Editing` let you update paints, paths, and command graphs either in place or with clone-on-write behavior. That makes the package useful outside SVG scenarios as well.
 
+`CommandPlan.For` reads a command list once and says what a back end may leave out without changing what is drawn: an antialiased clip that contains, exactly, everything drawn under it, and a layer a plain save draws the same — opaque over source-over content, or fading one shape, whose paint then takes the layer's alpha. Both back ends in this repository draw from it, so the renderer and the generated C# leave out the same things. With `symbolic: true` it keeps whatever an expression could change, as generated code needs; the model itself is left as recorded.
+
 ## Relationship to other packages
 
 - [Svg.Model](svg-model) produces `ShimSkiaSharp` pictures and drawables from SVG input.

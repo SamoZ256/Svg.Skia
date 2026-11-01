@@ -2454,11 +2454,13 @@ public partial class SkiaModel
         Draw(canvasCommand, skCanvas, wireframe, null);
     }
 
+    /// <param name="fade">What the alpha of folded layers multiplies a path's paint alpha by.</param>
     private void Draw(
         CanvasCommand canvasCommand,
         SkiaSharp.SKCanvas skCanvas,
         bool wireframe,
-        SaveLayerTracker? state)
+        SaveLayerTracker? state,
+        float fade = 1f)
     {
         switch (canvasCommand)
         {
@@ -2592,6 +2594,15 @@ public partial class SkiaModel
                         if (paint is null)
                         {
                             break;
+                        }
+
+                        // The cached paint is shared, so a folded layer's alpha goes on a copy, in the
+                        // arithmetic the C# export emits for it.
+                        using var faded = fade == 1f ? null : paint.Clone();
+                        if (faded is { })
+                        {
+                            faded.ColorF = paint.ColorF.WithAlpha(paint.ColorF.Alpha * fade);
+                            paint = faded;
                         }
 
                         if (TryDrawDirectFilledPrimitivePath(skCanvas, paint, drawPathCanvasCommand, state))
@@ -2777,20 +2788,37 @@ public partial class SkiaModel
             return;
         }
 
+        // Planned on the values drawn: the C# export keeps what an expression could change.
+        var plan = CommandPlan.For(commands, symbolic: false);
         for (var i = 0; i < commands.Count; i++)
         {
-            // Under an antialiased clip a layer that changes nothing still costs most of the drawing
-            // (blinds180ltr: 59.7 µs, 8.0 µs without). It stays a layer to the state, whose primitive
-            // shortcut would otherwise trade DrawPath for DrawRect and part from the C# export.
-            if (commands[i] is SaveLayerCanvasCommand { Paint: null or { Color.Alpha: 255 } } &&
-                commands.CanSaveInsteadOfLayer(i))
+            if (plan.Skips(i))
+            {
+                continue;
+            }
+
+            // A layer drawn as a save stays one to the state, whose primitive shortcut would otherwise
+            // trade DrawPath for DrawRect and part from the C# export.
+            if (commands[i] is SaveLayerCanvasCommand layer &&
+                plan.Layer(i) is var layerPlan &&
+                (layerPlan == LayerPlan.Fold ||
+                 layerPlan == LayerPlan.SaveIfOpaque && layer.Paint is null or { Color.Alpha: 255 }))
             {
                 skCanvas.Save();
                 state?.Save(isLayer: true);
                 continue;
             }
 
-            Draw(commands[i], skCanvas, wireframe, state);
+            var fade = 1f;
+            if (!wireframe && plan.FoldedInto(i) is { } folded)
+            {
+                foreach (var index in folded)
+                {
+                    fade *= (((SaveLayerCanvasCommand)commands[index]).Paint?.Color?.Alpha ?? 255) * (1 / 255f);
+                }
+            }
+
+            Draw(commands[i], skCanvas, wireframe, state, fade);
         }
     }
 

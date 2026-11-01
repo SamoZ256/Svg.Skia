@@ -1533,10 +1533,15 @@ public static class SkiaCSharpModelExtensions
     }
 
     public static void ToSKPaint(this SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+        => ToSKPaint(paint, counter, sb, indent, fade: null);
+
+    /// <param name="fade">The colours of the layers folded into this paint, whose alpha multiplies its own.</param>
+    private static void ToSKPaint(SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, IReadOnlyList<SKColor>? fade)
     {
         if (counter.Statics is { })
         {
-            Hoist(counter, sb, indent, "SKPaint", $"{counter.PaintVarName}{counter.Paint}", text => paint.ToSKPaint(counter, text, indent));
+            // Inside the hoisted text, so a constant fade is applied once and a driven one keeps it local.
+            Hoist(counter, sb, indent, "SKPaint", $"{counter.PaintVarName}{counter.Paint}", text => ToSKPaint(paint, counter, text, indent, fade));
             return;
         }
 
@@ -1595,6 +1600,19 @@ public static class SkiaCSharpModelExtensions
             {
                 sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.Color = {(paint.Color is null ? "SKColor.Empty" : ToSKColor(paint.Color.Value))};");
             }
+        }
+
+        // In the float arithmetic SkiaModel applies to the same layers, so the two draw alike.
+        var factors = fade?
+            .Where(color => color is not { Expression: null, Alpha: 255 })
+            .Select(color => color.Expression is null
+                ? $"({color.Alpha} * (1 / 255f))"
+                : $"(({ToSKColor(color)}).Alpha * (1 / 255f))")
+            .ToList();
+        if (factors is { Count: > 0 })
+        {
+            var colorF = $"{counter.PaintVarName}{counterPaint}.ColorF";
+            sb.AppendLine($"{indent}{colorF} = {colorF}.WithAlpha({colorF}.Alpha * ({string.Join(" * ", factors)}));");
         }
 
         if (paint.Shader is { })
@@ -2163,6 +2181,9 @@ public static class SkiaCSharpModelExtensions
 
         var direct = statics is { };
 
+        // Planned for every value an expression may take: generated code learns them only as it draws.
+        var plan = CommandPlan.For(commands, symbolic: true);
+
         // A range whose condition folds to false is still emitted, into text that is thrown away:
         // emitting is what type checks its expressions, and a typo hidden behind `{{ false }}` has to
         // fail the build as it did when the range was an `if (false)`.
@@ -2180,6 +2201,8 @@ public static class SkiaCSharpModelExtensions
 
             switch (canvasCommand)
             {
+                case ClipPathCanvasCommand or ClipRectCanvasCommand when plan.Skips(index):
+                    break;
                 case ClipPathCanvasCommand clipPathCanvasCommand:
                     {
                         if (clipPathCanvasCommand.ClipPath is { })
@@ -2291,9 +2314,10 @@ public static class SkiaCSharpModelExtensions
 
                         // Under an antialiased clip a layer that changes nothing still costs most of
                         // the drawing (blinds180ltr: 59.7 µs, 8.0 µs without).
-                        var inert = commands.CanSaveInsteadOfLayer(index);
+                        var layerPlan = plan.Layer(index);
+                        var inert = layerPlan == LayerPlan.SaveIfOpaque;
                         var color = saveLayerCanvasCommand.Paint?.Color;
-                        if (inert && (color is null || color.Value is { Expression: null, Alpha: 255 }))
+                        if (layerPlan == LayerPlan.Fold || inert && (color is null || color.Value is { Expression: null, Alpha: 255 }))
                         {
                             sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
                             break;
@@ -2445,7 +2469,11 @@ public static class SkiaCSharpModelExtensions
                                 drawPathCanvasCommand.Path.ToSKPath(counter, sb, indent);
                             }
                             var counterPaint = ++counter.Paint;
-                            drawPathCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
+                            var fade = plan.FoldedInto(index)?
+                                .Select(layer => ((SaveLayerCanvasCommand)commands[layer]).Paint?.Color)
+                                .OfType<SKColor>()
+                                .ToList();
+                            ToSKPaint(drawPathCanvasCommand.Paint, counter, sb, indent, fade);
                             if (primitive is { })
                             {
                                 sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.{primitive}{counter.PaintVarName}{counterPaint});");
