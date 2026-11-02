@@ -2687,7 +2687,6 @@ public static class SkiaCSharpModelExtensions
                     {
                         // A layer to the tracker even where it is drawn as a save, as the renderer counts it.
                         layers.Save(isLayer: true);
-                        state.Save(kept: true);
 
                         // Under an antialiased clip a layer that changes nothing still costs most of
                         // the drawing (blinds180ltr: 59.7 µs, 8.0 µs without).
@@ -2697,11 +2696,14 @@ public static class SkiaCSharpModelExtensions
                         if (layerPlan == LayerPlan.Fold || inert && (color is null || color.Value is { Expression: null, Alpha: 255 }))
                         {
                             sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
+                            state.Save(kept: true);
                             break;
                         }
 
-                        // A layer's bounds and filters are in the space it is opened under.
+                        // A layer's bounds and filters are in the space it is opened under, which is
+                        // also what its restore puts back.
                         state.Sync(counter, sb, indent);
+                        state.Save(kept: true);
                         var bounds = saveLayerCanvasCommand.Bounds?.ToSKRect();
                         if (saveLayerCanvasCommand.Paint is { })
                         {

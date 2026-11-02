@@ -652,6 +652,25 @@ public class SkiaCSharpRenderTests
             """, skiaSharp);
 
     [Fact]
+    public void A_Layer_Gives_Back_The_Matrix_It_Was_Opened_Under()
+        // The faded group's layer opens under its own translation, and its restore puts that back:
+        // the rect after it is under the first group's again, and has to be moved there.
+        => AssertRendersTheSame("LayerMatrix", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(2 2)">
+                <rect x="0" y="0" width="6" height="4" fill="#1e40af" />
+              </g>
+              <g transform="translate(10 4)" opacity="0.5">
+                <circle cx="4" cy="4" r="4" fill="#dc2626" />
+                <circle cx="8" cy="4" r="4" fill="#dc2626" />
+              </g>
+              <g transform="translate(2 2)">
+                <rect x="0" y="14" width="6" height="4" fill="#16a34a" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
     public void A_Clip_Keeps_The_Save_That_Scopes_It()
         // The group's save is what takes its clip off the shape after it, and its matrix with it.
         => AssertRendersTheSame("ClipInATranslatedGroup", """
