@@ -1623,6 +1623,84 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
+    // Driven strokes one after another: widths and caps that change and stay, a fade that comes and
+    // goes over the same colour, a gradient that builds its own paint between them, and a range whose
+    // stroke the next one repeats, which only holds where the range ran.
+    private const string SharedPaintMarkup = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="tint" type="color" default="#1e40af" />
+              <e:param name="shown" type="boolean" default="true" />
+            </e:code>
+            <linearGradient id="g" x1="0" x2="1">
+              <stop offset="0" stop-color="#dc2626" />
+              <stop offset="1" stop-color="#16a34a" />
+            </linearGradient>
+          </defs>
+          <path d="M 2 2 L 22 2" stroke="{{ tint }}" stroke-width="2" />
+          <path d="M 2 5 L 22 5" stroke="{{ tint }}" stroke-width="2" opacity="0.5" />
+          <path d="M 2 8 L 22 8" stroke="{{ tint }}" stroke-width="1" stroke-linecap="round" />
+          <rect x="2" y="10" width="20" height="3" fill="url(#g)" />
+          <g visibility="{{ shown }}">
+            <path d="M 2 15 L 22 15" stroke="{{ tint }}" stroke-width="3" />
+          </g>
+          <path d="M 2 19 L 22 19" stroke="{{ tint }}" stroke-width="3" />
+          <circle cx="12" cy="22" r="1.5" fill="{{ tint }}" />
+        </svg>
+        """;
+
+    [Fact]
+    public void Driven_Paints_Share_One_Paint()
+        => AssertExpressionsRenderTheSame(
+            "SharedPaint",
+            SharedPaintMarkup,
+            arguments: new object?[] { new SKColor(0x7c, 0x3a, 0xed), true },
+            expectedMarkup: SharedPaintMarkup
+                .Replace("""<g visibility="{{ shown }}">""", "<g>")
+                .Replace("{{ tint }}", "#7c3aed"));
+
+    [Fact]
+    public void A_Range_Not_Taken_Leaves_The_Shared_Paint_To_Be_Set_Again()
+        => AssertExpressionsRenderTheSame(
+            "SharedPaintSkipped",
+            SharedPaintMarkup,
+            arguments: new object?[] { new SKColor(0x1e, 0x40, 0xaf), false },
+            expectedMarkup: SharedPaintMarkup
+                .Replace("""<g visibility="{{ shown }}">""", """<g visibility="hidden">""")
+                .Replace("{{ tint }}", "#1e40af"));
+
+    [Fact]
+    public void A_Direct_Draw_Of_Driven_Paints_Allocates_Nothing()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="tint" type="color" default="#1e40af" /></e:code></defs>
+              <g transform="translate(2 3)">
+                <path d="M 0 0 L 18 0" stroke="{{ tint }}" stroke-width="2" />
+                <path d="M 0 6 L 18 6" stroke="{{ tint }}" stroke-width="1" />
+              </g>
+              <circle cx="12" cy="16" r="4" fill="{{ tint }}" />
+            </svg>
+            """;
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(Model(svg), Namespace, "Unallocated", SvgExpressionDeclarations.Parse(svg)) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Body = SvgBody.Direct });
+        var draw = Compile(code, "Unallocated").GetType($"{Namespace}.Unallocated")!
+            .GetMethod("Draw")!
+            .CreateDelegate<Action<SKCanvas, SKColor?>>();
+
+        using var bitmap = new SKBitmap(24, 24);
+        using var canvas = new SKCanvas(bitmap);
+        draw(canvas, new SKColor(0x1e, 0x40, 0xaf));
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        draw(canvas, new SKColor(0xdc, 0x26, 0x26));
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
     [Fact]
     public void SkiaSharp3_Renders_The_Same_As_SkiaSharp4()
         // The two differ only in how the path is assembled — SKPath directly, or a builder that

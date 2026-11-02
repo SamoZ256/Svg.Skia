@@ -239,9 +239,12 @@ public class SkiaCSharpSingleFileTests
         Assert.DoesNotContain("skPaint0?.Dispose();", code);
         Assert.DoesNotContain("skPath0?.Dispose();", code);
 
-        // The fill follows the argument, so it is built for each draw and let go after it.
+        // The fill follows the argument, so each draw sets it on the thread's one paint, which it keeps.
         Assert.DoesNotContain("s_skPaint1", code);
-        Assert.Contains("skPaint1?.Dispose();", code);
+        Assert.Contains("var skSharedPaint0 = SvgPaint();", code);
+        Assert.Contains("var skPaint1 = skSharedPaint0;", code);
+        Assert.DoesNotContain("skPaint1?.Dispose();", code);
+        Assert.DoesNotContain("skPaint1 = new SKPaint()", code);
         Assert.Contains("public static void Draw(SKCanvas skCanvas, SKColor? accent = null)", code);
         Assert.DoesNotContain("DrawPicture", code);
     }

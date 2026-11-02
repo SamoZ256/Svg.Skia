@@ -1537,12 +1537,18 @@ public static class SkiaCSharpModelExtensions
         => ToSKPaint(paint, counter, sb, indent, fade: null);
 
     /// <param name="fade">The colours of the layers folded into this paint, whose alpha multiplies its own.</param>
-    private static void ToSKPaint(SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, IReadOnlyList<SKColor>? fade)
+    /// <param name="shared">Where a paint that follows an argument and holds no shader or filter is set up instead of built.</param>
+    private static void ToSKPaint(SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, IReadOnlyList<SKColor>? fade, CanvasState? shared = null)
     {
         if (counter.Statics is { })
         {
+            var name = $"{counter.PaintVarName}{counter.Paint}";
+            Action<StringBuilder>? local = shared?.Paint is { } && paint is { Shader: null, ColorFilter: null, ImageFilter: null, PathEffect: null }
+                ? text => shared.Assign(name, Settings(paint, fade), text, indent)
+                : null;
+
             // Inside the hoisted text, so a constant fade is applied once and a driven one keeps it local.
-            Hoist(counter, sb, indent, "SKPaint", $"{counter.PaintVarName}{counter.Paint}", text => ToSKPaint(paint, counter, text, indent, fade));
+            Hoist(counter, sb, indent, "SKPaint", name, text => ToSKPaint(paint, counter, text, indent, fade), local: local);
             return;
         }
 
@@ -1550,70 +1556,9 @@ public static class SkiaCSharpModelExtensions
 
         sb.AppendLine($"{indent}var {counter.PaintVarName}{counterPaint} = new SKPaint();");
 
-        // SKPaint defaults:
-        // Style=Fill
-        // IsAntialias=false
-        // StrokeWidth=0
-        // StrokeCap=Butt
-        // StrokeJoin=Miter
-        // StrokeMiter=4
-        // Color=#ff000000
-        // BlendMode=SrcOver
-
-        if (paint.Style != SKPaintStyle.Fill)
+        foreach (var (property, value) in Settings(paint, fade))
         {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.Style = {paint.Style.ToSKPaintStyle()};");
-        }
-
-        if (paint.IsAntialias != false)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.IsAntialias = {paint.IsAntialias.ToBoolString()};");
-        }
-
-        if (paint.StrokeWidthExpression is { } strokeWidth)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeWidth = {SymCSharpEmitter.Emit(strokeWidth, ExprType.Number)};");
-        }
-        else if (paint.StrokeWidth != 0f)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeWidth = {paint.StrokeWidth.ToFloatString()};");
-        }
-
-        if (paint.StrokeCap != SKStrokeCap.Butt)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeCap = {paint.StrokeCap.ToSKStrokeCap()};");
-        }
-
-        if (paint.StrokeJoin != SKStrokeJoin.Miter)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeJoin = {paint.StrokeJoin.ToSKStrokeJoin()};");
-        }
-
-        if (paint.StrokeMiter != 4f)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeMiter = {paint.StrokeMiter.ToFloatString()};");
-        }
-
-        if (paint.Color is { })
-        {
-            // Skip default color
-            if (paint.Color.Value is not { Alpha: 255, Red: 0, Green: 0, Blue: 0 })
-            {
-                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.Color = {(paint.Color is null ? "SKColor.Empty" : ToSKColor(paint.Color.Value))};");
-            }
-        }
-
-        // In the float arithmetic SkiaModel applies to the same layers, so the two draw alike.
-        var factors = fade?
-            .Where(color => color is not { Expression: null, Alpha: 255 })
-            .Select(color => color.Expression is null
-                ? $"({color.Alpha} * (1 / 255f))"
-                : $"(({ToSKColor(color)}).Alpha * (1 / 255f))")
-            .ToList();
-        if (factors is { Count: > 0 })
-        {
-            var colorF = $"{counter.PaintVarName}{counterPaint}.ColorF";
-            sb.AppendLine($"{indent}{colorF} = {colorF}.WithAlpha({colorF}.Alpha * ({string.Join(" * ", factors)}));");
+            sb.AppendLine($"{indent}{Assignment($"{counter.PaintVarName}{counterPaint}", property, value)}");
         }
 
         if (paint.Shader is { })
@@ -1643,10 +1588,166 @@ public static class SkiaCSharpModelExtensions
             paint.PathEffect.ToSKPathEffect(counter, sb, indent);
             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.PathEffect = {counter.PathEffectVarName}{counterPathEffect};");
         }
+    }
+
+    /// <summary>
+    /// What a paint sets beyond a new one's defaults, in the order it is set: each property's name and
+    /// the C# of its value. <c>ColorF</c> stands for the folded layers' alpha, multiplied into the colour.
+    /// </summary>
+    private static List<(string Property, string Value)> Settings(SKPaint paint, IReadOnlyList<SKColor>? fade)
+    {
+        var settings = new List<(string, string)>();
+
+        if (paint.Style != SKPaintStyle.Fill)
+        {
+            settings.Add(("Style", paint.Style.ToSKPaintStyle()));
+        }
+
+        if (paint.IsAntialias)
+        {
+            settings.Add(("IsAntialias", paint.IsAntialias.ToBoolString()));
+        }
+
+        if (paint.StrokeWidthExpression is { } strokeWidth)
+        {
+            settings.Add(("StrokeWidth", SymCSharpEmitter.Emit(strokeWidth, ExprType.Number)));
+        }
+        else if (paint.StrokeWidth != 0f)
+        {
+            settings.Add(("StrokeWidth", paint.StrokeWidth.ToFloatString()));
+        }
+
+        if (paint.StrokeCap != SKStrokeCap.Butt)
+        {
+            settings.Add(("StrokeCap", paint.StrokeCap.ToSKStrokeCap()));
+        }
+
+        if (paint.StrokeJoin != SKStrokeJoin.Miter)
+        {
+            settings.Add(("StrokeJoin", paint.StrokeJoin.ToSKStrokeJoin()));
+        }
+
+        if (paint.StrokeMiter != 4f)
+        {
+            settings.Add(("StrokeMiter", paint.StrokeMiter.ToFloatString()));
+        }
+
+        if (paint.Color is { } color and not { Alpha: 255, Red: 0, Green: 0, Blue: 0 })
+        {
+            settings.Add(("Color", ToSKColor(color)));
+        }
+
+        // In the float arithmetic SkiaModel applies to the same layers, so the two draw alike.
+        var factors = fade?
+            .Where(color => color is not { Expression: null, Alpha: 255 })
+            .Select(color => color.Expression is null
+                ? $"({color.Alpha} * (1 / 255f))"
+                : $"(({ToSKColor(color)}).Alpha * (1 / 255f))")
+            .ToList();
+        if (factors is { Count: > 0 })
+        {
+            settings.Add(("ColorF", string.Join(" * ", factors)));
+        }
 
         if (paint.BlendMode != SKBlendMode.SrcOver)
         {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.BlendMode = {paint.BlendMode.ToSKBlendMode()};");
+            settings.Add(("BlendMode", paint.BlendMode.ToSKBlendMode()));
+        }
+
+        return settings;
+    }
+
+    /// <summary>A paint's defaults, as <see cref="Settings"/> would write each one.</summary>
+    private static readonly (string Property, string Value)[] s_paintDefaults =
+    {
+        ("Style", SKPaintStyle.Fill.ToSKPaintStyle()),
+        ("IsAntialias", false.ToBoolString()),
+        ("StrokeWidth", 0f.ToFloatString()),
+        ("StrokeCap", SKStrokeCap.Butt.ToSKStrokeCap()),
+        ("StrokeJoin", SKStrokeJoin.Miter.ToSKStrokeJoin()),
+        ("StrokeMiter", 4f.ToFloatString()),
+        ("Color", "SKColors.Black"),
+        ("ColorF", ""),
+        ("BlendMode", SKBlendMode.SrcOver.ToSKBlendMode())
+    };
+
+    private static string Assignment(string paint, string property, string value)
+        => property == "ColorF"
+            ? $"{paint}.ColorF = {paint}.ColorF.WithAlpha({paint}.ColorF.Alpha * ({value}));"
+            : $"{paint}.{property} = {value};";
+
+    /// <summary>What the code emitted so far leaves in a direct drawing's shared paint, as far as generation can know.</summary>
+    private sealed class CanvasState
+    {
+        public CanvasState(string? paint) => Paint = paint;
+
+        /// <summary>The shared paint's local, or null where every paint is built for itself.</summary>
+        public string? Paint { get; }
+
+        public bool PaintUsed { get; private set; }
+
+        /// <summary>
+        /// Each setting the shared paint holds beyond its defaults; null when a range that may not have
+        /// run changed it, and the next shape resets it.
+        /// </summary>
+        private Dictionary<string, string>? _settings = new(StringComparer.Ordinal);
+
+        /// <summary>The shared paint, as <paramref name="name"/>, set to <paramref name="settings"/> by what it does not already hold.</summary>
+        public void Assign(string name, List<(string Property, string Value)> settings, StringBuilder sb, string indent)
+        {
+            sb.AppendLine($"{indent}var {name} = {Paint};");
+
+            var held = _settings;
+            if (held is null)
+            {
+                sb.AppendLine($"{indent}{name}.Reset();");
+                held = new Dictionary<string, string>(StringComparer.Ordinal);
+            }
+
+            var wanted = settings.ToDictionary(setting => setting.Property, setting => setting.Value, StringComparer.Ordinal);
+
+            // The fade multiplies whatever colour the paint holds, so either changing sets both again.
+            var recolor = !Holds(held, wanted, "Color") || !Holds(held, wanted, "ColorF");
+
+            foreach (var (property, fallback) in s_paintDefaults)
+            {
+                var value = wanted.TryGetValue(property, out var set) ? set : null;
+                var skip = property switch
+                {
+                    "Color" => !recolor,
+                    "ColorF" => !recolor || value is null,
+                    _ => Holds(held, wanted, property)
+                };
+
+                if (!skip)
+                {
+                    sb.AppendLine($"{indent}{Assignment(name, property, value ?? fallback)}");
+                }
+            }
+
+            _settings = wanted;
+            PaintUsed = true;
+        }
+
+        private static bool Holds(Dictionary<string, string> held, Dictionary<string, string> wanted, string property)
+            => held.TryGetValue(property, out var was) == wanted.TryGetValue(property, out var value) && was == value;
+
+        public CanvasState Copy() => new(Paint) { PaintUsed = PaintUsed, _settings = _settings is null ? null : new Dictionary<string, string>(_settings, StringComparer.Ordinal) };
+
+        /// <summary>After a range that may or may not have run: what holds either way.</summary>
+        public void Join(CanvasState before)
+        {
+            if (_settings is null || before._settings is null || _settings.Count != before._settings.Count || _settings.Any(setting => !before._settings.TryGetValue(setting.Key, out var value) || value != setting.Value))
+            {
+                _settings = null;
+            }
+        }
+
+        /// <summary>After a range that never runs: nothing it emitted happened.</summary>
+        public void Restore(CanvasState before)
+        {
+            PaintUsed = before.PaintUsed;
+            _settings = before._settings;
         }
     }
 
@@ -2031,7 +2132,8 @@ public static class SkiaCSharpModelExtensions
         string type,
         string name,
         Action<StringBuilder> emit,
-        Func<bool>? declared = null)
+        Func<bool>? declared = null,
+        Action<StringBuilder>? local = null)
     {
         var statics = counter.Statics!;
         var symbolic = SymCSharpEmitter.Emitted;
@@ -2050,7 +2152,14 @@ public static class SkiaCSharpModelExtensions
 
         if (SymCSharpEmitter.Emitted != symbolic || declared?.Invoke() == false)
         {
-            sb.Append(text);
+            if (local is null)
+            {
+                sb.Append(text);
+                return;
+            }
+
+            counter.Borrowed.Add(name);
+            local(sb);
             return;
         }
 
@@ -2153,12 +2262,21 @@ public static class SkiaCSharpModelExtensions
         var counterCanvas = ++counter.Canvas;
         var canvas = $"{counter.CanvasVarName}{counterCanvas}";
 
+        var state = new CanvasState($"skSharedPaint{counterCanvas}");
+        var body = new StringBuilder();
+
+        Commands(picture?.Commands, counter, body, indent, counterCanvas, statics ?? new StringBuilder(), layers ?? new SaveLayerTracker(), state);
+
         sb.AppendLine($"{indent}var {canvas} = {counter.CanvasVarName};");
         sb.AppendLine($"{indent}var skBase{counterCanvas} = {canvas}.TotalMatrix;");
         sb.AppendLine($"{indent}var skSave{counterCanvas} = {canvas}.Save();");
 
-        Commands(picture?.Commands, counter, sb, indent, counterCanvas, statics ?? new StringBuilder(), layers ?? new SaveLayerTracker());
+        if (state.PaintUsed)
+        {
+            sb.AppendLine($"{indent}var {state.Paint} = {ExprHelpers.Paint}();");
+        }
 
+        sb.Append(body);
         sb.AppendLine($"{indent}{canvas}.RestoreToCount(skSave{counterCanvas});");
     }
 
@@ -2178,7 +2296,7 @@ public static class SkiaCSharpModelExtensions
         sb.AppendLine($"{indent}var {counter.PictureRecorderVarName}{counterPictureRecorder} = new SKPictureRecorder();");
         sb.AppendLine($"{indent}var {counter.CanvasVarName}{counterCanvas} = {counter.PictureRecorderVarName}{counterPictureRecorder}.BeginRecording({picture.CullRect.ToSKRect()});");
 
-        Commands(picture.Commands, counter, sb, indent, counterCanvas, statics: null, layers ?? new SaveLayerTracker());
+        Commands(picture.Commands, counter, sb, indent, counterCanvas, statics: null, layers ?? new SaveLayerTracker(), new CanvasState(paint: null));
 
         sb.AppendLine($"{indent}var {counter.PictureVarName}{counterPicture} = {counter.PictureRecorderVarName}{counterPictureRecorder}.EndRecording();");
         sb.AppendLine($"{indent}{counter.PictureRecorderVarName}{counterPictureRecorder}?.Dispose();");
@@ -2196,7 +2314,8 @@ public static class SkiaCSharpModelExtensions
         string indent,
         int counterCanvas,
         StringBuilder? statics,
-        SaveLayerTracker layers)
+        SaveLayerTracker layers,
+        CanvasState state)
     {
         if (commands is null)
         {
@@ -2214,7 +2333,7 @@ public static class SkiaCSharpModelExtensions
         var live = sb;
         var discarded = new StringBuilder();
         var command = new StringBuilder();
-        var ranges = new Stack<FoldedRange>();
+        var ranges = new Stack<(FoldedRange Range, CanvasState Before)>();
         var dead = 0;
 
         for (var index = 0; index < commands.Count; index++)
@@ -2299,12 +2418,12 @@ public static class SkiaCSharpModelExtensions
                         // and SetMatrix included: generated code restates the absolute matrix.
                         if (SymCSharpEmitter.TryConstant(beginConditionalCanvasCommand.Condition, ExprType.Boolean, out var known))
                         {
-                            ranges.Push(known.AsBoolean ? FoldedRange.Unwrapped : FoldedRange.Dead);
+                            ranges.Push((known.AsBoolean ? FoldedRange.Unwrapped : FoldedRange.Dead, state.Copy()));
                             dead += known.AsBoolean ? 0 : 1;
                             break;
                         }
 
-                        ranges.Push(FoldedRange.Emitted);
+                        ranges.Push((FoldedRange.Emitted, state.Copy()));
                         sb.AppendLine($"{indent}if ({SymCSharpEmitter.Emit(beginConditionalCanvasCommand.Condition, ExprType.Boolean)})");
                         sb.AppendLine($"{indent}{{");
 
@@ -2315,7 +2434,16 @@ public static class SkiaCSharpModelExtensions
                     }
                 case EndConditionalCanvasCommand _:
                     {
-                        var range = ranges.Count > 0 ? ranges.Pop() : FoldedRange.Emitted;
+                        var (range, before) = ranges.Count > 0 ? ranges.Pop() : (FoldedRange.Emitted, state.Copy());
+
+                        if (range == FoldedRange.Dead)
+                        {
+                            state.Restore(before);
+                        }
+                        else if (range == FoldedRange.Emitted)
+                        {
+                            state.Join(before);
+                        }
 
                         if (range != FoldedRange.Emitted)
                         {
@@ -2497,7 +2625,7 @@ public static class SkiaCSharpModelExtensions
                                 .Select(layer => ((SaveLayerCanvasCommand)commands[layer]).Paint?.Color)
                                 .OfType<SKColor>()
                                 .ToList();
-                            ToSKPaint(drawPathCanvasCommand.Paint, counter, sb, indent, fade);
+                            ToSKPaint(drawPathCanvasCommand.Paint, counter, sb, indent, fade, state);
                             if (primitive is { })
                             {
                                 sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.{primitive}{counter.PaintVarName}{counterPaint});");

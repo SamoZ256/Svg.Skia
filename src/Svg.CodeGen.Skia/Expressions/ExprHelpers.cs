@@ -32,6 +32,7 @@ internal static class ExprHelpers
     public const string Num = "SvgNum";
     public const string Tangent = "SvgTangent";
     public const string Dash = "SvgDash";
+    public const string Paint = "SvgPaint";
 
     // Ordered so generated output is stable.
     public static IReadOnlyList<KeyValuePair<string, string[]>> All { get; } = new List<KeyValuePair<string, string[]>>
@@ -283,6 +284,21 @@ internal static class ExprHelpers
             "    }",
             "",
             "    return sum <= 0f ? null! : SKPathEffect.CreateDash(intervals, float.IsNaN(phase) || float.IsInfinity(phase) ? 0f : phase);",
+            "}"
+        }),
+
+        // A direct drawing's paint for every shape whose paint follows an argument: Skia copies a paint
+        // into what it records or draws, so one per thread serves every draw, with nothing allocated.
+        new(Paint, new[]
+        {
+            "[ThreadStatic]",
+            $"private static SKPaint {Paint}Instance;",
+            "",
+            $"private static SKPaint {Paint}()",
+            "{",
+            $"    var paint = {Paint}Instance ??= new SKPaint();",
+            "    paint.Reset();",
+            "    return paint;",
             "}"
         })
     };
