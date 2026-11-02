@@ -515,6 +515,54 @@ public class SkiaCSharpRenderTests
         AssertSamePicture("NestedInLayer", second!, generated);
     }
 
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void A_Path_Built_From_Data_Draws_As_Its_Calls(SkiaSharpTarget skiaSharp)
+    {
+        // Every verb the data carries, arcs of both sizes either way round, a polygon and a polyline,
+        // which it spells as a move and lines, runs a rect and an oval cut in two, and a run too
+        // short to be worth an array.
+        var path = new ShimSkiaSharp.SKPath { FillType = ShimSkiaSharp.SKPathFillType.EvenOdd };
+        path.MoveTo(2f, 2f);
+        path.LineTo(20f, 2.5f);
+        path.QuadTo(22.25f, 6f, 18f, 8f);
+        path.CubicTo(14f, 10.5f, 6f, 4f, 2f, 8f);
+        path.Close();
+        path.AddRect(ShimSkiaSharp.SKRect.Create(5f, 3f, 6f, 4f));
+        path.MoveTo(4f, 12f);
+        path.ArcTo(4f, 3f, 15f, ShimSkiaSharp.SKPathArcSize.Large, ShimSkiaSharp.SKPathDirection.CounterClockwise, 12f, 14f);
+        path.ArcTo(4f, 3f, 0f, ShimSkiaSharp.SKPathArcSize.Small, ShimSkiaSharp.SKPathDirection.Clockwise, 6f, 16f);
+        path.ArcTo(5f, 5f, 0f, ShimSkiaSharp.SKPathArcSize.Large, ShimSkiaSharp.SKPathDirection.Clockwise, 4f, 13f);
+        path.ArcTo(2f, 2f, 0f, ShimSkiaSharp.SKPathArcSize.Small, ShimSkiaSharp.SKPathDirection.CounterClockwise, 4f, 12f);
+        path.Close();
+        path.AddOval(ShimSkiaSharp.SKRect.Create(14f, 12f, 6f, 4f));
+        path.AddPoly(new[] { new ShimSkiaSharp.SKPoint(14f, 18f), new ShimSkiaSharp.SKPoint(22f, 18f), new ShimSkiaSharp.SKPoint(18f, 23f) }, close: true);
+        path.AddPoly(new[] { new ShimSkiaSharp.SKPoint(2f, 18f), new ShimSkiaSharp.SKPoint(6f, 22f), new ShimSkiaSharp.SKPoint(10f, 18f), new ShimSkiaSharp.SKPoint(12f, 23f) }, close: false);
+        path.AddCircle(9f, 9f, 1.5f);
+        path.MoveTo(1f, 23f);
+        path.LineTo(3f, 21f);
+
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.DrawPath(path, new ShimSkiaSharp.SKPaint { IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0x1e, 0x40, 0xaf, 0xff) });
+        canvas.DrawPath(path, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 0.75f, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0xdc, 0x26, 0x26, 0xff) });
+        var model = recorder.EndRecording();
+        var name = $"PathData_{skiaSharp}";
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture(name, runtime!, generated);
+        AssertDrawsDirectlyTheSame(name, model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), skiaSharp);
+
+        var code = SkiaCSharpCodeGen.Generate(model, Namespace, name, SvgExpressionDeclarations.Empty, skiaSharp);
+        Assert.Contains(skiaSharp == SkiaSharpTarget.V3 ? "SvgPathData(" : "SvgPathBuilderData(", code);
+        Assert.Contains(".AddRect(", code);
+        Assert.Contains(".AddOval(", code);
+        Assert.Contains(".LineTo(3f, 21f);", code);
+        Assert.DoesNotContain(".CubicTo(14f", code);
+    }
+
     [Fact]
     public void Strokes()
         => AssertRendersTheSame("Strokes", """

@@ -2114,103 +2114,25 @@ public static class SkiaCSharpModelExtensions
             sb.AppendLine($"{indent}{builder}.FillType = {path.FillType.ToSKPathFillType()};");
         }
 
+        var run = new List<PathCommand>();
         foreach (var pathCommand in path.Commands ?? Enumerable.Empty<PathCommand>())
         {
-            switch (pathCommand)
+            if (pathCommand is MoveToPathCommand or LineToPathCommand or QuadToPathCommand or CubicToPathCommand or ArcToPathCommand or ClosePathCommand or AddPolyPathCommand { Points: { } })
             {
-                case MoveToPathCommand moveToPathCommand:
-                    {
-                        var x = moveToPathCommand.X;
-                        var y = moveToPathCommand.Y;
-                        sb.AppendLine($"{indent}{builder}.MoveTo({x.ToFloatString()}, {y.ToFloatString()});");
-                    }
-                    break;
-                case LineToPathCommand lineToPathCommand:
-                    {
-                        var x = lineToPathCommand.X;
-                        var y = lineToPathCommand.Y;
-                        sb.AppendLine($"{indent}{builder}.LineTo({x.ToFloatString()}, {y.ToFloatString()});");
-                    }
-                    break;
-                case ArcToPathCommand arcToPathCommand:
-                    {
-                        var rx = arcToPathCommand.Rx;
-                        var ry = arcToPathCommand.Ry;
-                        var xAxisRotate = arcToPathCommand.XAxisRotate;
-                        var largeArc = arcToPathCommand.LargeArc.ToSKPathArcSize();
-                        var sweep = arcToPathCommand.Sweep.ToSKPathDirection();
-                        var x = arcToPathCommand.X;
-                        var y = arcToPathCommand.Y;
-                        sb.AppendLine($"{indent}{builder}.ArcTo({rx.ToFloatString()}, {ry.ToFloatString()}, {xAxisRotate.ToFloatString()}, {largeArc}, {sweep}, {x.ToFloatString()}, {y.ToFloatString()});");
-                    }
-                    break;
-                case QuadToPathCommand quadToPathCommand:
-                    {
-                        var x0 = quadToPathCommand.X0;
-                        var y0 = quadToPathCommand.Y0;
-                        var x1 = quadToPathCommand.X1;
-                        var y1 = quadToPathCommand.Y1;
-                        sb.AppendLine($"{indent}{builder}.QuadTo({x0.ToFloatString()}, {y0.ToFloatString()}, {x1.ToFloatString()}, {y1.ToFloatString()});");
-                    }
-                    break;
-                case CubicToPathCommand cubicToPathCommand:
-                    {
-                        var x0 = cubicToPathCommand.X0;
-                        var y0 = cubicToPathCommand.Y0;
-                        var x1 = cubicToPathCommand.X1;
-                        var y1 = cubicToPathCommand.Y1;
-                        var x2 = cubicToPathCommand.X2;
-                        var y2 = cubicToPathCommand.Y2;
-                        sb.AppendLine($"{indent}{builder}.CubicTo({x0.ToFloatString()}, {y0.ToFloatString()}, {x1.ToFloatString()}, {y1.ToFloatString()}, {x2.ToFloatString()}, {y2.ToFloatString()});");
-                    }
-                    break;
-                case ClosePathCommand _:
-                    {
-                        sb.AppendLine($"{indent}{builder}.Close();");
-                    }
-                    break;
-                case AddRectPathCommand addRectPathCommand:
-                    {
-                        var rect = addRectPathCommand.Rect.ToSKRect();
-                        sb.AppendLine($"{indent}{builder}.AddRect({rect});");
-                    }
-                    break;
-                case AddRoundRectPathCommand addRoundRectPathCommand:
-                    {
-                        var rect = addRoundRectPathCommand.Rect.ToSKRect();
-                        var rx = addRoundRectPathCommand.Rx;
-                        var ry = addRoundRectPathCommand.Ry;
-                        sb.AppendLine($"{indent}{builder}.AddRoundRect({rect}, {rx.ToFloatString()}, {ry.ToFloatString()});");
-                    }
-                    break;
-                case AddOvalPathCommand addOvalPathCommand:
-                    {
-                        var rect = addOvalPathCommand.Rect.ToSKRect();
-                        sb.AppendLine($"{indent}{builder}.AddOval({rect});");
-                    }
-                    break;
-                case AddCirclePathCommand addCirclePathCommand:
-                    {
-                        var x = addCirclePathCommand.X;
-                        var y = addCirclePathCommand.Y;
-                        var radius = addCirclePathCommand.Radius;
-                        sb.AppendLine($"{indent}{builder}.AddCircle({x.ToFloatString()}, {y.ToFloatString()}, {radius.ToFloatString()});");
-                    }
-                    break;
-                case AddPolyPathCommand addPolyPathCommand:
-                    {
-                        if (addPolyPathCommand.Points is { })
-                        {
-                            var points = addPolyPathCommand.Points.ToSKPoints();
-                            var close = addPolyPathCommand.Close.ToBoolString();
-                            sb.AppendLine($"{indent}{builder}.AddPoly({points}, {close});");
-                        }
-                    }
-                    break;
-                default:
-                    break;
+                run.Add(pathCommand);
+                continue;
+            }
+
+            PathRun(run, builder, counter.SkiaSharpTarget, sb, indent);
+            run.Clear();
+
+            if (PathCall(pathCommand) is { } call)
+            {
+                sb.AppendLine($"{indent}{builder}.{call};");
             }
         }
+
+        PathRun(run, builder, counter.SkiaSharpTarget, sb, indent);
 
         if (detached)
         {
@@ -2218,6 +2140,103 @@ public static class SkiaCSharpModelExtensions
             sb.AppendLine($"{indent}{builder}?.Dispose();");
         }
     }
+
+    /// <summary>The call that adds <paramref name="command"/> to a path or a builder, or null for one that adds nothing.</summary>
+    private static string? PathCall(PathCommand command) => command switch
+    {
+        MoveToPathCommand move => $"MoveTo({move.X.ToFloatString()}, {move.Y.ToFloatString()})",
+        LineToPathCommand line => $"LineTo({line.X.ToFloatString()}, {line.Y.ToFloatString()})",
+        ArcToPathCommand arc => $"ArcTo({arc.Rx.ToFloatString()}, {arc.Ry.ToFloatString()}, {arc.XAxisRotate.ToFloatString()}, {arc.LargeArc.ToSKPathArcSize()}, {arc.Sweep.ToSKPathDirection()}, {arc.X.ToFloatString()}, {arc.Y.ToFloatString()})",
+        QuadToPathCommand quad => $"QuadTo({Floats(quad.X0, quad.Y0, quad.X1, quad.Y1)})",
+        CubicToPathCommand cubic => $"CubicTo({Floats(cubic.X0, cubic.Y0, cubic.X1, cubic.Y1, cubic.X2, cubic.Y2)})",
+        ClosePathCommand => "Close()",
+        AddRectPathCommand rect => $"AddRect({rect.Rect.ToSKRect()})",
+        AddRoundRectPathCommand roundRect => $"AddRoundRect({roundRect.Rect.ToSKRect()}, {roundRect.Rx.ToFloatString()}, {roundRect.Ry.ToFloatString()})",
+        AddOvalPathCommand oval => $"AddOval({oval.Rect.ToSKRect()})",
+        AddCirclePathCommand circle => $"AddCircle({Floats(circle.X, circle.Y, circle.Radius)})",
+        AddPolyPathCommand { Points: { } points } poly => $"AddPoly({points.ToSKPoints()}, {poly.Close.ToBoolString()})",
+        _ => null
+    };
+
+    // Below this many verbs a run is smaller spelled out as calls than as two arrays and a call.
+    // TapHome's icons are smallest at 4 to 6 (2.58 MB), at 2 and at 10 2.62 and 2.61 MB.
+    private const int PathDataVerbs = 4;
+
+    /// <summary>
+    /// A run of commands onto <paramref name="builder"/>: as verbs and coordinates the path data helper
+    /// replays where it is long enough, which a native image keeps as data rather than code.
+    /// </summary>
+    private static void PathRun(List<PathCommand> run, string builder, SkiaSharpTarget target, StringBuilder sb, string indent)
+    {
+        var verbs = new List<byte>();
+        var coordinates = new List<string>();
+
+        foreach (var command in run)
+        {
+            switch (command)
+            {
+                case MoveToPathCommand move:
+                    verbs.Add(0);
+                    coordinates.Add(Floats(move.X, move.Y));
+                    break;
+                case LineToPathCommand line:
+                    verbs.Add(1);
+                    coordinates.Add(Floats(line.X, line.Y));
+                    break;
+                case QuadToPathCommand quad:
+                    verbs.Add(2);
+                    coordinates.Add(Floats(quad.X0, quad.Y0, quad.X1, quad.Y1));
+                    break;
+                case CubicToPathCommand cubic:
+                    verbs.Add(3);
+                    coordinates.Add(Floats(cubic.X0, cubic.Y0, cubic.X1, cubic.Y1, cubic.X2, cubic.Y2));
+                    break;
+                case ClosePathCommand:
+                    verbs.Add(4);
+                    break;
+                case ArcToPathCommand arc:
+                    verbs.Add((byte)(5 + (int)arc.LargeArc + 2 * (int)arc.Sweep));
+                    coordinates.Add(Floats(arc.Rx, arc.Ry, arc.XAxisRotate, arc.X, arc.Y));
+                    break;
+                case AddPolyPathCommand { Points: { Count: > 0 } points } poly:
+                    // What SkPath::addPoly and SkPathBuilder::addPolygon add: a move, a line to each later point, a close.
+                    verbs.Add(0);
+                    verbs.AddRange(Enumerable.Repeat((byte)1, points.Count - 1));
+                    if (poly.Close)
+                    {
+                        verbs.Add(4);
+                    }
+
+                    coordinates.Add(Floats(points.SelectMany(point => new[] { point.X, point.Y }).ToArray()));
+                    break;
+            }
+        }
+
+        if (verbs.Count < PathDataVerbs)
+        {
+            foreach (var command in run)
+            {
+                if (PathCall(command) is { } call)
+                {
+                    sb.AppendLine($"{indent}{builder}.{call};");
+                }
+            }
+
+            return;
+        }
+
+        var helper = target == SkiaSharpTarget.V3 ? ExprHelpers.PathData : ExprHelpers.PathBuilderData;
+        sb.AppendLine($"{indent}{helper}({builder}, new byte[] {{ {string.Join(", ", verbs)} }}, new float[]");
+        sb.AppendLine($"{indent}{{");
+        foreach (var line in coordinates)
+        {
+            sb.AppendLine($"{indent}    {line},");
+        }
+
+        sb.AppendLine($"{indent}}});");
+    }
+
+    private static string Floats(params float[] values) => string.Join(", ", values.Select(value => value.ToFloatString()));
 
     public static void ToSKPath(this ClipPath clipPath, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, out bool isDefault)
     {

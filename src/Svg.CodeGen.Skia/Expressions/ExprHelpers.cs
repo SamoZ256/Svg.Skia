@@ -33,6 +33,8 @@ internal static class ExprHelpers
     public const string Tangent = "SvgTangent";
     public const string Dash = "SvgDash";
     public const string Paint = "SvgPaint";
+    public const string PathData = "SvgPathData";
+    public const string PathBuilderData = "SvgPathBuilderData";
 
     // Ordered so generated output is stable.
     public static IReadOnlyList<KeyValuePair<string, string[]>> All { get; } = new List<KeyValuePair<string, string[]>>
@@ -300,6 +302,35 @@ internal static class ExprHelpers
             "    paint.Reset();",
             "    return paint;",
             "}"
-        })
+        }),
+
+        // A run of path commands as data, which the compiler keeps as one blob: thousands of calls,
+        // each a few dozen bytes of IL and more of native code, are one loop.
+        new(PathData, PathDataHelper(PathData, "SKPath")),
+        new(PathBuilderData, PathDataHelper(PathBuilderData, "SKPathBuilder"))
+    };
+
+    /// <summary>
+    /// Replays verbs onto <paramref name="target"/>: 0 move, 1 line, 2 quad, 3 cubic, 4 close, and 5
+    /// to 8 an arc, plus 1 for the large one and 2 for counter-clockwise.
+    /// </summary>
+    private static string[] PathDataHelper(string name, string target) => new[]
+    {
+        $"private static void {name}({target} path, ReadOnlySpan<byte> verbs, ReadOnlySpan<float> p)",
+        "{",
+        "    var i = 0;",
+        "    foreach (var verb in verbs)",
+        "    {",
+        "        switch (verb)",
+        "        {",
+        "            case 0: path.MoveTo(p[i], p[i + 1]); i += 2; break;",
+        "            case 1: path.LineTo(p[i], p[i + 1]); i += 2; break;",
+        "            case 2: path.QuadTo(p[i], p[i + 1], p[i + 2], p[i + 3]); i += 4; break;",
+        "            case 3: path.CubicTo(p[i], p[i + 1], p[i + 2], p[i + 3], p[i + 4], p[i + 5]); i += 6; break;",
+        "            case 4: path.Close(); break;",
+        "            default: path.ArcTo(p[i], p[i + 1], p[i + 2], (SKPathArcSize)((verb - 5) & 1), (SKPathDirection)((verb - 5) >> 1), p[i + 3], p[i + 4]); i += 5; break;",
+        "        }",
+        "    }",
+        "}"
     };
 }
