@@ -560,6 +560,26 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void A_Path_Drawn_Twice_Reads_One_Static(SkiaSharpTarget skiaSharp)
+        // As AirFlowLevel's bars are: the same shape in two places and two colours, under a clip
+        // that does cut, so its identity transform is the one left out.
+        => AssertRendersTheSame($"SharedPath_{skiaSharp}", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <clipPath id="c" clipPathUnits="userSpaceOnUse">
+                  <rect x="0" y="0" width="24" height="15" />
+                </clipPath>
+              </defs>
+              <g clip-path="url(#c)">
+                <path d="M 2 2 L 10 2 L 10 10 Z" fill="#dc2626" />
+                <path d="M 2 2 L 10 2 L 10 10 Z" fill="#2563eb" transform="translate(10 8)" />
+              </g>
+            </svg>
+            """, skiaSharp);
+
     [Fact]
     public void A_Mask_Keeps_Its_Layer()
         // Its outer layer is opaque and source-over, so only what it holds says it is not a no-op.

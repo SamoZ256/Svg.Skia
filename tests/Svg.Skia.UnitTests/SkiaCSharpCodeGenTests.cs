@@ -395,6 +395,46 @@ public class SkiaCSharpCodeGenTests
         Assert.Contains(".ClipPath(", Generate(body, driven, declarations));
     }
 
+    [Fact]
+    public void A_Static_Built_Twice_Is_Kept_Once()
+    {
+        // Each shape's paint is constant and alike as well, and the clip's identity transforms say nothing.
+        var frame = new SKPath();
+        frame.AddRect(SKRect.Create(0f, 0f, 10f, 4f));
+        var clip = new ClipPath
+        {
+            Clips = new List<PathClip> { new() { Path = frame, Transform = SKMatrix.Identity } },
+            Transform = SKMatrix.Identity
+        };
+        var picture = new SKPicture(SKRect.Create(0f, 0f, 10f, 10f), new List<CanvasCommand>
+        {
+            new SaveCanvasCommand(0),
+            new ClipPathCanvasCommand(clip, SKClipOperation.Intersect, true),
+            Triangle(),
+            Triangle(),
+            new RestoreCanvasCommand(0)
+        });
+
+        var code = Generate("direct", picture);
+
+        Assert.DoesNotContain(".Transform(", code);
+        Assert.Equal(2, Regex.Matches(code, @"private static readonly SKPath ").Count);
+        Assert.Single(Regex.Matches(code, @"private static readonly SKPaint "));
+        var reads = Regex.Matches(code, @"= s_(skPa(?:th|int)\d+);").Select(read => read.Groups[1].Value).ToList();
+        Assert.Equal(5, reads.Count);
+        Assert.Equal(3, reads.Distinct().Count());
+
+        static DrawPathCanvasCommand Triangle()
+        {
+            var path = new SKPath();
+            path.MoveTo(1f, 1f);
+            path.LineTo(9f, 1f);
+            path.LineTo(9f, 9f);
+            path.Close();
+            return new DrawPathCanvasCommand(path, new SKPaint { IsAntialias = true });
+        }
+    }
+
     // A rotated frame clipping a shape inside it, as a PaintCode symbol records, the shape moved by
     // `offset` after the clip.
     private static SKPicture Clipped(SKMatrix offset, SymMatrix? driven)

@@ -89,4 +89,10 @@ public class SkiaCSharpCodeGenCounter
 
     /// <summary>What <see cref="Statics"/> built, each kept in a field named <c>s_</c> and the local's name.</summary>
     internal List<(string Type, string Name)> StaticFields { get; } = new();
+
+    /// <summary>Each static's text with its locals renumbered, so a second copy reads the first's field.</summary>
+    internal Dictionary<string, string> StaticTexts { get; } = new();
+
+    /// <summary>Locals that read something <c>Draw</c> does not own, whose disposal is left out.</summary>
+    internal HashSet<string> Borrowed { get; } = new();
 }

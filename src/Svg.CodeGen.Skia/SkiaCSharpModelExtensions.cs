@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using ShimSkiaSharp;
 using ShimSkiaSharp.Editing;
 using Svg.CodeGen.Skia.Expressions;
@@ -1968,7 +1969,8 @@ public static class SkiaCSharpModelExtensions
                 }
             }
 
-            if (clip.Transform is { })
+            // SkPath::transform returns at once on the identity, which PaintCode's clips nearly all carry.
+            if (clip.Transform is { IsIdentity: false })
             {
                 // Transform(SKMatrix) is obsolete in favour of Transform(in SKMatrix). Passing an
                 // expression would be ambiguous between the two, so the matrix needs a local.
@@ -2008,7 +2010,7 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
-        if (!isDefaultPathResult && clipPath.Transform is { })
+        if (!isDefaultPathResult && clipPath.Transform is { IsIdentity: false })
         {
             var counterMatrix = ++counter.Matrix;
             sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {clipPath.Transform.Value.ToSKMatrix()};");
@@ -2052,6 +2054,17 @@ public static class SkiaCSharpModelExtensions
             return;
         }
 
+        counter.Borrowed.Add(name);
+
+        // Locals renumbered in the order they first appear, so a copy built under other names matches.
+        var locals = new Dictionary<string, int>(StringComparer.Ordinal);
+        var key = type + " " + s_local.Replace(text.ToString(), local => "#" + (locals.TryGetValue(local.Value, out var n) ? n : locals[local.Value] = locals.Count));
+        if (counter.StaticTexts.TryGetValue(key, out var first))
+        {
+            sb.AppendLine($"{indent}var {name} = s_{first};");
+            return;
+        }
+
         foreach (var line in text.ToString().Split('\n').Select(line => line.TrimEnd('\r')).Where(line => line.Length > 0))
         {
             statics.AppendLine(StaticIndent + (line.StartsWith(indent, StringComparison.Ordinal) ? line.Substring(indent.Length) : line.TrimStart()));
@@ -2059,15 +2072,19 @@ public static class SkiaCSharpModelExtensions
 
         statics.AppendLine($"{StaticIndent}s_{name} = {name};");
         counter.StaticFields.Add((type, name));
+        counter.StaticTexts.Add(key, name);
         sb.AppendLine($"{indent}var {name} = s_{name};");
     }
 
     private const string StaticIndent = "            ";
 
+    // A generated local under the counters' default names, the only ones a static's text holds.
+    private static readonly Regex s_local = new(@"\bsk[A-Z][A-Za-z]*\d+\b", RegexOptions.CultureInvariant);
+
     /// <summary>The command without the disposal of what it reads from a static field, which outlives every draw.</summary>
     private static string Shared(string command, SkiaCSharpCodeGenCounter counter)
     {
-        if (counter.StaticFields.Count == 0)
+        if (counter.Borrowed.Count == 0)
         {
             return command;
         }
@@ -2077,12 +2094,19 @@ public static class SkiaCSharpModelExtensions
             .Where(line =>
             {
                 var trimmed = line.Trim();
-                return !trimmed.EndsWith("Dispose();", StringComparison.Ordinal)
-                       || !counter.StaticFields.Any(field => trimmed.StartsWith(field.Name + "?.", StringComparison.Ordinal) || trimmed.StartsWith(field.Name + ".", StringComparison.Ordinal));
+                if (!trimmed.EndsWith("Dispose();", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                var end = trimmed.IndexOfAny(s_access);
+                return end < 0 || !counter.Borrowed.Contains(trimmed.Substring(0, end));
             });
 
         return string.Join("\n", kept);
     }
+
+    private static readonly char[] s_access = { '?', '.' };
 
     private enum FoldedRange
     {
