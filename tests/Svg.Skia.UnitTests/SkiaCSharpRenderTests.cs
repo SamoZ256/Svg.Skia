@@ -8,9 +8,9 @@ using System.Runtime.Loader;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
+using ShimSkiaSharp.Editing;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using ShimSkiaSharp.Editing;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.Expressions;
@@ -579,6 +579,95 @@ public class SkiaCSharpRenderTests
               </g>
             </svg>
             """, skiaSharp);
+
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void Nested_Translations_Draw_Without_Their_Saves(SkiaSharpTarget skiaSharp)
+        // HueBulbBulb's shape: groups that only move what they hold, a shape after the inner group
+        // that is under the outer one's matrix again, one after both under none, and a scale.
+        => AssertRendersTheSame($"NestedTranslations_{skiaSharp}", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(2 2)">
+                <circle cx="4" cy="4" r="3" fill="none" stroke="#1e40af" />
+                <g transform="translate(8 0)">
+                  <path d="M 0 0 L 4 4" stroke="#dc2626" />
+                  <path d="M 0 4 L 4 0" stroke="#dc2626" transform="translate(0 2)" />
+                </g>
+                <path d="M 0 10 L 8 10" stroke="#16a34a" />
+              </g>
+              <path d="M 1 18 L 7 22 L 1 22 Z" fill="#7c3aed" />
+              <g transform="translate(12 14) scale(1.5)">
+                <path d="M 0 0 L 6 0 L 3 5 Z" fill="#f59e0b" />
+              </g>
+            </svg>
+            """, skiaSharp);
+
+    [Fact]
+    public void A_Clip_Keeps_The_Save_That_Scopes_It()
+        // The group's save is what takes its clip off the shape after it, and its matrix with it.
+        => AssertRendersTheSame("ClipInATranslatedGroup", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <clipPath id="c">
+                  <rect x="0" y="0" width="10" height="6" />
+                </clipPath>
+              </defs>
+              <g transform="translate(3 3)" clip-path="url(#c)">
+                <circle cx="5" cy="5" r="5" fill="#dc2626" />
+                <path d="M 0 0 L 10 10" stroke="#1e40af" transform="translate(1 0)" />
+              </g>
+              <circle cx="12" cy="16" r="6" fill="#16a34a" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Driven_Matrix_Two_Shapes_Share_Is_Set_Once()
+        => AssertExpressionsRenderTheSame(
+            "DrivenMatrixShared",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="x" type="number" default="2" /></e:code></defs>
+              <g transform="translate({{ x }} 2)">
+                <circle cx="4" cy="4" r="3" fill="#dc2626" />
+                <rect x="0" y="9" width="8" height="3" fill="#1e40af" />
+              </g>
+              <circle cx="12" cy="18" r="4" fill="#16a34a" />
+            </svg>
+            """,
+            arguments: new object?[] { 9f },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(9 2)">
+                <circle cx="4" cy="4" r="3" fill="#dc2626" />
+                <rect x="0" y="9" width="8" height="3" fill="#1e40af" />
+              </g>
+              <circle cx="12" cy="18" r="4" fill="#16a34a" />
+            </svg>
+            """);
+
+    [Fact]
+    public void Translated_Shapes_Record_No_Save_Each()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <path d="M 0 0 L 4 4" fill="none" stroke="#dc2626" transform="translate(2 2)" />
+              <path d="M 0 0 L 4 4" fill="none" stroke="#dc2626" transform="translate(10 2)" />
+              <path d="M 0 0 L 4 4" fill="none" stroke="#dc2626" transform="translate(18 2)" />
+            </svg>
+            """;
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(Model(svg), Namespace, "Translated", SvgExpressionDeclarations.Empty) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Body = SvgBody.Direct });
+        var record = Compile(code, "Translated").GetType($"{Namespace}.Translated")!.GetMethod("Record")!;
+
+        using var picture = (SKPicture)record.Invoke(null, null)!;
+
+        // A save, a translate and a path for each, two of them after setting the caller's matrix
+        // back, and the restore. A save, a set, a concat and a restore around each made it 15.
+        Assert.Equal(10, picture.ApproximateOperationCount);
+    }
 
     [Fact]
     public void A_Mask_Keeps_Its_Layer()

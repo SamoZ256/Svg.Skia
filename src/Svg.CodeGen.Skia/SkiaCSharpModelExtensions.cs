@@ -1676,21 +1676,148 @@ public static class SkiaCSharpModelExtensions
             ? $"{paint}.ColorF = {paint}.ColorF.WithAlpha({paint}.ColorF.Alpha * ({value}));"
             : $"{paint}.{property} = {value};";
 
-    /// <summary>What the code emitted so far leaves in a direct drawing's shared paint, as far as generation can know.</summary>
+    /// <summary>
+    /// What the code emitted so far leaves on the canvas and in the shared paint, as far as generation
+    /// can know, set against what the model asks of each draw.
+    /// </summary>
+    /// <remarks>
+    /// Every matrix the model sets is its whole total, so a save that scopes nothing but a matrix need
+    /// not reach the canvas: the next draw sets what it is drawn under. Skia records each save a matrix
+    /// changes under: HueBulbBulb's nine strokes record 28 operations so, and recorded 45.
+    /// </remarks>
     private sealed class CanvasState
     {
-        public CanvasState(string? paint) => Paint = paint;
+        // What the canvas holds where a range that may not have run changed it.
+        private static readonly Placed s_unknown = new("?", Symbolic: true, default);
 
-        /// <summary>The shared paint's local, or null where every paint is built for itself.</summary>
+        private readonly string _canvas;
+        private readonly int _counterCanvas;
+        private readonly bool _direct;
+        private readonly Stack<Placed?> _saved = new();
+        private readonly Stack<Placed?> _kept = new();
+        private Placed? _matrix;
+        private Placed? _holds;
+
+        /// <summary>
+        /// Each setting the shared paint holds beyond its defaults; null when a range that may not have
+        /// run changed it, and the next shape resets it. Replaced, never changed, so a mark can share it.
+        /// </summary>
+        private Dictionary<string, string>? _settings = new(StringComparer.Ordinal);
+
+        /// <param name="paint">The shared paint's local, or null where every paint is built for itself.</param>
+        /// <param name="direct">Whether the canvas is the caller's, whose matrix every one set is relative to.</param>
+        public CanvasState(string? paint, string canvas, int counterCanvas, bool direct)
+        {
+            Paint = paint;
+            _canvas = canvas;
+            _counterCanvas = counterCanvas;
+            _direct = direct;
+        }
+
         public string? Paint { get; }
 
         public bool PaintUsed { get; private set; }
 
+        /// <summary>Whether anything emitted reads the caller's matrix.</summary>
+        public bool BaseUsed { get; set; }
+
+        /// <summary>Whether anything emitted changes the canvas, which the caller then needs back.</summary>
+        public bool Touched { get; set; }
+
         /// <summary>
-        /// Each setting the shared paint holds beyond its defaults; null when a range that may not have
-        /// run changed it, and the next shape resets it.
+        /// Set where the ranges do not nest with the saves, so what a draw is drawn under depends on which
+        /// ran: every matrix is then set where the model sets it, as it always was.
         /// </summary>
-        private Dictionary<string, string>? _settings = new(StringComparer.Ordinal);
+        public bool Eager { get; set; }
+
+        public void Save(bool kept)
+        {
+            _saved.Push(_matrix);
+            if (kept)
+            {
+                _kept.Push(_holds);
+                Touched = true;
+            }
+        }
+
+        public void Restore(bool kept)
+        {
+            if (_saved.Count > 0)
+            {
+                _matrix = _saved.Pop();
+            }
+
+            if (kept && _kept.Count > 0)
+            {
+                _holds = _kept.Pop();
+            }
+        }
+
+        public void SetMatrix(SetMatrixCanvasCommand command, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+        {
+            _matrix = command.SymbolicTotal is { } symbolic
+                ? new Placed(symbolic.ToSKMatrix(), Symbolic: true, command.TotalMatrix)
+                : command.TotalMatrix.IsIdentity ? null : new Placed(command.TotalMatrix.ToSKMatrix(), Symbolic: false, command.TotalMatrix);
+
+            if (Eager)
+            {
+                Sync(counter, sb, indent, force: true);
+            }
+        }
+
+        /// <summary>Puts the canvas under the matrix the model has set, unless it already is.</summary>
+        public void Sync(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, bool force = false)
+        {
+            if (!force && (Eager || Equals(_holds, _matrix)))
+            {
+                return;
+            }
+
+            if (!_direct)
+            {
+                SetAbsolute(counter, sb, indent);
+            }
+            else
+            {
+                // Composed by the canvas, as a picture's playback composes it: the same product taken in
+                // managed code differs from it in the last bits. Translate is that product too.
+                if (force || _holds is { })
+                {
+                    sb.AppendLine($"{indent}{_canvas}.SetMatrix(in skBase{_counterCanvas});");
+                    BaseUsed = true;
+                }
+
+                if (_matrix is { IsTranslation: true, Total: var total })
+                {
+                    sb.AppendLine($"{indent}{_canvas}.Translate({total.TransX.ToFloatString()}, {total.TransY.ToFloatString()});");
+                }
+                else if (_matrix is { })
+                {
+                    sb.AppendLine($"{indent}{_canvas}.Concat(in {Local(_matrix, counter, sb, indent)});");
+                }
+            }
+
+            _holds = _matrix;
+            Touched = true;
+        }
+
+        private void SetAbsolute(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+            => sb.AppendLine(_matrix is null
+                ? $"{indent}{_canvas}.ResetMatrix();"
+                : $"{indent}{_canvas}.SetMatrix(in {Local(_matrix, counter, sb, indent)});");
+
+        // SetMatrix(SKMatrix) is obsolete as an *error* in SkiaSharp 4, so passing the matrix by value
+        // does not merely warn: it fails to compile. The in overloads exist in 3 as well, and need a
+        // local because an expression would be ambiguous between the two.
+        private static string Local(Placed matrix, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+        {
+            var name = $"{counter.MatrixVarName}{++counter.Matrix}";
+
+            // The recorder composed the symbolic total off the same save/restore stack as the baked
+            // one, so the functions printed here are the whole matrix and nothing tracks a running local.
+            sb.AppendLine($"{indent}var {name} = {matrix.Code.Replace("\n", "\n" + indent)};");
+            return name;
+        }
 
         /// <summary>The shared paint, as <paramref name="name"/>, set to <paramref name="settings"/> by what it does not already hold.</summary>
         public void Assign(string name, List<(string Property, string Value)> settings, StringBuilder sb, string indent)
@@ -1732,23 +1859,89 @@ public static class SkiaCSharpModelExtensions
         private static bool Holds(Dictionary<string, string> held, Dictionary<string, string> wanted, string property)
             => held.TryGetValue(property, out var was) == wanted.TryGetValue(property, out var value) && was == value;
 
-        public CanvasState Copy() => new(Paint) { PaintUsed = PaintUsed, _settings = _settings is null ? null : new Dictionary<string, string>(_settings, StringComparer.Ordinal) };
+        public Mark Marked() => new(_settings, PaintUsed, _holds, BaseUsed, Touched);
 
         /// <summary>After a range that may or may not have run: what holds either way.</summary>
-        public void Join(CanvasState before)
+        public void Join(Mark before)
         {
-            if (_settings is null || before._settings is null || _settings.Count != before._settings.Count || _settings.Any(setting => !before._settings.TryGetValue(setting.Key, out var value) || value != setting.Value))
+            if (_settings is null || before.Settings is null || _settings.Count != before.Settings.Count || _settings.Any(setting => !before.Settings.TryGetValue(setting.Key, out var value) || value != setting.Value))
             {
                 _settings = null;
+            }
+
+            if (!Equals(_holds, before.Holds))
+            {
+                _holds = s_unknown;
             }
         }
 
         /// <summary>After a range that never runs: nothing it emitted happened.</summary>
-        public void Restore(CanvasState before)
+        public void Restore(Mark before)
         {
+            _settings = before.Settings;
             PaintUsed = before.PaintUsed;
-            _settings = before._settings;
+            _holds = before.Holds;
+            BaseUsed = before.BaseUsed;
+            Touched = before.Touched;
         }
+
+        /// <summary>What a range is weighed against once it ends.</summary>
+        public sealed record Mark(Dictionary<string, string>? Settings, bool PaintUsed, Placed? Holds, bool BaseUsed, bool Touched);
+    }
+
+    /// <summary>A matrix the model sets, as the C# that builds it, relative to the caller's.</summary>
+    private sealed record Placed(string Code, bool Symbolic, SKMatrix Total)
+    {
+        public bool IsTranslation => !Symbolic && Total is { ScaleX: 1f, SkewX: 0f, SkewY: 0f, ScaleY: 1f, Persp0: 0f, Persp1: 0f, Persp2: 1f };
+    }
+
+    /// <summary>
+    /// Which saves, with the restores that match them, have to reach the canvas: a save that scopes a
+    /// clip, and every layer. Null where a range does not nest with the saves, or sets a matrix that
+    /// outlives it, and which draw is under what depends on which ranges ran.
+    /// </summary>
+    private static bool[]? KeptSaves(IList<CanvasCommand> commands, CommandPlan plan)
+    {
+        var kept = new bool[commands.Count];
+        var open = new Stack<int>();
+        var ranges = new Stack<int>();
+
+        for (var index = 0; index < commands.Count; index++)
+        {
+            switch (commands[index])
+            {
+                case SaveCanvasCommand:
+                    open.Push(index);
+                    break;
+                case SaveLayerCanvasCommand:
+                    kept[index] = true;
+                    open.Push(index);
+                    break;
+                case RestoreCanvasCommand when open.Count == 0:
+                    return null;
+                case RestoreCanvasCommand:
+                    kept[index] = kept[open.Pop()];
+                    break;
+                case ClipPathCanvasCommand or ClipRectCanvasCommand when !plan.Skips(index) && open.Count > 0:
+                    kept[open.Peek()] = true;
+                    break;
+                case SetMatrixCanvasCommand when ranges.Count > 0 && ranges.Peek() == open.Count:
+                    return null;
+                case BeginConditionalCanvasCommand:
+                    ranges.Push(open.Count);
+                    break;
+                case EndConditionalCanvasCommand when ranges.Count == 0 || ranges.Pop() != open.Count:
+                    return null;
+            }
+        }
+
+        // A save left open is kept, and with it whatever it scopes past the end of the list.
+        foreach (var index in open)
+        {
+            kept[index] = true;
+        }
+
+        return kept;
     }
 
     public static void ToSKFont(this SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
@@ -2262,14 +2455,22 @@ public static class SkiaCSharpModelExtensions
         var counterCanvas = ++counter.Canvas;
         var canvas = $"{counter.CanvasVarName}{counterCanvas}";
 
-        var state = new CanvasState($"skSharedPaint{counterCanvas}");
+        var state = new CanvasState($"skSharedPaint{counterCanvas}", canvas, counterCanvas, direct: true);
         var body = new StringBuilder();
 
         Commands(picture?.Commands, counter, body, indent, counterCanvas, statics ?? new StringBuilder(), layers ?? new SaveLayerTracker(), state);
 
         sb.AppendLine($"{indent}var {canvas} = {counter.CanvasVarName};");
-        sb.AppendLine($"{indent}var skBase{counterCanvas} = {canvas}.TotalMatrix;");
-        sb.AppendLine($"{indent}var skSave{counterCanvas} = {canvas}.Save();");
+
+        if (state.BaseUsed)
+        {
+            sb.AppendLine($"{indent}var skBase{counterCanvas} = {canvas}.TotalMatrix;");
+        }
+
+        if (state.Touched)
+        {
+            sb.AppendLine($"{indent}var skSave{counterCanvas} = {canvas}.Save();");
+        }
 
         if (state.PaintUsed)
         {
@@ -2277,7 +2478,11 @@ public static class SkiaCSharpModelExtensions
         }
 
         sb.Append(body);
-        sb.AppendLine($"{indent}{canvas}.RestoreToCount(skSave{counterCanvas});");
+
+        if (state.Touched)
+        {
+            sb.AppendLine($"{indent}{canvas}.RestoreToCount(skSave{counterCanvas});");
+        }
     }
 
     private static void ToRecording(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SaveLayerTracker? layers)
@@ -2296,7 +2501,8 @@ public static class SkiaCSharpModelExtensions
         sb.AppendLine($"{indent}var {counter.PictureRecorderVarName}{counterPictureRecorder} = new SKPictureRecorder();");
         sb.AppendLine($"{indent}var {counter.CanvasVarName}{counterCanvas} = {counter.PictureRecorderVarName}{counterPictureRecorder}.BeginRecording({picture.CullRect.ToSKRect()});");
 
-        Commands(picture.Commands, counter, sb, indent, counterCanvas, statics: null, layers ?? new SaveLayerTracker(), new CanvasState(paint: null));
+        var canvas = $"{counter.CanvasVarName}{counterCanvas}";
+        Commands(picture.Commands, counter, sb, indent, counterCanvas, statics: null, layers ?? new SaveLayerTracker(), new CanvasState(paint: null, canvas, counterCanvas, direct: false));
 
         sb.AppendLine($"{indent}var {counter.PictureVarName}{counterPicture} = {counter.PictureRecorderVarName}{counterPictureRecorder}.EndRecording();");
         sb.AppendLine($"{indent}{counter.PictureRecorderVarName}{counterPictureRecorder}?.Dispose();");
@@ -2326,6 +2532,8 @@ public static class SkiaCSharpModelExtensions
 
         // Planned for every value an expression may take: generated code learns them only as it draws.
         var plan = CommandPlan.For(commands, symbolic: true);
+        var kept = KeptSaves(commands, plan);
+        state.Eager = kept is null;
 
         // A range whose condition folds to false is still emitted, into text that is thrown away:
         // emitting is what type checks its expressions, and a typo hidden behind `{{ false }}` has to
@@ -2333,7 +2541,7 @@ public static class SkiaCSharpModelExtensions
         var live = sb;
         var discarded = new StringBuilder();
         var command = new StringBuilder();
-        var ranges = new Stack<(FoldedRange Range, CanvasState Before)>();
+        var ranges = new Stack<(FoldedRange Range, CanvasState.Mark Before)>();
         var dead = 0;
 
         for (var index = 0; index < commands.Count; index++)
@@ -2341,6 +2549,12 @@ public static class SkiaCSharpModelExtensions
             var canvasCommand = commands[index];
             sb = dead > 0 ? discarded : direct ? command.Clear() : live;
             counter.Statics = dead > 0 ? null : statics;
+
+            if (canvasCommand is not (SaveCanvasCommand or RestoreCanvasCommand or SetMatrixCanvasCommand or SaveLayerCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand)
+                && !plan.Skips(index))
+            {
+                state.Sync(counter, sb, indent);
+            }
 
             switch (canvasCommand)
             {
@@ -2356,6 +2570,7 @@ public static class SkiaCSharpModelExtensions
                             {
                                 var operation = clipPathCanvasCommand.Operation.ToSKClipOperation();
                                 var antialias = clipPathCanvasCommand.Antialias.ToBoolString();
+                                state.Touched = true;
                                 sb.AppendLine(
                                     $"{indent}{counter.CanvasVarName}{counterCanvas}.ClipPath({counter.PathVarName}{counterPath}, {operation}, {antialias});");
                             }
@@ -2367,49 +2582,39 @@ public static class SkiaCSharpModelExtensions
                         var rect = clipRectCanvasCommand.Rect.ToSKRect();
                         var operation = clipRectCanvasCommand.Operation.ToSKClipOperation();
                         var antialias = clipRectCanvasCommand.Antialias.ToBoolString();
+                        state.Touched = true;
                         sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.ClipRect({rect}, {operation}, {antialias});");
                         break;
                     }
                 case SaveCanvasCommand _:
                     {
-                        sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
+                        // A save that scopes no clip only scopes a matrix, which every draw sets anyway.
+                        var keep = kept?[index] ?? true;
+                        if (keep)
+                        {
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
+                        }
+
+                        state.Save(keep);
                         layers.Save(isLayer: false);
                         break;
                     }
                 case RestoreCanvasCommand _:
                     {
-                        sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Restore();");
+                        var keep = kept?[index] ?? true;
+                        if (keep)
+                        {
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Restore();");
+                        }
+
+                        state.Restore(keep);
                         layers.Restore();
                         break;
                     }
                 case SetMatrixCanvasCommand setMatrixCanvasCommand:
                     {
-                        // SetMatrix(SKMatrix) is obsolete as an *error* in SkiaSharp 4, so passing
-                        // the matrix by value does not merely warn — it fails to compile. The in
-                        // overload exists in 3 as well, and needs a local because an expression
-                        // would be ambiguous between the two.
-                        var counterMatrix = ++counter.Matrix;
-
-                        // The recorder composed the symbolic total off the same save/restore stack
-                        // as the baked one, so the functions printed here are the whole matrix and
-                        // nothing tracks a running local.
-                        var matrix = setMatrixCanvasCommand.SymbolicTotal is { } symbolicTotal
-                            ? symbolicTotal.ToSKMatrix().Replace("\n", "\n" + indent)
-                            : setMatrixCanvasCommand.TotalMatrix.ToSKMatrix();
-
-                        sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {matrix};");
-
-                        if (direct)
-                        {
-                            // Composed by the canvas, as a picture's playback composes it: the same
-                            // product taken in managed code differs from it in the last bits.
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix(in skBase{counterCanvas});");
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
-                        }
-                        else
-                        {
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix(in {counter.MatrixVarName}{counterMatrix});");
-                        }
+                        // Set on the canvas only once something is drawn under it.
+                        state.SetMatrix(setMatrixCanvasCommand, counter, sb, indent);
                         break;
                     }
                 case BeginConditionalCanvasCommand beginConditionalCanvasCommand:
@@ -2418,12 +2623,12 @@ public static class SkiaCSharpModelExtensions
                         // and SetMatrix included: generated code restates the absolute matrix.
                         if (SymCSharpEmitter.TryConstant(beginConditionalCanvasCommand.Condition, ExprType.Boolean, out var known))
                         {
-                            ranges.Push((known.AsBoolean ? FoldedRange.Unwrapped : FoldedRange.Dead, state.Copy()));
+                            ranges.Push((known.AsBoolean ? FoldedRange.Unwrapped : FoldedRange.Dead, state.Marked()));
                             dead += known.AsBoolean ? 0 : 1;
                             break;
                         }
 
-                        ranges.Push((FoldedRange.Emitted, state.Copy()));
+                        ranges.Push((FoldedRange.Emitted, state.Marked()));
                         sb.AppendLine($"{indent}if ({SymCSharpEmitter.Emit(beginConditionalCanvasCommand.Condition, ExprType.Boolean)})");
                         sb.AppendLine($"{indent}{{");
 
@@ -2434,7 +2639,7 @@ public static class SkiaCSharpModelExtensions
                     }
                 case EndConditionalCanvasCommand _:
                     {
-                        var (range, before) = ranges.Count > 0 ? ranges.Pop() : (FoldedRange.Emitted, state.Copy());
+                        var (range, before) = ranges.Count > 0 ? ranges.Pop() : (FoldedRange.Emitted, state.Marked());
 
                         if (range == FoldedRange.Dead)
                         {
@@ -2463,6 +2668,7 @@ public static class SkiaCSharpModelExtensions
                     {
                         // A layer to the tracker even where it is drawn as a save, as the renderer counts it.
                         layers.Save(isLayer: true);
+                        state.Save(kept: true);
 
                         // Under an antialiased clip a layer that changes nothing still costs most of
                         // the drawing (blinds180ltr: 59.7 µs, 8.0 µs without).
@@ -2475,6 +2681,8 @@ public static class SkiaCSharpModelExtensions
                             break;
                         }
 
+                        // A layer's bounds and filters are in the space it is opened under.
+                        state.Sync(counter, sb, indent);
                         var bounds = saveLayerCanvasCommand.Bounds?.ToSKRect();
                         if (saveLayerCanvasCommand.Paint is { })
                         {
@@ -2637,6 +2845,7 @@ public static class SkiaCSharpModelExtensions
                                 if (direct)
                                 {
                                     // What the picture's own matrices add to the caller's, as a recording would see it.
+                                    state.BaseUsed = true;
                                     sb.AppendLine($"{indent}skBase{counterCanvas}.TryInvert(out var inverse{counterNonScalingPath});");
                                     sb.AppendLine($"{indent}var matrix{counterNonScalingPath} = inverse{counterNonScalingPath}.PreConcat({counter.CanvasVarName}{counterCanvas}.TotalMatrix);");
                                 }
@@ -2734,14 +2943,14 @@ public static class SkiaCSharpModelExtensions
                                 {
                                     var counterMatrix = ++counter.Matrix;
                                     sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = SKMatrix.CreateRotationDegrees({fragment.RotationDegrees.ToFloatString()}, {x.ToFloatString()}, {y.ToFloatString()});");
-                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
+                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(in {counter.MatrixVarName}{counterMatrix});");
                                 }
 
                                 if (fragment.ScaleX != 1f)
                                 {
                                     var counterMatrix = ++counter.Matrix;
                                     sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = SKMatrix.CreateScale({fragment.ScaleX.ToFloatString()}, 1f, {fragment.ScaleOriginX.ToFloatString()}, {y.ToFloatString()});");
-                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
+                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(in {counter.MatrixVarName}{counterMatrix});");
                                 }
 
                                 sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({text}, {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
