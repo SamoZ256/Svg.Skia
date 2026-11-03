@@ -481,6 +481,26 @@ public class SkiaCSharpCodeGenTests
         Assert.DoesNotContain(parameter, code);
     }
 
+    [Fact]
+    public void The_Public_Path_Extension_Writes_Code_That_Stands_Alone()
+    {
+        // Only a whole generated file supplies the path data helper.
+        var path = new SKPath();
+        path.MoveTo(0f, 0f);
+        path.LineTo(10f, 0f);
+        path.LineTo(10f, 10f);
+        path.Close();
+        var counter = new SkiaCSharpCodeGenCounter();
+        var sb = new System.Text.StringBuilder();
+        ++counter.Path;
+
+        path.ToSKPath(counter, sb, "");
+
+        var code = sb.ToString();
+        Assert.DoesNotContain("SvgPath", code);
+        Assert.Contains(".LineTo(10f, 10f);", code);
+    }
+
     // A rotated frame clipping a shape inside it, as a PaintCode symbol records, the shape moved by
     // `offset` after the clip.
     private static SKPicture Clipped(SKMatrix offset, SymMatrix? driven)

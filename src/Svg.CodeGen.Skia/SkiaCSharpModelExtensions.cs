@@ -2147,7 +2147,7 @@ public static class SkiaCSharpModelExtensions
                 continue;
             }
 
-            PathRun(run, builder, counter.SkiaSharpTarget, sb, indent);
+            PathRun(run, builder, counter, sb, indent);
             run.Clear();
 
             if (PathCall(pathCommand) is { } call)
@@ -2156,7 +2156,7 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
-        PathRun(run, builder, counter.SkiaSharpTarget, sb, indent);
+        PathRun(run, builder, counter, sb, indent);
 
         if (detached)
         {
@@ -2190,7 +2190,7 @@ public static class SkiaCSharpModelExtensions
     /// A run of commands onto <paramref name="builder"/>: as verbs and coordinates the path data helper
     /// replays where it is long enough, which a native image keeps as data rather than code.
     /// </summary>
-    private static void PathRun(List<PathCommand> run, string builder, SkiaSharpTarget target, StringBuilder sb, string indent)
+    private static void PathRun(List<PathCommand> run, string builder, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
         var verbs = new List<byte>();
         var coordinates = new List<string>();
@@ -2236,7 +2236,7 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
-        if (verbs.Count < PathDataVerbs)
+        if (verbs.Count < PathDataVerbs || !counter.PathData)
         {
             foreach (var command in run)
             {
@@ -2249,7 +2249,7 @@ public static class SkiaCSharpModelExtensions
             return;
         }
 
-        var helper = target == SkiaSharpTarget.V3 ? ExprHelpers.PathData : ExprHelpers.PathBuilderData;
+        var helper = counter.SkiaSharpTarget == SkiaSharpTarget.V3 ? ExprHelpers.PathData : ExprHelpers.PathBuilderData;
         sb.AppendLine($"{indent}{helper}({builder}, new byte[] {{ {string.Join(", ", verbs)} }}, new float[]");
         sb.AppendLine($"{indent}{{");
         foreach (var line in coordinates)

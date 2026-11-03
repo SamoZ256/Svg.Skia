@@ -85,6 +85,12 @@ public class SkiaCSharpCodeGenCounter
     internal bool Bake { get; set; }
 
     /// <summary>
+    /// Whether a run of path commands is built by the path data helper, which only a whole generated
+    /// file supplies: the public extensions, called on their own, write a call for each command.
+    /// </summary>
+    internal bool PathData { get; set; }
+
+    /// <summary>
     /// The static constructor's body while a direct drawing is emitted: where a path or a paint
     /// nothing the caller passes can change is built, once.
     /// </summary>

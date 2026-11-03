@@ -2,6 +2,8 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Svg.CodeGen.Skia.Expressions;
 
@@ -35,6 +37,15 @@ internal static class ExprHelpers
     public const string Paint = "SvgPaint";
     public const string PathData = "SvgPathData";
     public const string PathBuilderData = "SvgPathBuilderData";
+
+    /// <summary>Whether a drawing calls the helper with no expression in it: the path data and the shared paint.</summary>
+    public static bool Drawing(string key) => key is PathData or PathBuilderData or Paint;
+
+    /// <summary>The members a helper's text declares, which nothing else in its class may be named.</summary>
+    public static IEnumerable<string> Members(string[] helper)
+        => helper.Select(line => s_member.Match(line)).Where(match => match.Success).Select(match => match.Groups[1].Value);
+
+    private static readonly Regex s_member = new(@"^private static [^\s(]+ (\w+)\s*[(;]", RegexOptions.CultureInvariant);
 
     // Ordered so generated output is stable.
     public static IReadOnlyList<KeyValuePair<string, string[]>> All { get; } = new List<KeyValuePair<string, string[]>>

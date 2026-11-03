@@ -110,6 +110,55 @@ public class SkiaCSharpSingleFileTests
         Assert.DoesNotContain("file static class", code);
     }
 
+    // A closed triangle: four verbs, enough to be built from path data.
+    private const string Triangle = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+          <path d="M 2 2 L 20 2 L 20 20 Z" />
+        </svg>
+        """;
+
+    [Fact]
+    public void Drawings_With_No_Expression_Keep_Their_Path_Helper_And_Need_No_File_Class()
+    {
+        // The file-local class takes C# 11, which a file with nothing but plain drawings never needed.
+        var code = SkiaCSharpCodeGen.GenerateFile(new[] { Drawing("Icons", "Home", Triangle), Drawing("Icons", "Search", Triangle) });
+
+        Assert.DoesNotContain("static class SvgExpressionHelpers", code);
+        Assert.DoesNotContain("using static", code);
+        Assert.Equal(2, Count(code, "private static void SvgPathBuilderData("));
+    }
+
+    [Fact]
+    public void A_File_That_Needs_The_File_Class_Keeps_The_Path_Helper_There_Too()
+    {
+        var code = SkiaCSharpCodeGen.GenerateFile(new[] { Tinted("Icons", "Home"), Drawing("Icons", "Search", Triangle) });
+
+        Assert.Contains("file static class SvgExpressionHelpers", code);
+        Assert.Equal(1, Count(code, "static void SvgPathBuilderData("));
+        Assert.DoesNotContain("private static void SvgPathBuilderData(", code);
+    }
+
+    [Theory]
+    [InlineData(SvgHelperScope.FileLocal)]
+    [InlineData(SvgHelperScope.PerClass)]
+    public void A_Drawing_Named_Like_A_Helper_It_Calls_Is_Refused(SvgHelperScope scope)
+    {
+        var error = Assert.Throws<ExprException>(() => SkiaCSharpCodeGen.GenerateFile(new[] { Drawing("Icons", "SvgPathBuilderData", Triangle) }, scope));
+
+        Assert.Contains("'SvgPathBuilderData' is a helper", error.Message);
+    }
+
+    [Fact]
+    public void A_Box_Named_Like_A_Helper_The_Drawing_Calls_Is_Refused()
+    {
+        var plain = Drawing("Icons", "Home", Triangle);
+        var boxed = new SkiaCSharpDrawing(plain.Picture, "Icons", "Home", plain.Declarations, bounds: new[] { ("SvgPathBuilderData", ShimSkiaSharp.SKRect.Create(0, 0, 4, 4)) });
+
+        var error = Assert.Throws<ExprException>(() => SkiaCSharpCodeGen.GenerateFile(new[] { boxed }, SvgHelperScope.PerClass));
+
+        Assert.Contains("Name the box something else", error.Message);
+    }
+
     [Fact]
     public void PerClass_Scope_Keeps_Helpers_Private_To_Each_Class()
     {
