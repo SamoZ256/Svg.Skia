@@ -1749,7 +1749,14 @@ public static class SkiaCSharpModelExtensions
                 _matrix = _saved.Pop();
             }
 
-            if (kept && _kept.Count > 0)
+            if (!kept)
+            {
+                return;
+            }
+
+            // One with nothing open would otherwise give back a save of the caller's.
+            Touched = true;
+            if (_kept.Count > 0)
             {
                 _holds = _kept.Pop();
             }
@@ -1759,7 +1766,7 @@ public static class SkiaCSharpModelExtensions
         {
             _matrix = command.SymbolicTotal is { } symbolic
                 ? new Placed(symbolic.ToSKMatrix(), Symbolic: true, command.TotalMatrix)
-                : command.TotalMatrix.IsIdentity ? null : new Placed(command.TotalMatrix.ToSKMatrix(), Symbolic: false, command.TotalMatrix);
+                : IsIdentity(command.TotalMatrix) ? null : new Placed(command.TotalMatrix.ToSKMatrix(), Symbolic: false, command.TotalMatrix);
 
             if (Eager)
             {
@@ -1898,6 +1905,9 @@ public static class SkiaCSharpModelExtensions
         public sealed record Mark(Dictionary<string, string>? Settings, bool PaintUsed, Placed? Holds, bool BaseUsed, bool Touched);
     }
 
+    // The shim's IsIdentity is its Equals, which leaves out the perspective row.
+    private static bool IsIdentity(SKMatrix matrix) => matrix is { ScaleX: 1f, SkewX: 0f, TransX: 0f, SkewY: 0f, ScaleY: 1f, TransY: 0f, Persp0: 0f, Persp1: 0f, Persp2: 1f };
+
     /// <summary>A matrix the model sets, as the C# that builds it, relative to the caller's.</summary>
     private sealed record Placed(string Code, bool Symbolic, SKMatrix Total)
     {
@@ -1927,6 +1937,11 @@ public static class SkiaCSharpModelExtensions
                     open.Push(index);
                     break;
                 case RestoreCanvasCommand when open.Count == 0:
+                    return null;
+
+                // A range that gives back a save opened before it ends where it began, and still
+                // leaves the saves open after it to whether it ran.
+                case RestoreCanvasCommand when ranges.Count > 0 && ranges.Peek() == open.Count:
                     return null;
                 case RestoreCanvasCommand:
                     kept[index] = kept[open.Pop()];
@@ -2252,6 +2267,12 @@ public static class SkiaCSharpModelExtensions
     {
         var moved = new SKPath { FillType = path.FillType };
 
+        // Skia starts a contour that opens without a move at the origin, which baked is the translation.
+        if (path.Commands?.FirstOrDefault(command => command is not ClosePathCommand) is LineToPathCommand or QuadToPathCommand or CubicToPathCommand or ArcToPathCommand)
+        {
+            moved.MoveTo(dx, dy);
+        }
+
         foreach (var command in path.Commands ?? Enumerable.Empty<PathCommand>())
         {
             switch (command)
@@ -2342,7 +2363,7 @@ public static class SkiaCSharpModelExtensions
             }
 
             // SkPath::transform returns at once on the identity, which PaintCode's clips nearly all carry.
-            if (clip.Transform is { IsIdentity: false })
+            if (clip.Transform is { } clipTransform && !IsIdentity(clipTransform))
             {
                 // Transform(SKMatrix) is obsolete in favour of Transform(in SKMatrix). Passing an
                 // expression would be ambiguous between the two, so the matrix needs a local.
@@ -2382,7 +2403,7 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
-        if (!isDefaultPathResult && clipPath.Transform is { IsIdentity: false })
+        if (!isDefaultPathResult && clipPath.Transform is { } transform && !IsIdentity(transform))
         {
             var counterMatrix = ++counter.Matrix;
             sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {clipPath.Transform.Value.ToSKMatrix()};");

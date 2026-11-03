@@ -1894,6 +1894,118 @@ public class SkiaCSharpRenderTests
                 .Replace("""<g visibility="{{ shown }}">""", """<g visibility="hidden">""")
                 .Replace("{{ tint }}", "#1e40af"));
 
+    // Models the scene compiler never writes, whose ranges hold whole elements and whose paths open
+    // with a move, but which a picture built by hand can hold.
+    private static ShimSkiaSharp.SKPath Square(float size)
+    {
+        var path = new ShimSkiaSharp.SKPath();
+        path.AddRect(ShimSkiaSharp.SKRect.Create(0f, 0f, size, size));
+        return path;
+    }
+
+    private static readonly ShimSkiaSharp.SKPaint s_red = new() { IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0xdc, 0x26, 0x26, 0xff) };
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_Range_That_Gives_Back_An_Earlier_Save_Keeps_Every_Save(bool shown)
+    {
+        // The range restores the clipping save opened before it and opens another, which the
+        // restore after it gives back: the shape after both is unclipped whether the range ran.
+        var declarations = SvgExpressionDeclarations.Parse("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="shown" type="boolean" default="true" /></e:code></defs>
+            </svg>
+            """);
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.Save();
+        canvas.ClipRect(ShimSkiaSharp.SKRect.Create(0, 0, 12, 24));
+        canvas.BeginConditional(ShimSkiaSharp.SymNode.Source("shown"));
+        canvas.Restore();
+        canvas.Save();
+        canvas.EndConditional();
+        canvas.Restore();
+        canvas.DrawPath(Square(24), s_red);
+        var model = recorder.EndRecording();
+        var name = $"CrossingRange{shown}";
+
+        var evaluated = SvgSceneExpressionEvaluator.Evaluate(model, declarations, Bind(declarations, new object?[] { shown }));
+        using var expected = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+        using var generated = Generated(model, name, SkiaSharpTarget.V4, declarations, new object?[] { shown });
+
+        AssertSamePicture(name, expected!, generated);
+        AssertDrawsDirectlyTheSame(name, model, expected!, declarations, new object?[] { shown });
+    }
+
+    [Fact]
+    public void A_Restore_With_Nothing_Open_Leaves_The_Callers_Saves_Alone()
+    {
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.DrawPath(Square(12), s_red);
+        canvas.Restore();
+        var draw = Compile(Code(recorder.EndRecording(), "StrayRestore", SvgBody.Direct), "StrayRestore")
+            .GetType($"{Namespace}.StrayRestore")!
+            .GetMethod("Draw")!;
+
+        using var bitmap = new SKBitmap(24, 24);
+        using var target = new SKCanvas(bitmap);
+        target.Save();
+        target.Translate(5, 5);
+        var saves = target.SaveCount;
+
+        draw.Invoke(null, new object?[] { target });
+
+        Assert.Equal(saves, target.SaveCount);
+        Assert.Equal(SKMatrix.CreateTranslation(5, 5), target.TotalMatrix);
+    }
+
+    [Fact]
+    public void A_Perspective_Is_Not_Taken_For_The_Identity()
+    {
+        // The shim's IsIdentity compares the affine part alone.
+        var perspective = new ShimSkiaSharp.SKMatrix { ScaleX = 1, ScaleY = 1, Persp0 = 0.01f, Persp2 = 1 };
+        var clip = new ShimSkiaSharp.ClipPath
+        {
+            Clips = new List<ShimSkiaSharp.PathClip> { new() { Path = Square(12), Transform = perspective } }
+        };
+        var model = new ShimPicture(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24), new List<ShimSkiaSharp.CanvasCommand>
+        {
+            new ShimSkiaSharp.SaveCanvasCommand(1),
+            new ShimSkiaSharp.ClipPathCanvasCommand(clip, ShimSkiaSharp.SKClipOperation.Intersect, true),
+            new ShimSkiaSharp.SetMatrixCanvasCommand(perspective, perspective),
+            new ShimSkiaSharp.DrawPathCanvasCommand(Square(24), s_red),
+            new ShimSkiaSharp.RestoreCanvasCommand(0)
+        });
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, "Perspective", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture("Perspective", runtime!, generated);
+        AssertDrawsDirectlyTheSame("Perspective", model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
+
+    [Fact]
+    public void A_Baked_Path_Opening_Without_A_Move_Starts_Where_The_Translation_Puts_The_Origin()
+    {
+        // Skia starts such a contour at the origin, which under the translation was (10, 10).
+        var path = new ShimSkiaSharp.SKPath();
+        path.LineTo(20f, 0f);
+        path.LineTo(20f, 20f);
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 40, 40));
+        canvas.Save();
+        canvas.SetMatrix(ShimSkiaSharp.SKMatrix.CreateTranslation(10f, 10f));
+        canvas.DrawPath(path, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 2f, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0x1e, 0x40, 0xaf, 0xff) });
+        canvas.Restore();
+        var model = recorder.EndRecording();
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, "MovelessPath", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture("MovelessPath", runtime!, generated, BakedThreshold);
+        AssertDrawsDirectlyTheSame("MovelessPath", model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
+
     [Fact]
     public void A_Direct_Draw_Of_Driven_Paints_Allocates_Nothing()
     {
