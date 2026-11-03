@@ -1961,6 +1961,30 @@ public class SkiaCSharpRenderTests
         Assert.Equal(SKMatrix.CreateTranslation(5, 5), target.TotalMatrix);
     }
 
+    [Theory]
+    [InlineData(-1f)]
+    [InlineData(float.NaN)]
+    public void A_Width_Skia_Refuses_Leaves_The_Shared_Paint_At_A_New_Ones(float width)
+    {
+        // Skia keeps what a paint holds when a width is negative or NaN; a new paint holds 0, a
+        // hairline, which is what the interpreter draws, and the 4 before it must not carry over.
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="tint" type="color" default="#1e40af" /><e:param name="w" type="number" default="1" /></e:code></defs>
+              <path d="M 2 4 L 22 4" fill="none" stroke="{{ tint }}" stroke-width="4" />
+              <path d="M 2 14 L 22 14" fill="none" stroke="{{ tint }}" stroke-width="{{ w }}" />
+            </svg>
+            """;
+        var model = Model(svg);
+        var declarations = SvgExpressionDeclarations.Parse(svg);
+        var arguments = new object?[] { new SKColor(0x1e, 0x40, 0xaf), width };
+
+        var evaluated = SvgSceneExpressionEvaluator.Evaluate(model, declarations, Bind(declarations, arguments));
+        using var expected = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+
+        AssertDrawsDirectlyTheSame($"RefusedWidth{(float.IsNaN(width) ? "NaN" : "Negative")}", model, expected!, declarations, arguments);
+    }
+
     [Fact]
     public void A_Perspective_Is_Not_Taken_For_The_Identity()
     {

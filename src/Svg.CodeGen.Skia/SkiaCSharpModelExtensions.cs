@@ -1862,15 +1862,30 @@ public static class SkiaCSharpModelExtensions
                     _ => Holds(held, wanted, property)
                 };
 
-                if (!skip)
+                if (skip)
                 {
-                    sb.AppendLine($"{indent}{Assignment(name, property, value ?? fallback)}");
+                    continue;
                 }
+
+                // Skia keeps what the paint holds when a width or miter is negative or NaN, which a
+                // new paint holds at its default: so must the shared one, where the value can be that.
+                if (property is "StrokeWidth" or "StrokeMiter" && held.ContainsKey(property) && !NonNegative(value ?? fallback))
+                {
+                    sb.AppendLine($"{indent}{Assignment(name, property, fallback)}");
+                }
+
+                sb.AppendLine($"{indent}{Assignment(name, property, value ?? fallback)}");
             }
 
             _settings = wanted;
             PaintUsed = true;
         }
+
+        // A literal Settings wrote, which no argument can make negative or NaN.
+        private static bool NonNegative(string value)
+            => value.EndsWith("f", StringComparison.Ordinal)
+               && float.TryParse(value.Substring(0, value.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+               && number >= 0f;
 
         private static bool Holds(Dictionary<string, string> held, Dictionary<string, string> wanted, string property)
             => held.TryGetValue(property, out var was) == wanted.TryGetValue(property, out var value) && was == value;
