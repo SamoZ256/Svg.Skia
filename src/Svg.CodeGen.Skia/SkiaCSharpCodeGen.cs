@@ -85,6 +85,14 @@ public sealed class SvgCodeStyle
 
     /// <summary>The order <see cref="Api"/> takes parameters in; names not listed follow, as declared.</summary>
     public IReadOnlyList<string> Order { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Whether a shape only a translation moves is built where it is drawn, so nothing sets a matrix
+    /// for it. Not bit for bit what the interpreter draws: Skia rounds the moved coordinates where it
+    /// would have rounded the matrix, and antialiased edges move by a few levels. Off only in tests,
+    /// which hold everything else to the interpreter exactly.
+    /// </summary>
+    internal bool Bake { get; init; } = true;
 }
 
 /// <summary>One drawing to be emitted, for <see cref="SkiaCSharpCodeGen.GenerateFile"/>.</summary>
@@ -408,7 +416,7 @@ public static class SkiaCSharpCodeGen
 
         var (compiler, lets) = declarations.Resolve();
 
-        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp, TypefaceTemplate = style.Typeface };
+        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp, TypefaceTemplate = style.Typeface, Bake = style.Bake };
         var indent = "            ";
 
         // Record the body first: which helper methods the class needs is decided by what the

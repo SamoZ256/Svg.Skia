@@ -1765,17 +1765,24 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
-        /// <summary>Puts the canvas under the matrix the model has set, unless it already is.</summary>
-        public void Sync(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, bool force = false)
+        /// <summary>The translation the model has set, where that is all it has.</summary>
+        public SKPoint? Translation => _matrix is { IsTranslation: true, Total: var total } ? new SKPoint(total.TransX, total.TransY) : null;
+
+        /// <summary>
+        /// Puts the canvas under the matrix the model has set, unless it already is; under the caller's
+        /// alone for a shape <paramref name="baked"/> into its coordinates.
+        /// </summary>
+        public void Sync(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, bool force = false, bool baked = false)
         {
-            if (!force && (Eager || Equals(_holds, _matrix)))
+            var target = baked ? null : _matrix;
+            if (!force && (Eager || Equals(_holds, target)))
             {
                 return;
             }
 
             if (!_direct)
             {
-                SetAbsolute(counter, sb, indent);
+                SetAbsolute(target, counter, sb, indent);
             }
             else
             {
@@ -1787,24 +1794,24 @@ public static class SkiaCSharpModelExtensions
                     BaseUsed = true;
                 }
 
-                if (_matrix is { IsTranslation: true, Total: var total })
+                if (target is { IsTranslation: true, Total: var total })
                 {
                     sb.AppendLine($"{indent}{_canvas}.Translate({total.TransX.ToFloatString()}, {total.TransY.ToFloatString()});");
                 }
-                else if (_matrix is { })
+                else if (target is { })
                 {
-                    sb.AppendLine($"{indent}{_canvas}.Concat(in {Local(_matrix, counter, sb, indent)});");
+                    sb.AppendLine($"{indent}{_canvas}.Concat(in {Local(target, counter, sb, indent)});");
                 }
             }
 
-            _holds = _matrix;
+            _holds = target;
             Touched = true;
         }
 
-        private void SetAbsolute(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
-            => sb.AppendLine(_matrix is null
+        private void SetAbsolute(Placed? matrix, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+            => sb.AppendLine(matrix is null
                 ? $"{indent}{_canvas}.ResetMatrix();"
-                : $"{indent}{_canvas}.SetMatrix(in {Local(_matrix, counter, sb, indent)});");
+                : $"{indent}{_canvas}.SetMatrix(in {Local(matrix, counter, sb, indent)});");
 
         // SetMatrix(SKMatrix) is obsolete as an *error* in SkiaSharp 4, so passing the matrix by value
         // does not merely warn: it fails to compile. The in overloads exist in 3 as well, and need a
@@ -2238,6 +2245,56 @@ public static class SkiaCSharpModelExtensions
 
     private static string Floats(params float[] values) => string.Join(", ", values.Select(value => value.ToFloatString()));
 
+    /// <summary><paramref name="path"/> with (<paramref name="dx"/>, <paramref name="dy"/>) added to every coordinate it is built from.</summary>
+    private static SKPath Moved(SKPath path, float dx, float dy)
+    {
+        var moved = new SKPath { FillType = path.FillType };
+
+        foreach (var command in path.Commands ?? Enumerable.Empty<PathCommand>())
+        {
+            switch (command)
+            {
+                case MoveToPathCommand move:
+                    moved.MoveTo(move.X + dx, move.Y + dy);
+                    break;
+                case LineToPathCommand line:
+                    moved.LineTo(line.X + dx, line.Y + dy);
+                    break;
+                case QuadToPathCommand quad:
+                    moved.QuadTo(quad.X0 + dx, quad.Y0 + dy, quad.X1 + dx, quad.Y1 + dy);
+                    break;
+                case CubicToPathCommand cubic:
+                    moved.CubicTo(cubic.X0 + dx, cubic.Y0 + dy, cubic.X1 + dx, cubic.Y1 + dy, cubic.X2 + dx, cubic.Y2 + dy);
+                    break;
+                case ArcToPathCommand arc:
+                    moved.ArcTo(arc.Rx, arc.Ry, arc.XAxisRotate, arc.LargeArc, arc.Sweep, arc.X + dx, arc.Y + dy);
+                    break;
+                case ClosePathCommand:
+                    moved.Close();
+                    break;
+                case AddRectPathCommand rect:
+                    moved.AddRect(Moved(rect.Rect));
+                    break;
+                case AddRoundRectPathCommand roundRect:
+                    moved.AddRoundRect(Moved(roundRect.Rect), roundRect.Rx, roundRect.Ry);
+                    break;
+                case AddOvalPathCommand oval:
+                    moved.AddOval(Moved(oval.Rect));
+                    break;
+                case AddCirclePathCommand circle:
+                    moved.AddCircle(circle.X + dx, circle.Y + dy, circle.Radius);
+                    break;
+                case AddPolyPathCommand { Points: { } points } poly:
+                    moved.AddPoly(points.Select(point => new SKPoint(point.X + dx, point.Y + dy)).ToArray(), poly.Close);
+                    break;
+            }
+        }
+
+        return moved;
+
+        SKRect Moved(SKRect rect) => new(rect.Left + dx, rect.Top + dy, rect.Right + dx, rect.Bottom + dy);
+    }
+
     public static void ToSKPath(this ClipPath clipPath, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, out bool isDefault)
     {
         // Whole or not at all: the paths a clip is assembled from are transformed in place.
@@ -2569,10 +2626,16 @@ public static class SkiaCSharpModelExtensions
             sb = dead > 0 ? discarded : direct ? command.Clear() : live;
             counter.Statics = dead > 0 ? null : statics;
 
+            // A shape under nothing but a translation takes it into its own coordinates, unless its
+            // paint has something in those coordinates too: a shader, a filter, a dash, a non-scaling stroke.
+            var offset = counter.Bake && !state.Eager && canvasCommand is DrawPathCanvasCommand { Path: { }, Paint: { Shader: null, ImageFilter: null, PathEffect: null, IsStrokeNonScaling: false } }
+                ? state.Translation
+                : null;
+
             if (canvasCommand is not (SaveCanvasCommand or RestoreCanvasCommand or SetMatrixCanvasCommand or SaveLayerCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand)
                 && !plan.Skips(index))
             {
-                state.Sync(counter, sb, indent);
+                state.Sync(counter, sb, indent, baked: offset is { });
             }
 
             switch (canvasCommand)
@@ -2834,6 +2897,13 @@ public static class SkiaCSharpModelExtensions
                     }
                 case DrawPathCanvasCommand drawPathCanvasCommand:
                     {
+                        // Not `with`: built for netstandard2.0, its init setter does not bind to the
+                        // ShimSkiaSharp a newer runtime loads (MissingMethodException).
+                        if (offset is { } moved)
+                        {
+                            drawPathCanvasCommand = new DrawPathCanvasCommand(Moved(drawPathCanvasCommand.Path!, moved.X, moved.Y), drawPathCanvasCommand.Paint);
+                        }
+
                         if (drawPathCanvasCommand.Path is { } && drawPathCanvasCommand.Paint is { })
                         {
                             var primitive = layers.Primitive(drawPathCanvasCommand) switch

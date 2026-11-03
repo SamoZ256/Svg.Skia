@@ -81,6 +81,9 @@ public class SkiaCSharpCodeGenCounter
     /// <summary>Whether the next picture is the drawing itself, drawn onto the canvas it is given.</summary>
     internal bool Direct { get; set; }
 
+    /// <summary>Whether a shape only a translation moves is built where it is drawn; see <see cref="SvgCodeStyle.Bake"/>.</summary>
+    internal bool Bake { get; set; }
+
     /// <summary>
     /// The static constructor's body while a direct drawing is emitted: where a path or a paint
     /// nothing the caller passes can change is built, once.

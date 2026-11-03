@@ -41,6 +41,11 @@ public class SkiaCSharpRenderTests
     // command list exactly. Any difference at all is a defect rather than tolerable noise.
     private const double Threshold = 0d;
 
+    // What the generator ships adds each translation to the coordinates of the shape it moves, which
+    // the interpreter does not: antialiased edges move by a few levels. TapHome's icons, at 1x to 3x
+    // and whole and half pixel offsets, measure at most 0.0138; a shape drawn out of place, 0.13.
+    private const double BakedThreshold = 0.02d;
+
     private static int s_generation;
 
     private static ShimPicture Model(string svgMarkup)
@@ -83,12 +88,14 @@ public class SkiaCSharpRenderTests
         SkiaSharpTarget skiaSharp,
         SvgExpressionDeclarations declarations,
         object?[] arguments,
-        IReadOnlyList<(string Name, ShimSkiaSharp.SKRect Rect)>? bounds = null)
+        IReadOnlyList<(string Name, ShimSkiaSharp.SKRect Rect)>? bounds = null,
+        bool bake = true)
     {
         var code = SkiaCSharpCodeGen.GenerateFile(
             new[] { new SkiaCSharpDrawing(model, Namespace, className, declarations, bounds: bounds) },
             SvgHelperScope.PerClass,
-            skiaSharp: skiaSharp);
+            skiaSharp: skiaSharp,
+            style: new SvgCodeStyle { Bake = bake });
 
         var assembly = Compile(code, className);
         var type = assembly.GetType($"{Namespace}.{className}");
@@ -169,15 +176,19 @@ public class SkiaCSharpRenderTests
         using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
         Assert.NotNull(runtime);
 
-        using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        using var exact = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), bake: false);
+        AssertSamePicture(name, runtime!, exact);
 
-        AssertSamePicture(name, runtime!, generated);
+        using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture($"{name}-baked", runtime!, generated, BakedThreshold);
+
         AssertDrawsDirectlyTheSame(name, model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), skiaSharp);
     }
 
     /// <summary>
-    /// The same drawing drawn directly: recorded through its Record, and drawn by its Draw onto a
-    /// canvas that already holds a transform of its own, which every matrix it sets is relative to.
+    /// The same drawing drawn directly, unbaked and as shipped: recorded through its Record, and drawn
+    /// by its Draw onto a canvas that already holds a transform of its own, which every matrix it sets
+    /// is relative to.
     /// </summary>
     private static void AssertDrawsDirectlyTheSame(
         string name,
@@ -188,26 +199,30 @@ public class SkiaCSharpRenderTests
         SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4,
         string? typeface = null)
     {
-        var code = SkiaCSharpCodeGen.GenerateFile(
-            new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations) },
-            SvgHelperScope.PerClass,
-            skiaSharp: skiaSharp,
-            style: new SvgCodeStyle { Body = SvgBody.Direct, Typeface = typeface });
+        foreach (var bake in new[] { false, true })
+        {
+            var code = SkiaCSharpCodeGen.GenerateFile(
+                new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations) },
+                SvgHelperScope.PerClass,
+                skiaSharp: skiaSharp,
+                style: new SvgCodeStyle { Body = SvgBody.Direct, Typeface = typeface, Bake = bake });
 
-        var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
+            var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
+            var label = bake ? $"{name}-direct-baked" : $"{name}-direct";
 
-        using var recorded = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, arguments)!;
-        AssertSamePicture($"{name}-direct", runtime, recorded);
+            using var recorded = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, arguments)!;
+            AssertSamePicture(label, runtime, recorded, bake ? BakedThreshold : Threshold);
 
-        var cull = runtime.CullRect;
-        var under = new SKRect(0, 0, cull.Width * 1.5f + 6, cull.Height * 1.5f + 10);
+            var cull = runtime.CullRect;
+            var under = new SKRect(0, 0, cull.Width * 1.5f + 6, cull.Height * 1.5f + 10);
 
-        // Against its own recording rather than the runtime's: under a fractional scale those two
-        // already differ along antialiased edges in record mode too (Gradients, RMS 0.0023).
-        using var expected = Transformed(under, canvas => canvas.DrawPicture(recorded));
-        using var actual = Transformed(under, canvas => type.GetMethod("Draw")!.Invoke(null, new object?[] { canvas }.Concat(arguments).ToArray()));
+            // Against its own recording rather than the runtime's: under a fractional scale those two
+            // already differ along antialiased edges in record mode too (Gradients, RMS 0.0023).
+            using var expected = Transformed(under, canvas => canvas.DrawPicture(recorded));
+            using var actual = Transformed(under, canvas => type.GetMethod("Draw")!.Invoke(null, new object?[] { canvas }.Concat(arguments).ToArray()));
 
-        AssertSamePicture($"{name}-direct-transformed", expected, actual);
+            AssertSamePicture($"{label}-transformed", expected, actual);
+        }
     }
 
     private static string Code(ShimPicture model, string name, SvgBody body, SvgExpressionDeclarations? declarations = null)
@@ -252,14 +267,12 @@ public class SkiaCSharpRenderTests
 
         var declarations = SvgExpressionDeclarations.Parse(svgMarkup);
 
-        using var generated = Generated(
-            model,
-            name,
-            SkiaSharpTarget.V4,
-            declarations,
-            arguments ?? Array.Empty<object?>());
+        using var exact = Generated(model, name, SkiaSharpTarget.V4, declarations, arguments ?? Array.Empty<object?>(), bake: false);
+        AssertSamePicture(name, runtime!, exact);
 
-        AssertSamePicture(name, runtime!, generated);
+        using var generated = Generated(model, name, SkiaSharpTarget.V4, declarations, arguments ?? Array.Empty<object?>());
+        AssertSamePicture($"{name}-baked", runtime!, generated, BakedThreshold);
+
         AssertDrawsDirectlyTheSame(name, model, runtime!, declarations, arguments ?? Array.Empty<object?>());
 
         // The runtime path resolving the same expressions, which the comparison above cannot show
@@ -272,7 +285,8 @@ public class SkiaCSharpRenderTests
         using var evaluatedPicture = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
         Assert.NotNull(evaluatedPicture);
 
-        AssertSamePicture($"{name}-evaluated", evaluatedPicture!, generated);
+        AssertSamePicture($"{name}-evaluated", evaluatedPicture!, exact);
+        AssertSamePicture($"{name}-evaluated-baked", evaluatedPicture!, generated, BakedThreshold);
     }
 
     /// <summary>
@@ -316,7 +330,7 @@ public class SkiaCSharpRenderTests
         return values;
     }
 
-    private static void AssertSamePicture(string name, SKPicture runtime, SKPicture generated)
+    private static void AssertSamePicture(string name, SKPicture runtime, SKPicture generated, double threshold = Threshold)
     {
         var directory = Directory.CreateTempSubdirectory().FullName;
         try
@@ -324,7 +338,7 @@ public class SkiaCSharpRenderTests
             var expected = Draw(runtime, Path.Combine(directory, $"{name}-runtime.png"));
             var actual = Draw(generated, Path.Combine(directory, $"{name}-generated.png"));
 
-            ImageHelper.CompareImages(name, actual, expected, Threshold);
+            ImageHelper.CompareImages(name, actual, expected, threshold);
         }
         finally
         {
@@ -415,7 +429,8 @@ public class SkiaCSharpRenderTests
 
                 // A keyword is a name the class can still declare.
                 ("default", new ShimSkiaSharp.SKRect(0f, 0f, 1f, 1f))
-            });
+            },
+            bake: false);
 
         AssertSamePicture("Boxed", runtime!, generated);
     }
@@ -713,8 +728,10 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
-    [Fact]
-    public void Translated_Shapes_Record_No_Save_Each()
+    [Theory]
+    [InlineData(SvgBody.Record)]
+    [InlineData(SvgBody.Direct)]
+    public void Translated_Shapes_Record_Only_Themselves(SvgBody body)
     {
         const string svg = """
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
@@ -723,18 +740,46 @@ public class SkiaCSharpRenderTests
               <path d="M 0 0 L 4 4" fill="none" stroke="#dc2626" transform="translate(18 2)" />
             </svg>
             """;
-        var code = SkiaCSharpCodeGen.GenerateFile(
-            new[] { new SkiaCSharpDrawing(Model(svg), Namespace, "Translated", SvgExpressionDeclarations.Empty) },
-            SvgHelperScope.PerClass,
-            style: new SvgCodeStyle { Body = SvgBody.Direct });
-        var record = Compile(code, "Translated").GetType($"{Namespace}.Translated")!.GetMethod("Record")!;
+        var model = Model(svg);
 
-        using var picture = (SKPicture)record.Invoke(null, null)!;
+        int Operations(bool bake)
+        {
+            var code = SkiaCSharpCodeGen.GenerateFile(
+                new[] { new SkiaCSharpDrawing(model, Namespace, "Translated", SvgExpressionDeclarations.Empty) },
+                SvgHelperScope.PerClass,
+                style: new SvgCodeStyle { Body = body, Bake = bake });
+            var record = Compile(code, "Translated").GetType($"{Namespace}.Translated")!.GetMethod("Record")!;
+            using var picture = (SKPicture)record.Invoke(null, null)!;
+            return picture.ApproximateOperationCount;
+        }
 
-        // A save, a translate and a path for each, two of them after setting the caller's matrix
-        // back, and the restore. A save, a set, a concat and a restore around each made it 15.
-        Assert.Equal(10, picture.ApproximateOperationCount);
+        // Each translation is in its path's coordinates, so the three paths are all there is.
+        Assert.Equal(3, Operations(bake: true));
+
+        // Unbaked, a direct body translates before each path, setting the caller's matrix back
+        // for two of them, inside one save: 10. A save, a set, a concat and a restore around each
+        // made it 15.
+        Assert.Equal(body == SvgBody.Direct ? 10 : 6, Operations(bake: false));
     }
+
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void A_Fractional_Translation_Is_Baked_Within_A_Few_Levels(SkiaSharpTarget skiaSharp)
+        // PaintCode's offsets carry four decimals, which no float holds exactly: the coordinates a
+        // translation is added to round where the matrix would have, and edges move a little.
+        => AssertRendersTheSame($"FractionalTranslations_{skiaSharp}", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30">
+              <ellipse cx="10.5" cy="10.5" rx="10.5" ry="10.5" fill="none" stroke="#1e40af" stroke-width="2" transform="translate(4.5 4.5)" />
+              <path d="M 4.0125 0 C 0.1597 0 -0.1825 2.6719 0.0596 4.3594 C 0.3017 6.0469 1.5107 7.3828 1.9412 8.8125 C 2.3716 10.2422 2.2909 12 4.0125 12"
+                    fill="none" stroke="#dc2626" stroke-width="0.5" stroke-miterlimit="10" transform="translate(11 9.5)" />
+              <path d="M 0 0.5859 L 3.4434 0" fill="none" stroke="#dc2626" stroke-width="0.5" transform="translate(13.4254 18.8687)" />
+              <path d="M 0 2.8363 C 0 2.8363 0 0 0 0" fill="none" stroke="#dc2626" stroke-width="0.25" transform="translate(14.7166 15.1183)" />
+              <rect x="0" y="0" width="7.1" height="1.7578" fill="#16a34a" transform="translate(12.9833 23.2241)" />
+              <rect x="0" y="0" width="5.3" height="3.1" rx="0.75" fill="#7c3aed" transform="translate(1.3333 22.4457)" />
+              <polygon points="0,0 3.7,0.4 1.9,3.3" fill="#f59e0b" transform="translate(24.2838 6.851)" />
+            </svg>
+            """, skiaSharp);
 
     [Fact]
     public void A_Mask_Keeps_Its_Layer()
@@ -1896,7 +1941,7 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
-        using var recorded = Generated(model, "Pattern", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        using var recorded = Generated(model, "Pattern", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), bake: false);
 
         AssertDrawsDirectlyTheSame("Pattern", model, recorded, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
     }
