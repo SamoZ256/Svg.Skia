@@ -1632,7 +1632,9 @@ public static class SkiaCSharpModelExtensions
             settings.Add(("StrokeMiter", paint.StrokeMiter.ToFloatString()));
         }
 
-        if (paint.Color is { } color and not { Alpha: 255, Red: 0, Green: 0, Blue: 0 })
+        // Opaque black is the default only as a constant: a driven fill-opacity of a black shape
+        // has that as its placeholder, with the expression still to set.
+        if (paint.Color is { } color and not { Expression: null, Alpha: 255, Red: 0, Green: 0, Blue: 0 })
         {
             settings.Add(("Color", ToSKColor(color)));
         }

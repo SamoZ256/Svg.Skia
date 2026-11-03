@@ -1615,6 +1615,29 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_Driven_Opacity_Fades_A_Black_Shape()
+        // Black is a paint's default, and the placeholder opacity of 1 leaves it opaque black: the
+        // colour is still the expression, which is what makes the paint follow the argument.
+        => AssertExpressionsRenderTheSame(
+            "ExprBlackFillOpacity",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="o" type="number" default="1" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" fill-opacity="{{ o }}" />
+              <path d="M 2 22 L 22 22" stroke="#000" stroke-width="2" stroke-opacity="{{ o }}" />
+            </svg>
+            """,
+            arguments: new object?[] { 0.3f },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" fill-opacity="0.3" />
+              <path d="M 2 22 L 22 22" stroke="#000" stroke-width="2" stroke-opacity="0.3" />
+            </svg>
+            """);
+
+    [Fact]
     public void A_Gradient_Stop_Opacity_Takes_An_Expression()
         => AssertExpressionsRenderTheSame(
             "ExprStopOpacity",
