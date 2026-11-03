@@ -1945,6 +1945,7 @@ public class SkiaCSharpRenderTests
         var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
         canvas.DrawPath(Square(12), s_red);
         canvas.Restore();
+        canvas.Restore();
         var draw = Compile(Code(recorder.EndRecording(), "StrayRestore", SvgBody.Direct), "StrayRestore")
             .GetType($"{Namespace}.StrayRestore")!
             .GetMethod("Draw")!;
@@ -1959,6 +1960,63 @@ public class SkiaCSharpRenderTests
 
         Assert.Equal(saves, target.SaveCount);
         Assert.Equal(SKMatrix.CreateTranslation(5, 5), target.TotalMatrix);
+    }
+
+    [Fact]
+    public void A_Restore_With_Nothing_Open_Gives_Back_Nothing()
+        // As Skia's recorder ignores it: the clip and the translation set before it still hold.
+    {
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.ClipRect(ShimSkiaSharp.SKRect.Create(0, 0, 12, 24));
+        canvas.SetMatrix(ShimSkiaSharp.SKMatrix.CreateTranslation(3f, 3f));
+        canvas.Restore();
+        canvas.DrawPath(Square(18), s_red);
+        var model = recorder.EndRecording();
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, "RestoreAtBase", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture("RestoreAtBase", runtime!, generated, BakedThreshold);
+        AssertDrawsDirectlyTheSame("RestoreAtBase", model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
+
+    [Theory]
+    [InlineData("close")]
+    [InlineData("empty polygon")]
+    public void A_Baked_Path_Opening_With_Nothing_Starts_At_The_Moved_Origin(string opening)
+    {
+        // Neither adds a point, so the line after it still starts at Skia's origin, which baked has
+        // to be the translation; and a close first must not become a contour of its own.
+        var path = new ShimSkiaSharp.SKPath();
+        if (opening == "close")
+        {
+            path.Close();
+        }
+        else
+        {
+            path.AddPoly(Array.Empty<ShimSkiaSharp.SKPoint>(), close: true);
+        }
+
+        path.LineTo(20f, 0f);
+        path.LineTo(20f, 20f);
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 40, 40));
+        canvas.Save();
+        canvas.SetMatrix(ShimSkiaSharp.SKMatrix.CreateTranslation(10f, 10f));
+        canvas.DrawPath(path, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 3f, StrokeCap = ShimSkiaSharp.SKStrokeCap.Square, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0x1e, 0x40, 0xaf, 0xff) });
+        canvas.Restore();
+        var model = recorder.EndRecording();
+        var name = opening == "close" ? "ClosedFirst" : "EmptyPolygonFirst";
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, name, SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture(name, runtime!, generated, BakedThreshold);
+
+        // Skia draws no cap on a move and a close, so only the verbs show a contour added before the close.
+        if (opening == "close")
+        {
+            Assert.Contains("new byte[] { 4, 0, 1, 1 }", SkiaCSharpCodeGen.Generate(model, Namespace, name));
+        }
     }
 
     [Theory]

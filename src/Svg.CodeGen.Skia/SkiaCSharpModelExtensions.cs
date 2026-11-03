@@ -1742,6 +1742,9 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
+        /// <summary>Whether the model has a save open for a restore to give back.</summary>
+        public bool Open => _saved.Count > 0;
+
         public void Restore(bool kept)
         {
             if (_saved.Count > 0)
@@ -1951,8 +1954,9 @@ public static class SkiaCSharpModelExtensions
                     kept[index] = true;
                     open.Push(index);
                     break;
+                // Skia's recorder gives back nothing at its base, and neither may the caller's canvas.
                 case RestoreCanvasCommand when open.Count == 0:
-                    return null;
+                    break;
 
                 // A range that gives back a save opened before it ends where it began, and still
                 // leaves the saves open after it to whether it ran.
@@ -2282,14 +2286,21 @@ public static class SkiaCSharpModelExtensions
     {
         var moved = new SKPath { FillType = path.FillType };
 
-        // Skia starts a contour that opens without a move at the origin, which baked is the translation.
-        if (path.Commands?.FirstOrDefault(command => command is not ClosePathCommand) is LineToPathCommand or QuadToPathCommand or CubicToPathCommand or ArcToPathCommand)
-        {
-            moved.MoveTo(dx, dy);
-        }
+        var opened = false;
 
         foreach (var command in path.Commands ?? Enumerable.Empty<PathCommand>())
         {
+            // Skia starts a contour that opens without a move at the origin, which baked is the
+            // translation: the move goes before the first command that adds anything.
+            if (!opened && command is not (ClosePathCommand or AddPolyPathCommand { Points: null or { Count: 0 } }))
+            {
+                opened = true;
+                if (command is LineToPathCommand or QuadToPathCommand or CubicToPathCommand or ArcToPathCommand)
+                {
+                    moved.MoveTo(dx, dy);
+                }
+            }
+
             switch (command)
             {
                 case MoveToPathCommand move:
@@ -2724,7 +2735,7 @@ public static class SkiaCSharpModelExtensions
                     }
                 case RestoreCanvasCommand _:
                     {
-                        var keep = kept?[index] ?? true;
+                        var keep = (kept?[index] ?? true) && state.Open;
                         if (keep)
                         {
                             sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Restore();");
