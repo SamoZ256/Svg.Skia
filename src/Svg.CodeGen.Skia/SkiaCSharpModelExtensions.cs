@@ -2459,7 +2459,9 @@ public static class SkiaCSharpModelExtensions
 
         // Locals renumbered in the order they first appear, so a copy built under other names matches.
         var locals = new Dictionary<string, int>(StringComparer.Ordinal);
-        var key = type + " " + s_local.Replace(text.ToString(), local => "#" + (locals.TryGetValue(local.Value, out var n) ? n : locals[local.Value] = locals.Count));
+        var key = type + " " + s_local.Replace(text.ToString(), local => local.Value[0] is '"' or '@'
+            ? local.Value
+            : "#" + (locals.TryGetValue(local.Value, out var n) ? n : locals[local.Value] = locals.Count));
         if (counter.StaticTexts.TryGetValue(key, out var first))
         {
             sb.AppendLine($"{indent}var {name} = s_{first};");
@@ -2479,8 +2481,9 @@ public static class SkiaCSharpModelExtensions
 
     private const string StaticIndent = "            ";
 
-    // A generated local under the counters' default names, the only ones a static's text holds.
-    private static readonly Regex s_local = new(@"\bsk[A-Z][A-Za-z]*\d+\b", RegexOptions.CultureInvariant);
+    // A generated local under the counters' default names, the only ones a static's text holds, or a
+    // string, verbatim or not, matched whole so that a word in it is never taken for one.
+    private static readonly Regex s_local = new(@"@""(?:[^""]|"""")*""|""(?:[^""\\]|\\.)*""|\bsk[A-Z][A-Za-z]*\d+\b", RegexOptions.CultureInvariant);
 
     /// <summary>The command without the disposal of what it reads from a static field, which outlives every draw.</summary>
     private static string Shared(string command, SkiaCSharpCodeGenCounter counter)

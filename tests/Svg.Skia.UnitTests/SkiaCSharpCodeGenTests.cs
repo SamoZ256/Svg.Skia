@@ -435,6 +435,52 @@ public class SkiaCSharpCodeGenTests
         }
     }
 
+    [Fact]
+    public void Statics_That_Differ_Only_In_A_String_Are_Kept_Apart()
+    {
+        // Two patterns whose text reads like a generated local: only the renumbering of locals is
+        // allowed to make two statics alike, and a string is not one.
+        SKPaint Pattern(string text)
+        {
+            var recorder = new SKPictureRecorder();
+            var tile = recorder.BeginRecording(SKRect.Create(0f, 0f, 10f, 10f));
+            tile.DrawText(text, 1f, 8f, new SKPaint { IsAntialias = true });
+            var shader = SKShader.CreatePicture(recorder.EndRecording(), SKShaderTileMode.Repeat, SKShaderTileMode.Repeat, SKMatrix.Identity, SKRect.Create(0f, 0f, 10f, 10f));
+            return new SKPaint { IsAntialias = true, Shader = shader };
+        }
+
+        var square = new SKPath();
+        square.MoveTo(0f, 0f);
+        square.LineTo(10f, 0f);
+        square.LineTo(10f, 10f);
+        square.Close();
+        var picture = new SKPicture(SKRect.Create(0f, 0f, 10f, 10f), new List<CanvasCommand>
+        {
+            new DrawPathCanvasCommand(square, Pattern("skA1")),
+            new DrawPathCanvasCommand(square, Pattern("skB2"))
+        });
+
+        var code = Generate("direct", picture);
+
+        Assert.Equal(2, Regex.Matches(code, @"private static readonly SKPaint ").Count);
+        Assert.Contains("\"skA1\"", code);
+        Assert.Contains("\"skB2\"", code);
+    }
+
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3, "SvgPathBuilderData(", "SKPathBuilder path")]
+    [InlineData(SkiaSharpTarget.V4, "SvgPathData(", "SKPath path")]
+    public void Text_Naming_The_Other_SkiaSharps_Path_Helper_Does_Not_Bring_It_In(SkiaSharpTarget skiaSharp, string text, string parameter)
+    {
+        var recorder = new SKPictureRecorder();
+        recorder.BeginRecording(SKRect.Create(0f, 0f, 40f, 10f)).DrawText(text, 1f, 8f, new SKPaint { IsAntialias = true });
+
+        var code = SkiaCSharpCodeGen.Generate(recorder.EndRecording(), "Svg", "Generated", null, skiaSharp);
+
+        Assert.Contains(text, code);
+        Assert.DoesNotContain(parameter, code);
+    }
+
     // A rotated frame clipping a shape inside it, as a PaintCode symbol records, the shape moved by
     // `offset` after the clip.
     private static SKPicture Clipped(SKMatrix offset, SymMatrix? driven)

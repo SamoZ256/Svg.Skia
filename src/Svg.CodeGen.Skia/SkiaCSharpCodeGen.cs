@@ -235,7 +235,7 @@ public static class SkiaCSharpCodeGen
 
         // Which helpers are needed is decided across every class at once, so each appears once.
         var helpers = shared
-            ? RequiredHelpers(string.Concat(built.Values.Select(c => c.Text))).ToList()
+            ? RequiredHelpers(string.Concat(built.Values.Select(c => c.Text)), skiaSharp).ToList()
             : new List<string[]>();
 
         var sb = new StringBuilder();
@@ -567,7 +567,7 @@ public static class SkiaCSharpCodeGen
         // to be referenced from a let or a parameter default.
         if (includeHelpers)
         {
-            foreach (var helper in RequiredHelpers(sb.ToString()))
+            foreach (var helper in RequiredHelpers(sb.ToString(), skiaSharp))
             {
                 sb.AppendLine($"");
                 foreach (var line in helper)
@@ -625,11 +625,15 @@ public static class SkiaCSharpCodeGen
         return string.Join(", ", rendered);
     }
 
-    private static IEnumerable<string[]> RequiredHelpers(string body)
+    private static IEnumerable<string[]> RequiredHelpers(string body, SkiaSharpTarget skiaSharp)
     {
+        // Each path data helper builds what exists in one SkiaSharp alone, and text the drawing
+        // draws can name the other's: it would not compile.
+        var other = skiaSharp == SkiaSharpTarget.V3 ? ExprHelpers.PathBuilderData : ExprHelpers.PathData;
+
         foreach (var helper in ExprHelpers.All)
         {
-            if (body.IndexOf(helper.Key + "(", StringComparison.Ordinal) >= 0)
+            if (helper.Key != other && body.IndexOf(helper.Key + "(", StringComparison.Ordinal) >= 0)
             {
                 yield return helper.Value;
             }
