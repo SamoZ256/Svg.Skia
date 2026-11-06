@@ -649,6 +649,20 @@ public class SkiaCSharpRenderTests
             """, skiaSharp);
 
     [Fact]
+    public void Two_Runs_In_One_Font_Read_One_Static()
+    {
+        var code = AssertTextRendersTheSame("OneFont", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" width="48" height="24">
+              <text x="2" y="10" font-family="Noto Sans" font-size="9" fill="#1e40af">Ab7</text>
+              <text x="2" y="21" font-family="Noto Sans" font-size="9" fill="#dc2626">cd</text>
+            </svg>
+            """);
+
+        Assert.Single(Regex.Matches(code, @"new SKFont\("));
+        Assert.DoesNotContain("skFont0?.Dispose()", code);
+    }
+
+    [Fact]
     public void Text_In_A_Range_Is_Replayed_Only_Where_The_Range_Runs()
         => AssertTextRendersTheSame("InlineTextRange", """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 48 24" width="48" height="24">
@@ -710,7 +724,8 @@ public class SkiaCSharpRenderTests
     /// Text against the runtime, from one font file on both sides: a family looked up by name
     /// resolves differently there and in a font manager (see <see cref="A_Typeface_Template_Draws_The_Typeface_It_Names"/>).
     /// </summary>
-    private static void AssertTextRendersTheSame(string name, string markup, SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4, object?[]? arguments = null)
+    /// <returns>The direct body, for what a row asserts of its text.</returns>
+    private static string AssertTextRendersTheSame(string name, string markup, SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4, object?[]? arguments = null)
     {
         Assert.True(File.Exists(s_noto), s_noto);
         var settings = new SKSvgSettings();
@@ -745,6 +760,12 @@ public class SkiaCSharpRenderTests
         }
 
         AssertDrawsDirectlyTheSame(name, model!, runtime!, declarations, arguments, skiaSharp, typeface: template);
+
+        return SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(model!, Namespace, name, declarations) },
+            SvgHelperScope.PerClass,
+            skiaSharp: skiaSharp,
+            style: new SvgCodeStyle { Body = SvgBody.Direct, Typeface = template });
     }
 
     [Theory]

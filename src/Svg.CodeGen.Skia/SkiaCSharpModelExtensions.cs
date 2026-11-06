@@ -1995,6 +1995,14 @@ public static class SkiaCSharpModelExtensions
 
     public static void ToSKFont(this SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
+        // Nothing in a font follows an argument, so the typeface is looked up once, as PaintCode's
+        // TypefaceManager does, and a draw allocates no font.
+        if (counter.Statics is { })
+        {
+            Hoist(counter, sb, indent, "SKFont", $"{counter.FontVarName}{counter.Font}", text => paint.ToSKFont(counter, text, indent));
+            return;
+        }
+
         var counterFont = counter.Font;
         var typefaceExpression = "SKTypeface.Default";
 
@@ -2038,6 +2046,12 @@ public static class SkiaCSharpModelExtensions
 
     public static void ToSKFont(this SKFont font, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SKTypeface? requested = null)
     {
+        if (counter.Statics is { })
+        {
+            Hoist(counter, sb, indent, "SKFont", $"{counter.FontVarName}{counter.Font}", text => font.ToSKFont(counter, text, indent, requested));
+            return;
+        }
+
         var counterFont = counter.Font;
         var typefaceExpression = "SKTypeface.Default";
 
