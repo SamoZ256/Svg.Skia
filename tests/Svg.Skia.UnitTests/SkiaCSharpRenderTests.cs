@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
@@ -622,6 +623,129 @@ public class SkiaCSharpRenderTests
               </g>
             </svg>
             """);
+
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void Text_Is_Replayed_Where_It_Is_Drawn(SkiaSharpTarget skiaSharp)
+        // The scene wraps every text element in a picture of its own: under a translation and a
+        // scale, under a clip that cuts it and in a group's layer. Not turned: a rotated run already
+        // differs from the runtime's by RMS 0.018 on master, recorded or not.
+        => AssertTextRendersTheSame($"InlineText_{skiaSharp}", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+              <defs>
+                <clipPath id="c" clipPathUnits="userSpaceOnUse"><rect x="0" y="30" width="30" height="7" /></clipPath>
+              </defs>
+              <g transform="translate(2.5 3) scale(1.25)">
+                <text x="2" y="10" font-family="Noto Sans" font-size="9" fill="#1e40af">Ab7</text>
+              </g>
+              <g clip-path="url(#c)">
+                <text x="2" y="38" font-family="Noto Sans" font-size="10" fill="#16a34a">clip</text>
+              </g>
+              <g opacity="0.5">
+                <text x="26" y="44" font-family="Noto Sans" font-size="8" fill="#111827">half</text>
+              </g>
+            </svg>
+            """, skiaSharp);
+
+    [Fact]
+    public void Text_In_A_Range_Is_Replayed_Only_Where_The_Range_Runs()
+        => AssertTextRendersTheSame("InlineTextRange", """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 48 24" width="48" height="24">
+              <defs><e:code><e:param name="laid" type="boolean" default="true" /></e:code></defs>
+              <g display="{{ laid }}" transform="translate(3 2)">
+                <text x="2" y="14" font-family="Noto Sans" font-size="11" fill="#7c3aed">on</text>
+              </g>
+              <path d="M 2 20 L 40 20" stroke="#111827" />
+            </svg>
+            """, arguments: new object?[] { true });
+
+    [Fact]
+    public void A_Picture_Replays_Its_Own_Matrices_Under_The_Canvas()
+    {
+        // Under a scale of its own and a clip, then a shape drawn after it back under the outer matrix.
+        // Not a non-scaling stroke: inside a picture the runtime takes it against the canvas's whole
+        // matrix and generated code, recorded or replayed, against the picture's (RMS 0.071 on master).
+        var nested = new ShimSkiaSharp.SKPictureRecorder();
+        var inner = nested.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        inner.Save();
+        inner.ClipRect(ShimSkiaSharp.SKRect.Create(0, 0, 10, 7), ShimSkiaSharp.SKClipOperation.Intersect, true);
+        inner.SetMatrix(ShimSkiaSharp.SKMatrix.CreateScale(2f, 1.5f));
+        var triangle = new ShimSkiaSharp.SKPath();
+        triangle.MoveTo(1, 1);
+        triangle.LineTo(6, 1);
+        triangle.LineTo(6, 6);
+        triangle.Close();
+        inner.DrawPath(triangle, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Fill, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0xef, 0x44, 0x44, 0xff) });
+        inner.Restore();
+
+        // Balanced, as the scene's pictures are: the runtime replays a picture's matrices onto the canvas
+        // it draws on, so one left set would outlast the picture there and not under DrawPicture.
+        inner.Save();
+        inner.SetMatrix(ShimSkiaSharp.SKMatrix.CreateScale(1.5f, 1.5f));
+        inner.DrawPath(triangle, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0x1e, 0x40, 0xaf, 0xff) });
+        inner.Restore();
+
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.Save();
+        canvas.SetMatrix(ShimSkiaSharp.SKMatrix.CreateTranslation(3.5f, 4f).PreConcat(ShimSkiaSharp.SKMatrix.CreateScale(1.25f, 1.25f)));
+        canvas.DrawPicture(nested.EndRecording());
+        var square = new ShimSkiaSharp.SKPath();
+        square.AddRect(ShimSkiaSharp.SKRect.Create(9f, 9f, 5f, 5f));
+        canvas.DrawPath(square, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Fill, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0x16, 0xa3, 0x4a, 0xff) });
+        canvas.Restore();
+        var model = recorder.EndRecording();
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, "PictureMatrices", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), bake: false);
+        AssertSamePicture("PictureMatrices", runtime!, generated);
+        AssertDrawsDirectlyTheSame("PictureMatrices", model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        Assert.Single(Regex.Matches(Code(model, "PictureMatrices", SvgBody.Direct), @"new SKPictureRecorder\(\)"));
+    }
+
+    private static readonly string s_noto = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "crates", "resvg", "tests", "fonts", "NotoSans-Regular.ttf"));
+
+    /// <summary>
+    /// Text against the runtime, from one font file on both sides: a family looked up by name
+    /// resolves differently there and in a font manager (see <see cref="A_Typeface_Template_Draws_The_Typeface_It_Names"/>).
+    /// </summary>
+    private static void AssertTextRendersTheSame(string name, string markup, SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4, object?[]? arguments = null)
+    {
+        Assert.True(File.Exists(s_noto), s_noto);
+        var settings = new SKSvgSettings();
+        settings.TypefaceProviders!.Insert(0, new Svg.Skia.TypefaceProviders.CustomTypefaceProvider(s_noto));
+
+        var document = SvgService.FromSvg(markup);
+        Assert.NotNull(document);
+        var model = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(settings)));
+        Assert.NotNull(model);
+
+        using var runtime = new SkiaModel(settings).ToSKPicture(model!);
+        Assert.NotNull(runtime);
+
+        var declarations = SvgExpressionDeclarations.Parse(markup);
+        var template = $"SKTypeface.FromFile(@\"{s_noto}\")";
+        arguments ??= Array.Empty<object?>();
+
+        foreach (var bake in new[] { false, true })
+        {
+            var code = SkiaCSharpCodeGen.GenerateFile(
+                new[] { new SkiaCSharpDrawing(model!, Namespace, name, declarations) },
+                SvgHelperScope.PerClass,
+                skiaSharp: skiaSharp,
+                style: new SvgCodeStyle { Typeface = template, Bake = bake });
+
+            // The recorder Record itself records with, and none for the pictures the text is in.
+            Assert.Single(Regex.Matches(code, @"new SKPictureRecorder\(\)"));
+
+            var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
+            using var recorded = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, arguments)!;
+            AssertSamePicture(bake ? $"{name}-baked" : name, runtime!, recorded, bake ? BakedThreshold : Threshold);
+        }
+
+        AssertDrawsDirectlyTheSame(name, model!, runtime!, declarations, arguments, skiaSharp, typeface: template);
+    }
 
     [Theory]
     [InlineData(SkiaSharpTarget.V3)]
