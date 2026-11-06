@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using ShimSkiaSharp;
 using ShimSkiaSharp.Editing;
 using Svg.CodeGen.Skia.Expressions;
@@ -1536,12 +1537,18 @@ public static class SkiaCSharpModelExtensions
         => ToSKPaint(paint, counter, sb, indent, fade: null);
 
     /// <param name="fade">The colours of the layers folded into this paint, whose alpha multiplies its own.</param>
-    private static void ToSKPaint(SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, IReadOnlyList<SKColor>? fade)
+    /// <param name="shared">Where a paint that follows an argument and holds no shader or filter is set up instead of built.</param>
+    private static void ToSKPaint(SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, IReadOnlyList<SKColor>? fade, CanvasState? shared = null)
     {
         if (counter.Statics is { })
         {
+            var name = $"{counter.PaintVarName}{counter.Paint}";
+            Action<StringBuilder>? local = shared?.Paint is { } && paint is { Shader: null, ColorFilter: null, ImageFilter: null, PathEffect: null }
+                ? text => shared.Assign(name, Settings(paint, fade), text, indent)
+                : null;
+
             // Inside the hoisted text, so a constant fade is applied once and a driven one keeps it local.
-            Hoist(counter, sb, indent, "SKPaint", $"{counter.PaintVarName}{counter.Paint}", text => ToSKPaint(paint, counter, text, indent, fade));
+            Hoist(counter, sb, indent, "SKPaint", name, text => ToSKPaint(paint, counter, text, indent, fade), local: local);
             return;
         }
 
@@ -1549,70 +1556,9 @@ public static class SkiaCSharpModelExtensions
 
         sb.AppendLine($"{indent}var {counter.PaintVarName}{counterPaint} = new SKPaint();");
 
-        // SKPaint defaults:
-        // Style=Fill
-        // IsAntialias=false
-        // StrokeWidth=0
-        // StrokeCap=Butt
-        // StrokeJoin=Miter
-        // StrokeMiter=4
-        // Color=#ff000000
-        // BlendMode=SrcOver
-
-        if (paint.Style != SKPaintStyle.Fill)
+        foreach (var (property, value) in Settings(paint, fade))
         {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.Style = {paint.Style.ToSKPaintStyle()};");
-        }
-
-        if (paint.IsAntialias != false)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.IsAntialias = {paint.IsAntialias.ToBoolString()};");
-        }
-
-        if (paint.StrokeWidthExpression is { } strokeWidth)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeWidth = {SymCSharpEmitter.Emit(strokeWidth, ExprType.Number)};");
-        }
-        else if (paint.StrokeWidth != 0f)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeWidth = {paint.StrokeWidth.ToFloatString()};");
-        }
-
-        if (paint.StrokeCap != SKStrokeCap.Butt)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeCap = {paint.StrokeCap.ToSKStrokeCap()};");
-        }
-
-        if (paint.StrokeJoin != SKStrokeJoin.Miter)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeJoin = {paint.StrokeJoin.ToSKStrokeJoin()};");
-        }
-
-        if (paint.StrokeMiter != 4f)
-        {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.StrokeMiter = {paint.StrokeMiter.ToFloatString()};");
-        }
-
-        if (paint.Color is { })
-        {
-            // Skip default color
-            if (paint.Color.Value is not { Alpha: 255, Red: 0, Green: 0, Blue: 0 })
-            {
-                sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.Color = {(paint.Color is null ? "SKColor.Empty" : ToSKColor(paint.Color.Value))};");
-            }
-        }
-
-        // In the float arithmetic SkiaModel applies to the same layers, so the two draw alike.
-        var factors = fade?
-            .Where(color => color is not { Expression: null, Alpha: 255 })
-            .Select(color => color.Expression is null
-                ? $"({color.Alpha} * (1 / 255f))"
-                : $"(({ToSKColor(color)}).Alpha * (1 / 255f))")
-            .ToList();
-        if (factors is { Count: > 0 })
-        {
-            var colorF = $"{counter.PaintVarName}{counterPaint}.ColorF";
-            sb.AppendLine($"{indent}{colorF} = {colorF}.WithAlpha({colorF}.Alpha * ({string.Join(" * ", factors)}));");
+            sb.AppendLine($"{indent}{Assignment($"{counter.PaintVarName}{counterPaint}", property, value)}");
         }
 
         if (paint.Shader is { })
@@ -1642,11 +1588,403 @@ public static class SkiaCSharpModelExtensions
             paint.PathEffect.ToSKPathEffect(counter, sb, indent);
             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.PathEffect = {counter.PathEffectVarName}{counterPathEffect};");
         }
+    }
+
+    /// <summary>
+    /// What a paint sets beyond a new one's defaults, in the order it is set: each property's name and
+    /// the C# of its value. <c>ColorF</c> stands for the folded layers' alpha, multiplied into the colour.
+    /// </summary>
+    private static List<(string Property, string Value)> Settings(SKPaint paint, IReadOnlyList<SKColor>? fade)
+    {
+        var settings = new List<(string, string)>();
+
+        if (paint.Style != SKPaintStyle.Fill)
+        {
+            settings.Add(("Style", paint.Style.ToSKPaintStyle()));
+        }
+
+        if (paint.IsAntialias)
+        {
+            settings.Add(("IsAntialias", paint.IsAntialias.ToBoolString()));
+        }
+
+        if (paint.StrokeWidthExpression is { } strokeWidth)
+        {
+            settings.Add(("StrokeWidth", SymCSharpEmitter.Emit(strokeWidth, ExprType.Number)));
+        }
+        else if (paint.StrokeWidth != 0f)
+        {
+            settings.Add(("StrokeWidth", paint.StrokeWidth.ToFloatString()));
+        }
+
+        if (paint.StrokeCap != SKStrokeCap.Butt)
+        {
+            settings.Add(("StrokeCap", paint.StrokeCap.ToSKStrokeCap()));
+        }
+
+        if (paint.StrokeJoin != SKStrokeJoin.Miter)
+        {
+            settings.Add(("StrokeJoin", paint.StrokeJoin.ToSKStrokeJoin()));
+        }
+
+        if (paint.StrokeMiter != 4f)
+        {
+            settings.Add(("StrokeMiter", paint.StrokeMiter.ToFloatString()));
+        }
+
+        // Opaque black is the default only as a constant: a driven fill-opacity of a black shape
+        // has that as its placeholder, with the expression still to set.
+        if (paint.Color is { } color and not { Expression: null, Alpha: 255, Red: 0, Green: 0, Blue: 0 })
+        {
+            settings.Add(("Color", ToSKColor(color)));
+        }
+
+        // In the float arithmetic SkiaModel applies to the same layers, so the two draw alike.
+        var factors = fade?
+            .Where(color => color is not { Expression: null, Alpha: 255 })
+            .Select(color => color.Expression is null
+                ? $"({color.Alpha} * (1 / 255f))"
+                : $"(({ToSKColor(color)}).Alpha * (1 / 255f))")
+            .ToList();
+        if (factors is { Count: > 0 })
+        {
+            settings.Add(("ColorF", string.Join(" * ", factors)));
+        }
 
         if (paint.BlendMode != SKBlendMode.SrcOver)
         {
-            sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}.BlendMode = {paint.BlendMode.ToSKBlendMode()};");
+            settings.Add(("BlendMode", paint.BlendMode.ToSKBlendMode()));
         }
+
+        return settings;
+    }
+
+    /// <summary>A paint's defaults, as <see cref="Settings"/> would write each one.</summary>
+    private static readonly (string Property, string Value)[] s_paintDefaults =
+    {
+        ("Style", SKPaintStyle.Fill.ToSKPaintStyle()),
+        ("IsAntialias", false.ToBoolString()),
+        ("StrokeWidth", 0f.ToFloatString()),
+        ("StrokeCap", SKStrokeCap.Butt.ToSKStrokeCap()),
+        ("StrokeJoin", SKStrokeJoin.Miter.ToSKStrokeJoin()),
+        ("StrokeMiter", 4f.ToFloatString()),
+        ("Color", "SKColors.Black"),
+        ("ColorF", ""),
+        ("BlendMode", SKBlendMode.SrcOver.ToSKBlendMode())
+    };
+
+    private static string Assignment(string paint, string property, string value)
+        => property == "ColorF"
+            ? $"{paint}.ColorF = {paint}.ColorF.WithAlpha({paint}.ColorF.Alpha * ({value}));"
+            : $"{paint}.{property} = {value};";
+
+    /// <summary>
+    /// What the code emitted so far leaves on the canvas and in the shared paint, as far as generation
+    /// can know, set against what the model asks of each draw.
+    /// </summary>
+    /// <remarks>
+    /// Every matrix the model sets is its whole total, so a save that scopes nothing but a matrix need
+    /// not reach the canvas: the next draw sets what it is drawn under. Skia records each save a matrix
+    /// changes under: HueBulbBulb's nine strokes record 28 operations so, and recorded 45.
+    /// </remarks>
+    private sealed class CanvasState
+    {
+        // What the canvas holds where a range that may not have run changed it.
+        private static readonly Placed s_unknown = new("?", Symbolic: true, default);
+
+        private readonly string _canvas;
+        private readonly int _counterCanvas;
+        private readonly bool _direct;
+        private readonly Stack<Placed?> _saved = new();
+        private readonly Stack<Placed?> _kept = new();
+        private Placed? _matrix;
+        private Placed? _holds;
+
+        /// <summary>
+        /// Each setting the shared paint holds beyond its defaults; null when a range that may not have
+        /// run changed it, and the next shape resets it. Replaced, never changed, so a mark can share it.
+        /// </summary>
+        private Dictionary<string, string>? _settings = new(StringComparer.Ordinal);
+
+        /// <param name="paint">The shared paint's local, or null where every paint is built for itself.</param>
+        /// <param name="direct">Whether the canvas is the caller's, whose matrix every one set is relative to.</param>
+        public CanvasState(string? paint, string canvas, int counterCanvas, bool direct)
+        {
+            Paint = paint;
+            _canvas = canvas;
+            _counterCanvas = counterCanvas;
+            _direct = direct;
+        }
+
+        public string? Paint { get; }
+
+        public bool PaintUsed { get; private set; }
+
+        /// <summary>Whether anything emitted reads the caller's matrix.</summary>
+        public bool BaseUsed { get; set; }
+
+        /// <summary>Whether anything emitted changes the canvas, which the caller then needs back.</summary>
+        public bool Touched { get; set; }
+
+        /// <summary>
+        /// Set where the ranges do not nest with the saves, so what a draw is drawn under depends on which
+        /// ran: every matrix is then set where the model sets it, as it always was.
+        /// </summary>
+        public bool Eager { get; set; }
+
+        public void Save(bool kept)
+        {
+            _saved.Push(_matrix);
+            if (kept)
+            {
+                _kept.Push(_holds);
+                Touched = true;
+            }
+        }
+
+        /// <summary>Whether the model has a save open for a restore to give back.</summary>
+        public bool Open => _saved.Count > 0;
+
+        public void Restore(bool kept)
+        {
+            if (_saved.Count > 0)
+            {
+                _matrix = _saved.Pop();
+            }
+
+            if (!kept)
+            {
+                return;
+            }
+
+            // One with nothing open would otherwise give back a save of the caller's.
+            Touched = true;
+            if (_kept.Count > 0)
+            {
+                _holds = _kept.Pop();
+            }
+        }
+
+        public void SetMatrix(SetMatrixCanvasCommand command, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+        {
+            _matrix = command.SymbolicTotal is { } symbolic
+                ? new Placed(symbolic.ToSKMatrix(), Symbolic: true, command.TotalMatrix)
+                : IsIdentity(command.TotalMatrix) ? null : new Placed(command.TotalMatrix.ToSKMatrix(), Symbolic: false, command.TotalMatrix);
+
+            if (Eager)
+            {
+                Sync(counter, sb, indent, force: true);
+            }
+        }
+
+        /// <summary>The translation the model has set, where that is all it has.</summary>
+        public SKPoint? Translation => _matrix is { IsTranslation: true, Total: var total } ? new SKPoint(total.TransX, total.TransY) : null;
+
+        /// <summary>
+        /// Puts the canvas under the matrix the model has set, unless it already is; under the caller's
+        /// alone for a shape <paramref name="baked"/> into its coordinates.
+        /// </summary>
+        public void Sync(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, bool force = false, bool baked = false)
+        {
+            var target = baked ? null : _matrix;
+            if (!force && (Eager || Equals(_holds, target)))
+            {
+                return;
+            }
+
+            if (!_direct)
+            {
+                SetAbsolute(target, counter, sb, indent);
+            }
+            else
+            {
+                // Composed by the canvas, as a picture's playback composes it: the same product taken in
+                // managed code differs from it in the last bits. Translate is that product too.
+                if (force || _holds is { })
+                {
+                    sb.AppendLine($"{indent}{_canvas}.SetMatrix(in skBase{_counterCanvas});");
+                    BaseUsed = true;
+                }
+
+                if (target is { IsTranslation: true, Total: var total })
+                {
+                    sb.AppendLine($"{indent}{_canvas}.Translate({total.TransX.ToFloatString()}, {total.TransY.ToFloatString()});");
+                }
+                else if (target is { })
+                {
+                    sb.AppendLine($"{indent}{_canvas}.Concat(in {Local(target, counter, sb, indent)});");
+                }
+            }
+
+            _holds = target;
+            Touched = true;
+        }
+
+        private void SetAbsolute(Placed? matrix, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+            => sb.AppendLine(matrix is null
+                ? $"{indent}{_canvas}.ResetMatrix();"
+                : $"{indent}{_canvas}.SetMatrix(in {Local(matrix, counter, sb, indent)});");
+
+        // SetMatrix(SKMatrix) is obsolete as an *error* in SkiaSharp 4, so passing the matrix by value
+        // does not merely warn: it fails to compile. The in overloads exist in 3 as well, and need a
+        // local because an expression would be ambiguous between the two.
+        private static string Local(Placed matrix, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+        {
+            var name = $"{counter.MatrixVarName}{++counter.Matrix}";
+
+            // The recorder composed the symbolic total off the same save/restore stack as the baked
+            // one, so the functions printed here are the whole matrix and nothing tracks a running local.
+            sb.AppendLine($"{indent}var {name} = {matrix.Code.Replace("\n", "\n" + indent)};");
+            return name;
+        }
+
+        /// <summary>The shared paint, as <paramref name="name"/>, set to <paramref name="settings"/> by what it does not already hold.</summary>
+        public void Assign(string name, List<(string Property, string Value)> settings, StringBuilder sb, string indent)
+        {
+            sb.AppendLine($"{indent}var {name} = {Paint};");
+
+            var held = _settings;
+            if (held is null)
+            {
+                sb.AppendLine($"{indent}{name}.Reset();");
+                held = new Dictionary<string, string>(StringComparer.Ordinal);
+            }
+
+            var wanted = settings.ToDictionary(setting => setting.Property, setting => setting.Value, StringComparer.Ordinal);
+
+            // The fade multiplies whatever colour the paint holds, so either changing sets both again.
+            var recolor = !Holds(held, wanted, "Color") || !Holds(held, wanted, "ColorF");
+
+            foreach (var (property, fallback) in s_paintDefaults)
+            {
+                var value = wanted.TryGetValue(property, out var set) ? set : null;
+                var skip = property switch
+                {
+                    "Color" => !recolor,
+                    "ColorF" => !recolor || value is null,
+                    _ => Holds(held, wanted, property)
+                };
+
+                if (skip)
+                {
+                    continue;
+                }
+
+                // Skia keeps what the paint holds when a width or miter is negative or NaN, which a
+                // new paint holds at its default: so must the shared one, where the value can be that.
+                if (property is "StrokeWidth" or "StrokeMiter" && held.ContainsKey(property) && !NonNegative(value ?? fallback))
+                {
+                    sb.AppendLine($"{indent}{Assignment(name, property, fallback)}");
+                }
+
+                sb.AppendLine($"{indent}{Assignment(name, property, value ?? fallback)}");
+            }
+
+            _settings = wanted;
+            PaintUsed = true;
+        }
+
+        // A literal Settings wrote, which no argument can make negative or NaN.
+        private static bool NonNegative(string value)
+            => value.EndsWith("f", StringComparison.Ordinal)
+               && float.TryParse(value.Substring(0, value.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+               && number >= 0f;
+
+        private static bool Holds(Dictionary<string, string> held, Dictionary<string, string> wanted, string property)
+            => held.TryGetValue(property, out var was) == wanted.TryGetValue(property, out var value) && was == value;
+
+        public Mark Marked() => new(_settings, PaintUsed, _holds, BaseUsed, Touched);
+
+        /// <summary>After a range that may or may not have run: what holds either way.</summary>
+        public void Join(Mark before)
+        {
+            if (_settings is null || before.Settings is null || _settings.Count != before.Settings.Count || _settings.Any(setting => !before.Settings.TryGetValue(setting.Key, out var value) || value != setting.Value))
+            {
+                _settings = null;
+            }
+
+            if (!Equals(_holds, before.Holds))
+            {
+                _holds = s_unknown;
+            }
+        }
+
+        /// <summary>After a range that never runs: nothing it emitted happened.</summary>
+        public void Restore(Mark before)
+        {
+            _settings = before.Settings;
+            PaintUsed = before.PaintUsed;
+            _holds = before.Holds;
+            BaseUsed = before.BaseUsed;
+            Touched = before.Touched;
+        }
+
+        /// <summary>What a range is weighed against once it ends.</summary>
+        public sealed record Mark(Dictionary<string, string>? Settings, bool PaintUsed, Placed? Holds, bool BaseUsed, bool Touched);
+    }
+
+    // The shim's IsIdentity is its Equals, which leaves out the perspective row.
+    private static bool IsIdentity(SKMatrix matrix) => matrix is { ScaleX: 1f, SkewX: 0f, TransX: 0f, SkewY: 0f, ScaleY: 1f, TransY: 0f, Persp0: 0f, Persp1: 0f, Persp2: 1f };
+
+    /// <summary>A matrix the model sets, as the C# that builds it, relative to the caller's.</summary>
+    private sealed record Placed(string Code, bool Symbolic, SKMatrix Total)
+    {
+        public bool IsTranslation => !Symbolic && Total is { ScaleX: 1f, SkewX: 0f, SkewY: 0f, ScaleY: 1f, Persp0: 0f, Persp1: 0f, Persp2: 1f };
+    }
+
+    /// <summary>
+    /// Which saves, with the restores that match them, have to reach the canvas: a save that scopes a
+    /// clip, and every layer. Null where a range does not nest with the saves, or sets a matrix that
+    /// outlives it, and which draw is under what depends on which ranges ran.
+    /// </summary>
+    private static bool[]? KeptSaves(IList<CanvasCommand> commands, CommandPlan plan)
+    {
+        var kept = new bool[commands.Count];
+        var open = new Stack<int>();
+        var ranges = new Stack<int>();
+
+        for (var index = 0; index < commands.Count; index++)
+        {
+            switch (commands[index])
+            {
+                case SaveCanvasCommand:
+                    open.Push(index);
+                    break;
+                case SaveLayerCanvasCommand:
+                    kept[index] = true;
+                    open.Push(index);
+                    break;
+                // Skia's recorder gives back nothing at its base, and neither may the caller's canvas.
+                case RestoreCanvasCommand when open.Count == 0:
+                    break;
+
+                // A range that gives back a save opened before it ends where it began, and still
+                // leaves the saves open after it to whether it ran.
+                case RestoreCanvasCommand when ranges.Count > 0 && ranges.Peek() == open.Count:
+                    return null;
+                case RestoreCanvasCommand:
+                    kept[index] = kept[open.Pop()];
+                    break;
+                case ClipPathCanvasCommand or ClipRectCanvasCommand when !plan.Skips(index) && open.Count > 0:
+                    kept[open.Peek()] = true;
+                    break;
+                case SetMatrixCanvasCommand when ranges.Count > 0 && ranges.Peek() == open.Count:
+                    return null;
+                case BeginConditionalCanvasCommand:
+                    ranges.Push(open.Count);
+                    break;
+                case EndConditionalCanvasCommand when ranges.Count == 0 || ranges.Pop() != open.Count:
+                    return null;
+            }
+        }
+
+        // A save left open is kept, and with it whatever it scopes past the end of the list.
+        foreach (var index in open)
+        {
+            kept[index] = true;
+        }
+
+        return kept;
     }
 
     public static void ToSKFont(this SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
@@ -1819,109 +2157,191 @@ public static class SkiaCSharpModelExtensions
             sb.AppendLine($"{indent}{builder}.FillType = {path.FillType.ToSKPathFillType()};");
         }
 
+        var run = new List<PathCommand>();
         foreach (var pathCommand in path.Commands ?? Enumerable.Empty<PathCommand>())
         {
-            switch (pathCommand)
+            if (pathCommand is MoveToPathCommand or LineToPathCommand or QuadToPathCommand or CubicToPathCommand or ArcToPathCommand or ClosePathCommand or AddPolyPathCommand { Points: { } })
             {
-                case MoveToPathCommand moveToPathCommand:
-                    {
-                        var x = moveToPathCommand.X;
-                        var y = moveToPathCommand.Y;
-                        sb.AppendLine($"{indent}{builder}.MoveTo({x.ToFloatString()}, {y.ToFloatString()});");
-                    }
-                    break;
-                case LineToPathCommand lineToPathCommand:
-                    {
-                        var x = lineToPathCommand.X;
-                        var y = lineToPathCommand.Y;
-                        sb.AppendLine($"{indent}{builder}.LineTo({x.ToFloatString()}, {y.ToFloatString()});");
-                    }
-                    break;
-                case ArcToPathCommand arcToPathCommand:
-                    {
-                        var rx = arcToPathCommand.Rx;
-                        var ry = arcToPathCommand.Ry;
-                        var xAxisRotate = arcToPathCommand.XAxisRotate;
-                        var largeArc = arcToPathCommand.LargeArc.ToSKPathArcSize();
-                        var sweep = arcToPathCommand.Sweep.ToSKPathDirection();
-                        var x = arcToPathCommand.X;
-                        var y = arcToPathCommand.Y;
-                        sb.AppendLine($"{indent}{builder}.ArcTo({rx.ToFloatString()}, {ry.ToFloatString()}, {xAxisRotate.ToFloatString()}, {largeArc}, {sweep}, {x.ToFloatString()}, {y.ToFloatString()});");
-                    }
-                    break;
-                case QuadToPathCommand quadToPathCommand:
-                    {
-                        var x0 = quadToPathCommand.X0;
-                        var y0 = quadToPathCommand.Y0;
-                        var x1 = quadToPathCommand.X1;
-                        var y1 = quadToPathCommand.Y1;
-                        sb.AppendLine($"{indent}{builder}.QuadTo({x0.ToFloatString()}, {y0.ToFloatString()}, {x1.ToFloatString()}, {y1.ToFloatString()});");
-                    }
-                    break;
-                case CubicToPathCommand cubicToPathCommand:
-                    {
-                        var x0 = cubicToPathCommand.X0;
-                        var y0 = cubicToPathCommand.Y0;
-                        var x1 = cubicToPathCommand.X1;
-                        var y1 = cubicToPathCommand.Y1;
-                        var x2 = cubicToPathCommand.X2;
-                        var y2 = cubicToPathCommand.Y2;
-                        sb.AppendLine($"{indent}{builder}.CubicTo({x0.ToFloatString()}, {y0.ToFloatString()}, {x1.ToFloatString()}, {y1.ToFloatString()}, {x2.ToFloatString()}, {y2.ToFloatString()});");
-                    }
-                    break;
-                case ClosePathCommand _:
-                    {
-                        sb.AppendLine($"{indent}{builder}.Close();");
-                    }
-                    break;
-                case AddRectPathCommand addRectPathCommand:
-                    {
-                        var rect = addRectPathCommand.Rect.ToSKRect();
-                        sb.AppendLine($"{indent}{builder}.AddRect({rect});");
-                    }
-                    break;
-                case AddRoundRectPathCommand addRoundRectPathCommand:
-                    {
-                        var rect = addRoundRectPathCommand.Rect.ToSKRect();
-                        var rx = addRoundRectPathCommand.Rx;
-                        var ry = addRoundRectPathCommand.Ry;
-                        sb.AppendLine($"{indent}{builder}.AddRoundRect({rect}, {rx.ToFloatString()}, {ry.ToFloatString()});");
-                    }
-                    break;
-                case AddOvalPathCommand addOvalPathCommand:
-                    {
-                        var rect = addOvalPathCommand.Rect.ToSKRect();
-                        sb.AppendLine($"{indent}{builder}.AddOval({rect});");
-                    }
-                    break;
-                case AddCirclePathCommand addCirclePathCommand:
-                    {
-                        var x = addCirclePathCommand.X;
-                        var y = addCirclePathCommand.Y;
-                        var radius = addCirclePathCommand.Radius;
-                        sb.AppendLine($"{indent}{builder}.AddCircle({x.ToFloatString()}, {y.ToFloatString()}, {radius.ToFloatString()});");
-                    }
-                    break;
-                case AddPolyPathCommand addPolyPathCommand:
-                    {
-                        if (addPolyPathCommand.Points is { })
-                        {
-                            var points = addPolyPathCommand.Points.ToSKPoints();
-                            var close = addPolyPathCommand.Close.ToBoolString();
-                            sb.AppendLine($"{indent}{builder}.AddPoly({points}, {close});");
-                        }
-                    }
-                    break;
-                default:
-                    break;
+                run.Add(pathCommand);
+                continue;
+            }
+
+            PathRun(run, builder, counter, sb, indent);
+            run.Clear();
+
+            if (PathCall(pathCommand) is { } call)
+            {
+                sb.AppendLine($"{indent}{builder}.{call};");
             }
         }
+
+        PathRun(run, builder, counter, sb, indent);
 
         if (detached)
         {
             sb.AppendLine($"{indent}var {counter.PathVarName}{counterPath} = {builder}.Detach();");
             sb.AppendLine($"{indent}{builder}?.Dispose();");
         }
+    }
+
+    /// <summary>The call that adds <paramref name="command"/> to a path or a builder, or null for one that adds nothing.</summary>
+    private static string? PathCall(PathCommand command) => command switch
+    {
+        MoveToPathCommand move => $"MoveTo({move.X.ToFloatString()}, {move.Y.ToFloatString()})",
+        LineToPathCommand line => $"LineTo({line.X.ToFloatString()}, {line.Y.ToFloatString()})",
+        ArcToPathCommand arc => $"ArcTo({arc.Rx.ToFloatString()}, {arc.Ry.ToFloatString()}, {arc.XAxisRotate.ToFloatString()}, {arc.LargeArc.ToSKPathArcSize()}, {arc.Sweep.ToSKPathDirection()}, {arc.X.ToFloatString()}, {arc.Y.ToFloatString()})",
+        QuadToPathCommand quad => $"QuadTo({Floats(quad.X0, quad.Y0, quad.X1, quad.Y1)})",
+        CubicToPathCommand cubic => $"CubicTo({Floats(cubic.X0, cubic.Y0, cubic.X1, cubic.Y1, cubic.X2, cubic.Y2)})",
+        ClosePathCommand => "Close()",
+        AddRectPathCommand rect => $"AddRect({rect.Rect.ToSKRect()})",
+        AddRoundRectPathCommand roundRect => $"AddRoundRect({roundRect.Rect.ToSKRect()}, {roundRect.Rx.ToFloatString()}, {roundRect.Ry.ToFloatString()})",
+        AddOvalPathCommand oval => $"AddOval({oval.Rect.ToSKRect()})",
+        AddCirclePathCommand circle => $"AddCircle({Floats(circle.X, circle.Y, circle.Radius)})",
+        AddPolyPathCommand { Points: { } points } poly => $"AddPoly({points.ToSKPoints()}, {poly.Close.ToBoolString()})",
+        _ => null
+    };
+
+    // Below this many verbs a run is smaller spelled out as calls than as two arrays and a call.
+    // TapHome's icons are smallest at 4 to 6 (2.58 MB), at 2 and at 10 2.62 and 2.61 MB.
+    private const int PathDataVerbs = 4;
+
+    /// <summary>
+    /// A run of commands onto <paramref name="builder"/>: as verbs and coordinates the path data helper
+    /// replays where it is long enough, which a native image keeps as data rather than code.
+    /// </summary>
+    private static void PathRun(List<PathCommand> run, string builder, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    {
+        var verbs = new List<byte>();
+        var coordinates = new List<string>();
+
+        foreach (var command in run)
+        {
+            switch (command)
+            {
+                case MoveToPathCommand move:
+                    verbs.Add(0);
+                    coordinates.Add(Floats(move.X, move.Y));
+                    break;
+                case LineToPathCommand line:
+                    verbs.Add(1);
+                    coordinates.Add(Floats(line.X, line.Y));
+                    break;
+                case QuadToPathCommand quad:
+                    verbs.Add(2);
+                    coordinates.Add(Floats(quad.X0, quad.Y0, quad.X1, quad.Y1));
+                    break;
+                case CubicToPathCommand cubic:
+                    verbs.Add(3);
+                    coordinates.Add(Floats(cubic.X0, cubic.Y0, cubic.X1, cubic.Y1, cubic.X2, cubic.Y2));
+                    break;
+                case ClosePathCommand:
+                    verbs.Add(4);
+                    break;
+                case ArcToPathCommand arc:
+                    verbs.Add((byte)(5 + (int)arc.LargeArc + 2 * (int)arc.Sweep));
+                    coordinates.Add(Floats(arc.Rx, arc.Ry, arc.XAxisRotate, arc.X, arc.Y));
+                    break;
+                case AddPolyPathCommand { Points: { Count: > 0 } points } poly:
+                    // What SkPath::addPoly and SkPathBuilder::addPolygon add: a move, a line to each later point, a close.
+                    verbs.Add(0);
+                    verbs.AddRange(Enumerable.Repeat((byte)1, points.Count - 1));
+                    if (poly.Close)
+                    {
+                        verbs.Add(4);
+                    }
+
+                    coordinates.Add(Floats(points.SelectMany(point => new[] { point.X, point.Y }).ToArray()));
+                    break;
+            }
+        }
+
+        if (verbs.Count < PathDataVerbs || !counter.PathData)
+        {
+            foreach (var command in run)
+            {
+                if (PathCall(command) is { } call)
+                {
+                    sb.AppendLine($"{indent}{builder}.{call};");
+                }
+            }
+
+            return;
+        }
+
+        var helper = counter.SkiaSharpTarget == SkiaSharpTarget.V3 ? ExprHelpers.PathData : ExprHelpers.PathBuilderData;
+        sb.AppendLine($"{indent}{helper}({builder}, new byte[] {{ {string.Join(", ", verbs)} }}, new float[]");
+        sb.AppendLine($"{indent}{{");
+        foreach (var line in coordinates)
+        {
+            sb.AppendLine($"{indent}    {line},");
+        }
+
+        sb.AppendLine($"{indent}}});");
+    }
+
+    private static string Floats(params float[] values) => string.Join(", ", values.Select(value => value.ToFloatString()));
+
+    /// <summary><paramref name="path"/> with (<paramref name="dx"/>, <paramref name="dy"/>) added to every coordinate it is built from.</summary>
+    private static SKPath Moved(SKPath path, float dx, float dy)
+    {
+        var moved = new SKPath { FillType = path.FillType };
+
+        var opened = false;
+
+        foreach (var command in path.Commands ?? Enumerable.Empty<PathCommand>())
+        {
+            // Skia starts a contour that opens without a move at the origin, which baked is the
+            // translation: the move goes before the first command that adds anything.
+            if (!opened && command is not (ClosePathCommand or AddPolyPathCommand { Points: null or { Count: 0 } }))
+            {
+                opened = true;
+                if (command is LineToPathCommand or QuadToPathCommand or CubicToPathCommand or ArcToPathCommand)
+                {
+                    moved.MoveTo(dx, dy);
+                }
+            }
+
+            switch (command)
+            {
+                case MoveToPathCommand move:
+                    moved.MoveTo(move.X + dx, move.Y + dy);
+                    break;
+                case LineToPathCommand line:
+                    moved.LineTo(line.X + dx, line.Y + dy);
+                    break;
+                case QuadToPathCommand quad:
+                    moved.QuadTo(quad.X0 + dx, quad.Y0 + dy, quad.X1 + dx, quad.Y1 + dy);
+                    break;
+                case CubicToPathCommand cubic:
+                    moved.CubicTo(cubic.X0 + dx, cubic.Y0 + dy, cubic.X1 + dx, cubic.Y1 + dy, cubic.X2 + dx, cubic.Y2 + dy);
+                    break;
+                case ArcToPathCommand arc:
+                    moved.ArcTo(arc.Rx, arc.Ry, arc.XAxisRotate, arc.LargeArc, arc.Sweep, arc.X + dx, arc.Y + dy);
+                    break;
+                case ClosePathCommand:
+                    moved.Close();
+                    break;
+                case AddRectPathCommand rect:
+                    moved.AddRect(Moved(rect.Rect));
+                    break;
+                case AddRoundRectPathCommand roundRect:
+                    moved.AddRoundRect(Moved(roundRect.Rect), roundRect.Rx, roundRect.Ry);
+                    break;
+                case AddOvalPathCommand oval:
+                    moved.AddOval(Moved(oval.Rect));
+                    break;
+                case AddCirclePathCommand circle:
+                    moved.AddCircle(circle.X + dx, circle.Y + dy, circle.Radius);
+                    break;
+                case AddPolyPathCommand { Points: { } points } poly:
+                    moved.AddPoly(points.Select(point => new SKPoint(point.X + dx, point.Y + dy)).ToArray(), poly.Close);
+                    break;
+            }
+        }
+
+        return moved;
+
+        SKRect Moved(SKRect rect) => new(rect.Left + dx, rect.Top + dy, rect.Right + dx, rect.Bottom + dy);
     }
 
     public static void ToSKPath(this ClipPath clipPath, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, out bool isDefault)
@@ -1968,7 +2388,8 @@ public static class SkiaCSharpModelExtensions
                 }
             }
 
-            if (clip.Transform is { })
+            // SkPath::transform returns at once on the identity, which PaintCode's clips nearly all carry.
+            if (clip.Transform is { } clipTransform && !IsIdentity(clipTransform))
             {
                 // Transform(SKMatrix) is obsolete in favour of Transform(in SKMatrix). Passing an
                 // expression would be ambiguous between the two, so the matrix needs a local.
@@ -2008,7 +2429,7 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
-        if (!isDefaultPathResult && clipPath.Transform is { })
+        if (!isDefaultPathResult && clipPath.Transform is { } transform && !IsIdentity(transform))
         {
             var counterMatrix = ++counter.Matrix;
             sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {clipPath.Transform.Value.ToSKMatrix()};");
@@ -2029,7 +2450,8 @@ public static class SkiaCSharpModelExtensions
         string type,
         string name,
         Action<StringBuilder> emit,
-        Func<bool>? declared = null)
+        Func<bool>? declared = null,
+        Action<StringBuilder>? local = null)
     {
         var statics = counter.Statics!;
         var symbolic = SymCSharpEmitter.Emitted;
@@ -2048,7 +2470,27 @@ public static class SkiaCSharpModelExtensions
 
         if (SymCSharpEmitter.Emitted != symbolic || declared?.Invoke() == false)
         {
-            sb.Append(text);
+            if (local is null)
+            {
+                sb.Append(text);
+                return;
+            }
+
+            counter.Borrowed.Add(name);
+            local(sb);
+            return;
+        }
+
+        counter.Borrowed.Add(name);
+
+        // Locals renumbered in the order they first appear, so a copy built under other names matches.
+        var locals = new Dictionary<string, int>(StringComparer.Ordinal);
+        var key = type + " " + s_local.Replace(text.ToString(), local => local.Value[0] is '"' or '@'
+            ? local.Value
+            : "#" + (locals.TryGetValue(local.Value, out var n) ? n : locals[local.Value] = locals.Count));
+        if (counter.StaticTexts.TryGetValue(key, out var first))
+        {
+            sb.AppendLine($"{indent}var {name} = s_{first};");
             return;
         }
 
@@ -2059,15 +2501,20 @@ public static class SkiaCSharpModelExtensions
 
         statics.AppendLine($"{StaticIndent}s_{name} = {name};");
         counter.StaticFields.Add((type, name));
+        counter.StaticTexts.Add(key, name);
         sb.AppendLine($"{indent}var {name} = s_{name};");
     }
 
     private const string StaticIndent = "            ";
 
+    // A generated local under the counters' default names, the only ones a static's text holds, or a
+    // string, verbatim or not, matched whole so that a word in it is never taken for one.
+    private static readonly Regex s_local = new(@"@""(?:[^""]|"""")*""|""(?:[^""\\]|\\.)*""|\bsk[A-Z][A-Za-z]*\d+\b", RegexOptions.CultureInvariant);
+
     /// <summary>The command without the disposal of what it reads from a static field, which outlives every draw.</summary>
     private static string Shared(string command, SkiaCSharpCodeGenCounter counter)
     {
-        if (counter.StaticFields.Count == 0)
+        if (counter.Borrowed.Count == 0)
         {
             return command;
         }
@@ -2077,12 +2524,19 @@ public static class SkiaCSharpModelExtensions
             .Where(line =>
             {
                 var trimmed = line.Trim();
-                return !trimmed.EndsWith("Dispose();", StringComparison.Ordinal)
-                       || !counter.StaticFields.Any(field => trimmed.StartsWith(field.Name + "?.", StringComparison.Ordinal) || trimmed.StartsWith(field.Name + ".", StringComparison.Ordinal));
+                if (!trimmed.EndsWith("Dispose();", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                var end = trimmed.IndexOfAny(s_access);
+                return end < 0 || !counter.Borrowed.Contains(trimmed.Substring(0, end));
             });
 
         return string.Join("\n", kept);
     }
+
+    private static readonly char[] s_access = { '?', '.' };
 
     private enum FoldedRange
     {
@@ -2129,13 +2583,34 @@ public static class SkiaCSharpModelExtensions
         var counterCanvas = ++counter.Canvas;
         var canvas = $"{counter.CanvasVarName}{counterCanvas}";
 
+        var state = new CanvasState($"skSharedPaint{counterCanvas}", canvas, counterCanvas, direct: true);
+        var body = new StringBuilder();
+
+        Commands(picture?.Commands, counter, body, indent, counterCanvas, statics ?? new StringBuilder(), layers ?? new SaveLayerTracker(), state);
+
         sb.AppendLine($"{indent}var {canvas} = {counter.CanvasVarName};");
-        sb.AppendLine($"{indent}var skBase{counterCanvas} = {canvas}.TotalMatrix;");
-        sb.AppendLine($"{indent}var skSave{counterCanvas} = {canvas}.Save();");
 
-        Commands(picture?.Commands, counter, sb, indent, counterCanvas, statics ?? new StringBuilder(), layers ?? new SaveLayerTracker());
+        if (state.BaseUsed)
+        {
+            sb.AppendLine($"{indent}var skBase{counterCanvas} = {canvas}.TotalMatrix;");
+        }
 
-        sb.AppendLine($"{indent}{canvas}.RestoreToCount(skSave{counterCanvas});");
+        if (state.Touched)
+        {
+            sb.AppendLine($"{indent}var skSave{counterCanvas} = {canvas}.Save();");
+        }
+
+        if (state.PaintUsed)
+        {
+            sb.AppendLine($"{indent}var {state.Paint} = {ExprHelpers.Paint}();");
+        }
+
+        sb.Append(body);
+
+        if (state.Touched)
+        {
+            sb.AppendLine($"{indent}{canvas}.RestoreToCount(skSave{counterCanvas});");
+        }
     }
 
     private static void ToRecording(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SaveLayerTracker? layers)
@@ -2154,7 +2629,8 @@ public static class SkiaCSharpModelExtensions
         sb.AppendLine($"{indent}var {counter.PictureRecorderVarName}{counterPictureRecorder} = new SKPictureRecorder();");
         sb.AppendLine($"{indent}var {counter.CanvasVarName}{counterCanvas} = {counter.PictureRecorderVarName}{counterPictureRecorder}.BeginRecording({picture.CullRect.ToSKRect()});");
 
-        Commands(picture.Commands, counter, sb, indent, counterCanvas, statics: null, layers ?? new SaveLayerTracker());
+        var canvas = $"{counter.CanvasVarName}{counterCanvas}";
+        Commands(picture.Commands, counter, sb, indent, counterCanvas, statics: null, layers ?? new SaveLayerTracker(), new CanvasState(paint: null, canvas, counterCanvas, direct: false));
 
         sb.AppendLine($"{indent}var {counter.PictureVarName}{counterPicture} = {counter.PictureRecorderVarName}{counterPictureRecorder}.EndRecording();");
         sb.AppendLine($"{indent}{counter.PictureRecorderVarName}{counterPictureRecorder}?.Dispose();");
@@ -2172,7 +2648,8 @@ public static class SkiaCSharpModelExtensions
         string indent,
         int counterCanvas,
         StringBuilder? statics,
-        SaveLayerTracker layers)
+        SaveLayerTracker layers,
+        CanvasState state)
     {
         if (commands is null)
         {
@@ -2183,6 +2660,8 @@ public static class SkiaCSharpModelExtensions
 
         // Planned for every value an expression may take: generated code learns them only as it draws.
         var plan = CommandPlan.For(commands, symbolic: true);
+        var kept = KeptSaves(commands, plan);
+        state.Eager = kept is null;
 
         // A range whose condition folds to false is still emitted, into text that is thrown away:
         // emitting is what type checks its expressions, and a typo hidden behind `{{ false }}` has to
@@ -2190,7 +2669,7 @@ public static class SkiaCSharpModelExtensions
         var live = sb;
         var discarded = new StringBuilder();
         var command = new StringBuilder();
-        var ranges = new Stack<FoldedRange>();
+        var ranges = new Stack<(FoldedRange Range, CanvasState.Mark Before)>();
         var dead = 0;
 
         for (var index = 0; index < commands.Count; index++)
@@ -2198,6 +2677,18 @@ public static class SkiaCSharpModelExtensions
             var canvasCommand = commands[index];
             sb = dead > 0 ? discarded : direct ? command.Clear() : live;
             counter.Statics = dead > 0 ? null : statics;
+
+            // A shape under nothing but a translation takes it into its own coordinates, unless its
+            // paint has something in those coordinates too: a shader, a filter, a dash, a non-scaling stroke.
+            var offset = counter.Bake && !state.Eager && canvasCommand is DrawPathCanvasCommand { Path: { }, Paint: { Shader: null, ImageFilter: null, PathEffect: null, IsStrokeNonScaling: false } }
+                ? state.Translation
+                : null;
+
+            if (canvasCommand is not (SaveCanvasCommand or RestoreCanvasCommand or SetMatrixCanvasCommand or SaveLayerCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand)
+                && !plan.Skips(index))
+            {
+                state.Sync(counter, sb, indent, baked: offset is { });
+            }
 
             switch (canvasCommand)
             {
@@ -2213,6 +2704,7 @@ public static class SkiaCSharpModelExtensions
                             {
                                 var operation = clipPathCanvasCommand.Operation.ToSKClipOperation();
                                 var antialias = clipPathCanvasCommand.Antialias.ToBoolString();
+                                state.Touched = true;
                                 sb.AppendLine(
                                     $"{indent}{counter.CanvasVarName}{counterCanvas}.ClipPath({counter.PathVarName}{counterPath}, {operation}, {antialias});");
                             }
@@ -2224,49 +2716,39 @@ public static class SkiaCSharpModelExtensions
                         var rect = clipRectCanvasCommand.Rect.ToSKRect();
                         var operation = clipRectCanvasCommand.Operation.ToSKClipOperation();
                         var antialias = clipRectCanvasCommand.Antialias.ToBoolString();
+                        state.Touched = true;
                         sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.ClipRect({rect}, {operation}, {antialias});");
                         break;
                     }
                 case SaveCanvasCommand _:
                     {
-                        sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
+                        // A save that scopes no clip only scopes a matrix, which every draw sets anyway.
+                        var keep = kept?[index] ?? true;
+                        if (keep)
+                        {
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
+                        }
+
+                        state.Save(keep);
                         layers.Save(isLayer: false);
                         break;
                     }
                 case RestoreCanvasCommand _:
                     {
-                        sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Restore();");
+                        var keep = (kept?[index] ?? true) && state.Open;
+                        if (keep)
+                        {
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Restore();");
+                        }
+
+                        state.Restore(keep);
                         layers.Restore();
                         break;
                     }
                 case SetMatrixCanvasCommand setMatrixCanvasCommand:
                     {
-                        // SetMatrix(SKMatrix) is obsolete as an *error* in SkiaSharp 4, so passing
-                        // the matrix by value does not merely warn — it fails to compile. The in
-                        // overload exists in 3 as well, and needs a local because an expression
-                        // would be ambiguous between the two.
-                        var counterMatrix = ++counter.Matrix;
-
-                        // The recorder composed the symbolic total off the same save/restore stack
-                        // as the baked one, so the functions printed here are the whole matrix and
-                        // nothing tracks a running local.
-                        var matrix = setMatrixCanvasCommand.SymbolicTotal is { } symbolicTotal
-                            ? symbolicTotal.ToSKMatrix().Replace("\n", "\n" + indent)
-                            : setMatrixCanvasCommand.TotalMatrix.ToSKMatrix();
-
-                        sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {matrix};");
-
-                        if (direct)
-                        {
-                            // Composed by the canvas, as a picture's playback composes it: the same
-                            // product taken in managed code differs from it in the last bits.
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix(in skBase{counterCanvas});");
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
-                        }
-                        else
-                        {
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.SetMatrix(in {counter.MatrixVarName}{counterMatrix});");
-                        }
+                        // Set on the canvas only once something is drawn under it.
+                        state.SetMatrix(setMatrixCanvasCommand, counter, sb, indent);
                         break;
                     }
                 case BeginConditionalCanvasCommand beginConditionalCanvasCommand:
@@ -2275,12 +2757,12 @@ public static class SkiaCSharpModelExtensions
                         // and SetMatrix included: generated code restates the absolute matrix.
                         if (SymCSharpEmitter.TryConstant(beginConditionalCanvasCommand.Condition, ExprType.Boolean, out var known))
                         {
-                            ranges.Push(known.AsBoolean ? FoldedRange.Unwrapped : FoldedRange.Dead);
+                            ranges.Push((known.AsBoolean ? FoldedRange.Unwrapped : FoldedRange.Dead, state.Marked()));
                             dead += known.AsBoolean ? 0 : 1;
                             break;
                         }
 
-                        ranges.Push(FoldedRange.Emitted);
+                        ranges.Push((FoldedRange.Emitted, state.Marked()));
                         sb.AppendLine($"{indent}if ({SymCSharpEmitter.Emit(beginConditionalCanvasCommand.Condition, ExprType.Boolean)})");
                         sb.AppendLine($"{indent}{{");
 
@@ -2291,7 +2773,16 @@ public static class SkiaCSharpModelExtensions
                     }
                 case EndConditionalCanvasCommand _:
                     {
-                        var range = ranges.Count > 0 ? ranges.Pop() : FoldedRange.Emitted;
+                        var (range, before) = ranges.Count > 0 ? ranges.Pop() : (FoldedRange.Emitted, state.Marked());
+
+                        if (range == FoldedRange.Dead)
+                        {
+                            state.Restore(before);
+                        }
+                        else if (range == FoldedRange.Emitted)
+                        {
+                            state.Join(before);
+                        }
 
                         if (range != FoldedRange.Emitted)
                         {
@@ -2320,9 +2811,14 @@ public static class SkiaCSharpModelExtensions
                         if (layerPlan == LayerPlan.Fold || inert && (color is null || color.Value is { Expression: null, Alpha: 255 }))
                         {
                             sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Save();");
+                            state.Save(kept: true);
                             break;
                         }
 
+                        // A layer's bounds and filters are in the space it is opened under, which is
+                        // also what its restore puts back.
+                        state.Sync(counter, sb, indent);
+                        state.Save(kept: true);
                         var bounds = saveLayerCanvasCommand.Bounds?.ToSKRect();
                         if (saveLayerCanvasCommand.Paint is { })
                         {
@@ -2453,6 +2949,13 @@ public static class SkiaCSharpModelExtensions
                     }
                 case DrawPathCanvasCommand drawPathCanvasCommand:
                     {
+                        // Not `with`: built for netstandard2.0, its init setter does not bind to the
+                        // ShimSkiaSharp a newer runtime loads (MissingMethodException).
+                        if (offset is { } moved)
+                        {
+                            drawPathCanvasCommand = new DrawPathCanvasCommand(Moved(drawPathCanvasCommand.Path!, moved.X, moved.Y), drawPathCanvasCommand.Paint);
+                        }
+
                         if (drawPathCanvasCommand.Path is { } && drawPathCanvasCommand.Paint is { })
                         {
                             var primitive = layers.Primitive(drawPathCanvasCommand) switch
@@ -2473,7 +2976,7 @@ public static class SkiaCSharpModelExtensions
                                 .Select(layer => ((SaveLayerCanvasCommand)commands[layer]).Paint?.Color)
                                 .OfType<SKColor>()
                                 .ToList();
-                            ToSKPaint(drawPathCanvasCommand.Paint, counter, sb, indent, fade);
+                            ToSKPaint(drawPathCanvasCommand.Paint, counter, sb, indent, fade, state);
                             if (primitive is { })
                             {
                                 sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.{primitive}{counter.PaintVarName}{counterPaint});");
@@ -2485,6 +2988,7 @@ public static class SkiaCSharpModelExtensions
                                 if (direct)
                                 {
                                     // What the picture's own matrices add to the caller's, as a recording would see it.
+                                    state.BaseUsed = true;
                                     sb.AppendLine($"{indent}skBase{counterCanvas}.TryInvert(out var inverse{counterNonScalingPath});");
                                     sb.AppendLine($"{indent}var matrix{counterNonScalingPath} = inverse{counterNonScalingPath}.PreConcat({counter.CanvasVarName}{counterCanvas}.TotalMatrix);");
                                 }
@@ -2582,14 +3086,14 @@ public static class SkiaCSharpModelExtensions
                                 {
                                     var counterMatrix = ++counter.Matrix;
                                     sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = SKMatrix.CreateRotationDegrees({fragment.RotationDegrees.ToFloatString()}, {x.ToFloatString()}, {y.ToFloatString()});");
-                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
+                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(in {counter.MatrixVarName}{counterMatrix});");
                                 }
 
                                 if (fragment.ScaleX != 1f)
                                 {
                                     var counterMatrix = ++counter.Matrix;
                                     sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = SKMatrix.CreateScale({fragment.ScaleX.ToFloatString()}, 1f, {fragment.ScaleOriginX.ToFloatString()}, {y.ToFloatString()});");
-                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(ref {counter.MatrixVarName}{counterMatrix});");
+                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(in {counter.MatrixVarName}{counterMatrix});");
                                 }
 
                                 sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({text}, {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");

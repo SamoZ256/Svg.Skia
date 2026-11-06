@@ -19,7 +19,8 @@ public enum SvgHelperScope
     PerClass,
 
     /// <summary>A <c>file</c> scoped class outside every namespace. Invisible beyond the file, so
-    /// any number of generated files coexist. Requires C# 11 of whoever compiles the output.</summary>
+    /// any number of generated files coexist. Requires C# 11 of whoever compiles the output, unless
+    /// nothing needs an expression helper: the path data and the shared paint then stay in each class.</summary>
     FileLocal,
 
     /// <summary>An <c>internal</c> class outside every namespace, for compilers below C# 11. The
@@ -85,6 +86,14 @@ public sealed class SvgCodeStyle
 
     /// <summary>The order <see cref="Api"/> takes parameters in; names not listed follow, as declared.</summary>
     public IReadOnlyList<string> Order { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Whether a shape only a translation moves is built where it is drawn, so nothing sets a matrix
+    /// for it. Not bit for bit what the interpreter draws: Skia rounds the moved coordinates where it
+    /// would have rounded the matrix, and antialiased edges move by a few levels. Off only in tests,
+    /// which hold everything else to the interpreter exactly.
+    /// </summary>
+    internal bool Bake { get; init; } = true;
 }
 
 /// <summary>One drawing to be emitted, for <see cref="SkiaCSharpCodeGen.GenerateFile"/>.</summary>
@@ -168,7 +177,7 @@ public static class SkiaCSharpCodeGen
 
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine($"{{");
-        sb.Append(BuildClass(picture, className, declarations, includeHelpers: true, skiaSharp, frozen, bounds: null, SvgCodeStyle.Default).Text);
+        sb.Append(BuildClass(picture, className, declarations, skiaSharp, frozen, bounds: null, SvgCodeStyle.Default).Text(withHelpers: true));
         sb.AppendLine($"}}");
 
         return sb.ToString();
@@ -190,7 +199,6 @@ public static class SkiaCSharpCodeGen
         SvgCodeStyle? style = null)
     {
         style ??= SvgCodeStyle.Default;
-        var shared = scope != SvgHelperScope.PerClass;
 
         // Namespaces in first-appearance order, and the classes within each in declared order.
         var order = new List<string>();
@@ -219,16 +227,25 @@ public static class SkiaCSharpCodeGen
 
         var built = drawings.ToDictionary(
             drawing => drawing,
-            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, includeHelpers: !shared, skiaSharp, drawing.Frozen, drawing.Bounds, style));
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, skiaSharp, drawing.Frozen, drawing.Bounds, style));
 
         var facade = style.Api is { } api
             ? SkiaCSharpFacade.Build(api, drawings.Select(drawing => (drawing, built[drawing].Parameters, built[drawing].WithDefaults)).ToList(), style)
             : null;
 
         // Which helpers are needed is decided across every class at once, so each appears once.
-        var helpers = shared
-            ? RequiredHelpers(string.Concat(built.Values.Select(c => c.Text))).ToList()
-            : new List<string[]>();
+        var required = ExprHelpers.All.Where(helper => built.Values.Any(c => c.Helpers.Contains(helper.Key))).ToList();
+        RefuseHelperNames(drawings, required);
+
+        // What a drawing calls with no expression in it, the path data and the shared paint, stays in
+        // each class where nothing else needs the file-local class, which takes C# 11.
+        var shared = scope switch
+        {
+            SvgHelperScope.PerClass => false,
+            SvgHelperScope.FileLocal => required.Any(helper => !ExprHelpers.Drawing(helper.Key)),
+            _ => true
+        };
+        var helpers = shared ? required.Select(helper => helper.Value).ToList() : new List<string[]>();
 
         var sb = new StringBuilder();
 
@@ -277,7 +294,7 @@ public static class SkiaCSharpCodeGen
                     sb.AppendLine($"");
                 }
 
-                sb.Append(built[group[j]].Text);
+                sb.Append(built[group[j]].Text(withHelpers: !shared));
             }
 
             sb.AppendLine($"}}");
@@ -386,14 +403,34 @@ public static class SkiaCSharpCodeGen
         sb.AppendLine($"");
     }
 
-    /// <summary>A drawing's class, and the signature its <c>Draw</c> ended up with.</summary>
-    private sealed record BuiltClass(string Text, IReadOnlyList<SvgExpressionParameter> Parameters, bool WithDefaults);
+    /// <summary>
+    /// A drawing's class up to its closing brace, the helpers it calls, and the signature its
+    /// <c>Draw</c> ended up with.
+    /// </summary>
+    private sealed record BuiltClass(string Open, IReadOnlyList<string> Helpers, IReadOnlyList<SvgExpressionParameter> Parameters, bool WithDefaults)
+    {
+        public string Text(bool withHelpers)
+        {
+            var sb = new StringBuilder(Open);
+
+            foreach (var helper in withHelpers ? ExprHelpers.All.Where(helper => Helpers.Contains(helper.Key)) : Enumerable.Empty<KeyValuePair<string, string[]>>())
+            {
+                sb.AppendLine($"");
+                foreach (var line in helper.Value)
+                {
+                    sb.AppendLine(line.Length == 0 ? "" : $"        {line}");
+                }
+            }
+
+            sb.AppendLine($"    }}");
+            return sb.ToString();
+        }
+    }
 
     private static BuiltClass BuildClass(
         SKPicture picture,
         string className,
         SvgExpressionDeclarations? declarations,
-        bool includeHelpers,
         SkiaSharpTarget skiaSharp,
         IReadOnlyList<string>? frozen,
         IReadOnlyList<(string Name, SKRect Rect)>? bounds,
@@ -408,7 +445,7 @@ public static class SkiaCSharpCodeGen
 
         var (compiler, lets) = declarations.Resolve();
 
-        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp, TypefaceTemplate = style.Typeface };
+        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp, TypefaceTemplate = style.Typeface, Bake = style.Bake, PathData = true };
         var indent = "            ";
 
         // Record the body first: which helper methods the class needs is decided by what the
@@ -557,21 +594,34 @@ public static class SkiaCSharpCodeGen
 
         // Scan everything emitted so far, not just the picture body: helpers are just as likely
         // to be referenced from a let or a parameter default.
-        if (includeHelpers)
+        var text = sb.ToString();
+        var helpers = RequiredHelpers(text, skiaSharp).ToList();
+        RefuseHelperNames(new[] { (className, bounds.Select(box => box.Name)) }, ExprHelpers.All.Where(helper => helpers.Contains(helper.Key)));
+
+        return new BuiltClass(text, helpers, parameters, withDefaults);
+    }
+
+    /// <summary>
+    /// Refuses a class or a box named like a member of a helper the file calls: a member named after
+    /// its class is CS0542, a box beside a helper CS0102, and a class in a namespace hides a helper
+    /// the file imports statically from every call (CS1955).
+    /// </summary>
+    private static void RefuseHelperNames(IEnumerable<SkiaCSharpDrawing> drawings, IEnumerable<KeyValuePair<string, string[]>> helpers)
+        => RefuseHelperNames(drawings.Select(drawing => (drawing.ClassName, drawing.Bounds.Select(box => box.Name))), helpers);
+
+    private static void RefuseHelperNames(IEnumerable<(string ClassName, IEnumerable<string> Boxes)> names, IEnumerable<KeyValuePair<string, string[]>> helpers)
+    {
+        var members = new HashSet<string>(helpers.SelectMany(helper => ExprHelpers.Members(helper.Value)), StringComparer.Ordinal);
+
+        foreach (var (className, boxes) in names)
         {
-            foreach (var helper in RequiredHelpers(sb.ToString()))
+            foreach (var name in boxes.Prepend(className).Where(members.Contains))
             {
-                sb.AppendLine($"");
-                foreach (var line in helper)
-                {
-                    sb.AppendLine(line.Length == 0 ? "" : $"        {line}");
-                }
+                throw new ExprException(
+                    $"'{name}' is a helper the generated '{className}' calls. Name the {(name == className ? "drawing" : "box")} something else.",
+                    0);
             }
         }
-
-        sb.AppendLine($"    }}");
-
-        return new BuiltClass(sb.ToString(), parameters, withDefaults);
     }
 
     // Optional only where the author gave a default: inventing one would put a value in the
@@ -617,13 +667,17 @@ public static class SkiaCSharpCodeGen
         return string.Join(", ", rendered);
     }
 
-    private static IEnumerable<string[]> RequiredHelpers(string body)
+    private static IEnumerable<string> RequiredHelpers(string body, SkiaSharpTarget skiaSharp)
     {
+        // Each path data helper builds what exists in one SkiaSharp alone, and text the drawing
+        // draws can name the other's: it would not compile.
+        var other = skiaSharp == SkiaSharpTarget.V3 ? ExprHelpers.PathBuilderData : ExprHelpers.PathData;
+
         foreach (var helper in ExprHelpers.All)
         {
-            if (body.IndexOf(helper.Key + "(", StringComparison.Ordinal) >= 0)
+            if (helper.Key != other && body.IndexOf(helper.Key + "(", StringComparison.Ordinal) >= 0)
             {
-                yield return helper.Value;
+                yield return helper.Key;
             }
         }
     }

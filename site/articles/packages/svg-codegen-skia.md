@@ -94,10 +94,52 @@ generator always has, byte for byte. A project build reads the same settings fro
 picture and drawing that. Each matrix the drawing sets is composed onto the caller's matrix by the
 canvas, so drawing under a transform gives the same pixels as recording and then drawing. A path,
 and a paint that no argument changes, is built once in the static constructor and read from a
-field. A paint that follows an argument is still built on every draw. A filled rect, round rect,
+field, and two built alike share one. A shape's paint that follows an argument and holds no shader,
+filter or dash is set on one paint per thread, which the generated `SvgPaint()` resets once a draw,
+and only in what differs from the shape before it, so drawing shapes allocates nothing. Text, and a
+driven paint with a shader or a filter, still build their paint on every draw. A filled rect, round rect,
 oval or circle with no layer open around it builds no path in either body: it is drawn with
 `DrawRect`, `DrawRoundRect`, `DrawOval` or `DrawCircle`, as the renderer draws it. `Record` stays,
 and records `Draw`.
+
+### Matrices, saves and shapes
+
+Both bodies set a matrix only before something is drawn, clipped or layered under it, so a run of
+shapes under one matrix sets it once. A direct body sets a pure translation with `Translate`, and a
+record body sets every matrix whole, as it always has. A save that
+scopes no clip scopes only a matrix, which each draw sets anyway, and is left out; a layer's save
+stays. Skia records every save a matrix changes under, so this is most of what a picture holds:
+HueBulbBulb's nine strokes recorded 45 operations and record 9.
+
+A shape under nothing but a translation is built with the translation added to its coordinates and
+drawn under the caller's matrix, which is what PaintCode's own export did. A shape keeps the canvas
+translation where its paint has something in its own coordinates: a shader, an image filter, a dash
+or a non-scaling stroke. The moved coordinates round where the matrix would have, so this is not bit
+for bit what the interpreter draws. Of TapHome's 1,014 icons drawn at 1×, 2× and 3×, at whole and
+half pixel offsets, 77 differ in any pixel: 2,951 of 35.9 million, on antialiased edges, by a median
+of 16 and at most 112 of 255.
+
+A run of four or more path commands is built from data rather than a call each: the verbs as bytes
+and the coordinates as floats, which the compiler keeps as data in the assembly, replayed by the
+generated `SvgPathData` (SkiaSharp 3) or `SvgPathBuilderData` (4). A polygon is a move and its
+lines, as Skia adds it. Shorter runs, rects, round rects, ovals and circles stay calls.
+
+Measured on TapHome's 1,014 icons with `body="direct"`, against the export PaintCode itself wrote for
+the same icons, through the same `VectorIconsResource.drawXxx` calls: SkiaSharp 3.119, .NET 10,
+Apple M4. The timed icons are HueBulbBulb, SymbolIpScanner, SymbolWeather, SymbolSchedules,
+SymbolSync and VacationState.
+
+| | PaintCode's export | Generated |
+| --- | --- | --- |
+| Release DLL | 2.03 MB | 2.74 MB |
+| NativeAOT executable, over an empty one (osx-arm64, all rooted) | +3.7 MB | +4.5 MB |
+| First draw of every icon, JIT | 314 ms | 199 ms |
+| First draw of every icon, NativeAOT | 30 ms | 33 ms |
+| Recording one draw into an `SKPictureRecorder`, JIT | 0.59–1.82 µs | 0.31–0.57 µs |
+| Recording one draw, NativeAOT | 0.79–2.27 µs | 0.40–0.81 µs |
+| Drawing onto a 90 × 90 surface at 3×, JIT | 6.0–18.2 µs | 5.9–17.4 µs |
+| Allocated per draw | 0 B | 0 B |
+| Operations a recorded HueBulbBulb holds | 9 | 9 |
 
 Both bodies leave out what `ShimSkiaSharp`'s `CommandPlan` finds draws nothing: an antialiased clip
 around content that lies inside it, which Skia would otherwise blend everything under through a

@@ -8,9 +8,9 @@ using System.Runtime.Loader;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
+using ShimSkiaSharp.Editing;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using ShimSkiaSharp.Editing;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.Expressions;
@@ -40,6 +40,11 @@ public class SkiaCSharpRenderTests
     // Floats are emitted with the shortest round-trippable form, so the two paths replay the same
     // command list exactly. Any difference at all is a defect rather than tolerable noise.
     private const double Threshold = 0d;
+
+    // What the generator ships adds each translation to the coordinates of the shape it moves, which
+    // the interpreter does not: antialiased edges move by a few levels. TapHome's icons, at 1x to 3x
+    // and whole and half pixel offsets, measure at most 0.0138; a shape drawn out of place, 0.13.
+    private const double BakedThreshold = 0.02d;
 
     private static int s_generation;
 
@@ -83,12 +88,14 @@ public class SkiaCSharpRenderTests
         SkiaSharpTarget skiaSharp,
         SvgExpressionDeclarations declarations,
         object?[] arguments,
-        IReadOnlyList<(string Name, ShimSkiaSharp.SKRect Rect)>? bounds = null)
+        IReadOnlyList<(string Name, ShimSkiaSharp.SKRect Rect)>? bounds = null,
+        bool bake = true)
     {
         var code = SkiaCSharpCodeGen.GenerateFile(
             new[] { new SkiaCSharpDrawing(model, Namespace, className, declarations, bounds: bounds) },
             SvgHelperScope.PerClass,
-            skiaSharp: skiaSharp);
+            skiaSharp: skiaSharp,
+            style: new SvgCodeStyle { Bake = bake });
 
         var assembly = Compile(code, className);
         var type = assembly.GetType($"{Namespace}.{className}");
@@ -169,15 +176,19 @@ public class SkiaCSharpRenderTests
         using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
         Assert.NotNull(runtime);
 
-        using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        using var exact = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), bake: false);
+        AssertSamePicture(name, runtime!, exact);
 
-        AssertSamePicture(name, runtime!, generated);
+        using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture($"{name}-baked", runtime!, generated, BakedThreshold);
+
         AssertDrawsDirectlyTheSame(name, model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), skiaSharp);
     }
 
     /// <summary>
-    /// The same drawing drawn directly: recorded through its Record, and drawn by its Draw onto a
-    /// canvas that already holds a transform of its own, which every matrix it sets is relative to.
+    /// The same drawing drawn directly, unbaked and as shipped: recorded through its Record, and drawn
+    /// by its Draw onto a canvas that already holds a transform of its own, which every matrix it sets
+    /// is relative to.
     /// </summary>
     private static void AssertDrawsDirectlyTheSame(
         string name,
@@ -188,26 +199,30 @@ public class SkiaCSharpRenderTests
         SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4,
         string? typeface = null)
     {
-        var code = SkiaCSharpCodeGen.GenerateFile(
-            new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations) },
-            SvgHelperScope.PerClass,
-            skiaSharp: skiaSharp,
-            style: new SvgCodeStyle { Body = SvgBody.Direct, Typeface = typeface });
+        foreach (var bake in new[] { false, true })
+        {
+            var code = SkiaCSharpCodeGen.GenerateFile(
+                new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations) },
+                SvgHelperScope.PerClass,
+                skiaSharp: skiaSharp,
+                style: new SvgCodeStyle { Body = SvgBody.Direct, Typeface = typeface, Bake = bake });
 
-        var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
+            var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
+            var label = bake ? $"{name}-direct-baked" : $"{name}-direct";
 
-        using var recorded = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, arguments)!;
-        AssertSamePicture($"{name}-direct", runtime, recorded);
+            using var recorded = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, arguments)!;
+            AssertSamePicture(label, runtime, recorded, bake ? BakedThreshold : Threshold);
 
-        var cull = runtime.CullRect;
-        var under = new SKRect(0, 0, cull.Width * 1.5f + 6, cull.Height * 1.5f + 10);
+            var cull = runtime.CullRect;
+            var under = new SKRect(0, 0, cull.Width * 1.5f + 6, cull.Height * 1.5f + 10);
 
-        // Against its own recording rather than the runtime's: under a fractional scale those two
-        // already differ along antialiased edges in record mode too (Gradients, RMS 0.0023).
-        using var expected = Transformed(under, canvas => canvas.DrawPicture(recorded));
-        using var actual = Transformed(under, canvas => type.GetMethod("Draw")!.Invoke(null, new object?[] { canvas }.Concat(arguments).ToArray()));
+            // Against its own recording rather than the runtime's: under a fractional scale those two
+            // already differ along antialiased edges in record mode too (Gradients, RMS 0.0023).
+            using var expected = Transformed(under, canvas => canvas.DrawPicture(recorded));
+            using var actual = Transformed(under, canvas => type.GetMethod("Draw")!.Invoke(null, new object?[] { canvas }.Concat(arguments).ToArray()));
 
-        AssertSamePicture($"{name}-direct-transformed", expected, actual);
+            AssertSamePicture($"{label}-transformed", expected, actual);
+        }
     }
 
     private static string Code(ShimPicture model, string name, SvgBody body, SvgExpressionDeclarations? declarations = null)
@@ -252,14 +267,12 @@ public class SkiaCSharpRenderTests
 
         var declarations = SvgExpressionDeclarations.Parse(svgMarkup);
 
-        using var generated = Generated(
-            model,
-            name,
-            SkiaSharpTarget.V4,
-            declarations,
-            arguments ?? Array.Empty<object?>());
+        using var exact = Generated(model, name, SkiaSharpTarget.V4, declarations, arguments ?? Array.Empty<object?>(), bake: false);
+        AssertSamePicture(name, runtime!, exact);
 
-        AssertSamePicture(name, runtime!, generated);
+        using var generated = Generated(model, name, SkiaSharpTarget.V4, declarations, arguments ?? Array.Empty<object?>());
+        AssertSamePicture($"{name}-baked", runtime!, generated, BakedThreshold);
+
         AssertDrawsDirectlyTheSame(name, model, runtime!, declarations, arguments ?? Array.Empty<object?>());
 
         // The runtime path resolving the same expressions, which the comparison above cannot show
@@ -272,7 +285,8 @@ public class SkiaCSharpRenderTests
         using var evaluatedPicture = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
         Assert.NotNull(evaluatedPicture);
 
-        AssertSamePicture($"{name}-evaluated", evaluatedPicture!, generated);
+        AssertSamePicture($"{name}-evaluated", evaluatedPicture!, exact);
+        AssertSamePicture($"{name}-evaluated-baked", evaluatedPicture!, generated, BakedThreshold);
     }
 
     /// <summary>
@@ -316,7 +330,7 @@ public class SkiaCSharpRenderTests
         return values;
     }
 
-    private static void AssertSamePicture(string name, SKPicture runtime, SKPicture generated)
+    private static void AssertSamePicture(string name, SKPicture runtime, SKPicture generated, double threshold = Threshold)
     {
         var directory = Directory.CreateTempSubdirectory().FullName;
         try
@@ -324,7 +338,7 @@ public class SkiaCSharpRenderTests
             var expected = Draw(runtime, Path.Combine(directory, $"{name}-runtime.png"));
             var actual = Draw(generated, Path.Combine(directory, $"{name}-generated.png"));
 
-            ImageHelper.CompareImages(name, actual, expected, Threshold);
+            ImageHelper.CompareImages(name, actual, expected, threshold);
         }
         finally
         {
@@ -415,7 +429,8 @@ public class SkiaCSharpRenderTests
 
                 // A keyword is a name the class can still declare.
                 ("default", new ShimSkiaSharp.SKRect(0f, 0f, 1f, 1f))
-            });
+            },
+            bake: false);
 
         AssertSamePicture("Boxed", runtime!, generated);
     }
@@ -515,6 +530,54 @@ public class SkiaCSharpRenderTests
         AssertSamePicture("NestedInLayer", second!, generated);
     }
 
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void A_Path_Built_From_Data_Draws_As_Its_Calls(SkiaSharpTarget skiaSharp)
+    {
+        // Every verb the data carries, arcs of both sizes either way round, a polygon and a polyline,
+        // which it spells as a move and lines, runs a rect and an oval cut in two, and a run too
+        // short to be worth an array.
+        var path = new ShimSkiaSharp.SKPath { FillType = ShimSkiaSharp.SKPathFillType.EvenOdd };
+        path.MoveTo(2f, 2f);
+        path.LineTo(20f, 2.5f);
+        path.QuadTo(22.25f, 6f, 18f, 8f);
+        path.CubicTo(14f, 10.5f, 6f, 4f, 2f, 8f);
+        path.Close();
+        path.AddRect(ShimSkiaSharp.SKRect.Create(5f, 3f, 6f, 4f));
+        path.MoveTo(4f, 12f);
+        path.ArcTo(4f, 3f, 15f, ShimSkiaSharp.SKPathArcSize.Large, ShimSkiaSharp.SKPathDirection.CounterClockwise, 12f, 14f);
+        path.ArcTo(4f, 3f, 0f, ShimSkiaSharp.SKPathArcSize.Small, ShimSkiaSharp.SKPathDirection.Clockwise, 6f, 16f);
+        path.ArcTo(5f, 5f, 0f, ShimSkiaSharp.SKPathArcSize.Large, ShimSkiaSharp.SKPathDirection.Clockwise, 4f, 13f);
+        path.ArcTo(2f, 2f, 0f, ShimSkiaSharp.SKPathArcSize.Small, ShimSkiaSharp.SKPathDirection.CounterClockwise, 4f, 12f);
+        path.Close();
+        path.AddOval(ShimSkiaSharp.SKRect.Create(14f, 12f, 6f, 4f));
+        path.AddPoly(new[] { new ShimSkiaSharp.SKPoint(14f, 18f), new ShimSkiaSharp.SKPoint(22f, 18f), new ShimSkiaSharp.SKPoint(18f, 23f) }, close: true);
+        path.AddPoly(new[] { new ShimSkiaSharp.SKPoint(2f, 18f), new ShimSkiaSharp.SKPoint(6f, 22f), new ShimSkiaSharp.SKPoint(10f, 18f), new ShimSkiaSharp.SKPoint(12f, 23f) }, close: false);
+        path.AddCircle(9f, 9f, 1.5f);
+        path.MoveTo(1f, 23f);
+        path.LineTo(3f, 21f);
+
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.DrawPath(path, new ShimSkiaSharp.SKPaint { IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0x1e, 0x40, 0xaf, 0xff) });
+        canvas.DrawPath(path, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 0.75f, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0xdc, 0x26, 0x26, 0xff) });
+        var model = recorder.EndRecording();
+        var name = $"PathData_{skiaSharp}";
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, name, skiaSharp, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture(name, runtime!, generated);
+        AssertDrawsDirectlyTheSame(name, model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), skiaSharp);
+
+        var code = SkiaCSharpCodeGen.Generate(model, Namespace, name, SvgExpressionDeclarations.Empty, skiaSharp);
+        Assert.Contains(skiaSharp == SkiaSharpTarget.V3 ? "SvgPathData(" : "SvgPathBuilderData(", code);
+        Assert.Contains(".AddRect(", code);
+        Assert.Contains(".AddOval(", code);
+        Assert.Contains(".LineTo(3f, 21f);", code);
+        Assert.DoesNotContain(".CubicTo(14f", code);
+    }
+
     [Fact]
     public void Strokes()
         => AssertRendersTheSame("Strokes", """
@@ -559,6 +622,164 @@ public class SkiaCSharpRenderTests
               </g>
             </svg>
             """);
+
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void A_Path_Drawn_Twice_Reads_One_Static(SkiaSharpTarget skiaSharp)
+        // As AirFlowLevel's bars are: the same shape in two places and two colours, under a clip
+        // that does cut, so its identity transform is the one left out.
+        => AssertRendersTheSame($"SharedPath_{skiaSharp}", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <clipPath id="c" clipPathUnits="userSpaceOnUse">
+                  <rect x="0" y="0" width="24" height="15" />
+                </clipPath>
+              </defs>
+              <g clip-path="url(#c)">
+                <path d="M 2 2 L 10 2 L 10 10 Z" fill="#dc2626" />
+                <path d="M 2 2 L 10 2 L 10 10 Z" fill="#2563eb" transform="translate(10 8)" />
+              </g>
+            </svg>
+            """, skiaSharp);
+
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void Nested_Translations_Draw_Without_Their_Saves(SkiaSharpTarget skiaSharp)
+        // HueBulbBulb's shape: groups that only move what they hold, a shape after the inner group
+        // that is under the outer one's matrix again, one after both under none, and a scale.
+        => AssertRendersTheSame($"NestedTranslations_{skiaSharp}", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(2 2)">
+                <circle cx="4" cy="4" r="3" fill="none" stroke="#1e40af" />
+                <g transform="translate(8 0)">
+                  <path d="M 0 0 L 4 4" stroke="#dc2626" />
+                  <path d="M 0 4 L 4 0" stroke="#dc2626" transform="translate(0 2)" />
+                </g>
+                <path d="M 0 10 L 8 10" stroke="#16a34a" />
+              </g>
+              <path d="M 1 18 L 7 22 L 1 22 Z" fill="#7c3aed" />
+              <g transform="translate(12 14) scale(1.5)">
+                <path d="M 0 0 L 6 0 L 3 5 Z" fill="#f59e0b" />
+              </g>
+            </svg>
+            """, skiaSharp);
+
+    [Fact]
+    public void A_Layer_Gives_Back_The_Matrix_It_Was_Opened_Under()
+        // The faded group's layer opens under its own translation, and its restore puts that back:
+        // the rect after it is under the first group's again, and has to be moved there.
+        => AssertRendersTheSame("LayerMatrix", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(2 2)">
+                <rect x="0" y="0" width="6" height="4" fill="#1e40af" />
+              </g>
+              <g transform="translate(10 4)" opacity="0.5">
+                <circle cx="4" cy="4" r="4" fill="#dc2626" />
+                <circle cx="8" cy="4" r="4" fill="#dc2626" />
+              </g>
+              <g transform="translate(2 2)">
+                <rect x="0" y="14" width="6" height="4" fill="#16a34a" />
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Clip_Keeps_The_Save_That_Scopes_It()
+        // The group's save is what takes its clip off the shape after it, and its matrix with it.
+        => AssertRendersTheSame("ClipInATranslatedGroup", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <clipPath id="c">
+                  <rect x="0" y="0" width="10" height="6" />
+                </clipPath>
+              </defs>
+              <g transform="translate(3 3)" clip-path="url(#c)">
+                <circle cx="5" cy="5" r="5" fill="#dc2626" />
+                <path d="M 0 0 L 10 10" stroke="#1e40af" transform="translate(1 0)" />
+              </g>
+              <circle cx="12" cy="16" r="6" fill="#16a34a" />
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Driven_Matrix_Two_Shapes_Share_Is_Set_Once()
+        => AssertExpressionsRenderTheSame(
+            "DrivenMatrixShared",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="x" type="number" default="2" /></e:code></defs>
+              <g transform="translate({{ x }} 2)">
+                <circle cx="4" cy="4" r="3" fill="#dc2626" />
+                <rect x="0" y="9" width="8" height="3" fill="#1e40af" />
+              </g>
+              <circle cx="12" cy="18" r="4" fill="#16a34a" />
+            </svg>
+            """,
+            arguments: new object?[] { 9f },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(9 2)">
+                <circle cx="4" cy="4" r="3" fill="#dc2626" />
+                <rect x="0" y="9" width="8" height="3" fill="#1e40af" />
+              </g>
+              <circle cx="12" cy="18" r="4" fill="#16a34a" />
+            </svg>
+            """);
+
+    [Theory]
+    [InlineData(SvgBody.Record)]
+    [InlineData(SvgBody.Direct)]
+    public void Translated_Shapes_Record_Only_Themselves(SvgBody body)
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <path d="M 0 0 L 4 4" fill="none" stroke="#dc2626" transform="translate(2 2)" />
+              <path d="M 0 0 L 4 4" fill="none" stroke="#dc2626" transform="translate(10 2)" />
+              <path d="M 0 0 L 4 4" fill="none" stroke="#dc2626" transform="translate(18 2)" />
+            </svg>
+            """;
+        var model = Model(svg);
+
+        int Operations(bool bake)
+        {
+            var code = SkiaCSharpCodeGen.GenerateFile(
+                new[] { new SkiaCSharpDrawing(model, Namespace, "Translated", SvgExpressionDeclarations.Empty) },
+                SvgHelperScope.PerClass,
+                style: new SvgCodeStyle { Body = body, Bake = bake });
+            var record = Compile(code, "Translated").GetType($"{Namespace}.Translated")!.GetMethod("Record")!;
+            using var picture = (SKPicture)record.Invoke(null, null)!;
+            return picture.ApproximateOperationCount;
+        }
+
+        // Each translation is in its path's coordinates, so the three paths are all there is.
+        Assert.Equal(3, Operations(bake: true));
+
+        // Unbaked, a direct body translates before each path, setting the caller's matrix back
+        // for two of them, inside one save: 10. A save, a set, a concat and a restore around each
+        // made it 15.
+        Assert.Equal(body == SvgBody.Direct ? 10 : 6, Operations(bake: false));
+    }
+
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void A_Fractional_Translation_Is_Baked_Within_A_Few_Levels(SkiaSharpTarget skiaSharp)
+        // PaintCode's offsets carry four decimals, which no float holds exactly: the coordinates a
+        // translation is added to round where the matrix would have, and edges move a little.
+        => AssertRendersTheSame($"FractionalTranslations_{skiaSharp}", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="30" height="30">
+              <ellipse cx="10.5" cy="10.5" rx="10.5" ry="10.5" fill="none" stroke="#1e40af" stroke-width="2" transform="translate(4.5 4.5)" />
+              <path d="M 4.0125 0 C 0.1597 0 -0.1825 2.6719 0.0596 4.3594 C 0.3017 6.0469 1.5107 7.3828 1.9412 8.8125 C 2.3716 10.2422 2.2909 12 4.0125 12"
+                    fill="none" stroke="#dc2626" stroke-width="0.5" stroke-miterlimit="10" transform="translate(11 9.5)" />
+              <path d="M 0 0.5859 L 3.4434 0" fill="none" stroke="#dc2626" stroke-width="0.5" transform="translate(13.4254 18.8687)" />
+              <path d="M 0 2.8363 C 0 2.8363 0 0 0 0" fill="none" stroke="#dc2626" stroke-width="0.25" transform="translate(14.7166 15.1183)" />
+              <rect x="0" y="0" width="7.1" height="1.7578" fill="#16a34a" transform="translate(12.9833 23.2241)" />
+              <rect x="0" y="0" width="5.3" height="3.1" rx="0.75" fill="#7c3aed" transform="translate(1.3333 22.4457)" />
+              <polygon points="0,0 3.7,0.4 1.9,3.3" fill="#f59e0b" transform="translate(24.2838 6.851)" />
+            </svg>
+            """, skiaSharp);
 
     [Fact]
     public void A_Mask_Keeps_Its_Layer()
@@ -1394,6 +1615,29 @@ public class SkiaCSharpRenderTests
             """);
 
     [Fact]
+    public void A_Driven_Opacity_Fades_A_Black_Shape()
+        // Black is a paint's default, and the placeholder opacity of 1 leaves it opaque black: the
+        // colour is still the expression, which is what makes the paint follow the argument.
+        => AssertExpressionsRenderTheSame(
+            "ExprBlackFillOpacity",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="o" type="number" default="1" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" fill-opacity="{{ o }}" />
+              <path d="M 2 22 L 22 22" stroke="#000" stroke-width="2" stroke-opacity="{{ o }}" />
+            </svg>
+            """,
+            arguments: new object?[] { 0.3f },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <circle cx="12" cy="12" r="10" fill-opacity="0.3" />
+              <path d="M 2 22 L 22 22" stroke="#000" stroke-width="2" stroke-opacity="0.3" />
+            </svg>
+            """);
+
+    [Fact]
     public void A_Gradient_Stop_Opacity_Takes_An_Expression()
         => AssertExpressionsRenderTheSame(
             "ExprStopOpacity",
@@ -1603,6 +1847,278 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
+    // Driven strokes one after another: widths and caps that change and stay, a fade that comes and
+    // goes over the same colour, a gradient that builds its own paint between them, and a range whose
+    // stroke the next one repeats, which only holds where the range ran.
+    private const string SharedPaintMarkup = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="tint" type="color" default="#1e40af" />
+              <e:param name="shown" type="boolean" default="true" />
+            </e:code>
+            <linearGradient id="g" x1="0" x2="1">
+              <stop offset="0" stop-color="#dc2626" />
+              <stop offset="1" stop-color="#16a34a" />
+            </linearGradient>
+          </defs>
+          <path d="M 2 2 L 22 2" stroke="{{ tint }}" stroke-width="2" />
+          <path d="M 2 5 L 22 5" stroke="{{ tint }}" stroke-width="2" opacity="0.5" />
+          <path d="M 2 8 L 22 8" stroke="{{ tint }}" stroke-width="1" stroke-linecap="round" />
+          <rect x="2" y="10" width="20" height="3" fill="url(#g)" />
+          <g visibility="{{ shown }}">
+            <path d="M 2 15 L 22 15" stroke="{{ tint }}" stroke-width="3" />
+          </g>
+          <path d="M 2 19 L 22 19" stroke="{{ tint }}" stroke-width="3" />
+          <circle cx="12" cy="22" r="1.5" fill="{{ tint }}" />
+        </svg>
+        """;
+
+    [Fact]
+    public void Driven_Paints_Share_One_Paint()
+        => AssertExpressionsRenderTheSame(
+            "SharedPaint",
+            SharedPaintMarkup,
+            arguments: new object?[] { new SKColor(0x7c, 0x3a, 0xed), true },
+            expectedMarkup: SharedPaintMarkup
+                .Replace("""<g visibility="{{ shown }}">""", "<g>")
+                .Replace("{{ tint }}", "#7c3aed"));
+
+    [Fact]
+    public void A_Range_Not_Taken_Leaves_The_Shared_Paint_To_Be_Set_Again()
+        => AssertExpressionsRenderTheSame(
+            "SharedPaintSkipped",
+            SharedPaintMarkup,
+            arguments: new object?[] { new SKColor(0x1e, 0x40, 0xaf), false },
+            expectedMarkup: SharedPaintMarkup
+                .Replace("""<g visibility="{{ shown }}">""", """<g visibility="hidden">""")
+                .Replace("{{ tint }}", "#1e40af"));
+
+    // Models the scene compiler never writes, whose ranges hold whole elements and whose paths open
+    // with a move, but which a picture built by hand can hold.
+    private static ShimSkiaSharp.SKPath Square(float size)
+    {
+        var path = new ShimSkiaSharp.SKPath();
+        path.AddRect(ShimSkiaSharp.SKRect.Create(0f, 0f, size, size));
+        return path;
+    }
+
+    private static readonly ShimSkiaSharp.SKPaint s_red = new() { IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0xdc, 0x26, 0x26, 0xff) };
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_Range_That_Gives_Back_An_Earlier_Save_Keeps_Every_Save(bool shown)
+    {
+        // The range restores the clipping save opened before it and opens another, which the
+        // restore after it gives back: the shape after both is unclipped whether the range ran.
+        var declarations = SvgExpressionDeclarations.Parse("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="shown" type="boolean" default="true" /></e:code></defs>
+            </svg>
+            """);
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.Save();
+        canvas.ClipRect(ShimSkiaSharp.SKRect.Create(0, 0, 12, 24));
+        canvas.BeginConditional(ShimSkiaSharp.SymNode.Source("shown"));
+        canvas.Restore();
+        canvas.Save();
+        canvas.EndConditional();
+        canvas.Restore();
+        canvas.DrawPath(Square(24), s_red);
+        var model = recorder.EndRecording();
+        var name = $"CrossingRange{shown}";
+
+        var evaluated = SvgSceneExpressionEvaluator.Evaluate(model, declarations, Bind(declarations, new object?[] { shown }));
+        using var expected = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+        using var generated = Generated(model, name, SkiaSharpTarget.V4, declarations, new object?[] { shown });
+
+        AssertSamePicture(name, expected!, generated);
+        AssertDrawsDirectlyTheSame(name, model, expected!, declarations, new object?[] { shown });
+    }
+
+    [Fact]
+    public void A_Restore_With_Nothing_Open_Leaves_The_Callers_Saves_Alone()
+    {
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.DrawPath(Square(12), s_red);
+        canvas.Restore();
+        canvas.Restore();
+        var draw = Compile(Code(recorder.EndRecording(), "StrayRestore", SvgBody.Direct), "StrayRestore")
+            .GetType($"{Namespace}.StrayRestore")!
+            .GetMethod("Draw")!;
+
+        using var bitmap = new SKBitmap(24, 24);
+        using var target = new SKCanvas(bitmap);
+        target.Save();
+        target.Translate(5, 5);
+        var saves = target.SaveCount;
+
+        draw.Invoke(null, new object?[] { target });
+
+        Assert.Equal(saves, target.SaveCount);
+        Assert.Equal(SKMatrix.CreateTranslation(5, 5), target.TotalMatrix);
+    }
+
+    [Fact]
+    public void A_Restore_With_Nothing_Open_Gives_Back_Nothing()
+        // As Skia's recorder ignores it: the clip and the translation set before it still hold.
+    {
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
+        canvas.ClipRect(ShimSkiaSharp.SKRect.Create(0, 0, 12, 24));
+        canvas.SetMatrix(ShimSkiaSharp.SKMatrix.CreateTranslation(3f, 3f));
+        canvas.Restore();
+        canvas.DrawPath(Square(18), s_red);
+        var model = recorder.EndRecording();
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, "RestoreAtBase", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture("RestoreAtBase", runtime!, generated, BakedThreshold);
+        AssertDrawsDirectlyTheSame("RestoreAtBase", model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
+
+    [Theory]
+    [InlineData("close")]
+    [InlineData("empty polygon")]
+    public void A_Baked_Path_Opening_With_Nothing_Starts_At_The_Moved_Origin(string opening)
+    {
+        // Neither adds a point, so the line after it still starts at Skia's origin, which baked has
+        // to be the translation; and a close first must not become a contour of its own.
+        var path = new ShimSkiaSharp.SKPath();
+        if (opening == "close")
+        {
+            path.Close();
+        }
+        else
+        {
+            path.AddPoly(Array.Empty<ShimSkiaSharp.SKPoint>(), close: true);
+        }
+
+        path.LineTo(20f, 0f);
+        path.LineTo(20f, 20f);
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 40, 40));
+        canvas.Save();
+        canvas.SetMatrix(ShimSkiaSharp.SKMatrix.CreateTranslation(10f, 10f));
+        canvas.DrawPath(path, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 3f, StrokeCap = ShimSkiaSharp.SKStrokeCap.Square, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0x1e, 0x40, 0xaf, 0xff) });
+        canvas.Restore();
+        var model = recorder.EndRecording();
+        var name = opening == "close" ? "ClosedFirst" : "EmptyPolygonFirst";
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, name, SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture(name, runtime!, generated, BakedThreshold);
+
+        // Skia draws no cap on a move and a close, so only the verbs show a contour added before the close.
+        if (opening == "close")
+        {
+            Assert.Contains("new byte[] { 4, 0, 1, 1 }", SkiaCSharpCodeGen.Generate(model, Namespace, name));
+        }
+    }
+
+    [Theory]
+    [InlineData(-1f)]
+    [InlineData(float.NaN)]
+    public void A_Width_Skia_Refuses_Leaves_The_Shared_Paint_At_A_New_Ones(float width)
+    {
+        // Skia keeps what a paint holds when a width is negative or NaN; a new paint holds 0, a
+        // hairline, which is what the interpreter draws, and the 4 before it must not carry over.
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="tint" type="color" default="#1e40af" /><e:param name="w" type="number" default="1" /></e:code></defs>
+              <path d="M 2 4 L 22 4" fill="none" stroke="{{ tint }}" stroke-width="4" />
+              <path d="M 2 14 L 22 14" fill="none" stroke="{{ tint }}" stroke-width="{{ w }}" />
+            </svg>
+            """;
+        var model = Model(svg);
+        var declarations = SvgExpressionDeclarations.Parse(svg);
+        var arguments = new object?[] { new SKColor(0x1e, 0x40, 0xaf), width };
+
+        var evaluated = SvgSceneExpressionEvaluator.Evaluate(model, declarations, Bind(declarations, arguments));
+        using var expected = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+
+        AssertDrawsDirectlyTheSame($"RefusedWidth{(float.IsNaN(width) ? "NaN" : "Negative")}", model, expected!, declarations, arguments);
+    }
+
+    [Fact]
+    public void A_Perspective_Is_Not_Taken_For_The_Identity()
+    {
+        // The shim's IsIdentity compares the affine part alone.
+        var perspective = new ShimSkiaSharp.SKMatrix { ScaleX = 1, ScaleY = 1, Persp0 = 0.01f, Persp2 = 1 };
+        var clip = new ShimSkiaSharp.ClipPath
+        {
+            Clips = new List<ShimSkiaSharp.PathClip> { new() { Path = Square(12), Transform = perspective } }
+        };
+        var model = new ShimPicture(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24), new List<ShimSkiaSharp.CanvasCommand>
+        {
+            new ShimSkiaSharp.SaveCanvasCommand(1),
+            new ShimSkiaSharp.ClipPathCanvasCommand(clip, ShimSkiaSharp.SKClipOperation.Intersect, true),
+            new ShimSkiaSharp.SetMatrixCanvasCommand(perspective, perspective),
+            new ShimSkiaSharp.DrawPathCanvasCommand(Square(24), s_red),
+            new ShimSkiaSharp.RestoreCanvasCommand(0)
+        });
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, "Perspective", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture("Perspective", runtime!, generated);
+        AssertDrawsDirectlyTheSame("Perspective", model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
+
+    [Fact]
+    public void A_Baked_Path_Opening_Without_A_Move_Starts_Where_The_Translation_Puts_The_Origin()
+    {
+        // Skia starts such a contour at the origin, which under the translation was (10, 10).
+        var path = new ShimSkiaSharp.SKPath();
+        path.LineTo(20f, 0f);
+        path.LineTo(20f, 20f);
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 40, 40));
+        canvas.Save();
+        canvas.SetMatrix(ShimSkiaSharp.SKMatrix.CreateTranslation(10f, 10f));
+        canvas.DrawPath(path, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 2f, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0x1e, 0x40, 0xaf, 0xff) });
+        canvas.Restore();
+        var model = recorder.EndRecording();
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        using var generated = Generated(model, "MovelessPath", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        AssertSamePicture("MovelessPath", runtime!, generated, BakedThreshold);
+        AssertDrawsDirectlyTheSame("MovelessPath", model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
+
+    [Fact]
+    public void A_Direct_Draw_Of_Driven_Paints_Allocates_Nothing()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="tint" type="color" default="#1e40af" /></e:code></defs>
+              <g transform="translate(2 3)">
+                <path d="M 0 0 L 18 0" stroke="{{ tint }}" stroke-width="2" />
+                <path d="M 0 6 L 18 6" stroke="{{ tint }}" stroke-width="1" />
+              </g>
+              <circle cx="12" cy="16" r="4" fill="{{ tint }}" />
+            </svg>
+            """;
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(Model(svg), Namespace, "Unallocated", SvgExpressionDeclarations.Parse(svg)) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Body = SvgBody.Direct });
+        var draw = Compile(code, "Unallocated").GetType($"{Namespace}.Unallocated")!
+            .GetMethod("Draw")!
+            .CreateDelegate<Action<SKCanvas, SKColor?>>();
+
+        using var bitmap = new SKBitmap(24, 24);
+        using var canvas = new SKCanvas(bitmap);
+        draw(canvas, new SKColor(0x1e, 0x40, 0xaf));
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        draw(canvas, new SKColor(0xdc, 0x26, 0x26));
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
     [Fact]
     public void SkiaSharp3_Renders_The_Same_As_SkiaSharp4()
         // The two differ only in how the path is assembled — SKPath directly, or a builder that
@@ -1642,7 +2158,7 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
-        using var recorded = Generated(model, "Pattern", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+        using var recorded = Generated(model, "Pattern", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), bake: false);
 
         AssertDrawsDirectlyTheSame("Pattern", model, recorded, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
     }

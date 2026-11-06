@@ -6065,7 +6065,8 @@ public class MainWindowProjectTests : IDisposable
         Assert.Contains("public static partial class VectorIconsResource", generated);
         Assert.Contains("public static void drawHomestate(SKCanvas canvas)", generated);
         Assert.Contains("global::Demo.Icons.Home.Draw(canvas);", generated);
-        Assert.Contains("RestoreToCount", generated);
+        // Drawn onto the canvas it is given, as body says, rather than recorded and played back.
+        Assert.DoesNotContain("DrawPicture", generated);
     }
 
     /// <summary>

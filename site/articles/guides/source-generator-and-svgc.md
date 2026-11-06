@@ -321,7 +321,9 @@ svgc --projectFile ./icons.svgcproj
   `Demo.Icons.Large`. One that continues all the way to the top continues the project's namespace,
   or `-n`'s when it is given, which therefore has to be written in full.
 - `<singleFile>` folds every drawing into one C# file, which also lets them share one copy of the
-  emitted expression helpers. Without it, each `<svg>` needs its own `output`.
+  emitted expression helpers. Without it, each `<svg>` needs its own `output`. A file whose drawings
+  need no expression helper keeps the helpers every drawing may call, the path data and the shared
+  paint, in each class, so it needs no C# 11.
 - A command line flag beats the project file, which beats the built-in default.
 
 `src/Svg.Studio` builds the same projects, from a format of its own that holds the drawings rather

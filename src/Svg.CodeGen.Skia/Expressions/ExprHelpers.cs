@@ -2,6 +2,8 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Svg.CodeGen.Skia.Expressions;
 
@@ -32,6 +34,18 @@ internal static class ExprHelpers
     public const string Num = "SvgNum";
     public const string Tangent = "SvgTangent";
     public const string Dash = "SvgDash";
+    public const string Paint = "SvgPaint";
+    public const string PathData = "SvgPathData";
+    public const string PathBuilderData = "SvgPathBuilderData";
+
+    /// <summary>Whether a drawing calls the helper with no expression in it: the path data and the shared paint.</summary>
+    public static bool Drawing(string key) => key is PathData or PathBuilderData or Paint;
+
+    /// <summary>The members a helper's text declares, which nothing else in its class may be named.</summary>
+    public static IEnumerable<string> Members(string[] helper)
+        => helper.Select(line => s_member.Match(line)).Where(match => match.Success).Select(match => match.Groups[1].Value);
+
+    private static readonly Regex s_member = new(@"^private static [^\s(]+ (\w+)\s*[(;]", RegexOptions.CultureInvariant);
 
     // Ordered so generated output is stable.
     public static IReadOnlyList<KeyValuePair<string, string[]>> All { get; } = new List<KeyValuePair<string, string[]>>
@@ -284,6 +298,50 @@ internal static class ExprHelpers
             "",
             "    return sum <= 0f ? null! : SKPathEffect.CreateDash(intervals, float.IsNaN(phase) || float.IsInfinity(phase) ? 0f : phase);",
             "}"
-        })
+        }),
+
+        // A direct drawing's paint for every shape whose paint follows an argument: Skia copies a paint
+        // into what it records or draws, so one per thread serves every draw, with nothing allocated.
+        new(Paint, new[]
+        {
+            "[ThreadStatic]",
+            $"private static SKPaint {Paint}Instance;",
+            "",
+            $"private static SKPaint {Paint}()",
+            "{",
+            $"    var paint = {Paint}Instance ??= new SKPaint();",
+            "    paint.Reset();",
+            "    return paint;",
+            "}"
+        }),
+
+        // A run of path commands as data, which the compiler keeps as one blob: thousands of calls,
+        // each a few dozen bytes of IL and more of native code, are one loop.
+        new(PathData, PathDataHelper(PathData, "SKPath")),
+        new(PathBuilderData, PathDataHelper(PathBuilderData, "SKPathBuilder"))
+    };
+
+    /// <summary>
+    /// Replays verbs onto <paramref name="target"/>: 0 move, 1 line, 2 quad, 3 cubic, 4 close, and 5
+    /// to 8 an arc, plus 1 for the large one and 2 for counter-clockwise.
+    /// </summary>
+    private static string[] PathDataHelper(string name, string target) => new[]
+    {
+        $"private static void {name}({target} path, ReadOnlySpan<byte> verbs, ReadOnlySpan<float> p)",
+        "{",
+        "    var i = 0;",
+        "    foreach (var verb in verbs)",
+        "    {",
+        "        switch (verb)",
+        "        {",
+        "            case 0: path.MoveTo(p[i], p[i + 1]); i += 2; break;",
+        "            case 1: path.LineTo(p[i], p[i + 1]); i += 2; break;",
+        "            case 2: path.QuadTo(p[i], p[i + 1], p[i + 2], p[i + 3]); i += 4; break;",
+        "            case 3: path.CubicTo(p[i], p[i + 1], p[i + 2], p[i + 3], p[i + 4], p[i + 5]); i += 6; break;",
+        "            case 4: path.Close(); break;",
+        "            default: path.ArcTo(p[i], p[i + 1], p[i + 2], (SKPathArcSize)((verb - 5) & 1), (SKPathDirection)((verb - 5) >> 1), p[i + 3], p[i + 4]); i += 5; break;",
+        "        }",
+        "    }",
+        "}"
     };
 }

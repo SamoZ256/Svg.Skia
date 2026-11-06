@@ -81,6 +81,15 @@ public class SkiaCSharpCodeGenCounter
     /// <summary>Whether the next picture is the drawing itself, drawn onto the canvas it is given.</summary>
     internal bool Direct { get; set; }
 
+    /// <summary>Whether a shape only a translation moves is built where it is drawn; see <see cref="SvgCodeStyle.Bake"/>.</summary>
+    internal bool Bake { get; set; }
+
+    /// <summary>
+    /// Whether a run of path commands is built by the path data helper, which only a whole generated
+    /// file supplies: the public extensions, called on their own, write a call for each command.
+    /// </summary>
+    internal bool PathData { get; set; }
+
     /// <summary>
     /// The static constructor's body while a direct drawing is emitted: where a path or a paint
     /// nothing the caller passes can change is built, once.
@@ -89,4 +98,10 @@ public class SkiaCSharpCodeGenCounter
 
     /// <summary>What <see cref="Statics"/> built, each kept in a field named <c>s_</c> and the local's name.</summary>
     internal List<(string Type, string Name)> StaticFields { get; } = new();
+
+    /// <summary>Each static's text with its locals renumbered, so a second copy reads the first's field.</summary>
+    internal Dictionary<string, string> StaticTexts { get; } = new();
+
+    /// <summary>Locals that read something <c>Draw</c> does not own, whose disposal is left out.</summary>
+    internal HashSet<string> Borrowed { get; } = new();
 }
