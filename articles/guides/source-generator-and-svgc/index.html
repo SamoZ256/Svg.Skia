@@ -399,7 +399,9 @@ groups said as if it had said it itself.</li>
 <code>Demo.Icons.Large</code>. One that continues all the way to the top continues the project's namespace,
 or <code>-n</code>'s when it is given, which therefore has to be written in full.</li>
 <li><code>&lt;singleFile&gt;</code> folds every drawing into one C# file, which also lets them share one copy of the
-emitted expression helpers. Without it, each <code>&lt;svg&gt;</code> needs its own <code>output</code>.</li>
+emitted expression helpers. Without it, each <code>&lt;svg&gt;</code> needs its own <code>output</code>. A file whose drawings
+need no expression helper keeps the helpers every drawing may call, the path data and the shared
+paint, in each class, so it needs no C# 11.</li>
 <li>A command line flag beats the project file, which beats the built-in default.</li>
 </ul>
 <p><code>src/Svg.Studio</code> builds the same projects, from a format of its own that holds the drawings rather
