@@ -663,6 +663,73 @@ public class SkiaCSharpRenderTests
     }
 
     [Fact]
+    public void A_Driven_Text_Paint_Is_The_Shared_One_And_Leaves_It_Reset()
+    {
+        // The strokes either side hold the same settings: the text's replay resets the shared paint, so
+        // the second has to set them again or it fills.
+        var code = AssertTextRendersTheSame("SharedTextPaint", """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 48 24" width="48" height="24">
+              <defs><e:code><e:param name="tint" type="color" default="#7c3aed" /></e:code></defs>
+              <path d="M 2 3 L 40 3 L 40 6" fill="none" stroke="{{ tint }}" stroke-width="2" />
+              <text x="2" y="15" font-family="Noto Sans" font-size="9" fill="{{ tint }}">Ab7</text>
+              <path d="M 2 20 L 40 20 L 40 23" fill="none" stroke="{{ tint }}" stroke-width="2" />
+            </svg>
+            """, arguments: new object?[] { new SKColor(0x7c, 0x3a, 0xed) }, expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" width="48" height="24">
+              <path d="M 2 3 L 40 3 L 40 6" fill="none" stroke="#7c3aed" stroke-width="2" />
+              <text x="2" y="15" font-family="Noto Sans" font-size="9" fill="#7c3aed">Ab7</text>
+              <path d="M 2 20 L 40 20 L 40 23" fill="none" stroke="#7c3aed" stroke-width="2" />
+            </svg>
+            """);
+
+        Assert.Single(Regex.Matches(code, @"new SKPaint\(\)"));
+    }
+
+    [Fact]
+    public void A_Direct_Draw_Of_Driven_Text_Allocates_Only_What_DrawText_Does()
+    {
+        // DrawText(string) builds a text blob on every call, which is SkiaSharp's; everything else a
+        // run needs, its picture, paint and font, is the drawing's and allocates nothing.
+        var svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 48 24" width="48" height="24">
+              <defs><e:code><e:param name="tint" type="color" default="#1e40af" /></e:code></defs>
+              <g transform="translate(2 3)">
+                <text x="0" y="12" font-family="Noto Sans" font-size="9" fill="{{ tint }}">Ab7</text>
+                <text x="0" y="20" font-family="Noto Sans" font-size="6" fill="#111827">cd</text>
+              </g>
+            </svg>
+            """;
+        var settings = new SKSvgSettings();
+        settings.TypefaceProviders!.Insert(0, new Svg.Skia.TypefaceProviders.CustomTypefaceProvider(s_noto));
+        var model = SvgSceneRuntime.CreateModel(SvgService.FromSvg(svg)!, new SkiaSvgAssetLoader(new SkiaModel(settings)))!;
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(model, Namespace, "UnallocatedText", SvgExpressionDeclarations.Parse(svg)) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Body = SvgBody.Direct, Typeface = $"SKTypeface.FromFile(@\"{s_noto}\")" });
+        var draw = Compile(code, "UnallocatedText").GetType($"{Namespace}.UnallocatedText")!
+            .GetMethod("Draw")!
+            .CreateDelegate<Action<SKCanvas, SKColor?>>();
+
+        using var bitmap = new SKBitmap(48, 24);
+        using var canvas = new SKCanvas(bitmap);
+        draw(canvas, new SKColor(0x1e, 0x40, 0xaf));
+
+        using var font = new SKFont(SKTypeface.FromFile(s_noto), 9f);
+        using var paint = new SKPaint();
+        canvas.DrawText("Ab7", 0f, 12f, SKTextAlign.Left, font, paint);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        canvas.DrawText("Ab7", 0f, 12f, SKTextAlign.Left, font, paint);
+        canvas.DrawText("cd", 0f, 20f, SKTextAlign.Left, font, paint);
+        var blobs = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+        draw(canvas, new SKColor(0xdc, 0x26, 0x26));
+
+        Assert.Equal(blobs, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [Fact]
     public void Text_In_A_Range_Is_Replayed_Only_Where_The_Range_Runs()
         => AssertTextRendersTheSame("InlineTextRange", """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 48 24" width="48" height="24">
@@ -725,18 +792,25 @@ public class SkiaCSharpRenderTests
     /// resolves differently there and in a font manager (see <see cref="A_Typeface_Template_Draws_The_Typeface_It_Names"/>).
     /// </summary>
     /// <returns>The direct body, for what a row asserts of its text.</returns>
-    private static string AssertTextRendersTheSame(string name, string markup, SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4, object?[]? arguments = null)
+    /// <param name="expectedMarkup">The document with the arguments written in, which the runtime draws; see <see cref="AssertExpressionsRenderTheSame"/>.</param>
+    private static string AssertTextRendersTheSame(string name, string markup, SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4, object?[]? arguments = null, string? expectedMarkup = null)
     {
         Assert.True(File.Exists(s_noto), s_noto);
         var settings = new SKSvgSettings();
         settings.TypefaceProviders!.Insert(0, new Svg.Skia.TypefaceProviders.CustomTypefaceProvider(s_noto));
 
-        var document = SvgService.FromSvg(markup);
-        Assert.NotNull(document);
-        var model = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(settings)));
-        Assert.NotNull(model);
+        ShimPicture TextModel(string svg)
+        {
+            var document = SvgService.FromSvg(svg);
+            Assert.NotNull(document);
+            var picture = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(settings)));
+            Assert.NotNull(picture);
+            return picture!;
+        }
 
-        using var runtime = new SkiaModel(settings).ToSKPicture(model!);
+        var model = TextModel(markup);
+
+        using var runtime = new SkiaModel(settings).ToSKPicture(expectedMarkup is null ? model : TextModel(expectedMarkup));
         Assert.NotNull(runtime);
 
         var declarations = SvgExpressionDeclarations.Parse(markup);

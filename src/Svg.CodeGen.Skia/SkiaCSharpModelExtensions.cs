@@ -3091,7 +3091,7 @@ public static class SkiaCSharpModelExtensions
                         if (drawPositionedTextRunCanvasCommand.Fragments is { Count: > 0 } && drawPositionedTextRunCanvasCommand.Paint is { })
                         {
                             var counterPaint = ++counter.Paint;
-                            drawPositionedTextRunCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
+                            ToSKPaint(drawPositionedTextRunCanvasCommand.Paint, counter, sb, indent, fade: null, state);
                             var counterFont = ++counter.Font;
                             if (drawPositionedTextRunCanvasCommand.Font is { } textRunFont)
                             {
@@ -3172,7 +3172,7 @@ public static class SkiaCSharpModelExtensions
                             var text = ExprCSharpBackend.Literal(drawPositionedTextCanvasCommand.TextBlob.Text);
                             var points = drawPositionedTextCanvasCommand.TextBlob.Points.ToSKPoints();
                             var counterPaint = ++counter.Paint;
-                            drawPositionedTextCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
+                            ToSKPaint(drawPositionedTextCanvasCommand.Paint, counter, sb, indent, fade: null, state);
                             var counterFont = ++counter.Font;
                             if (drawPositionedTextCanvasCommand.TextBlob.Font is { } textBlobFont)
                             {
@@ -3233,7 +3233,7 @@ public static class SkiaCSharpModelExtensions
                             var x = drawTextCanvasCommand.X;
                             var y = drawTextCanvasCommand.Y;
                             var counterPaint = ++counter.Paint;
-                            drawTextCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
+                            ToSKPaint(drawTextCanvasCommand.Paint, counter, sb, indent, fade: null, state);
                             var counterFont = ++counter.Font;
                             if (drawTextCanvasCommand.Font is { } textFont)
                             {
@@ -3288,7 +3288,7 @@ public static class SkiaCSharpModelExtensions
                             var hOffset = drawTextOnPathCanvasCommand.HOffset;
                             var vOffset = drawTextOnPathCanvasCommand.VOffset;
                             var counterPaint = ++counter.Paint;
-                            drawTextOnPathCanvasCommand.Paint.ToSKPaint(counter, sb, indent);
+                            ToSKPaint(drawTextOnPathCanvasCommand.Paint, counter, sb, indent, fade: null, state);
                             var counterFont = ++counter.Font;
                             if (drawTextOnPathCanvasCommand.Font is { } textOnPathFont)
                             {
