@@ -2240,6 +2240,12 @@ public static class SvgSceneCompiler
 
         AssignGeneratedHitTestTarget(referencedNode, svgUse);
         useNode.AddChild(referencedNode);
+
+        if (SvgSceneExpressions.CallOf(svgUse) is { } call)
+        {
+            useNode.CallTarget = call.Target;
+            useNode.CallArguments = call.Arguments;
+        }
         var useBounds = CalculateDirectStructuralBounds(useNode);
         FinalizeDirectStructuralBounds(
             useNode,

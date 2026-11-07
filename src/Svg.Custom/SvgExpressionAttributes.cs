@@ -193,6 +193,16 @@ public static class SvgExpressionAttributes
     public const string Bounds = "bounds";
 
     /// <summary>
+    /// The attribute naming the drawing a <c>&lt;use&gt;</c> draws a copy of, so generated code can
+    /// call that drawing instead: <c>e:draws="SymbolPlus"</c>, beside one <c>e:arg-isLight="{{ false }}"</c>
+    /// per parameter the use gives a value of its own.
+    /// </summary>
+    public const string Draws = "draws";
+
+    /// <summary>The start of an attribute giving one argument of <see cref="Draws"/>.</summary>
+    public const string Argument = "arg-";
+
+    /// <summary>
     /// Why <paramref name="name"/> cannot be a box of the class called <paramref name="className"/>,
     /// or null when it can.
     /// </summary>

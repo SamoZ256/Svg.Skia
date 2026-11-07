@@ -1685,6 +1685,10 @@ public partial class SkiaModel
                 hash.Add(setMatrixCanvasCommand.DeltaMatrix);
                 hash.Add(setMatrixCanvasCommand.TotalMatrix);
                 break;
+            case BeginCallCanvasCommand:
+            case EndCallCanvasCommand:
+                // Rendering ignores both, so the type is all they add.
+                break;
             default:
                 revision = 0;
                 return false;

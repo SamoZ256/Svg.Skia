@@ -80,6 +80,34 @@ public static readonly SKRect @LevelRect = new SKRect(2f, 6f, 28f, 24f);
 
 The numbers are in the generated picture's coordinates: after the viewBox, any size or padding the build applies, and every transform above the element, so a turned box gives the upright box around it. A box a parameter moves is measured at the declared defaults, with a warning. The build skips two kinds of mark: one under `<defs>`, and one with no place of its own in the drawing, such as a mark inside a `<clipPath>`. It warns about the second. A name that is not letters, digits and underscores, is used twice, or clashes with `Record`, `Draw` or the class itself stops the build. A direct `SkiaCSharpCodeGen.GenerateFile` caller passes the boxes on `SkiaCSharpDrawing`. The source generator and Svg Studio's export of a lone drawing ignore the mark. The [PaintCode import](svg-paintcode) writes one for every shape named `Embed<X>`, and [Svg Studio](../guides/svg-studio#boxes-for-the-code-that-draws-it) shows and names them.
 
+## A drawing that draws another
+
+A `<use>` can say that what it references is a copy of another drawing: `e:draws` names that
+drawing's class, and each `e:arg-<name>` gives one of its parameters a value of the use's own.
+
+```xml
+<use href="#sym-badge" e:draws="Badge" e:arg-on="{{ false }}" transform="translate(8 4)" />
+```
+
+Generated into one file with `Badge`, as a project's single file and Svg Studio's export are, the
+use becomes a call. Every parameter `Badge` declares is passed, the ones the use gives nothing
+by the caller's own name:
+
+```csharp
+global::Icons.Badge.Draw(skCanvas0, tint: tint, on: false);
+```
+
+The copy stays in the document, and it is what every renderer draws. So the call is made only where
+it draws what the copy does: the copy still holds the same commands as `Badge`, which a stale copy, a
+resized `Badge` or a renamed class would not. Each expression has to read in the copy as it does in
+`Badge`, except one that a value the use gives reaches, which the copy has with that value written
+in: that one is held only to being there. `Badge` must also have no text, no non-scaling stroke, no
+image filter and no frozen values, and draw no lone shape the renderer would draw differently under a
+layer the use opens. With the `record` body a call plays back `Badge`'s picture, which Skia drops
+whole where its bounds miss the clip, so there the use must clip to those bounds, as an imported
+symbol does. Anywhere else, and in every build that sees one drawing at a time, the copy is emitted as
+before. The [PaintCode import](svg-paintcode) writes the attributes for every symbol instance.
+
 ## Shaping the generated file
 
 `GenerateFile` takes an `SvgCodeStyle`. Every member left at its default writes the file the

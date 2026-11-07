@@ -21,6 +21,8 @@ internal sealed class PaintCodeSvgWriter
     private readonly Dictionary<string, int> _identifiers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _symbolIdentifiers = new(StringComparer.Ordinal);
     private readonly List<string> _expanding = new();
+    private readonly HashSet<string> _fallen = new(StringComparer.Ordinal);
+    private int _fallbacks;
     private readonly List<XElement> _definitions = new();
     private IReadOnlyDictionary<string, string>? _overrides;
     private int _layers;
@@ -378,11 +380,20 @@ internal sealed class PaintCodeSvgWriter
 
         var given = Given(symbol);
         var key = target.Identifier + "(" + string.Join(",", Ordered(given)) + ")";
+        var fallbacks = _fallbacks;
         var scope = Closure(given);
 
         if (!_symbolIdentifiers.TryGetValue(key, out var identifier))
         {
             identifier = Expand(target, scope, key);
+        }
+
+        // A copy holding a value of its own where the target reads one it is given no longer draws
+        // what calling the target would, and neither does any copy holding it.
+        if (_fallbacks != fallbacks || _fallen.Contains(key))
+        {
+            _fallen.Add(key);
+            _fallbacks++;
         }
 
         var element = new XElement(Svg + "use", new XAttribute("href", "#" + identifier));
@@ -392,7 +403,42 @@ internal sealed class PaintCodeSvgWriter
         // its own canvas is cut off rather than spilling into this drawing.
         element.SetAttributeValue("clip-path", $"url(#{identifier}-clip)");
 
+        Call(element, target, given, key);
+
         return element;
+    }
+
+    /// <summary>
+    /// Names the drawing the copy draws, and what this instance gives it, so generated code can call
+    /// that drawing as PaintCode's does rather than repeat it.
+    /// </summary>
+    /// <remarks>Only parameters can be passed: a call cannot reach a local or a constant of the target.</remarks>
+    private void Call(XElement use, PaintCodeCanvas target, IReadOnlyDictionary<string, string> given, string key)
+    {
+        if (_fallen.Contains(key) || !_symbols.IsDrawing(target))
+        {
+            return;
+        }
+
+        foreach (var name in given.Keys)
+        {
+            if (!_declarations.ByName.TryGetValue(name, out var declaration) || declaration.Kind != PaintCodeDeclarationKind.Parameter)
+            {
+                return;
+            }
+        }
+
+        use.SetAttributeValue(PaintCodeCode.Namespace + SvgExpressionAttributes.Draws, PaintCodeSlug.Pascal(target.Name));
+
+        var names = new List<string>(given.Keys);
+        names.Sort(StringComparer.Ordinal);
+
+        foreach (var name in names)
+        {
+            use.SetAttributeValue(PaintCodeCode.Namespace + (SvgExpressionAttributes.Argument + name), Braces(given[name]));
+        }
+
+        _marked = true;
     }
 
     private string Expand(PaintCodeCanvas target, IReadOnlyDictionary<string, string> given, string key)
@@ -489,6 +535,11 @@ internal sealed class PaintCodeSvgWriter
             if (PaintCodeExpressionTranslator.TryTranslate(source, _declarations, out var expression, out _, scope))
             {
                 scope[name] = expression;
+            }
+            else
+            {
+                // The copy reads the caller's local unchanged, where the target would rebuild it.
+                _fallbacks++;
             }
         }
 
@@ -1442,7 +1493,14 @@ internal sealed class PaintCodeSvgWriter
     private static string Number(double value) => PaintCodePathData.Number(value);
 
     private void Note(PaintCodeImportSeverity severity, string element, string property, string message)
-        => _notes.Add(new PaintCodeImportNote(severity, _canvas.Name, element, property, message));
+    {
+        if (severity == PaintCodeImportSeverity.Dropped)
+        {
+            _fallbacks++;
+        }
+
+        _notes.Add(new PaintCodeImportNote(severity, _canvas.Name, element, property, message));
+    }
 
     /// <summary>A document-unique id from a PaintCode name, which is unique only among its siblings.</summary>
     private string Identifier(string name)

@@ -249,4 +249,17 @@ public class CloneCommandTests
         Assert.Equal(bounds, typed.Bounds);
         Assert.NotSame(paint, typed.Paint);
     }
+
+    [Fact]
+    public void CanvasCommand_DeepClone_ClonesCallMarkers()
+    {
+        var arguments = new[] { new KeyValuePair<string, SymNode>("isLight", SymNode.Source("false")) };
+        CanvasCommand begin = new BeginCallCanvasCommand("ButtonPlus", arguments);
+
+        var typed = Assert.IsType<BeginCallCanvasCommand>(begin.DeepClone());
+
+        Assert.Equal("ButtonPlus", typed.Target);
+        Assert.Same(arguments, typed.Arguments);
+        Assert.IsType<EndCallCanvasCommand>(new EndCallCanvasCommand().DeepClone());
+    }
 }
