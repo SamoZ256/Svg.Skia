@@ -242,8 +242,12 @@ canvas, so drawing under a transform gives the same pixels as recording and then
 and a paint that no argument changes, is built once in the static constructor and read from a
 field, and two built alike share one. A shape's paint that follows an argument and holds no shader,
 filter or dash is set on one paint per thread, which the generated <code>SvgPaint()</code> resets once a draw,
-and only in what differs from the shape before it, so drawing shapes allocates nothing. Text, and a
-driven paint with a shader or a filter, still build their paint on every draw. A filled rect, round rect,
+and only in what differs from the shape before it, so drawing shapes allocates nothing. A driven
+paint with a shader or a filter still builds its paint on every draw. A picture the drawing draws,
+which is how the scene holds every text element, is replayed onto the canvas under a save rather than
+recorded on every draw, in both bodies, and its paths, paints and fonts are statics like the rest: a
+typeface is looked up once, when the static constructor runs. A text run then allocates only the
+text blob SkiaSharp's <code>DrawText(string)</code> builds on every call. A filled rect, round rect,
 oval or circle with no layer open around it builds no path in either body: it is drawn with
 <code>DrawRect</code>, <code>DrawRoundRect</code>, <code>DrawOval</code> or <code>DrawCircle</code>, as the renderer draws it. <code>Record</code> stays,
 and records <code>Draw</code>.</p>
