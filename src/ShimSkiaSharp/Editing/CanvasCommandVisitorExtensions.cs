@@ -65,6 +65,12 @@ public static class CanvasCommandVisitorExtensions
             case EndConditionalCanvasCommand endConditional:
                 visitor.Visit(endConditional);
                 break;
+            case BeginCallCanvasCommand beginCall:
+                visitor.Visit(beginCall);
+                break;
+            case EndCallCanvasCommand endCall:
+                visitor.Visit(endCall);
+                break;
             default:
                 throw new NotSupportedException($"Unsupported {nameof(CanvasCommand)} type: {command.GetType().Name}.");
         }

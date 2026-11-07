@@ -127,7 +127,7 @@ public sealed class CommandPlan
                     case ClipPathCanvasCommand { Operation: SKClipOperation.Intersect, Antialias: true, ClipPath: { } clipPath }:
                         Open(Region.From(i, clipPath, _matrix));
                         break;
-                    case ClipRectCanvasCommand or ClipPathCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand:
+                    case ClipRectCanvasCommand or ClipPathCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand or BeginCallCanvasCommand or EndCallCanvasCommand:
                         break;
                     case DrawPictureCanvasCommand { Picture: { } picture }:
                         Picture(picture.Commands, _matrix);
@@ -386,7 +386,7 @@ public sealed class CommandPlan
 
                         matrix = matrix.PreConcat(Affine.From(setMatrix.DeltaMatrix));
                         break;
-                    case ClipRectCanvasCommand or ClipPathCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand:
+                    case ClipRectCanvasCommand or ClipPathCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand or BeginCallCanvasCommand or EndCallCanvasCommand:
                         break;
                     case DrawPictureCanvasCommand { Picture: { } picture }:
                         Picture(picture.Commands, matrix);

@@ -509,6 +509,19 @@ public class EditingHelpersTests
         Assert.True(Plan(commands).Skips(1));
     }
 
+    // A call draws what it brackets, so it is no more a draw of its own than a conditional is.
+    [Fact]
+    public void CommandPlan_SeesThroughACall()
+    {
+        var commands = Clipped(
+            ClipRect(s_frame),
+            new BeginCallCanvasCommand("Badge", Array.Empty<KeyValuePair<string, SymNode>>()),
+            Fill(SKRect.Create(2, 2, 16, 16)),
+            new EndCallCanvasCommand());
+
+        Assert.True(Plan(commands).Skips(1));
+    }
+
     [Fact]
     public void CommandPlan_KeepsAClipThatCuts()
     {
@@ -888,5 +901,9 @@ public class EditingHelpersTests
         public void Visit(BeginConditionalCanvasCommand cmd) => _visited.Add(nameof(BeginConditionalCanvasCommand));
 
         public void Visit(EndConditionalCanvasCommand cmd) => _visited.Add(nameof(EndConditionalCanvasCommand));
+
+        public void Visit(BeginCallCanvasCommand cmd) => _visited.Add(nameof(BeginCallCanvasCommand));
+
+        public void Visit(EndCallCanvasCommand cmd) => _visited.Add(nameof(EndCallCanvasCommand));
     }
 }

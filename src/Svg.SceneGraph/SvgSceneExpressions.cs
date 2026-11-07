@@ -77,6 +77,36 @@ internal static class SvgSceneExpressions
         return null;
     }
 
+    /// <summary>The drawing <paramref name="use"/> says its content is, given these arguments, or null.</summary>
+    /// <remarks>An argument written without braces voids the claim rather than leaving the call one value short.</remarks>
+    internal static (string Target, IReadOnlyList<KeyValuePair<string, SymNode>> Arguments)? CallOf(SvgUse use)
+    {
+        if (Own(use, SvgExpressionAttributes.Draws) is not { } target)
+        {
+            return null;
+        }
+
+        var prefix = SvgExpressionAttributes.KeyFor(SvgExpressionAttributes.Argument);
+        var arguments = new List<KeyValuePair<string, SymNode>>();
+
+        foreach (var attribute in use.CustomAttributes)
+        {
+            if (!attribute.Key.StartsWith(prefix, System.StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!SvgExpressionAttributes.TryUnwrap(attribute.Value, out var expression))
+            {
+                return null;
+            }
+
+            arguments.Add(new KeyValuePair<string, SymNode>(attribute.Key.Substring(prefix.Length), SymNode.Source(expression)));
+        }
+
+        return (target, arguments);
+    }
+
     /// <summary>The text this element carries itself, ignoring what it inherits.</summary>
     private static string? Own(SvgElement element, string localName)
     {

@@ -155,7 +155,7 @@ public static class SvgSceneRenderer
             (node.Filter is null || !enableFilter);
         if (IsStateFreeNode(node, enableTransform, enableClip, enableMask, enableOpacity, enableFilter, enableBlendMode, enableIsolation))
         {
-            return RenderNodeContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until);
+            return RenderCalledContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until);
         }
 
         if (TryRenderTransformOnlySimpleChildrenToCanvas(
@@ -236,7 +236,7 @@ public static class SvgSceneRenderer
             enableGlobalFilterLayer = SaveFilterLayerToCanvas(node, canvas, filter);
         }
 
-        if (!RenderNodeContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until))
+        if (!RenderCalledContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until))
         {
             RestoreNode(canvas, node, enableMask, enableOpacity, enableFilter, enableBlendMode, enableIsolation, enableGlobalFilterLayer);
             return false;
@@ -415,6 +415,28 @@ public static class SvgSceneRenderer
         {
             canvas.DrawPath(localPath, localStroke);
         }
+    }
+
+    /// <summary>
+    /// The node's content, marked as a call where a use names the drawing it copies: the range
+    /// holds only what the use references, its own transform, clip and layers staying outside.
+    /// </summary>
+    private static bool RenderCalledContentToCanvas(
+        SvgSceneDocument sceneDocument,
+        SvgSceneNode node,
+        SKCanvas canvas,
+        DrawAttributes ignoreAttributes,
+        SvgSceneNode? until)
+    {
+        if (node.CallTarget is not { } target || until is not null || ignoreAttributes != DrawAttributes.None)
+        {
+            return RenderNodeContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until);
+        }
+
+        canvas.BeginCall(target, node.CallArguments!);
+        var rendered = RenderNodeContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until);
+        canvas.EndCall();
+        return rendered;
     }
 
     private static bool RenderNodeContentToCanvas(
@@ -839,6 +861,8 @@ public static class SvgSceneRenderer
             node.Transform.IsIdentity ||
             // Folded into the children's path points below, which a rebind could not undo.
             node.SymbolicTransform is not null ||
+            // Drawn with no range around the content for a call to stand in for.
+            node.CallTarget is not null ||
             node.HasLocalVisuals ||
             node.Children.Count == 0 ||
             node.Overflow is not null ||

@@ -55,7 +55,7 @@ PaintCode's class can keep calling. See [a PaintCode-style API](svg-codegen-skia
 | A canvas | One `.svg`, and one row of the project — or one drawing of a Studio project |
 | A group | `<g>`, with its clip as a `<clipPath>` |
 | Bezier, rectangle, rounded rectangle, oval, star, polygon | `<path>`, or `<rect>` and `<ellipse>` where those say it |
-| A symbol instance | `<use>` of a copy in the same file's `<defs>` |
+| A symbol instance | `<use>` of a copy in the same file's `<defs>`, naming the drawing it copies so an export [calls it](svg-codegen-skia#a-drawing-that-draws-another) |
 | A library colour marked as used | `<e:param type="color">` |
 | A colour derived from one | `<e:let>` over `withAlpha`, `withSaturation` or `mix`, following it |
 | A variable marked as used | `<e:param>` of the type it was declared as — see below |

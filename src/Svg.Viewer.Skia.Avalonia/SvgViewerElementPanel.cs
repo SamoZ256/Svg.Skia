@@ -142,6 +142,8 @@ public sealed class SvgViewerElementPanel : UserControl
     /// <summary>The row naming the constant a box is reported as.</summary>
     private const string BoxRow = "e:bounds";
 
+    private const string ArgumentRow = "e:" + SvgExpressionAttributes.Argument;
+
     /// <summary>The class the drawing generates, which a box may not be named after; asked each time, since it can be renamed.</summary>
     public Func<string?>? ClassName { get; set; }
 
@@ -1090,6 +1092,14 @@ public sealed class SvgViewerElementPanel : UserControl
         if (name == BoxRow && written.Trim() is { Length: > 0 } box)
         {
             return SvgExpressionAttributes.WhyNotBox(box, ClassName?.Invoke(), OtherBoxes());
+        }
+
+        // A value the use gives the drawing it calls, of whatever type that drawing's parameter is.
+        if (name.StartsWith(ArgumentRow, StringComparison.Ordinal))
+        {
+            return written.Trim().Length == 0 || SvgExpressionAttributes.TryUnwrap(written, out _)
+                ? null
+                : $"'{name}' is written as one expression in double braces.";
         }
 
         if (SvgExpressionAttributes.IsInArguments(name))

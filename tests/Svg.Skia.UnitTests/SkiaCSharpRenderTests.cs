@@ -2331,4 +2331,342 @@ public class SkiaCSharpRenderTests
 
         AssertSamePicture("FacadeFramed", runtime, generated);
     }
+
+    // ---- a drawing that draws another ----
+    // The caller holds a copy of what it draws, as the PaintCode import writes one, and names the
+    // drawing the copy is. Generated beside that drawing it calls it; the runtime draws the copy.
+
+    private const string BadgeCode = """
+        <e:code><e:param name="tint" type="color" default="#ef4444" /><e:param name="on" type="boolean" default="true" /></e:code>
+        """;
+
+    private static string Badge(string fill = "{{ on ? tint : #1e40af }}") => $"""
+        <path d="M 2 2 L 22 2 L 12 21 Z" fill="{fill}" transform="translate(0.5 0.25)" />
+        <circle cx="12" cy="9" r="4" fill="#facc15" />
+        """;
+
+    private static readonly string BadgeDrawing = $"""
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24" viewBox="0 0 24 24">
+          <defs>{BadgeCode}</defs>
+          {Badge()}
+        </svg>
+        """;
+
+    /// <summary>A 48-unit drawing whose <paramref name="body"/> uses copies kept in its own defs.</summary>
+    private static string Caller(string copies, string body) => $"""
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="48" height="48" viewBox="0 0 48 48">
+          <defs>
+            {BadgeCode}
+            {copies}
+            <clipPath id="badge-clip"><rect width="24" height="24" /></clipPath>
+          </defs>
+          <path d="M 0 40 L 48 40 L 48 48 L 0 48 Z" fill="#e5e7eb" />
+          {body}
+        </svg>
+        """;
+
+    private static readonly string BadgeCopy = $"""<g id="sym-badge">{Badge()}</g>""";
+
+    /// <summary>The drawings generated into one file, as a project export generates them.</summary>
+    private static string Together(SvgBody body, bool bake, params (string Name, string Svg)[] drawings)
+        => SkiaCSharpCodeGen.GenerateFile(
+            drawings.Select(drawing => new SkiaCSharpDrawing(Model(drawing.Svg), Namespace, drawing.Name, SvgExpressionDeclarations.Parse(drawing.Svg))).ToArray(),
+            style: new SvgCodeStyle { Body = body, Bake = bake });
+
+    /// <summary>
+    /// The first drawing, generated beside the rest so it calls them, against the runtime drawing its
+    /// copies with the same <paramref name="arguments"/>.
+    /// </summary>
+    private static void AssertCallsTheSame(string name, object?[] arguments, params (string Name, string Svg)[] drawings)
+    {
+        var caller = drawings[0];
+        var declarations = SvgExpressionDeclarations.Parse(caller.Svg);
+        var evaluated = SvgSceneExpressionEvaluator.Evaluate(Model(caller.Svg), declarations, Bind(declarations, arguments));
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+        Assert.NotNull(runtime);
+
+        foreach (var (body, bake) in new[] { (SvgBody.Record, false), (SvgBody.Direct, false), (SvgBody.Direct, true) })
+        {
+            var code = Together(body, bake, drawings);
+            Assert.Contains($"global::{Namespace}.{drawings[1].Name}.Draw(", code);
+
+            var label = $"{name}-{body}{(bake ? "-baked" : "")}";
+            var threshold = bake ? BakedThreshold : Threshold;
+            var type = Compile(code, label).GetType($"{Namespace}.{caller.Name}")!;
+            using var recorded = (SKPicture)type.GetMethod("Record")!.Invoke(null, arguments)!;
+            AssertSamePicture(label, runtime!, recorded, threshold);
+
+            if (body == SvgBody.Direct)
+            {
+                var cull = runtime!.CullRect;
+                var under = new SKRect(0, 0, cull.Width * 1.5f + 6, cull.Height * 1.5f + 10);
+
+                using var expected = Transformed(under, canvas => canvas.DrawPicture(recorded));
+                using var actual = Transformed(under, canvas => type.GetMethod("Draw")!.Invoke(null, new object?[] { canvas }.Concat(arguments).ToArray()));
+                AssertSamePicture($"{label}-transformed", expected, actual);
+            }
+        }
+    }
+
+    [Fact]
+    public void A_Drawing_That_Uses_Another_Calls_It()
+        => AssertCallsTheSame(
+            "Calls",
+            new object?[] { new SKColor(0xef, 0x44, 0x44), true },
+            ("Uses", Caller(BadgeCopy, """
+                <use href="#sym-badge" e:draws="Badge" transform="translate(8 4) scale(0.5)" clip-path="url(#badge-clip)" />
+                <use href="#sym-badge" e:draws="Badge" transform="translate(24 16)" clip-path="url(#badge-clip)" />
+                """)),
+            ("Badge", BadgeDrawing));
+
+    [Fact]
+    public void A_Use_Giving_Its_Drawing_A_Value_Passes_It()
+        => AssertCallsTheSame(
+            "CallsGiving",
+            new object?[] { new SKColor(0x0e, 0xa5, 0xe9), true },
+            ("UsesGiving", Caller(
+                $"""<g id="sym-badge">{Badge()}</g><g id="sym-badge-2">{Badge("{{ false ? tint : #1e40af }}")}</g>""",
+                """
+                <use href="#sym-badge" e:draws="Badge" transform="translate(4 4) scale(0.5)" clip-path="url(#badge-clip)" />
+                <use href="#sym-badge-2" e:draws="Badge" e:arg-on="{{ false }}" transform="translate(20 4)" clip-path="url(#badge-clip)" />
+                """)),
+            ("Badge", BadgeDrawing));
+
+    // What PaintCode documents do on almost every use: the target reads a let built from the value
+    // the use gives, and the copy has that let rebuilt with the value written in.
+    [Fact]
+    public void A_Use_Giving_A_Value_A_Let_Is_Built_From_Passes_It()
+    {
+        const string code = """
+            <e:code>
+              <e:param name="tint" type="color" default="#ef4444" />
+              <e:param name="on" type="boolean" default="true" />
+              <e:let name="shade">on ? tint : #1e40af</e:let>
+            </e:code>
+            """;
+        const string shape = """<path d="M 2 2 L 22 2 L 12 21 Z" fill="{0}" transform="translate(0.5 0.25)" />""";
+        const string use = """<use href="#sym-shaded" e:draws="Shaded" e:arg-on="{{ false }}" transform="translate(8 4)" clip-path="url(#badge-clip)" />""";
+
+        AssertCallsTheSame(
+            "CallsThroughALet",
+            new object?[] { new SKColor(0xef, 0x44, 0x44), true },
+            ("UsesThroughALet", $"""
+                <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="48" height="48" viewBox="0 0 48 48">
+                  <defs>
+                    {code}
+                    <g id="sym-shaded">{string.Format(shape, "{{ (false ? tint : #1e40af) }}")}</g>
+                    <clipPath id="badge-clip"><rect width="24" height="24" /></clipPath>
+                  </defs>
+                  {use}
+                </svg>
+                """),
+            ("Shaded", $"""
+                <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24" viewBox="0 0 24 24">
+                  <defs>{code}</defs>
+                  {string.Format(shape, "{{ shade }}")}
+                </svg>
+                """));
+    }
+
+    // The target passes the colour along by name; the copy, given one, passes that colour itself.
+    [Fact]
+    public void A_Copy_Passing_On_What_It_Was_Given_Calls_As_Its_Drawing_Passes_It_Along()
+    {
+        const string dot = """<circle cx="6" cy="6" r="5" fill="{0}" />""";
+        const string clip = """<clipPath id="dot-clip"><rect width="12" height="12" /></clipPath>""";
+        const string passing = """<use href="#sym-dot" e:draws="Dot" e:arg-tint="{{ #7c3aed }}" transform="translate(6 12)" clip-path="url(#dot-clip)" />""";
+        var dotDrawing = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="12" height="12" viewBox="0 0 12 12">
+              <defs>{BadgeCode}</defs>
+              {string.Format(dot, "{{ tint }}")}
+            </svg>
+            """;
+        var dottedBadge = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24" viewBox="0 0 24 24">
+              <defs>{BadgeCode}<g id="sym-dot">{string.Format(dot, "{{ tint }}")}</g>{clip}</defs>
+              {Badge()}
+              <use href="#sym-dot" e:draws="Dot" transform="translate(6 12)" clip-path="url(#dot-clip)" />
+            </svg>
+            """;
+
+        AssertCallsTheSame(
+            "CallsPassingOn",
+            new object?[] { new SKColor(0xef, 0x44, 0x44), true },
+            ("UsesPassingOn", Caller(
+                $"""
+                <g id="sym-dot">{string.Format(dot, "{{ #7c3aed }}")}</g>{clip}
+                <g id="sym-badge">
+                  {Badge("{{ on ? #7c3aed : #1e40af }}")}
+                  {passing}
+                </g>
+                """,
+                """<use href="#sym-badge" e:draws="DottedBadge" e:arg-tint="{{ #7c3aed }}" transform="translate(8 4) scale(0.5)" clip-path="url(#badge-clip)" />""")),
+            ("DottedBadge", dottedBadge),
+            ("Dot", dotDrawing));
+    }
+
+    // One helper class for the file, and with it one paint for every class: the drawing called
+    // leaves its own settings on the paint the caller's next shape takes up.
+    [Fact]
+    public void A_Shape_Drawn_After_A_Call_Sets_Its_Own_Paint_Again()
+        => AssertCallsTheSame(
+            "CallsThenPaints",
+            new object?[] { new SKColor(0x0e, 0xa5, 0xe9), true },
+            ("UsesThenPaints", Caller(BadgeCopy, """
+                <path d="M 2 30 L 14 30 L 8 38 Z" fill="{{ mix(tint, #000000, 0.5) }}" />
+                <use href="#sym-badge" e:draws="Badge" transform="translate(8 4) scale(0.5)" clip-path="url(#badge-clip)" />
+                <path d="M 30 30 L 42 30 L 36 38 Z" fill="{{ mix(tint, #000000, 0.5) }}" />
+                """)),
+            ("Badge", BadgeDrawing));
+
+    [Fact]
+    public void A_Use_Whose_Display_Is_Driven_Calls_Inside_The_Condition()
+        => AssertCallsTheSame(
+            "CallsDisplayed",
+            new object?[] { new SKColor(0xef, 0x44, 0x44), false },
+            ("UsesDisplayed", Caller(BadgeCopy, """
+                <use href="#sym-badge" e:draws="Badge" display="{{ on }}" transform="translate(8 4) scale(0.5)" clip-path="url(#badge-clip)" />
+                <use href="#sym-badge" e:draws="Badge" transform="translate(24 16)" clip-path="url(#badge-clip)" />
+                """)),
+            ("Badge", BadgeDrawing));
+
+    [Fact]
+    public void A_Drawing_Called_By_Another_Calls_What_It_Uses_Itself()
+    {
+        const string dot = """<circle cx="6" cy="6" r="5" fill="{{ tint }}" />""";
+        var dotDrawing = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="12" height="12" viewBox="0 0 12 12">
+              <defs>{BadgeCode}</defs>
+              {dot}
+            </svg>
+            """;
+        const string dotted = """<use href="#sym-dot" e:draws="Dot" transform="translate(6 12)" clip-path="url(#dot-clip)" />""";
+        const string dotDefinitions = $"""<g id="sym-dot">{dot}</g><clipPath id="dot-clip"><rect width="12" height="12" /></clipPath>""";
+        var dottedBadge = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24" viewBox="0 0 24 24">
+              <defs>{BadgeCode}{dotDefinitions}</defs>
+              {Badge()}
+              {dotted}
+            </svg>
+            """;
+
+        AssertCallsTheSame(
+            "CallsNested",
+            new object?[] { new SKColor(0x7c, 0x3a, 0xed), true },
+            ("UsesNested", Caller(
+                $"""{dotDefinitions}<g id="sym-badge">{Badge()}{dotted}</g>""",
+                """<use href="#sym-badge" e:draws="DottedBadge" transform="translate(8 4) scale(0.5)" clip-path="url(#badge-clip)" />""")),
+            ("DottedBadge", dottedBadge),
+            ("Dot", dotDrawing));
+    }
+
+    // PaintCode's own numbers, and a group around the shapes as PaintCode writes one. A call has the
+    // canvas compose the use's matrix with the drawing's where the copy's are products taken once,
+    // which can differ in the last bits; here, as on the oracle's icons, they draw the same.
+    [Fact]
+    public void A_Call_Placed_As_PaintCode_Places_It_Draws_The_Same()
+    {
+        const string grouped = """
+            <g transform="translate(1.55 1.2558)">
+              <path d="M 0 0 L 19.6 0 L 9.8 18.9 Z" fill="{{ on ? tint : #1e40af }}" transform="translate(0.5307 0.902)" />
+              <path d="M 3.1 3.3 L 16.7 3.1 L 9.9 15.7 Z" fill="#facc15" transform="rotate(3.7) translate(0.2417 0.1331)" />
+            </g>
+            """;
+
+        AssertCallsTheSame(
+            "CallsPlaced",
+            new object?[] { new SKColor(0xef, 0x44, 0x44), true },
+            ("UsesPlaced", Caller($"""<g id="sym-grouped">{grouped}</g>""", """
+                <use href="#sym-grouped" e:draws="Grouped" transform="translate(5.2669 5.1732) rotate(7) scale(0.6559)" clip-path="url(#badge-clip)" />
+                """)),
+            ("Grouped", $"""
+                <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24" viewBox="0 0 24 24">
+                  <defs>{BadgeCode}</defs>
+                  {grouped}
+                </svg>
+                """));
+    }
+
+    [Theory]
+    [InlineData("opacity", """<use href="#sym-badge" e:draws="Badge" opacity="0.5" transform="translate(8 4)" clip-path="url(#badge-clip)" />""")]
+    [InlineData("stale", """<use href="#sym-badge" e:draws="Badge" transform="translate(8 4)" clip-path="url(#badge-clip)" /><use href="#sym-stale" e:draws="Badge" transform="translate(24 4)" clip-path="url(#badge-clip)" />""")]
+    [InlineData("missing", """<use href="#sym-badge" e:draws="Nothing" transform="translate(8 4)" clip-path="url(#badge-clip)" />""")]
+    [InlineData("ruled", """<use href="#sym-ruled" e:draws="Badge" transform="translate(8 4)" clip-path="url(#badge-clip)" />""")]
+    [InlineData("renamed", """<use href="#sym-renamed" e:draws="Badge" e:arg-enabled="{{ false }}" transform="translate(8 4)" clip-path="url(#badge-clip)" />""")]
+    [InlineData("itself", """<use href="#sym-badge" e:draws="Copies" transform="translate(8 4)" clip-path="url(#badge-clip)" />""")]
+    public void A_Use_Whose_Drawing_Cannot_Stand_In_For_Its_Copy_Keeps_The_Copy(string why, string body)
+    {
+        var code = Together(
+            SvgBody.Direct,
+            bake: false,
+            ("Copies", Caller(
+                $"""
+                {BadgeCopy}
+                <g id="sym-stale">{Badge("#22c55e")}</g>
+                <g id="sym-ruled">{Badge().Replace("fill=\"{{", "fill-rule=\"evenodd\" fill=\"{{")}</g>
+                <g id="sym-renamed">{Badge("{{ false ? tint : #1e40af }}")}</g>
+                """,
+                body)),
+            ("Badge", BadgeDrawing));
+
+        // The stale one is the second use; the first, a true copy, is still called.
+        Assert.Equal(why == "stale" ? 1 : 0, code.Split($"global::{Namespace}.Badge.Draw(").Length - 1);
+    }
+
+    // A recorded drawing is played back as a picture, which Skia drops whole where its cull rect
+    // misses the clip, so only a use clipped to that rect may call one.
+    [Fact]
+    public void A_Recorded_Call_Is_Made_Only_Where_The_Use_Clips_To_The_Drawing()
+    {
+        var unclipped = Caller(BadgeCopy, """<use href="#sym-badge" e:draws="Badge" transform="translate(8 4)" />""");
+
+        Assert.DoesNotContain($"global::{Namespace}.Badge.Draw(", Together(SvgBody.Record, false, ("Unclipped", unclipped), ("Badge", BadgeDrawing)));
+        Assert.Contains($"global::{Namespace}.Badge.Draw(", Together(SvgBody.Direct, false, ("Unclipped", unclipped), ("Badge", BadgeDrawing)));
+    }
+
+    // Only a picture built by hand can name an argument twice; it keeps its copy rather than failing.
+    [Fact]
+    public void A_Call_Naming_An_Argument_Twice_Keeps_Its_Copy()
+    {
+        var badge = Model(BadgeDrawing);
+        var commands = new List<ShimSkiaSharp.CanvasCommand>
+        {
+            new ShimSkiaSharp.BeginCallCanvasCommand("Badge", new[]
+            {
+                new KeyValuePair<string, ShimSkiaSharp.SymNode>("on", ShimSkiaSharp.SymNode.Source("true")),
+                new KeyValuePair<string, ShimSkiaSharp.SymNode>("on", ShimSkiaSharp.SymNode.Source("false"))
+            })
+        };
+        commands.AddRange(badge.Commands!);
+        commands.Add(new ShimSkiaSharp.EndCallCanvasCommand());
+
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[]
+            {
+                new SkiaCSharpDrawing(new ShimPicture(badge.CullRect, commands), Namespace, "Twice", SvgExpressionDeclarations.Parse(BadgeDrawing)),
+                new SkiaCSharpDrawing(badge, Namespace, "Badge", SvgExpressionDeclarations.Parse(BadgeDrawing))
+            },
+            style: new SvgCodeStyle { Body = SvgBody.Direct, Bake = false });
+
+        Assert.DoesNotContain($"global::{Namespace}.Badge.Draw(", code);
+    }
+
+    [Fact]
+    public void A_Drawing_With_Text_Keeps_Its_Copy()
+    {
+        const string label = """<text x="2" y="20" font-size="8" fill="#111827">Ab</text>""";
+        var labelled = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24" viewBox="0 0 24 24">
+              {label}
+            </svg>
+            """;
+
+        var code = Together(
+            SvgBody.Direct,
+            bake: false,
+            ("Uses", Caller($"""<g id="sym-label">{label}</g>""", """<use href="#sym-label" e:draws="Label" transform="translate(8 4)" clip-path="url(#badge-clip)" />""")),
+            ("Label", labelled));
+
+        Assert.DoesNotContain($"global::{Namespace}.Label.Draw(", code);
+    }
 }

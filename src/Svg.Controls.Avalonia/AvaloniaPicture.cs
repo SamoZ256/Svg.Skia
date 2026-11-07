@@ -208,9 +208,11 @@ public sealed class AvaloniaPicture : IDisposable
                 }
             case BeginConditionalCanvasCommand:
             case EndConditionalCanvasCommand:
+            case BeginCallCanvasCommand:
+            case EndCallCanvasCommand:
                 {
-                    // Conditions are a code generation concept. Rendering executes the range as
-                    // written, which is the document's own placeholder state.
+                    // Conditions and calls are a code generation concept. Rendering executes the
+                    // range as written, which is the document's own placeholder state.
                     break;
                 }
             case SaveLayerCanvasCommand saveLayerCanvasCommand:

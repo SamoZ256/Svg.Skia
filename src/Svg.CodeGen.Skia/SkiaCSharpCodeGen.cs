@@ -225,9 +225,10 @@ public static class SkiaCSharpCodeGen
             group.Add(drawing);
         }
 
+        var calls = new SkiaCSharpCalls(drawings, recorded: style.Body != SvgBody.Direct);
         var built = drawings.ToDictionary(
             drawing => drawing,
-            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, skiaSharp, drawing.Frozen, drawing.Bounds, style));
+            drawing => BuildClass(drawing.Picture, drawing.ClassName, drawing.Declarations, skiaSharp, drawing.Frozen, drawing.Bounds, style, (calls, drawing)));
 
         var facade = style.Api is { } api
             ? SkiaCSharpFacade.Build(api, drawings.Select(drawing => (drawing, built[drawing].Parameters, built[drawing].WithDefaults)).ToList(), style)
@@ -434,7 +435,8 @@ public static class SkiaCSharpCodeGen
         SkiaSharpTarget skiaSharp,
         IReadOnlyList<string>? frozen,
         IReadOnlyList<(string Name, SKRect Rect)>? bounds,
-        SvgCodeStyle style)
+        SvgCodeStyle style,
+        (SkiaCSharpCalls Calls, SkiaCSharpDrawing Caller)? calls = null)
     {
         declarations ??= SvgExpressionDeclarations.Empty;
         bounds ??= Array.Empty<(string, SKRect)>();
@@ -445,7 +447,15 @@ public static class SkiaCSharpCodeGen
 
         var (compiler, lets) = declarations.Resolve();
 
-        var counter = new SkiaCSharpCodeGenCounter { SkiaSharpTarget = skiaSharp, TypefaceTemplate = style.Typeface, Bake = style.Bake, PathData = true };
+        var counter = new SkiaCSharpCodeGenCounter
+        {
+            SkiaSharpTarget = skiaSharp,
+            TypefaceTemplate = style.Typeface,
+            Bake = style.Bake,
+            PathData = true,
+            Calls = calls?.Calls,
+            Caller = calls?.Caller
+        };
         var indent = "            ";
 
         // Record the body first: which helper methods the class needs is decided by what the

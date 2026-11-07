@@ -71,6 +71,15 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
     /// </summary>
     public ShimSkiaSharp.SymNode? DisplayExpression { get; internal set; }
 
+    /// <summary>
+    /// The drawing a <c>&lt;use&gt;</c> says its referenced content is a copy of, which rides along to
+    /// mark that content for code generators; null unless the reference resolved.
+    /// </summary>
+    public string? CallTarget { get; internal set; }
+
+    /// <summary>What <see cref="CallTarget"/> is given, by parameter name.</summary>
+    public IReadOnlyList<KeyValuePair<string, ShimSkiaSharp.SymNode>>? CallArguments { get; internal set; }
+
     public string? Cursor
     {
         get => _visualState?.Cursor;
@@ -653,6 +662,8 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
         VisibilityExpression = replacement.VisibilityExpression;
         IsDisplayNone = replacement.IsDisplayNone;
         DisplayExpression = replacement.DisplayExpression;
+        CallTarget = replacement.CallTarget;
+        CallArguments = replacement.CallArguments;
         Cursor = replacement.Cursor;
         CreatesBackgroundLayer = replacement.CreatesBackgroundLayer;
         BackgroundClip = replacement.BackgroundClip;

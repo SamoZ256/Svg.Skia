@@ -15,14 +15,16 @@ internal sealed class PaintCodeSymbols
 {
     private readonly Dictionary<string, PaintCodeCanvas> _byName = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PaintCodeCanvas> _byIdentifier = new(StringComparer.Ordinal);
+    private readonly bool _includeSymbolOnlyCanvases;
 
-    private PaintCodeSymbols()
+    private PaintCodeSymbols(bool includeSymbolOnlyCanvases)
     {
+        _includeSymbolOnlyCanvases = includeSymbolOnlyCanvases;
     }
 
-    internal static PaintCodeSymbols Of(PaintCodeDocument document)
+    internal static PaintCodeSymbols Of(PaintCodeDocument document, bool includeSymbolOnlyCanvases = false)
     {
-        var symbols = new PaintCodeSymbols();
+        var symbols = new PaintCodeSymbols(includeSymbolOnlyCanvases);
 
         foreach (var canvas in document.Canvases)
         {
@@ -32,6 +34,9 @@ internal sealed class PaintCodeSymbols
 
         return symbols;
     }
+
+    /// <summary>Whether the import writes <paramref name="canvas"/> as a drawing of its own.</summary>
+    internal bool IsDrawing(PaintCodeCanvas canvas) => canvas.IsExported || _includeSymbolOnlyCanvases;
 
     internal PaintCodeCanvas? Find(PaintCodeSymbolItem symbol)
     {

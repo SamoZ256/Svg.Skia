@@ -145,7 +145,7 @@ public static class PaintCodeImport
         }
 
         var declarations = PaintCodeDeclarations.Of(document, options.Integers);
-        var symbols = PaintCodeSymbols.Of(document);
+        var symbols = PaintCodeSymbols.Of(document, options.IncludeSymbolOnlyCanvases);
         var desks = new List<PaintCodeImportDesk>();
 
         foreach (var desk in document.Desks)
@@ -155,7 +155,7 @@ public static class PaintCodeImport
 
             foreach (var canvas in desk.Canvases)
             {
-                if (!canvas.IsExported && !options.IncludeSymbolOnlyCanvases)
+                if (!symbols.IsDrawing(canvas))
                 {
                     continue;
                 }
