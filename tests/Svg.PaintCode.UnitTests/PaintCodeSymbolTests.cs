@@ -166,6 +166,55 @@ public class PaintCodeSymbolTests
             copies.Select(copy => Stops(document, copy.Elements().ElementAt(2))));
     }
 
+    /// <summary>
+    /// Each use names the drawing its copy is and gives it what the instance gives, so generated code
+    /// can call that drawing as PaintCode's does.
+    /// </summary>
+    [Fact]
+    public void An_Instance_Names_The_Drawing_It_Copies_And_What_It_Gives_It()
+    {
+        var calls = Host().Descendants()
+            .Where(element => element.Name.LocalName == "use")
+            .Select(Call)
+            .ToList();
+
+        Assert.Equal(new[] { "Badge()", "Badge(isLight={{ isNotLight }})", "Slider(level={{ 0.5 }})", "Badge()" }, calls);
+    }
+
+    /// <summary>
+    /// A use inside a copy gives what its own instance gives, already read where that copy stands:
+    /// what wrapper hands glyph by name is whatever wrapper was given.
+    /// </summary>
+    [Fact]
+    public void A_Use_Inside_A_Copy_Gives_What_The_Copy_Was_Given()
+    {
+        var calls = Host(canvas: "chain").Descendants()
+            .Where(element => element.Name.LocalName == "use")
+            .Select(Call)
+            .ToList();
+
+        Assert.Equal(
+            new[]
+            {
+                // The two copies of wrapper, in defs, then the three instances chain places.
+                "Glyph(accentColorOn={{ colorPurple }})",
+                "Glyph(accentColorOn={{ #0000ffff }})",
+                "Glyph()",
+                "Wrapper(accentColorOn={{ colorPurple }})",
+                "Wrapper(accentColorOn={{ #0000ffff }})"
+            },
+            calls);
+    }
+
+    private static string Call(XElement use)
+    {
+        var arguments = use.Attributes()
+            .Where(attribute => attribute.Name.Namespace == PaintCodeCode.Namespace && attribute.Name.LocalName.StartsWith("arg-", System.StringComparison.Ordinal))
+            .Select(attribute => $"{attribute.Name.LocalName.Substring("arg-".Length)}={attribute.Value}");
+
+        return $"{use.Attribute(PaintCodeCode.Namespace + "draws")?.Value}({string.Join(",", arguments)})";
+    }
+
     /// <summary>The stop colours of the gradient <paramref name="shape"/> is filled with, in order.</summary>
     private static string Stops(XDocument document, XElement shape)
     {

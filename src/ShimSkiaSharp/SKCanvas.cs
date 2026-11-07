@@ -43,6 +43,8 @@ public abstract record CanvasCommand : IDeepCloneable<CanvasCommand>
                 SetMatrixCanvasCommand setMatrixCanvasCommand => new SetMatrixCanvasCommand(setMatrixCanvasCommand.DeltaMatrix, setMatrixCanvasCommand.TotalMatrix, setMatrixCanvasCommand.SymbolicDelta, setMatrixCanvasCommand.SymbolicTotal),
                 BeginConditionalCanvasCommand beginConditionalCanvasCommand => new BeginConditionalCanvasCommand(beginConditionalCanvasCommand.Condition),
                 EndConditionalCanvasCommand => new EndConditionalCanvasCommand(),
+                BeginCallCanvasCommand beginCallCanvasCommand => new BeginCallCanvasCommand(beginCallCanvasCommand.Target, beginCallCanvasCommand.Arguments),
+                EndCallCanvasCommand => new EndCallCanvasCommand(),
                 _ => throw new NotSupportedException($"Unsupported {nameof(CanvasCommand)} type: {GetType().Name}.")
             };
 
@@ -144,6 +146,13 @@ public record SetMatrixCanvasCommand(
 public record BeginConditionalCanvasCommand(SymNode Condition) : CanvasCommand;
 
 public record EndConditionalCanvasCommand : CanvasCommand;
+
+// Marks a range that draws another drawing, Target, given Arguments in place of the parameters of
+// the same names. The range still holds what that drawing draws, so a consumer that does not call
+// drawings ignores both commands; generated code may call Target instead of emitting the range.
+public record BeginCallCanvasCommand(string Target, IReadOnlyList<KeyValuePair<string, SymNode>> Arguments) : CanvasCommand;
+
+public record EndCallCanvasCommand : CanvasCommand;
 
 public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
 {
@@ -447,6 +456,17 @@ public class SKCanvas : ICloneable, IDeepCloneable<SKCanvas>
             _canvas = null;
             canvas.EndConditional();
         }
+    }
+
+    /// <summary>Opens a range that draws <paramref name="target"/>; match it with <see cref="EndCall"/>.</summary>
+    public void BeginCall(string target, IReadOnlyList<KeyValuePair<string, SymNode>> arguments)
+    {
+        AddCommand(new BeginCallCanvasCommand(target, arguments));
+    }
+
+    public void EndCall()
+    {
+        AddCommand(new EndCallCanvasCommand());
     }
 
     private void AddCommand(CanvasCommand command)

@@ -2670,6 +2670,7 @@ public static class SkiaCSharpModelExtensions
         var discarded = new StringBuilder();
         var command = new StringBuilder();
         var ranges = new Stack<(FoldedRange Range, CanvasState.Mark Before)>();
+        var calling = new Stack<CanvasState.Mark?>();
         var dead = 0;
 
         for (var index = 0; index < commands.Count; index++)
@@ -2684,7 +2685,7 @@ public static class SkiaCSharpModelExtensions
                 ? state.Translation
                 : null;
 
-            if (canvasCommand is not (SaveCanvasCommand or RestoreCanvasCommand or SetMatrixCanvasCommand or SaveLayerCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand)
+            if (canvasCommand is not (SaveCanvasCommand or RestoreCanvasCommand or SetMatrixCanvasCommand or SaveLayerCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand or BeginCallCanvasCommand or EndCallCanvasCommand)
                 && !plan.Skips(index))
             {
                 state.Sync(counter, sb, indent, baked: offset is { });
@@ -2796,6 +2797,39 @@ public static class SkiaCSharpModelExtensions
                         }
 
                         sb.AppendLine($"{indent}}}");
+                        break;
+                    }
+                case BeginCallCanvasCommand:
+                    {
+                        // The copy goes on into discarded text, so it is still type checked against
+                        // this drawing's declarations, as a range folded to false is.
+                        var call = dead == 0 && counter is { Calls: { } calls, Caller: { } caller }
+                            ? calls.TryCall(caller, commands, index, plan, layers, $"{counter.CanvasVarName}{counterCanvas}")
+                            : null;
+
+                        if (call is null)
+                        {
+                            calling.Push(null);
+                            break;
+                        }
+
+                        // The drawing called reads the canvas's matrix as its own base, and gives the
+                        // canvas back as it found it: what the copy would have set never happens.
+                        state.Sync(counter, sb, indent);
+                        sb.AppendLine($"{indent}{call}");
+                        calling.Push(state.Marked());
+                        dead++;
+                        break;
+                    }
+                case EndCallCanvasCommand:
+                    {
+                        if (calling.Count > 0 && calling.Pop() is { } before)
+                        {
+                            // The drawing called takes up the same paint per thread, and leaves it
+                            // holding whatever its last shape did.
+                            state.Restore(before with { Settings = null });
+                            dead--;
+                        }
                         break;
                     }
                 case SaveLayerCanvasCommand saveLayerCanvasCommand:

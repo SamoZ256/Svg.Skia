@@ -30,4 +30,6 @@ public interface ICanvasCommandVisitor
     void Visit(SetMatrixCanvasCommand cmd);
     void Visit(BeginConditionalCanvasCommand cmd);
     void Visit(EndConditionalCanvasCommand cmd);
+    void Visit(BeginCallCanvasCommand cmd);
+    void Visit(EndCallCanvasCommand cmd);
 }

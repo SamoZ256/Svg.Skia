@@ -104,4 +104,10 @@ public class SkiaCSharpCodeGenCounter
 
     /// <summary>Locals that read something <c>Draw</c> does not own, whose disposal is left out.</summary>
     internal HashSet<string> Borrowed { get; } = new();
+
+    /// <summary>The other drawings of the file, which a range drawing one of them may call instead.</summary>
+    internal SkiaCSharpCalls? Calls { get; set; }
+
+    /// <summary>The drawing being emitted, which no call it makes may lead back to.</summary>
+    internal SkiaCSharpDrawing? Caller { get; set; }
 }

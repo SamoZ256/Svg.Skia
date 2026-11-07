@@ -375,6 +375,30 @@ public class SvgViewerElementPanelTests
         Assert.Contains("opacity=\"{{ 0.5 }}\"", held.Text);
     }
 
+    /// <summary>
+    /// What a use gives the drawing it calls is that drawing's parameter, of a type only that drawing
+    /// says: written in braces it is taken, and anything else would void the call.
+    /// </summary>
+    [AvaloniaFact]
+    public void An_Argument_A_Use_Gives_The_Drawing_It_Calls_Is_Written_In_Braces()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs><g id="sym-badge"><rect width="24" height="24" fill="#00ff00" /></g></defs>
+              <use href="#sym-badge" e:draws="Badge" e:arg-on="{{ true }}" />
+            </svg>
+            """);
+
+        held.Show("1");
+
+        Assert.True(held.Panel.Set("e:arg-on", "{{ false }}"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains("e:arg-on=\"{{ false }}\"", held.Text);
+
+        Assert.False(held.Panel.Set("e:arg-on", "false"));
+        Assert.Contains("double braces", held.Panel.Fault);
+    }
+
     [AvaloniaFact]
     public void An_Expression_Of_The_Wrong_Type_Is_Refused()
     {
