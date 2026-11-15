@@ -613,6 +613,26 @@ public class EditingHelpersTests
     }
 
     [Fact]
+    public void CommandPlan_MeasuresATurnedEllipseWhereItReaches()
+    {
+        // Turned 45°, an ellipse reaches √((rx² + ry²) / 2) from its centre: 13 by 7 reaches 10.44,
+        // past a frame 10 away, though its own axes only reach 13 / √2 ≈ 9.19.
+        Assert.True(Plan(Clipped(ClipRect(s_frame), Ellipse(9, 4))).Skips(1));
+        Assert.False(Plan(Clipped(ClipRect(s_frame), Ellipse(13, 7))).Skips(1));
+
+        static DrawPathCanvasCommand Ellipse(float rx, float ry)
+        {
+            var reach = rx / (float)Math.Sqrt(2);
+            return new DrawPathCanvasCommand(
+                PathOf(
+                    new MoveToPathCommand(10 + reach, 10 + reach),
+                    new ArcToPathCommand(rx, ry, 45, SKPathArcSize.Large, SKPathDirection.Clockwise, 10 - reach, 10 - reach),
+                    new ArcToPathCommand(rx, ry, 45, SKPathArcSize.Large, SKPathDirection.Clockwise, 10 + reach, 10 + reach)),
+                new SKPaint());
+        }
+    }
+
+    [Fact]
     public void CommandPlan_KeepsAClipOverAnythingWithoutBounds()
     {
         var inside = SKRect.Create(5, 5, 10, 10);
@@ -621,17 +641,12 @@ public class EditingHelpersTests
         nonScaling.Paint!.IsStrokeNonScaling = true;
         var blurred = Fill(inside);
         blurred.Paint!.ImageFilter = SKImageFilter.CreateBlur(2, 2);
-        var arc = new DrawPathCanvasCommand(
-            PathOf(new MoveToPathCommand(5, 10), new ArcToPathCommand(5, 2, 30, SKPathArcSize.Small, SKPathDirection.Clockwise, 15, 10)),
-            new SKPaint());
-
         var draws = new Dictionary<string, CanvasCommand[]>
         {
             ["a hairline"] = new CanvasCommand[] { hairline },
             ["a non-scaling stroke"] = new CanvasCommand[] { nonScaling },
             ["an image filter"] = new CanvasCommand[] { blurred },
             ["text"] = new CanvasCommand[] { new DrawTextCanvasCommand("Text", 10, 10, new SKPaint()) },
-            ["a turned arc"] = new CanvasCommand[] { arc },
             ["a mask's DstIn layer"] = new CanvasCommand[]
             {
                 new SaveLayerCanvasCommand(1, new SKPaint { BlendMode = SKBlendMode.DstIn }), Fill(inside), new RestoreCanvasCommand(1)
