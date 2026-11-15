@@ -246,6 +246,24 @@ public class SvgSceneExpressionTests
     }
 
     [Fact]
+    public void A_Driven_Opacity_On_A_Shape_In_A_Moved_Group_Is_Kept()
+    {
+        // The group is drawn as its shape's points moved, with the shape's opacity folded into its
+        // fill: a placeholder of 1 must not fold the expression away with it.
+        var picture = Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <g transform="translate(2 2)">
+                <rect x="0" y="0" width="10" height="10" fill="#3366cc" opacity="{{ fade }}" />
+              </g>
+            </svg>
+            """);
+
+        var layer = picture.Commands!.OfType<SaveLayerCanvasCommand>().Single(c => c.Paint?.Color?.Expression is { });
+
+        Assert.Equal(SymOp.ScaleAlpha, Assert.IsType<SymBinary>(layer.Paint!.Color!.Value.Expression).Op);
+    }
+
+    [Fact]
     public void An_Expression_In_A_Style_Declaration_Is_Lifted()
     {
         // Beside another declaration, since a lift has to leave the rest of the attribute alone.

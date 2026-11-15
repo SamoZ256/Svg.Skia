@@ -1856,6 +1856,46 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
+    // A group that only moves a filled rect is drawn as the rect's points moved, its own opacity
+    // folded into its fill; what an expression drives there has to survive the folding.
+    [Fact]
+    public void A_Driven_Opacity_On_A_Shape_In_A_Moved_Group_Fades_It()
+        => AssertExpressionsRenderTheSame(
+            "ExprMovedShapeOpacity",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="o" type="number" default="1" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <g transform="translate(2 2)"><rect x="0" y="0" width="20" height="20" fill="#be123c" opacity="{{ o }}" /></g>
+            </svg>
+            """,
+            arguments: new object?[] { 0.4f },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <g transform="translate(2 2)"><rect x="0" y="0" width="20" height="20" fill="#be123c" opacity="0.4" /></g>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Driven_Colour_On_A_Faded_Shape_In_A_Moved_Group_Follows_Its_Argument()
+        => AssertExpressionsRenderTheSame(
+            "ExprMovedShapeColour",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="c" type="color" default="#1e40af" /></e:code></defs>
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <g transform="translate(2 2)"><rect x="0" y="0" width="20" height="20" fill="{{ c }}" opacity="0.5" /></g>
+            </svg>
+            """,
+            arguments: new object?[] { new SKColor(0xff, 0x00, 0x00, 0xff) },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect x="0" y="0" width="24" height="24" fill="#facc15" />
+              <g transform="translate(2 2)"><rect x="0" y="0" width="20" height="20" fill="#ff0000" opacity="0.5" /></g>
+            </svg>
+            """);
+
     [Fact]
     public void A_Gradient_Stop_Opacity_Takes_An_Expression()
         => AssertExpressionsRenderTheSame(

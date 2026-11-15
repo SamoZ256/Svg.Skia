@@ -161,6 +161,7 @@ public static class SvgSceneRenderer
         if (TryRenderTransformOnlySimpleChildrenToCanvas(
                 node,
                 canvas,
+                ignoreAttributes,
                 until,
                 enableTransform,
                 enableClip,
@@ -847,6 +848,7 @@ public static class SvgSceneRenderer
     private static bool TryRenderTransformOnlySimpleChildrenToCanvas(
         SvgSceneNode node,
         SKCanvas canvas,
+        DrawAttributes ignoreAttributes,
         SvgSceneNode? until,
         bool enableTransform,
         bool enableClip,
@@ -878,9 +880,15 @@ public static class SvgSceneRenderer
             return false;
         }
 
+        // A child keeps what its own node would: only what is ignored for the whole subtree. An
+        // opacity, mask or filter ignored for this node alone, as native composition extracts one,
+        // is the group's, not its children's.
+        var childMask = !ignoreAttributes.Has(DrawAttributes.Mask);
+        var childOpacity = !ignoreAttributes.Has(DrawAttributes.Opacity);
+        var childFilter = !ignoreAttributes.Has(DrawAttributes.Filter);
         for (var i = 0; i < node.Children.Count; i++)
         {
-            if (!CanRenderTransformedSimpleChild(node.Children[i], enableClip, enableMask, enableOpacity, enableFilter))
+            if (!CanRenderTransformedSimpleChild(node.Children[i], enableClip, childMask, childOpacity, childFilter))
             {
                 return false;
             }
@@ -888,7 +896,7 @@ public static class SvgSceneRenderer
 
         for (var i = 0; i < node.Children.Count; i++)
         {
-            RenderTransformedSimpleChild(node.Children[i], node.Transform, canvas, enableOpacity);
+            RenderTransformedSimpleChild(node.Children[i], node.Transform, canvas, childOpacity);
         }
 
         return true;
@@ -950,11 +958,16 @@ public static class SvgSceneRenderer
                paint.BlendMode == SKBlendMode.SrcOver;
     }
 
+    // The fill takes the opacity as a byte of its colour. An opacity an expression drives, or one
+    // below 1 over a colour an expression drives, would leave the expression behind, so those keep
+    // their layer, which CommandPlan folds into the paint, expression and all.
     private static bool CanInlineSimpleLeafOpacity(SvgSceneNode child, bool enableOpacity)
     {
         return !enableOpacity ||
                child.Opacity is null ||
-               child.OpacityValue is >= 0f and <= 1f;
+               child.Opacity.Color?.Expression is null &&
+               child.OpacityValue is >= 0f and <= 1f &&
+               (child.OpacityValue >= 1f || child.LocalFill?.Color?.Expression is null);
     }
 
     private static void RenderTransformedSimpleChild(
