@@ -124,6 +124,46 @@ public class SKPathTests
     }
 
     [Fact]
+    public void ArcTo_BoundsATurnedEllipseWhereItReaches()
+    {
+        // 100 by 50 turned 45°: √((100² + 50²) / 2) ≈ 79.06 from the centre each way, where its own
+        // axes reach only 100 / √2 ≈ 70.71.
+        var path = new SKPath();
+        path.MoveTo(70.7107f, 70.7107f);
+        path.ArcTo(100, 50, 45, SKPathArcSize.Large, SKPathDirection.Clockwise, -70.7107f, -70.7107f);
+        path.ArcTo(100, 50, 45, SKPathArcSize.Large, SKPathDirection.Clockwise, 70.7107f, 70.7107f);
+
+        Assert.Equal(-79.057f, path.Bounds.Left, 2);
+        Assert.Equal(-79.057f, path.Bounds.Top, 2);
+        Assert.Equal(79.057f, path.Bounds.Right, 2);
+        Assert.Equal(79.057f, path.Bounds.Bottom, 2);
+    }
+
+    [Fact]
+    public void ArcTo_TakesANegativeRadiusAsItsAbsoluteValue()
+    {
+        var path = new SKPath();
+        path.MoveTo(0, 0);
+        path.ArcTo(-10, -10, 0, SKPathArcSize.Small, SKPathDirection.Clockwise, 20, 0);
+
+        Assert.Equal(10f, path.Bounds.Height, 3);
+    }
+
+    [Fact]
+    public void Close_StartsTheNextSegmentWhereTheContourStarted()
+    {
+        // From (0, 0) the arc to (40, 0) is a half circle, 20 deep; from (10, 0), where the
+        // contour's last line ended, it would be a shallower one, about 6.8.
+        var path = new SKPath();
+        path.MoveTo(0, 0);
+        path.LineTo(10, 0);
+        path.Close();
+        path.ArcTo(20, 20, 0, SKPathArcSize.Small, SKPathDirection.CounterClockwise, 40, 0);
+
+        Assert.Equal(20f, path.Bounds.Height, 3);
+    }
+
+    [Fact]
     public void QuadTo_UpdatesBoundsPrecisely()
     {
         var path = new SKPath();

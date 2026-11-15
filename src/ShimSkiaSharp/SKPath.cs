@@ -489,7 +489,10 @@ public class SKPath : ICloneable, IDeepCloneable<SKPath>, IList<PathCommand>
         var commandCount = Count;
         var bounds = new SKRect(float.MaxValue, float.MaxValue, float.MinValue, float.MinValue);
 
+        // Where the next segment starts, as Skia's path leaves it: the end of the last segment, the
+        // start of a contour once it is closed, and a corner or side of a shape added whole.
         var last = new SKPoint();
+        var start = new SKPoint();
         var haveLast = false;
 
         for (var i = 0; i < commandCount; i++)
@@ -502,7 +505,7 @@ public class SKPath : ICloneable, IDeepCloneable<SKPath>, IList<PathCommand>
                         var x = moveToPathCommand.X;
                         var y = moveToPathCommand.Y;
                         SKPathBoundsHelper.ComputePointBounds(x, y, ref bounds);
-                        last = new SKPoint(x, y);
+                        last = start = new SKPoint(x, y);
                         haveLast = true;
                     }
                     break;
@@ -574,13 +577,14 @@ public class SKPath : ICloneable, IDeepCloneable<SKPath>, IList<PathCommand>
                     }
                     break;
                 case ClosePathCommand _:
+                    last = start;
                     break;
                 case AddRectPathCommand addRectPathCommand:
                     {
                         var rect = addRectPathCommand.Rect;
                         SKPathBoundsHelper.ComputePointBounds(rect.Left, rect.Top, ref bounds);
                         SKPathBoundsHelper.ComputePointBounds(rect.Right, rect.Bottom, ref bounds);
-                        last = rect.BottomRight;
+                        last = start = rect.TopLeft;
                         haveLast = true;
                     }
                     break;
@@ -589,7 +593,7 @@ public class SKPath : ICloneable, IDeepCloneable<SKPath>, IList<PathCommand>
                         var rect = addRoundRectPathCommand.Rect;
                         SKPathBoundsHelper.ComputePointBounds(rect.Left, rect.Top, ref bounds);
                         SKPathBoundsHelper.ComputePointBounds(rect.Right, rect.Bottom, ref bounds);
-                        last = rect.BottomRight;
+                        last = start = RoundRectStart(rect, addRoundRectPathCommand.Rx, addRoundRectPathCommand.Ry);
                         haveLast = true;
                     }
                     break;
@@ -598,7 +602,7 @@ public class SKPath : ICloneable, IDeepCloneable<SKPath>, IList<PathCommand>
                         var rect = addOvalPathCommand.Rect;
                         SKPathBoundsHelper.ComputePointBounds(rect.Left, rect.Top, ref bounds);
                         SKPathBoundsHelper.ComputePointBounds(rect.Right, rect.Bottom, ref bounds);
-                        last = rect.BottomRight;
+                        last = start = new SKPoint(rect.Right, (rect.Top + rect.Bottom) / 2);
                         haveLast = true;
                     }
                     break;
@@ -609,7 +613,7 @@ public class SKPath : ICloneable, IDeepCloneable<SKPath>, IList<PathCommand>
                         var radius = addCirclePathCommand.Radius;
                         SKPathBoundsHelper.ComputePointBounds(x - radius, y - radius, ref bounds);
                         SKPathBoundsHelper.ComputePointBounds(x + radius, y + radius, ref bounds);
-                        last = new SKPoint(x + radius, y + radius);
+                        last = start = new SKPoint(x + radius, y);
                         haveLast = true;
                     }
                     break;
@@ -627,7 +631,8 @@ public class SKPath : ICloneable, IDeepCloneable<SKPath>, IList<PathCommand>
                             }
                             if (pointCount > 0)
                             {
-                                last = points[pointCount - 1];
+                                start = points[0];
+                                last = addPolyPathCommand.Close ? start : points[pointCount - 1];
                                 haveLast = true;
                             }
                         }
@@ -637,6 +642,26 @@ public class SKPath : ICloneable, IDeepCloneable<SKPath>, IList<PathCommand>
         }
 
         return bounds;
+    }
+
+    // SkRRect::setRectXY: radii too large for the rect shrink together, and once they reach half of
+    // both sides it is an oval, which Skia starts at its right. A round rect starts above its
+    // bottom-left corner.
+    private static SKPoint RoundRectStart(SKRect rect, float rx, float ry)
+    {
+        var width = Math.Abs(rect.Width);
+        var height = Math.Abs(rect.Height);
+        if (rx <= 0 || ry <= 0)
+        {
+            return rect.TopLeft;
+        }
+
+        var scale = Math.Min(1f, Math.Min(width / (rx * 2), height / (ry * 2)));
+        rx *= scale;
+        ry *= scale;
+        return rx * 2 >= width && ry * 2 >= height
+            ? new SKPoint(rect.Right, (rect.Top + rect.Bottom) / 2)
+            : new SKPoint(rect.Left, rect.Bottom - ry);
     }
 
     public void Add(PathCommand item)
