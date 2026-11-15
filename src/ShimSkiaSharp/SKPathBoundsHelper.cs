@@ -141,7 +141,11 @@ internal static class SKPathBoundsHelper
         ComputePointBounds(p0.X, p0.Y, ref bounds);
         ComputePointBounds(p1.X, p1.Y, ref bounds);
 
-        if (rx <= 0f || ry <= 0f)
+        // SVG takes a negative radius as its absolute value, and draws a line for a zero one and
+        // nothing for an arc that ends where it starts.
+        rx = Math.Abs(rx);
+        ry = Math.Abs(ry);
+        if (rx == 0f || ry == 0f || p0.X == p1.X && p0.Y == p1.Y)
         {
             return;
         }
@@ -155,9 +159,6 @@ internal static class SKPathBoundsHelper
 
         var x1p = cosPhi * dx2 + sinPhi * dy2;
         var y1p = -sinPhi * dx2 + cosPhi * dy2;
-
-        rx = Math.Abs(rx);
-        ry = Math.Abs(ry);
 
         var rxsq = rx * rx;
         var rysq = ry * ry;
@@ -222,7 +223,11 @@ internal static class SKPathBoundsHelper
             }
         }
 
-        var candidates = new float[] { 0f, (float)Math.PI / 2f, (float)Math.PI, 3f * (float)Math.PI / 2f };
+        // Where the turned ellipse is widest and tallest: dx/dθ = 0 and dy/dθ = 0. Its own axes are
+        // these only while the turn is a multiple of 90°.
+        var thetaX = (float)Math.Atan2(-ry * sinPhi, rx * cosPhi);
+        var thetaY = (float)Math.Atan2(ry * cosPhi, rx * sinPhi);
+        var candidates = new[] { thetaX, thetaX + (float)Math.PI, thetaY, thetaY + (float)Math.PI };
 
         foreach (var theta in candidates)
         {

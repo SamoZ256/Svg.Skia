@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Reflection;
 using Svg;
 using Svg.Transforms;
@@ -186,6 +187,39 @@ public class SKSvgNativeCompositionTests
         var pixel = bitmap.GetPixel(6, 12);
         Assert.InRange(pixel.Alpha, (byte)120, (byte)136);
     }
+
+    [Fact]
+    public void TryCreateNativeCompositionScene_KeepsADescendantsOwnOpacityInAMovedGroupWhoseOpacityIsExtracted()
+    {
+        // A scale is not extracted as a translation, so the group's own transform stays in its
+        // picture, which draws it as its rect's points moved, the rect's opacity in its fill.
+        using var svg = new SKSvg();
+        svg.FromSvg(NativeCompositionScaledNestedOpacitySvg);
+
+        Assert.True(svg.TryCreateNativeCompositionScene(out var scene));
+        var animatedLayer = Assert.Single(scene!.Layers);
+        Assert.Equal(0.5f, animatedLayer.Opacity, 3);
+
+        using var renderedPicture = svg.SkiaModel.ToSKPicture(animatedLayer.Picture!);
+        using var surface = SkiaSharp.SKSurface.Create(new SkiaSharp.SKImageInfo(60, 60));
+        surface!.Canvas.Clear(SkiaSharp.SKColors.Transparent);
+        surface.Canvas.DrawPicture(renderedPicture);
+
+        using var image = surface.Snapshot();
+        using var bitmap = SkiaSharp.SKBitmap.FromImage(image);
+        var opaquest = bitmap.Pixels.Max(pixel => pixel.Alpha);
+        Assert.InRange(opaquest, (byte)120, (byte)136);
+    }
+
+    private const string NativeCompositionScaledNestedOpacitySvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60">
+          <g id="animated-root" opacity="0.5" transform="scale(2)">
+            <rect id="child" x="1" y="2" width="10" height="20" fill="blue" opacity="0.5">
+              <animate attributeName="x" from="1" to="11" dur="2s" fill="freeze" />
+            </rect>
+          </g>
+        </svg>
+        """;
 
     private const string NativeCompositionSceneSvg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="30">

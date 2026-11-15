@@ -429,8 +429,7 @@ public sealed class CommandPlan
 
                         // A dash, the only path effect, draws a part of the path.
                         if (paint.ImageFilter is { } ||
-                            paint.BlendMode != SKBlendMode.SrcOver ||
-                            HasTurnedArc(path))
+                            paint.BlendMode != SKBlendMode.SrcOver)
                         {
                             return false;
                         }
@@ -469,21 +468,6 @@ public sealed class CommandPlan
                     // Text: the shim cannot measure glyphs.
                     return false;
             }
-        }
-
-        // SKPathBoundsHelper takes an arc's extremes at the ellipse's own axes, which miss them once
-        // the ellipse is turned.
-        private static bool HasTurnedArc(SKPath path)
-        {
-            foreach (var command in path)
-            {
-                if (command is ArcToPathCommand { XAxisRotate: not 0 })
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         // A layer bounds what its paint composites to what was drawn inside it, unless the paint
