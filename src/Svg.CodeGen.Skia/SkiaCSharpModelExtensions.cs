@@ -1537,14 +1537,26 @@ public static class SkiaCSharpModelExtensions
         => ToSKPaint(paint, counter, sb, indent, fade: null);
 
     /// <param name="fade">The colours of the layers folded into this paint, whose alpha multiplies its own.</param>
-    /// <param name="shared">Where a paint that follows an argument and holds no shader or filter is set up instead of built.</param>
+    /// <param name="shared">
+    /// Where a paint that follows an argument and holds no filter, and no shader but a gradient, is set
+    /// up instead of built.
+    /// </param>
     private static void ToSKPaint(SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, IReadOnlyList<SKColor>? fade, CanvasState? shared = null)
     {
         if (counter.Statics is { })
         {
             var name = $"{counter.PaintVarName}{counter.Paint}";
-            Action<StringBuilder>? local = shared?.Paint is { } && paint is { Shader: null, ColorFilter: null, ImageFilter: null, PathEffect: null }
-                ? text => shared.Assign(name, Settings(paint, fade), text, indent)
+            Action<StringBuilder>? local = shared?.Paint is { } && paint is { ColorFilter: null, ImageFilter: null, PathEffect: null } && (paint.Shader is null || Gradient(paint.Shader) is { })
+                ? text =>
+                {
+                    var settings = Settings(paint, fade);
+                    if (paint.Shader is { } shader)
+                    {
+                        settings.Add(("Shader", GradientShader(shader, counter, text, indent)));
+                    }
+
+                    shared.Assign(name, settings, text, indent);
+                }
                 : null;
 
             // Inside the hoisted text, so a constant fade is applied once and a driven one keeps it local.
@@ -1670,8 +1682,92 @@ public static class SkiaCSharpModelExtensions
         ("StrokeMiter", 4f.ToFloatString()),
         ("Color", "SKColors.Black"),
         ("ColorF", ""),
-        ("BlendMode", SKBlendMode.SrcOver.ToSKBlendMode())
+        ("BlendMode", SKBlendMode.SrcOver.ToSKBlendMode()),
+        ("Shader", "null")
     };
+
+    /// <summary>
+    /// A gradient's colours, colour space and positions, and the call building it from those as
+    /// written; null for any other shader, or one with no colours.
+    /// </summary>
+    private static (SKColorF[] Colors, SKColorSpace ColorSpace, float[]? Positions, Func<string, string, string, string> Call)? Gradient(SKShader shader)
+    {
+        static string Matrix(SKMatrix? matrix) => matrix is { } local ? $", {local.ToSKMatrix()}" : "";
+
+        return shader switch
+        {
+            LinearGradientShader { Colors: { } colors } linear => (colors, linear.ColorSpace, linear.ColorPos, (c, space, positions) =>
+                $"SKShader.CreateLinearGradient({linear.Start.ToSKPoint()}, {linear.End.ToSKPoint()}, {c}, {space}, {positions}, {linear.Mode.ToSKShaderTileMode()}{Matrix(linear.LocalMatrix)})"),
+            RadialGradientShader { Colors: { } colors } radial => (colors, radial.ColorSpace, radial.ColorPos, (c, space, positions) =>
+                $"SKShader.CreateRadialGradient({radial.Center.ToSKPoint()}, {radial.Radius.ToFloatString()}, {c}, {space}, {positions}, {radial.Mode.ToSKShaderTileMode()}{Matrix(radial.LocalMatrix)})"),
+            TwoPointConicalGradientShader { Colors: { } colors } conical => (colors, conical.ColorSpace, conical.ColorPos, (c, space, positions) =>
+                $"SKShader.CreateTwoPointConicalGradient({conical.Start.ToSKPoint()}, {conical.StartRadius.ToFloatString()}, {conical.End.ToSKPoint()}, {conical.EndRadius.ToFloatString()}, {c}, {space}, {positions}, {conical.Mode.ToSKShaderTileMode()}{Matrix(conical.LocalMatrix)})"),
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// A gradient for the shared paint, as the local it is read from: built once where its colours are
+    /// written, and again only when they change where an argument decides them.
+    /// </summary>
+    /// <remarks>
+    /// The geometry is all literals, so the colours are the whole of what can change between draws.
+    /// Each thread keeps its own, as it keeps its own shared paint, which holds a native reference of
+    /// its own to a gradient replaced under it.
+    /// </remarks>
+    private static string GradientShader(SKShader shader, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    {
+        var (colors, colorSpace, positions, call) = Gradient(shader)!.Value;
+
+        // The number the paint's own emission took, into text nothing kept.
+        var n = counter.Shader;
+        var local = $"{counter.ShaderVarName}{n}";
+
+        if (colors.All(color => color.Expression is null))
+        {
+            Hoist(counter, sb, indent, "SKShader", local, text => shader.ToSKShader(counter, text, indent));
+            return local;
+        }
+
+        var space = $"skColorSpace{n}";
+        Hoist(counter, sb, indent, "SKColorSpace", space, text => text.AppendLine($"{indent}var {space} = {(colorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)};"));
+
+        var stops = ToGradientColorPositions(positions);
+        if (stops != "null")
+        {
+            var named = $"skPositions{n}";
+            Hoist(counter, sb, indent, "float[]", named, text => text.AppendLine($"{indent}var {named} = {stops};"));
+            stops = named;
+        }
+
+        var held = $"skColors{n}";
+        var built = $"skGradient{n}";
+        counter.ThreadStatics.Add(("SKColorF[]", held));
+        counter.ThreadStatics.Add(("SKShader", built));
+
+        for (var i = 0; i < colors.Length; i++)
+        {
+            sb.AppendLine($"{indent}var {local}_{i} = {colors[i].ToSKColorF()};");
+        }
+
+        sb.AppendLine($"{indent}var {held} = s_{held} ??= new SKColorF[{colors.Length}];");
+        sb.AppendLine($"{indent}if (s_{built} is null{string.Concat(Enumerable.Range(0, colors.Length).Select(i => $" || {held}[{i}] != {local}_{i}"))})");
+        sb.AppendLine($"{indent}{{");
+
+        for (var i = 0; i < colors.Length; i++)
+        {
+            sb.AppendLine($"{indent}    {held}[{i}] = {local}_{i};");
+        }
+
+        sb.AppendLine($"{indent}    s_{built}?.Dispose();");
+        sb.AppendLine($"{indent}    s_{built} = {call(held, space, stops)};");
+        sb.AppendLine($"{indent}}}");
+        sb.AppendLine($"{indent}var {local} = s_{built};");
+
+        // Kept from one draw to the next: what the paint's own disposal would dispose with it.
+        counter.Borrowed.Add(local);
+        return local;
+    }
 
     private static string Assignment(string paint, string property, string value)
         => property == "ColorF"

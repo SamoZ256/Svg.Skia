@@ -535,6 +535,12 @@ public static class SkiaCSharpCodeGen
             sb.AppendLine($"        private static readonly {type} s_{name};");
         }
 
+        foreach (var (type, name) in counter.ThreadStatics)
+        {
+            sb.AppendLine($"        [ThreadStatic]");
+            sb.AppendLine($"        private static {type} s_{name};");
+        }
+
         // A direct drawing keeps the paths and paints no argument changes. Its picture is the caller's
         // to keep: held here, it would stay for the life of the process once anything had drawn it.
         if (counter.StaticFields.Count > 0)

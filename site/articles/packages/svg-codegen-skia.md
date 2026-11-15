@@ -122,10 +122,13 @@ generator always has, byte for byte. A project build reads the same settings fro
 picture and drawing that. Each matrix the drawing sets is composed onto the caller's matrix by the
 canvas, so drawing under a transform gives the same pixels as recording and then drawing. A path,
 and a paint that no argument changes, is built once in the static constructor and read from a
-field, and two built alike share one. A shape's paint that follows an argument and holds no shader,
-filter or dash is set on one paint per thread, which the generated `SvgPaint()` resets once a draw,
-and only in what differs from the shape before it, so drawing shapes allocates nothing. A driven
-paint with a shader or a filter still builds its paint on every draw. A picture the drawing draws,
+field, and two built alike share one. A shape's paint that follows an argument and holds no filter
+or dash, and no shader but a gradient, is set on one paint per thread, which the generated
+`SvgPaint()` resets once a draw, and only in what differs from the shape before it, so drawing shapes
+allocates nothing. Its gradient is a static where the stops are written, and where an argument
+colours them, each thread keeps the one it last built and builds another only when the colours
+change. A driven paint with a filter, a dash or another kind of shader still builds its paint on
+every draw. A picture the drawing draws,
 which is how the scene holds every text element, is replayed onto the canvas under a save rather than
 recorded on every draw, in both bodies, and its paths, paints and fonts are statics like the rest: a
 typeface is looked up once, when the static constructor runs. A text run then allocates only the
