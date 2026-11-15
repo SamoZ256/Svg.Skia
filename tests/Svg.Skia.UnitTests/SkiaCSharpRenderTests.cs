@@ -1856,6 +1856,24 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
+    [Fact]
+    public void A_Driven_Colour_Whose_Default_Is_Black_Follows_Its_Argument()
+        // Opaque black is a paint's default, so its placeholder alone says nothing to emit.
+        => AssertExpressionsRenderTheSame(
+            "ExprBlackDefaultColour",
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="c" type="color" default="#000000" /></e:code></defs>
+              <circle cx="12" cy="12" r="10" fill="{{ c }}" />
+            </svg>
+            """,
+            arguments: new object?[] { new SKColor(0x22, 0xc5, 0x5e, 0xff) },
+            expectedMarkup: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="12" r="10" fill="#22c55e" />
+            </svg>
+            """);
+
     // A group that only moves a filled rect is drawn as the rect's points moved, its own opacity
     // folded into its fill; what an expression drives there has to survive the folding.
     [Fact]
