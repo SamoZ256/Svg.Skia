@@ -291,6 +291,49 @@ public static class SvgViewerOutline
         }
     }
 
+    /// <summary>
+    /// <paramref name="shape"/> as the bound values draw it: for a path whose data is driven, a copy
+    /// holding the numbers they come to, which nothing writes back; otherwise the shape itself.
+    /// </summary>
+    /// <remarks>The DOM holds the stand-in, whose zeros are nowhere near where the bound clip cuts.</remarks>
+    internal static SvgElement Bound(SKSvg svg, SvgElement shape)
+    {
+        if (shape is not SvgPath path ||
+            SvgExpressionAttributes.Lifted(path.CustomAttributes, SvgTransformExpression.PathDataName) is not { } written ||
+            Bound(svg) is not { } values)
+        {
+            return shape;
+        }
+
+        try
+        {
+            var finite = true;
+            var data = SvgTransformExpression.Parse(SvgTransformExpression.PathDataName, written).With(argument =>
+            {
+                var number = values.EvaluateTo(argument.Expression!, ExprType.Number, "A number of the path data").AsNumber;
+
+                finite &= float.IsFinite(number);
+
+                // A flag is set by anything but nought, as SymPath reads it, where the path parser
+                // takes only the characters 0 and 1 and drops the arc for "2", "0.5" or "-0".
+                return argument.Function is "A" or "a" && argument.Index is 3 or 4
+                    ? number != 0f ? "1" : "0"
+                    : SvgExpressionSubstitution.Written(ExprValue.Number(number));
+            });
+            var bound = (SvgPath)path.DeepCopy();
+
+            bound.PathData = SvgPathBuilder.Parse(System.MemoryExtensions.AsSpan(data));
+
+            // Not a number clips nothing away, and a segment the parser dropped, which it does without
+            // throwing, would put every point after it in the wrong place.
+            return finite && bound.PathData.Count == path.PathData?.Count ? bound : shape;
+        }
+        catch (System.Exception failure) when (failure is ExprException or System.ArgumentException or System.FormatException)
+        {
+            return shape;
+        }
+    }
+
     /// <summary>Whether <paramref name="condition"/>, a display or visibility expression, hides its node under <paramref name="bound"/>.</summary>
     /// <remarks>
     /// The node's own flags say only what the placeholder says, shown; the bound drawing drops the

@@ -70,7 +70,8 @@ public sealed class SvgViewerPoints
     /// <summary>Whether the shape's points are written as an expression, asked by key and attribute.</summary>
     /// <remarks>
     /// The built document holds the number the expression came to, and writing that back would
-    /// replace the expression with it, which a clip's path data can now hold.
+    /// replace the expression with it, which a clip's path data can now hold. The points still show,
+    /// where the bound values put them.
     /// </remarks>
     public Func<string, string, bool>? Driven { get; set; }
 
@@ -127,7 +128,7 @@ public sealed class SvgViewerPoints
 
         if (shape is { } found && found.Placed.Total.TryInvert(out var to))
         {
-            _points = GeometryPoints.Capture(found.Shape);
+            _points = GeometryPoints.Capture(SvgViewerOutline.Bound(svg!, found.Shape));
             _from = found.Placed.Total;
             _to = to;
         }

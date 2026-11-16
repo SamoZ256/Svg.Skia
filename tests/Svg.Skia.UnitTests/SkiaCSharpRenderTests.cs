@@ -3061,6 +3061,10 @@ public class SkiaCSharpRenderTests
     /// copies with the same <paramref name="arguments"/>.
     /// </summary>
     private static void AssertCallsTheSame(string name, object?[] arguments, params (string Name, string Svg)[] drawings)
+        => AssertCallsTheSame(name, arguments, recordedCall: true, drawings);
+
+    /// <param name="recordedCall">Whether a recorded body calls as well, or keeps its copy.</param>
+    private static void AssertCallsTheSame(string name, object?[] arguments, bool recordedCall, params (string Name, string Svg)[] drawings)
     {
         var caller = drawings[0];
         var declarations = SvgExpressionDeclarations.Parse(caller.Svg);
@@ -3071,7 +3075,7 @@ public class SkiaCSharpRenderTests
         foreach (var (body, bake) in new[] { (SvgBody.Record, false), (SvgBody.Direct, false), (SvgBody.Direct, true) })
         {
             var code = Together(body, bake, drawings);
-            Assert.Contains($"global::{Namespace}.{drawings[1].Name}.Draw(", code);
+            Assert.Equal(body != SvgBody.Record || recordedCall, code.Contains($"global::{Namespace}.{drawings[1].Name}.Draw("));
 
             var label = $"{name}-{body}{(bake ? "-baked" : "")}";
             var threshold = bake ? BakedThreshold : Threshold;
@@ -3306,6 +3310,22 @@ public class SkiaCSharpRenderTests
         Assert.DoesNotContain($"global::{Namespace}.Badge.Draw(", Together(SvgBody.Record, false, ("Unclipped", unclipped), ("Badge", BadgeDrawing)));
         Assert.Contains($"global::{Namespace}.Badge.Draw(", Together(SvgBody.Direct, false, ("Unclipped", unclipped), ("Badge", BadgeDrawing)));
     }
+
+    // A driven clip's stand-in says nothing of where it cuts once bound, so a recorded body cannot
+    // know the use clips to the drawing and keeps its copy; drawn directly, it still calls. Not 24,
+    // the drawing's own edge, for the reason the BoxClip rows give.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_Use_Clipped_By_A_Driven_Rect_Calls_Only_When_Drawn_Directly(bool on)
+        => AssertCallsTheSame(
+            on ? "CallsDrivenClipOn" : "CallsDrivenClipOff",
+            new object?[] { new SKColor(0xef, 0x44, 0x44), on },
+            recordedCall: false,
+            ("UsesDrivenClip", Caller(
+                BadgeCopy + """<clipPath id="driven-clip"><rect width="{{ on ? 18 : 10 }}" height="24" /></clipPath>""",
+                """<use href="#sym-badge" e:draws="Badge" transform="translate(8 4)" clip-path="url(#driven-clip)" />""")),
+            ("Badge", BadgeDrawing));
 
     // Only a picture built by hand can name an argument twice; it keeps its copy rather than failing.
     [Fact]

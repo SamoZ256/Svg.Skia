@@ -2179,6 +2179,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // value changed would sit where the element used to be.
         RetraceOutline();
 
+        // A driven clip path's points are read from the values, so they move with them too.
+        if (_draw.Reshaping)
+        {
+            TrackGizmo();
+        }
+
         // Swapped in place, so nothing about the control changed and the repaint must be asked for.
         _canvas.Publish();
 

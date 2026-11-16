@@ -30,7 +30,9 @@ internal enum SvgSourceSiteKind
 /// <summary>One piece of expression code, and what it is written in.</summary>
 /// <remarks>
 /// <see cref="Owner"/> and <see cref="Attribute"/> are filled in for a declaration, which is what
-/// places a rule about a named parameter at the attribute it is about. <see cref="Text"/> is the
+/// places a rule about a named parameter at the attribute it is about. For a placeholder,
+/// <see cref="Attribute"/> is what its code is typed against, and null where the element does not
+/// lift that attribute. <see cref="Text"/> is the
 /// span decoded, which is what the language reads and never what the file holds; a rule about it
 /// reports a position in that text, so <see cref="Offsets"/> is what puts the mark back on the
 /// characters somebody typed.

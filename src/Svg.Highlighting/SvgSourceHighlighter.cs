@@ -400,7 +400,7 @@ public static class SvgSourceHighlighter
                 }
                 else
                 {
-                    Value(tokens, source, index, valueEnd, sites, attributeName);
+                    Value(tokens, source, index, valueEnd, sites, element, attributeName);
                     name ??= attributeName == "name" ? source[(index + 1)..(quote < 0 ? valueEnd : quote)] : null;
                 }
 
@@ -467,7 +467,9 @@ public static class SvgSourceHighlighter
     /// <remarks>
     /// The attribute is carried through because what a placeholder may evaluate to depends on which
     /// one holds it -- a <c>fill</c> wants a colour and an <c>opacity</c> a number -- and this is
-    /// the only point that knows both.
+    /// the only point that knows both. Only where the element lifts it, though: a <c>&lt;text x&gt;</c>
+    /// takes no expression, which the attribute pass already says, and a number check there would
+    /// be a second error for a reason that does not apply.
     /// </remarks>
     private static void Value(
         List<SvgSourceToken> tokens,
@@ -475,6 +477,7 @@ public static class SvgSourceHighlighter
         int start,
         int end,
         List<SvgSourceSite>? sites,
+        string? element,
         string? attribute)
     {
         // A style attribute is not one value but a list of them, and each declaration drives a
@@ -490,7 +493,7 @@ public static class SvgSourceHighlighter
             {
                 // The property, the colon and whatever spacing is around them: ordinary value text.
                 Add(tokens, source, at, declaration.Start, SvgSourceTokenKind.Value);
-                Placeholders(tokens, source, declaration.Start, declaration.Start + declaration.Length, sites, declaration.Name);
+                Placeholders(tokens, source, declaration.Start, declaration.Start + declaration.Length, sites, Typed(declaration.Name, null));
 
                 at = declaration.Start + declaration.Length;
             }
@@ -499,8 +502,11 @@ public static class SvgSourceHighlighter
             return;
         }
 
-        Placeholders(tokens, source, start, end, sites, attribute);
+        Placeholders(tokens, source, start, end, sites, Typed(attribute, element is null ? null : element[(element.LastIndexOf(':') + 1)..]));
     }
+
+    private static string? Typed(string? attribute, string? element)
+        => attribute is { } && SvgExpressionAttributes.IsSupported(attribute, element) ? attribute : null;
 
     /// <summary>Adds a span of value text, lifting any <c>{{ … }}</c> out of it.</summary>
     private static void Placeholders(

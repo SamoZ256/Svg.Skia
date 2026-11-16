@@ -57,6 +57,31 @@ public class SvgSourceDiagnosticsTests
         Assert.Contains(found, one => one.Message.StartsWith("Unknown name 'sweeep'", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// An attribute its element does not lift says so once: its code runs nowhere, so the type that
+    /// attribute takes on a clip's <c>&lt;rect&gt;</c> is no reason to report it again.
+    /// </summary>
+    [Theory]
+    [InlineData("<text x=\"{{ tint }}\">A</text>", "takes an expression only")]
+    [InlineData("<rect style=\"width: {{ tint }}\" />", "is written as the attribute, not in style")]
+    [InlineData("<clipPath id=\"c\"><rect width=\"{{ tint }}\" height=\"4\" /></clipPath>", "number")]
+    public void A_Placeholder_Is_Typed_Only_Where_Its_Element_Lifts_The_Attribute(string body, string said)
+        => Assert.Contains(said, Assert.Single(Of(body)).Message, StringComparison.Ordinal);
+
+    /// <summary>
+    /// A drawn <c>&lt;rect&gt;</c> lifts its width only inside a clip, and is told so; the number its
+    /// code has to be is still the rect's own rule, so a colour there is reported as well.
+    /// </summary>
+    [Fact]
+    public void A_Drawn_Shape_Is_Told_Where_Its_Geometry_Takes_An_Expression_And_What_It_Takes()
+    {
+        var found = Of("<rect width=\"{{ tint }}\" height=\"4\" />");
+
+        Assert.Equal(2, found.Length);
+        Assert.Contains(found, one => one.Message.Contains("only inside a <clipPath>", StringComparison.Ordinal));
+        Assert.Contains(found, one => one.Message.Contains("number", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void A_Declaration_That_Does_Not_Read_Still_Stops_The_Checking()
     {
