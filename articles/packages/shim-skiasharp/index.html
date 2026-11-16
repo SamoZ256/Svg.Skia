@@ -193,6 +193,10 @@
 <td>How a matrix was derived: the transform functions that built it</td>
 </tr>
 <tr>
+<td><code>SymPath</code></td>
+<td>How a clip shape was derived: absolute commands whose numbers may be expressions</td>
+</tr>
+<tr>
 <td><code>ShimSkiaSharp.Editing.*</code></td>
 <td>Clone-on-write and traversal helpers for model editing</td>
 </tr>
@@ -231,6 +235,7 @@ foreach (var command in picture.Commands ?? Array.Empty&lt;CanvasCommand&gt;())
 </ul>
 <p>A matrix is described <em>beside</em> <code>SymNode</code> rather than as a kind of one because a <code>SymNode</code> says how a value was derived and both back ends thread the expected <code>ExprType</code> through it, so a matrix-shaped node could reach a slot expecting a colour.</p>
 <p><code>SetMatrixCanvasCommand</code> therefore carries <code>SymbolicDelta</code> and <code>SymbolicTotal</code> beside the <code>DeltaMatrix</code> and <code>TotalMatrix</code> it always had. Both are null where a drawing drives no transform, so nothing changes for a document that does not use the extension. The symbolic total is composed off the same save and restore stack as the baked one, which means a command's <code>SymbolicTotal</code> is already the whole composition down to it and no consumer has to keep a running matrix of its own. <code>SymMatrix.Apply</code> is the one place a function becomes an <code>SKMatrix</code>, so the recorder, the evaluator and the code generator cannot disagree about what a skew angle means.</p>
+<p>A clip an expression drives carries the same kind of description beside what it baked: <code>PathClip.SymbolicPath</code> (a <code>SymPath</code>) beside its <code>Path</code>, and <code>SymbolicTransform</code> beside the <code>Transform</code> of a <code>PathClip</code> and of a <code>ClipPath</code>. <code>IsSymbolic</code> asks the whole tree, nested clips included. The baked path is the description applied with nothing bound rather than a second reading of the same data, so the two cannot drift. <code>SymPath.Apply</code> is the one place numbers become a clip path: it applies what the converter applies to the same numbers written as literals — an arc of no radius is a line, one ending where it starts draws nothing, a rect's radii borrow and clamp — and answers an empty path rather than null for a shape that comes to nothing, since a part that is null drops the whole clip. The generated <code>SvgDrivenPathData</code> repeats it statement for statement.</p>
 <h2 id="why-it-exists">Why it exists</h2>
 <p>Live <code>SkiaSharp</code> objects are excellent for rendering, but they are not ideal when you need:</p>
 <ul>
@@ -243,7 +248,7 @@ foreach (var command in picture.Commands ?? Array.Empty&lt;CanvasCommand&gt;())
 <p><code>ShimSkiaSharp</code> fills that gap.</p>
 <h2 id="editing-support">Editing support</h2>
 <p>The editing helpers under <code>ShimSkiaSharp.Editing</code> let you update paints, paths, and command graphs either in place or with clone-on-write behavior. That makes the package useful outside SVG scenarios as well.</p>
-<p><code>CommandPlan.For</code> reads a command list once and says what a back end may leave out without changing what is drawn: an antialiased clip that contains, exactly, everything drawn under it, and a layer a plain save draws the same — opaque over source-over content, or fading one shape, whose paint then takes the layer's alpha. Both back ends in this repository draw from it, so the renderer and the generated C# leave out the same things. With <code>symbolic: true</code> it keeps whatever an expression could change, as generated code needs; the model itself is left as recorded.</p>
+<p><code>CommandPlan.For</code> reads a command list once and says what a back end may leave out without changing what is drawn: an antialiased clip that contains, exactly, everything drawn under it, and a layer a plain save draws the same — opaque over source-over content, or fading one shape, whose paint then takes the layer's alpha. Both back ends in this repository draw from it, so the renderer and the generated C# leave out the same things. With <code>symbolic: true</code> it keeps whatever an expression could change, as generated code needs — a driven clip among them, whose stand-in may cut nothing where a bound value cuts; the model itself is left as recorded.</p>
 <h2 id="relationship-to-other-packages">Relationship to other packages</h2>
 <ul>
 <li><a href="/Svg.Skia/articles/packages/svg-model">Svg.Model</a> produces <code>ShimSkiaSharp</code> pictures and drawables from SVG input.</li>

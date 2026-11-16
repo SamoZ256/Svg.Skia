@@ -199,7 +199,7 @@ if (svg.Load(&quot;Assets/icon.svg&quot;) is not null &amp;&amp; svg.Model is no
 <p>This example uses <code>Svg.Skia</code> to create the intermediate model, but <code>Svg.CodeGen.Skia</code> itself only needs a <code>ShimSkiaSharp.SKPicture</code>.</p>
 <h2 id="drawings-that-use-expressions">Drawings that use expressions</h2>
 <p>A drawing using the <a href="/Svg.Skia/articles/packages/svg-expressions">expression extension</a> generates: its parameters become C# parameters, and each expression is emitted as code that recomputes the value at call time rather than as the number it happened to have when the drawing was compiled.</p>
-<p>A driven <code>transform</code> is generated too. The picture records how the matrix was derived — <code>ShimSkiaSharp</code>'s <code>SymMatrix</code>, the transform functions and their arguments — so the emitted code rebuilds the matrix from the argument values instead of baking one, and the refusals are the same ones the renderer applies: a driven transform under a filter, under an ancestor that opens a layer, or written inside a <code>&lt;clipPath&gt;</code> is refused, because each of those was measured against the matrix as the drawing was compiled.</p>
+<p>A driven <code>transform</code> is generated too. The picture records how the matrix was derived — <code>ShimSkiaSharp</code>'s <code>SymMatrix</code>, the transform functions and their arguments — so the emitted code rebuilds the matrix from the argument values instead of baking one, and the refusals are the same ones the renderer applies: a driven transform under a filter or under an ancestor that opens a layer is refused, because each of those was measured against the matrix as the drawing was compiled. A clip whose geometry or transform is driven is generated as well (see below).</p>
 <p>What generation still refuses outright is the other kind of expression, the kind resolved <strong>before</strong> the drawing is recorded — element text, <code>font-family</code>, <code>font-size</code> and the rest of the text attributes. Generation bakes the picture with the text already measured and the glyphs already positioned, so a parameter driving one could never vary at run time; the document is refused rather than generated with a signature that offers something it cannot do.</p>
 <h2 id="boxes-for-the-host">Boxes for the host</h2>
 <p>A drawing can reserve a box for the code that draws it to lay something of its own into, such as a label, a value or a control. Mark the element with <code>e:bounds</code> and a member name:</p>
@@ -254,6 +254,12 @@ text blob SkiaSharp's <code>DrawText(string)</code> builds on every call. A fill
 oval or circle with no layer open around it builds no path in either body: it is drawn with
 <code>DrawRect</code>, <code>DrawRoundRect</code>, <code>DrawOval</code> or <code>DrawCircle</code>, as the renderer draws it. <code>Record</code> stays,
 and records <code>Draw</code>.</p>
+<p>A clip that nothing drives is built once, whole, in the static constructor. One an expression drives
+is built on every draw, all of it, into paths kept per thread — <code>SvgPathSlot</code> on SkiaSharp 3,
+<code>SvgPathBuilderSlot</code> on 4 — with its parts combined in place. A driven shape is one call to
+<code>SvgDrivenPathData</code>, which applies <code>ShimSkiaSharp</code>'s <code>SymPath.Apply</code> rules to verbs held as constant
+data and numbers on the stack. On SkiaSharp 3 that allocates nothing; on 4, whose builder detaches a
+new <code>SKPath</code> each time, one path per part.</p>
 <h3 id="matrices-saves-and-shapes">Matrices, saves and shapes</h3>
 <p>Both bodies set a matrix only before something is drawn, clipped or layered under it, so a run of
 shapes under one matrix sets it once. A direct body sets a pure translation with <code>Translate</code>, and a
@@ -336,7 +342,8 @@ SymbolSync and VacationState.</p>
 around content that lies inside it, which Skia would otherwise blend everything under through a
 coverage mask, and a group opacity over a single shape, whose alpha is multiplied into that shape's
 paint instead — at run time, when the opacity is an expression. A clip over a driven transform or
-stroke width is kept, since some value could carry the content across it.</p>
+stroke width is kept, since some value could carry the content across it, and so is a driven clip,
+whose stand-in may cut nothing where a bound value cuts.</p>
 <h3 id="naming-typefaces">Naming typefaces</h3>
 <p>The recorded picture holds whatever typeface the compiling machine found. Where <em>SF UI Display</em> is
 not installed, that is <em>Times</em>. <code>typeface</code> replaces the font-manager lookup with an expression from

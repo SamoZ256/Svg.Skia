@@ -198,6 +198,10 @@ PaintCode's class can keep calling. See <a href="/Svg.Skia/articles/packages/svg
 <td><code>&lt;g&gt;</code>, with its clip as a <code>&lt;clipPath&gt;</code></td>
 </tr>
 <tr>
+<td>An oval whose start or end angle is driven</td>
+<td>Where it is drawn, the whole circle with a driven dash cut to the arc. Where it clips, a sector <code>&lt;path&gt;</code> whose moving points the expressions place: two arcs of half the sweep, parametric, so an ellipse and an open arc clip as PaintCode's do</td>
+</tr>
+<tr>
 <td>Bezier, rectangle, rounded rectangle, oval, star, polygon</td>
 <td><code>&lt;path&gt;</code>, or <code>&lt;rect&gt;</code> and <code>&lt;ellipse&gt;</code> where those say it</td>
 </tr>
@@ -355,8 +359,8 @@ is opened.</p>
 had, and records a <code>PaintCodeImportNote</code> naming the canvas, the element and the property. Nothing
 renders wrong, and what was lost is a list rather than a surprise.</p>
 <ul>
-<li><strong>A driven stroke width, and an oval's driven start and end angle.</strong> <code>stroke-width</code> and path data
-are literal in the expression format.</li>
+<li><strong>A driven stroke width or visibility inside a group that draws into a layer.</strong> The layer's bounds
+were measured from the stroke as it was saved, so the number is written instead.</li>
 <li><strong>A gradient turned to an angle off the axes.</strong> PaintCode places one from the shape's own middle,
 which is not its box's; the conversion lays it across the box. Only where the gradient was turned
 by a dial — one laid by dragging its two ends carries them, and those are written exactly.</li>

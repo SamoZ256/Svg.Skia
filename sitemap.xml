@@ -9,6 +9,14 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/editor/architecture</loc>
+    <lastmod>2026-11-16</lastmod>
+  </url>
+  <url>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/editor/composing-panels-and-dialogs</loc>
+    <lastmod>2026-11-16</lastmod>
+  </url>
+  <url>
     <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
@@ -17,19 +25,11 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/editor/rendering-and-svg-services</loc>
-    <lastmod>2026-11-16</lastmod>
-  </url>
-  <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/editor/composing-panels-and-dialogs</loc>
-    <lastmod>2026-11-16</lastmod>
-  </url>
-  <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/getting-started/quickstart-avalonia</loc>
-    <lastmod>2026-11-16</lastmod>
-  </url>
-  <url>
     <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/getting-started/installation</loc>
+    <lastmod>2026-11-16</lastmod>
+  </url>
+  <url>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/editor/rendering-and-svg-services</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -49,7 +49,7 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/xaml</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/xaml/skia-controls-and-skpictureimage</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -57,15 +57,15 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/xaml/skia-controls-and-skpictureimage</loc>
-    <lastmod>2026-11-16</lastmod>
-  </url>
-  <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/xaml/styling-and-previewer</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/xaml</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
     <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/xaml/svg-control-and-svgimage</loc>
+    <lastmod>2026-11-16</lastmod>
+  </url>
+  <url>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/xaml/styling-and-previewer</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -93,10 +93,6 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/editor/architecture</loc>
-    <lastmod>2026-11-16</lastmod>
-  </url>
-  <url>
     <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
@@ -105,7 +101,7 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/skia-controls-avalonia</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/getting-started/quickstart-avalonia</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -177,7 +173,7 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/svg-sourcegenerator-skia</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/svg-highlighting</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -185,11 +181,15 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/svg-studio-projects</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/svg-expressions</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/svg-expressions</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/skia-controls-avalonia</loc>
+    <lastmod>2026-11-16</lastmod>
+  </url>
+  <url>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/svg-studio-projects</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -209,11 +209,15 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/reference/license</loc>
+    <lastmod>2026-11-16</lastmod>
+  </url>
+  <url>
     <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/svg-viewer-skia-avalonia</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/reference/license</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/reference/lunet-docs-pipeline</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -225,19 +229,15 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/reference/lunet-docs-pipeline</loc>
-    <lastmod>2026-11-16</lastmod>
-  </url>
-  <url>
     <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/reference/samples-and-tools</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/guides/cli-conversion</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/reference/svg-11-static-subset-support</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/reference/svg-11-static-subset-support</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/guides/cli-conversion</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -257,7 +257,7 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/guides/loading-svg-and-vectordrawable</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/svg-sourcegenerator-skia</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -289,6 +289,10 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/guides/svg-studio</loc>
+    <lastmod>2026-11-16</lastmod>
+  </url>
+  <url>
     <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/advanced</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
@@ -297,15 +301,7 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/advanced/trimming-aot-and-nativeaot</loc>
-    <lastmod>2026-11-16</lastmod>
-  </url>
-  <url>
     <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/advanced/uno-sample-publishing</loc>
-    <lastmod>2026-11-16</lastmod>
-  </url>
-  <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/guides/svg-studio</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -313,11 +309,15 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/concepts</loc>
+    <lastmod>2026-11-16</lastmod>
+  </url>
+  <url>
     <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/concepts/picture-model-and-rebuild</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/concepts/rendering-pipeline</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/advanced/trimming-aot-and-nativeaot</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
@@ -325,11 +325,11 @@
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/packages/svg-highlighting</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/concepts/rendering-pipeline</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
   <url>
-    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/concepts</loc>
+    <loc>https://wieslawsoltes.github.io/Svg.Skia/Svg.Skia/articles/guides/loading-svg-and-vectordrawable</loc>
     <lastmod>2026-11-16</lastmod>
   </url>
 </urlset>
