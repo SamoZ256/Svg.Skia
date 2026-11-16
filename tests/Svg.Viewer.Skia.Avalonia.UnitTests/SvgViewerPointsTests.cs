@@ -780,6 +780,101 @@ public class SvgViewerPointsTests
     }
 
     /// <summary>
+    /// The DOM holds a driven path's stand-in, and its zeros are not where the bound clip cuts: the
+    /// points stand where the values put them, and still cannot be moved.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Driven_Clip_Path_Shows_Its_Points_Where_The_Bound_Values_Put_Them()
+    {
+        var svg = new Svg.Skia.SKSvg();
+
+        Assert.NotNull(svg.FromSvg("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code><e:param name="x" type="number" default="0" /></e:code>
+                <clipPath id="c"><path id="edge" d="M2 2 L{{ x }} 2 L12 12 Z" /></clipPath>
+              </defs>
+              <rect width="24" height="24" fill="#3366cc" clip-path="url(#c)" />
+            </svg>
+            """));
+
+        var edge = svg.SourceDocument!.GetElementById("edge");
+        var member = new SvgViewerGizmoMember(edge, SvgElementAddress.Create(edge).Key);
+        var points = new SvgViewerPoints { Driven = (_, name) => name == "d" };
+
+        points.Track(svg, default, member);
+        Assert.Equal(new[] { new SKPoint(2f, 2f), new SKPoint(0f, 2f), new SKPoint(12f, 12f) }, points.Marks()!.Anchors);
+
+        svg.SetExpressionValues(new System.Collections.Generic.Dictionary<string, Svg.Expressions.ExprValue>(StringComparer.Ordinal)
+        {
+            ["x"] = Svg.Expressions.ExprValue.Number(16f),
+        });
+        points.Track(svg, default, member);
+        Assert.Equal(new[] { new SKPoint(2f, 2f), new SKPoint(16f, 2f), new SKPoint(12f, 12f) }, points.Marks()!.Anchors);
+
+        var written = ((SvgPath)edge).PathData.ToString();
+
+        Assert.Equal("That shape's points are written as an expression, so they cannot be edited here.", points.Begin(new ShimSkiaSharp.SKPoint(16f, 2f), 1f));
+        Assert.Equal(written, ((SvgPath)edge).PathData.ToString());
+    }
+
+    /// <summary>A driven arc flag is set by anything but nought, as the clip reads it, and keeps its arc and what is bound after it.</summary>
+    [AvaloniaTheory]
+    [InlineData(2f)]
+    [InlineData(0.5f)]
+    [InlineData(-0f)]
+    public void A_Driven_Arc_Flag_Keeps_The_Arc_And_What_Follows_It(float flag)
+    {
+        var svg = new Svg.Skia.SKSvg();
+
+        Assert.NotNull(svg.FromSvg("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code><e:param name="f" type="number" default="0" /><e:param name="d" type="number" default="0" /></e:code>
+                <clipPath id="c"><path id="edge" d="M2 2 A 8 8 0 {{ f }} 1 12 12 l{{ d }} 0 Z" /></clipPath>
+              </defs>
+              <rect width="24" height="24" fill="#3366cc" clip-path="url(#c)" />
+            </svg>
+            """));
+        svg.SetExpressionValues(new System.Collections.Generic.Dictionary<string, Svg.Expressions.ExprValue>(StringComparer.Ordinal)
+        {
+            ["f"] = Svg.Expressions.ExprValue.Number(flag),
+            ["d"] = Svg.Expressions.ExprValue.Number(3f),
+        });
+
+        var edge = svg.SourceDocument!.GetElementById("edge");
+        var points = new SvgViewerPoints();
+
+        points.Track(svg, default, new SvgViewerGizmoMember(edge, SvgElementAddress.Create(edge).Key));
+
+        Assert.Equal(new[] { new SKPoint(2f, 2f), new SKPoint(12f, 12f), new SKPoint(15f, 12f) }, points.Marks()!.Anchors);
+    }
+
+    /// <summary>The points of a driven clip path follow a value changed while they are showing.</summary>
+    [AvaloniaFact]
+    public async Task A_Driven_Clip_Paths_Points_Move_When_Its_Value_Does()
+    {
+        var (window, viewer) = await Host("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code><e:param name="x" type="number" default="16" /></e:code>
+                <clipPath id="c"><path id="edge" d="M2 2 L{{ x }} 2 L12 12 Z" /></clipPath>
+              </defs>
+              <rect width="24" height="24" fill="#3366cc" clip-path="url(#c)" />
+            </svg>
+            """);
+
+        SelectById(viewer, "edge");
+        Press(window, PhysicalKey.Enter);
+        Assert.Equal(new[] { new SKPoint(2f, 2f), new SKPoint(16f, 2f), new SKPoint(12f, 12f) }, viewer.Canvas.Points!.Anchors);
+
+        Assert.True(viewer.TrySetParameterValue("x", Svg.Expressions.ExprValue.Number(6f)));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { new SKPoint(2f, 2f), new SKPoint(6f, 2f), new SKPoint(12f, 12f) }, viewer.Canvas.Points!.Anchors);
+    }
+
+    /// <summary>
     /// A &lt;use&gt; of another file draws a shape whose address is that file's, which would name some
     /// other element of this one, so it has no points to take hold of.
     /// </summary>

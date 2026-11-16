@@ -85,11 +85,15 @@ public partial class SKSvg
             : null;
     }
 
+    /// <remarks>
+    /// This and the other retained pictures draw with the bound values, as <see cref="Picture"/> does.
+    /// The retained models keep the expressions: they are the recording, which a generator reads.
+    /// </remarks>
     public SkiaSharp.SKPicture? CreateRetainedSceneGraphPicture()
     {
         using var documentFontScope = PushDocumentFonts(SourceDocument, AssetLoader);
         var model = CreateRetainedSceneGraphModel();
-        return model is null ? null : SkiaModel.ToSKPicture(model);
+        return model is null ? null : SkiaModel.ToSKPicture(ApplyExpressionValues(model, SourceDocument));
     }
 
     public bool TryGetRetainedSceneNode(string addressKey, out SvgSceneNode? node)
@@ -288,7 +292,7 @@ public partial class SKSvg
     {
         using var documentFontScope = PushDocumentFonts(SourceDocument, AssetLoader);
         var model = CreateRetainedSceneNodeModel(node, clip);
-        return model is null ? null : SkiaModel.ToSKPicture(model);
+        return model is null ? null : SkiaModel.ToSKPicture(ApplyExpressionValues(model, SourceDocument));
     }
 
     public SKPicture? CreateRetainedSceneModel(SvgElement element, SKRect? clip = null)
@@ -307,7 +311,7 @@ public partial class SKSvg
     {
         using var documentFontScope = PushDocumentFonts(SourceDocument, AssetLoader);
         var model = CreateRetainedSceneModel(element, clip);
-        return model is null ? null : SkiaModel.ToSKPicture(model);
+        return model is null ? null : SkiaModel.ToSKPicture(ApplyExpressionValues(model, SourceDocument));
     }
 
     private void InvalidateRetainedSceneGraph()
