@@ -844,6 +844,15 @@ public partial class SKSvg
             return true;
         }
 
+        // The two ranges SvgSceneRenderer opens around a node, which binding the layer resolves.
+        using var displayed = node.DisplayExpression is { } displayCondition
+            ? canvas.PushConditional(displayCondition)
+            : null;
+
+        using var conditional = node.VisibilityExpression is { } visibilityCondition
+            ? canvas.PushConditional(visibilityCondition)
+            : null;
+
         canvas.Save();
 
         var enableClip = !ignoreAttributes.Has(DrawAttributes.ClipPath);
