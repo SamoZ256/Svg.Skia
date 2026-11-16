@@ -1765,7 +1765,7 @@ public static class SkiaCSharpModelExtensions
         sb.AppendLine($"{indent}var {local} = s_{built};");
 
         // Kept from one draw to the next: what the paint's own disposal would dispose with it.
-        counter.Borrowed.Add(local);
+        counter.Borrowed[local] = null;
         return local;
     }
 
@@ -2692,12 +2692,10 @@ public static class SkiaCSharpModelExtensions
                 return;
             }
 
-            counter.Borrowed.Add(name);
+            counter.Borrowed[name] = null;
             local(sb);
             return;
         }
-
-        counter.Borrowed.Add(name);
 
         // Locals renumbered in the order they first appear, so a copy built under other names matches.
         var locals = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -2706,6 +2704,7 @@ public static class SkiaCSharpModelExtensions
             : "#" + (locals.TryGetValue(local.Value, out var n) ? n : locals[local.Value] = locals.Count));
         if (counter.StaticTexts.TryGetValue(key, out var first))
         {
+            counter.Borrowed[name] = $"s_{first}";
             sb.AppendLine($"{indent}var {name} = s_{first};");
             return;
         }
@@ -2718,10 +2717,55 @@ public static class SkiaCSharpModelExtensions
         statics.AppendLine($"{StaticIndent}s_{name} = {name};");
         counter.StaticFields.Add((type, name));
         counter.StaticTexts.Add(key, name);
+        counter.Borrowed[name] = $"s_{name}";
         sb.AppendLine($"{indent}var {name} = s_{name};");
     }
 
     private const string StaticIndent = "            ";
+
+    /// <summary>
+    /// A written string's blob, built once in the static constructor, as the local it is read from;
+    /// null where the font is not a static, which leaves the blob to be built on every draw.
+    /// </summary>
+    private static string? StaticTextBlob(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, string font, Func<string, string> create)
+    {
+        // Built from the font's field, which the static constructor has set by now and the dedup key
+        // keeps as written: from its local, a font another one shares has no local there, and the
+        // same string in two fonts would read one blob.
+        if (counter.Statics is null || !counter.Borrowed.TryGetValue(font, out var field) || field is null)
+        {
+            return null;
+        }
+
+        var name = $"{counter.TextBlobVarName}{++counter.TextBlob}";
+        Hoist(counter, sb, indent, "SKTextBlob", name, text => text.AppendLine($"{indent}var {name} = {create(field)};"));
+        return name;
+    }
+
+    /// <summary>
+    /// SkiaSharp's <c>DrawText(string)</c>, which builds a blob on every call, except that a written
+    /// string's blob is built once.
+    /// </summary>
+    /// <param name="written">The string where it is written, null where an argument drives it.</param>
+    private static void DrawText(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, string canvas, string? written, string text, float x, float y, SKTextAlign textAlign, string font, string paint)
+    {
+        // SKTextBlob.Create returns null for an empty string, which DrawText(string) skips.
+        var blob = written is { Length: > 0 } ? StaticTextBlob(counter, sb, indent, font, field => $"SKTextBlob.Create({text}, {field})") : null;
+        if (blob is null)
+        {
+            sb.AppendLine($"{indent}{canvas}.DrawText({text}, {x.ToFloatString()}, {y.ToFloatString()}, {textAlign.ToSKTextAlign()}, {font}, {paint});");
+            return;
+        }
+
+        // DrawText(string)'s own arithmetic, so an anchored run lands on the same bits.
+        var left = textAlign switch
+        {
+            SKTextAlign.Center => $"{x.ToFloatString()} - {font}.MeasureText({text}) * 0.5f",
+            SKTextAlign.Right => $"{x.ToFloatString()} - {font}.MeasureText({text})",
+            _ => x.ToFloatString()
+        };
+        sb.AppendLine($"{indent}{canvas}.DrawText({blob}, {left}, {y.ToFloatString()}, {paint});");
+    }
 
     // A generated local under the counters' default names, the only ones a static's text holds, or a
     // string, verbatim or not, matched whole so that a word in it is never taken for one.
@@ -2746,7 +2790,7 @@ public static class SkiaCSharpModelExtensions
                 }
 
                 var end = trimmed.IndexOfAny(s_access);
-                return end < 0 || !counter.Borrowed.Contains(trimmed.Substring(0, end));
+                return end < 0 || !counter.Borrowed.ContainsKey(trimmed.Substring(0, end));
             });
 
         return string.Join("\n", kept);
@@ -3345,16 +3389,15 @@ public static class SkiaCSharpModelExtensions
                             {
                                 drawPositionedTextRunCanvasCommand.Paint.ToSKFont(counter, sb, indent);
                             }
-                            var textAlign = (drawPositionedTextRunCanvasCommand.TextAlign ?? drawPositionedTextRunCanvasCommand.Paint.TextAlign).ToSKTextAlign();
+                            var textAlign = drawPositionedTextRunCanvasCommand.TextAlign ?? drawPositionedTextRunCanvasCommand.Paint.TextAlign;
 
                             foreach (var fragment in drawPositionedTextRunCanvasCommand.Fragments)
                             {
-                                var text = ExprCSharpBackend.Literal(fragment.Text);
                                 var x = fragment.Point.X;
                                 var y = fragment.Point.Y;
                                 if (fragment.RotationDegrees == 0f && fragment.ScaleX == 1f)
                                 {
-                                    sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({text}, {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
+                                    DrawText(counter, sb, indent, $"{counter.CanvasVarName}{counterCanvas}", fragment.Text, ExprCSharpBackend.Literal(fragment.Text), x, y, textAlign, $"{counter.FontVarName}{counterFont}", $"{counter.PaintVarName}{counterPaint}");
                                     continue;
                                 }
 
@@ -3373,7 +3416,7 @@ public static class SkiaCSharpModelExtensions
                                     sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Concat(in {counter.MatrixVarName}{counterMatrix});");
                                 }
 
-                                sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({text}, {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
+                                DrawText(counter, sb, indent, $"{counter.CanvasVarName}{counterCanvas}", fragment.Text, ExprCSharpBackend.Literal(fragment.Text), x, y, textAlign, $"{counter.FontVarName}{counterFont}", $"{counter.PaintVarName}{counterPaint}");
                                 sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.Restore();");
                             }
 
@@ -3426,11 +3469,17 @@ public static class SkiaCSharpModelExtensions
                             {
                                 drawPositionedTextCanvasCommand.Paint.ToSKFont(counter, sb, indent);
                             }
-                            var counterTextBlob = ++counter.TextBlob;
-                            sb.AppendLine($"{indent}var {counter.TextBlobVarName}{counterTextBlob} = SKTextBlob.CreatePositioned({text}, {counter.FontVarName}{counterFont}, {points});");
+                            var blob = drawPositionedTextCanvasCommand.TextBlob.Text is { Length: > 0 }
+                                ? StaticTextBlob(counter, sb, indent, $"{counter.FontVarName}{counterFont}", font => $"SKTextBlob.CreatePositioned({text}, {font}, {points})")
+                                : null;
+                            if (blob is null)
+                            {
+                                blob = $"{counter.TextBlobVarName}{++counter.TextBlob}";
+                                sb.AppendLine($"{indent}var {blob} = SKTextBlob.CreatePositioned({text}, {counter.FontVarName}{counterFont}, {points});");
+                            }
                             var x = drawPositionedTextCanvasCommand.X;
                             var y = drawPositionedTextCanvasCommand.Y;
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({counter.TextBlobVarName}{counterTextBlob}, {x.ToFloatString()}, {y.ToFloatString()}, {counter.PaintVarName}{counterPaint});");
+                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({blob}, {x.ToFloatString()}, {y.ToFloatString()}, {counter.PaintVarName}{counterPaint});");
 
                             // NOTE: Do not dispose created SKTypeface by font manager.
 #if USE_DISPOSE_TYPEFACE
@@ -3461,7 +3510,7 @@ public static class SkiaCSharpModelExtensions
 
                             sb.AppendLine($"{indent}{counter.PaintVarName}{counterPaint}?.Dispose();");
                             sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}?.Dispose();");
-                            sb.AppendLine($"{indent}{counter.TextBlobVarName}{counterTextBlob}?.Dispose();");
+                            sb.AppendLine($"{indent}{blob}?.Dispose();");
                         }
                         break;
                     }
@@ -3487,8 +3536,9 @@ public static class SkiaCSharpModelExtensions
                             {
                                 drawTextCanvasCommand.Paint.ToSKFont(counter, sb, indent);
                             }
-                            var textAlign = (drawTextCanvasCommand.TextAlign ?? drawTextCanvasCommand.Paint.TextAlign).ToSKTextAlign();
-                            sb.AppendLine($"{indent}{counter.CanvasVarName}{counterCanvas}.DrawText({text}, {x.ToFloatString()}, {y.ToFloatString()}, {textAlign}, {counter.FontVarName}{counterFont}, {counter.PaintVarName}{counterPaint});");
+                            var textAlign = drawTextCanvasCommand.TextAlign ?? drawTextCanvasCommand.Paint.TextAlign;
+                            var written = drawTextCanvasCommand.TextExpression is null ? drawTextCanvasCommand.Text : null;
+                            DrawText(counter, sb, indent, $"{counter.CanvasVarName}{counterCanvas}", written, text, x, y, textAlign, $"{counter.FontVarName}{counterFont}", $"{counter.PaintVarName}{counterPaint}");
 
                             // NOTE: Do not dispose created SKTypeface by font manager.
 #if USE_DISPOSE_TYPEFACE
