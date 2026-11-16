@@ -131,8 +131,9 @@ change. A driven paint with a filter, a dash or another kind of shader still bui
 every draw. A picture the drawing draws,
 which is how the scene holds every text element, is replayed onto the canvas under a save rather than
 recorded on every draw, in both bodies, and its paths, paints and fonts are statics like the rest: a
-typeface is looked up once, when the static constructor runs. A text run then allocates only the
-text blob SkiaSharp's `DrawText(string)` builds on every call. A filled rect, round rect,
+typeface is looked up once, when the static constructor runs. A run of a written string is drawn
+from a text blob built there too, so it allocates nothing; a string an argument drives still goes
+through SkiaSharp's `DrawText(string)`, which builds a blob on every call. A filled rect, round rect,
 oval or circle with no layer open around it builds no path in either body: it is drawn with
 `DrawRect`, `DrawRoundRect`, `DrawOval` or `DrawCircle`, as the renderer draws it. `Record` stays,
 and records `Draw`.

@@ -114,8 +114,11 @@ public class SkiaCSharpCodeGenCounter
     /// <summary>Each static's text with its locals renumbered, so a second copy reads the first's field.</summary>
     internal Dictionary<string, string> StaticTexts { get; } = new();
 
-    /// <summary>Locals that read something <c>Draw</c> does not own, whose disposal is left out.</summary>
-    internal HashSet<string> Borrowed { get; } = new();
+    /// <summary>
+    /// Locals that read something <c>Draw</c> does not own, whose disposal is left out, each with the
+    /// static field it reads, or null for what is kept per thread.
+    /// </summary>
+    internal Dictionary<string, string?> Borrowed { get; } = new();
 
     /// <summary>The other drawings of the file, which a range drawing one of them may call instead.</summary>
     internal SkiaCSharpCalls? Calls { get; set; }
