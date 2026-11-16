@@ -662,6 +662,54 @@ public class SkiaCSharpRenderTests
         Assert.DoesNotContain("skFont0?.Dispose()", code);
     }
 
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3)]
+    [InlineData(SkiaSharpTarget.V4)]
+    public void A_Written_String_Is_Drawn_From_A_Static_Blob(SkiaSharpTarget skiaSharp)
+    {
+        // The second run's font reads the first's field, so it has no local in the static
+        // constructor; the third is the same string in another size, which needs a blob of its own.
+        var code = AssertTextRendersTheSame($"StaticBlob_{skiaSharp}", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+              <text x="2" y="10" font-family="Noto Sans" font-size="9" fill="#1e40af">Ab7</text>
+              <text x="2" y="21" font-family="Noto Sans" font-size="9" fill="#dc2626">Ab7</text>
+              <text x="2" y="32" font-family="Noto Sans" font-size="7" fill="#16a34a">Ab7</text>
+              <text x="24" y="44" font-family="Noto Sans" font-size="8" text-anchor="middle" fill="#111827">mid</text>
+            </svg>
+            """, skiaSharp);
+
+        Assert.Equal(2, Regex.Matches(code, @"SKTextBlob\.Create\(""Ab7""").Count);
+        Assert.DoesNotContain(".DrawText(\"", code);
+    }
+
+    [Fact]
+    public void An_Anchored_Written_String_Lands_Where_DrawText_Puts_It()
+    {
+        // The scene anchors text itself and records it left-aligned, so only a picture recorded with
+        // an alignment reaches the measured x; the record body still hands the string to DrawText.
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 48, 24));
+        var font = new ShimSkiaSharp.SKFont(ShimSkiaSharp.SKTypeface.FromFamilyName("Noto Sans", ShimSkiaSharp.SKFontStyleWeight.Normal, ShimSkiaSharp.SKFontStyleWidth.Normal, ShimSkiaSharp.SKFontStyleSlant.Upright), 9.3f);
+        canvas.DrawText("Ab7", 24.3f, 10f, ShimSkiaSharp.SKTextAlign.Center, font, s_red);
+        canvas.DrawText("Ab7", 46.7f, 21f, ShimSkiaSharp.SKTextAlign.Right, font, s_red);
+        var model = recorder.EndRecording();
+
+        SKPicture Recorded(SvgBody body)
+        {
+            var name = $"AnchoredText{body}";
+            var code = SkiaCSharpCodeGen.GenerateFile(
+                new[] { new SkiaCSharpDrawing(model, Namespace, name, SvgExpressionDeclarations.Empty) },
+                SvgHelperScope.PerClass,
+                style: new SvgCodeStyle { Body = body, Typeface = $"SKTypeface.FromFile(@\"{s_noto}\")" });
+            Assert.Equal(body == SvgBody.Direct ? 0 : 2, Regex.Matches(code, @"\.DrawText\(""Ab7""").Count);
+            return (SKPicture)Compile(code, name).GetType($"{Namespace}.{name}")!.GetMethod("Record")!.Invoke(null, null)!;
+        }
+
+        using var record = Recorded(SvgBody.Record);
+        using var direct = Recorded(SvgBody.Direct);
+        AssertSamePicture("AnchoredText", record, direct);
+    }
+
     [Fact]
     public void A_Driven_Text_Paint_Is_The_Shared_One_And_Leaves_It_Reset()
     {
@@ -686,47 +734,51 @@ public class SkiaCSharpRenderTests
     }
 
     [Fact]
-    public void A_Direct_Draw_Of_Driven_Text_Allocates_Only_What_DrawText_Does()
+    public void A_Direct_Draw_Of_Text_Allocates_Only_The_Blob_Of_A_Driven_String()
     {
-        // DrawText(string) builds a text blob on every call, which is SkiaSharp's; everything else a
-        // run needs, its picture, paint and font, is the drawing's and allocates nothing.
+        // DrawText(string) builds a text blob on every call, which is SkiaSharp's, and a driven string
+        // needs one per draw; a written one's blob, its picture, paint and font are the drawing's.
         var svg = """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 48 24" width="48" height="24">
-              <defs><e:code><e:param name="tint" type="color" default="#1e40af" /></e:code></defs>
+              <defs><e:code><e:param name="tint" type="color" default="#1e40af" /><e:param name="label" type="string" default="'cd'" /></e:code></defs>
               <g transform="translate(2 3)">
                 <text x="0" y="12" font-family="Noto Sans" font-size="9" fill="{{ tint }}">Ab7</text>
-                <text x="0" y="20" font-family="Noto Sans" font-size="6" fill="#111827">cd</text>
+                <text x="0" y="20" font-family="Noto Sans" font-size="6" fill="#111827">{{ label }}</text>
               </g>
             </svg>
             """;
         var settings = new SKSvgSettings();
         settings.TypefaceProviders!.Insert(0, new Svg.Skia.TypefaceProviders.CustomTypefaceProvider(s_noto));
-        var model = SvgSceneRuntime.CreateModel(SvgService.FromSvg(svg)!, new SkiaSvgAssetLoader(new SkiaModel(settings)))!;
+        var document = SvgService.FromSvg(svg)!;
+        ShimPicture model;
+        using (SvgExpressionSubstitution.Begin(document, ExprEvaluator.Create(document.ExpressionDeclarations, null)))
+        {
+            model = SvgSceneRuntime.CreateModel(document, new SkiaSvgAssetLoader(new SkiaModel(settings)))!;
+        }
         var code = SkiaCSharpCodeGen.GenerateFile(
             new[] { new SkiaCSharpDrawing(model, Namespace, "UnallocatedText", SvgExpressionDeclarations.Parse(svg)) },
             SvgHelperScope.PerClass,
             style: new SvgCodeStyle { Body = SvgBody.Direct, Typeface = $"SKTypeface.FromFile(@\"{s_noto}\")" });
         var draw = Compile(code, "UnallocatedText").GetType($"{Namespace}.UnallocatedText")!
             .GetMethod("Draw")!
-            .CreateDelegate<Action<SKCanvas, SKColor?>>();
+            .CreateDelegate<Action<SKCanvas, SKColor?, string?>>();
 
         using var bitmap = new SKBitmap(48, 24);
         using var canvas = new SKCanvas(bitmap);
-        draw(canvas, new SKColor(0x1e, 0x40, 0xaf));
+        draw(canvas, new SKColor(0x1e, 0x40, 0xaf), "cd");
 
-        using var font = new SKFont(SKTypeface.FromFile(s_noto), 9f);
+        using var font = new SKFont(SKTypeface.FromFile(s_noto), 6f);
         using var paint = new SKPaint();
-        canvas.DrawText("Ab7", 0f, 12f, SKTextAlign.Left, font, paint);
+        canvas.DrawText("ef", 0f, 20f, SKTextAlign.Left, font, paint);
 
         var before = GC.GetAllocatedBytesForCurrentThread();
-        canvas.DrawText("Ab7", 0f, 12f, SKTextAlign.Left, font, paint);
-        canvas.DrawText("cd", 0f, 20f, SKTextAlign.Left, font, paint);
-        var blobs = GC.GetAllocatedBytesForCurrentThread() - before;
+        canvas.DrawText("ef", 0f, 20f, SKTextAlign.Left, font, paint);
+        var blob = GC.GetAllocatedBytesForCurrentThread() - before;
 
         before = GC.GetAllocatedBytesForCurrentThread();
-        draw(canvas, new SKColor(0xdc, 0x26, 0x26));
+        draw(canvas, new SKColor(0xdc, 0x26, 0x26), "ef");
 
-        Assert.Equal(blobs, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(blob, GC.GetAllocatedBytesForCurrentThread() - before);
     }
 
     [Fact]
