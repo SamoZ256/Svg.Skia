@@ -545,7 +545,7 @@ internal static class PaintCodePathData
         return data.Append('Z').ToString();
     }
 
-    private static PaintCodePoint OnEllipse(double centerX, double centerY, double radiusX, double radiusY, double degrees)
+    internal static PaintCodePoint OnEllipse(double centerX, double centerY, double radiusX, double radiusY, double degrees)
     {
         var radians = degrees * Math.PI / 180;
 
@@ -559,7 +559,7 @@ internal static class PaintCodePathData
 
     private static bool IsZero(PaintCodePoint point) => point.X == 0 && point.Y == 0;
 
-    private static string Pair(PaintCodePoint point) => Number(point.X) + "," + Number(point.Y);
+    internal static string Pair(PaintCodePoint point) => Number(point.X) + "," + Number(point.Y);
 
     /// <summary>A value at the precision every number is written in.</summary>
     internal static double Rounded(double value) => Math.Round(value, 4, MidpointRounding.AwayFromZero);

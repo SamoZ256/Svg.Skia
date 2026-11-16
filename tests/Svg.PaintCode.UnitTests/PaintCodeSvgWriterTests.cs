@@ -763,12 +763,9 @@ public class PaintCodeSvgWriterTests
         Assert.Empty(notes);
     }
 
-    /// <summary>A group clipped by a driven wedge is masked by it, since a clip takes no stroke.</summary>
-    [Fact]
-    public void A_Driven_Wedge_Clipping_A_Group_Becomes_A_Mask()
+    /// <summary>What a group clipped by <paramref name="clip"/> is written as: its clip's path, and the group.</summary>
+    private static (XElement Path, XElement Group) Clipped(PaintCodeShape clip, List<PaintCodeImportNote> notes)
     {
-        var notes = new List<PaintCodeImportNote>();
-        var clip = Arc("endAngle", "x", 1, 90, 90, closed: true, size: 16);
         var shape = new PaintCodeShape(
             "Body",
             PaintCodeShapeKind.Rectangle,
@@ -785,19 +782,105 @@ public class PaintCodeSvgWriterTests
         var group = new PaintCodeGroup("Group", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)shape }, clip);
         var document = WriteTree(new PaintCodeGroup("Root", Identity(), new Dictionary<string, PaintCodeBinding>(), new[] { (PaintCodeItem)group }, null), notes);
 
-        var mask = Assert.Single(document.Descendants().Where(one => one.Name.LocalName == "mask"));
-        var path = mask.Elements().Single();
+        Assert.DoesNotContain(document.Descendants(), one => one.Name.LocalName == "mask");
 
-        Assert.Empty(document.Descendants().Where(one => one.Name.LocalName == "clipPath"));
-        Assert.Equal("userSpaceOnUse", mask.Attribute("maskUnits")!.Value);
-        Assert.Equal("#ffffff", path.Attribute("stroke")!.Value);
-        Assert.Equal("8", path.Attribute("stroke-width")!.Value);
+        var clipPath = Assert.Single(document.Descendants(), one => one.Name.LocalName == "clipPath");
+        var clipped = document.Descendants().Single(one => one.Name.LocalName == "g" && one.Attribute("clip-path") is { });
 
-        var masked = document.Descendants().Single(one => one.Name.LocalName == "g" && one.Attribute("mask") is { });
+        Assert.Equal($"url(#{clipPath.Attribute("id")!.Value})", clipped.Attribute("clip-path")!.Value);
+        Assert.Null(clipped.Attribute("mask"));
 
-        Assert.Equal($"url(#{mask.Attribute("id")!.Value})", masked.Attribute("mask")!.Value);
-        Assert.Null(masked.Attribute("clip-path"));
+        return (clipPath.Elements().Single(), clipped);
+    }
+
+    /// <summary>
+    /// A group clipped by a driven wedge is clipped by the sector its expressions draw: two arcs of
+    /// half the sweep each from the end that stays put, so the large-arc flag is always nought.
+    /// </summary>
+    [Fact]
+    public void A_Driven_Wedge_Clipping_A_Group_Is_A_Clip_Path_Its_Expressions_Draw()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var (path, _) = Clipped(Arc("endAngle", "x", 1, 90, 90, closed: true, size: 16), notes);
+
+        const string sweep = "clamp(90 - ((x) + 89) + 360 * max(0, ceil((((x) + 89) - 90) / 360)), 0, 360)";
+
+        Assert.Equal(
+            "M8,8L8,0" +
+            $"A8 8 0 0 1 {{{{ 8 + 8 * cos((-90 + {sweep} / 2) * pi / 180) }}}},{{{{ 8 + 8 * sin((-90 + {sweep} / 2) * pi / 180) }}}}" +
+            $"A8 8 0 0 1 {{{{ 8 + 8 * cos((-90 + {sweep}) * pi / 180) }}}},{{{{ 8 + 8 * sin((-90 + {sweep}) * pi / 180) }}}}Z",
+            path.Attribute("d")!.Value);
+        Assert.Null(path.Attribute("stroke"));
         Assert.Empty(notes);
+    }
+
+    /// <summary>With only its start driven, the sector is walked back from the end, which stays put.</summary>
+    [Fact]
+    public void A_Clip_Driven_At_Its_Start_Turns_Back_From_The_End()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var (path, _) = Clipped(Arc("startAngle", "x", 1, 270, -90, closed: true), notes);
+
+        Assert.StartsWith("M14,14L14,28A14 14 0 0 0 {{ 14 + 14 * cos((90 - clamp(((x) + 269) - -90 + ", path.Attribute("d")!.Value);
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_Clip_Driven_At_Both_Ends_Starts_Where_The_Start_Is()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var (path, _) = Clipped(Arc("startAngle", "x", 1, 0, 0, closed: true, other: "endAngle"), notes);
+
+        Assert.StartsWith("M14,14L{{ 14 + 14 * cos((-((x) + -1)) * pi / 180) }},{{ 14 + 14 * sin((-((x) + -1)) * pi / 180) }}A14 14 0 0 1 ", path.Attribute("d")!.Value);
+        Assert.Empty(notes);
+    }
+
+    /// <summary>The points are parametric, as Skia's AddArc on an oval is, so an ellipse is drawn rather than refused.</summary>
+    [Fact]
+    public void An_Elliptical_Wedge_Clip_Is_Drawn_Rather_Than_Refused()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var round = Arc("endAngle", "x", 1, 90, 90, closed: true);
+        var oval = new PaintCodeShape(
+            round.Name,
+            round.Kind,
+            new PaintCodeFrame(0, -20, 28, 20, default, 0, 1, 1, 1, false, true),
+            round.Bindings,
+            null,
+            round.Fill,
+            round.Stroke,
+            round.StrokeStyle,
+            false,
+            null,
+            round.Metrics);
+
+        var (path, _) = Clipped(oval, notes);
+
+        Assert.StartsWith("M14,10L14,0A14 10 0 0 1 {{ 14 + 14 * cos(", path.Attribute("d")!.Value);
+        Assert.Contains("{{ 10 + 10 * sin(", path.Attribute("d")!.Value);
+        Assert.Empty(notes);
+    }
+
+    /// <summary>An open arc clips by the segment its chord cuts off, as PaintCode's AddArc alone does.</summary>
+    [Fact]
+    public void An_Open_Arc_Clip_Closes_Across_Its_Chord()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var (path, _) = Clipped(Arc("endAngle", "x", 1, 90, 90, closed: false, size: 16), notes);
+
+        Assert.StartsWith("M8,0A8 8 0 0 1 {{ ", path.Attribute("d")!.Value);
+        Assert.EndsWith("}}Z", path.Attribute("d")!.Value);
+        Assert.Empty(notes);
+    }
+
+    [Fact]
+    public void A_Clip_Whose_Sweep_Will_Not_Translate_Keeps_The_Angle_It_Was_Saved_With()
+    {
+        var notes = new List<PaintCodeImportNote>();
+        var (path, _) = Clipped(Arc("endAngle", "x +", 1, 90, 0, closed: true, size: 16), notes);
+
+        Assert.DoesNotContain("{{", path.Attribute("d")!.Value);
+        Assert.NotEmpty(notes);
     }
 
     /// <summary>

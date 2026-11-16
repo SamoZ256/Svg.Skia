@@ -499,7 +499,9 @@ public partial class SKSvg
             until: null,
             enableTransform: !extractTranslation,
             ignoreCurrentOpacity: extractOpacity);
-        return recorder.EndRecording();
+
+        // Handed to Skia with nothing evaluating it after, so it is bound here as the drawing is.
+        return ApplyExpressionValues(recorder.EndRecording(), sceneDocument.SourceDocument);
     }
 
     private static bool TryGetNativeCompositionTranslation(SvgSceneNode node, out SKPoint translation)

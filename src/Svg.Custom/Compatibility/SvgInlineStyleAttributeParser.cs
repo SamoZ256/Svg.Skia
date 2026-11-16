@@ -165,7 +165,7 @@ internal sealed class SvgInlineStyleAttributeParser
         // found it, and so the only place an expression written in a style attribute can be lifted
         // out. A supported property is recorded either way -- a literal here is what tells a weaker
         // expression written in the presentation attribute that it has been overruled.
-        if (SvgExpressionAttributes.IsSupported(name))
+        if (SvgExpressionAttributes.IsSupported(name, elementName: null))
         {
             var lifted = SvgExpressionAttributes.TryLift(name, value, out var expression, out var placeholder);
 

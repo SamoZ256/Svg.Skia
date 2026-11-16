@@ -175,7 +175,7 @@ internal static class SvgSceneHitTestService
             return false;
         }
 
-        if (node.ClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
+        if (node.BoundClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
         {
             return false;
         }
@@ -281,7 +281,7 @@ internal static class SvgSceneHitTestService
             return false;
         }
 
-        if (node.ClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
+        if (node.BoundClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
         {
             return false;
         }
@@ -301,7 +301,7 @@ internal static class SvgSceneHitTestService
             return false;
         }
 
-        if (node.ClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
+        if (node.BoundClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
         {
             return false;
         }
@@ -362,7 +362,7 @@ internal static class SvgSceneHitTestService
             return false;
         }
 
-        if (node.ClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
+        if (node.BoundClipPath is { } clipPath && !GeometryHitTestService.Contains(clipPath, localPoint))
         {
             return false;
         }

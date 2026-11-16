@@ -2150,10 +2150,12 @@ public partial class SkiaModel
                 return null;
             }
 
+            // In place, as generated code combines them: an Op that fails keeps the path it was
+            // given rather than answering null, which a slider can reach once a clip is driven.
             var skPath = ToSKPath(clip.Path);
             var skPathClip = ToSKPath(clip.Clip);
             if (skPathClip is { })
-                skPath = skPath.Op(skPathClip, SkiaSharp.SKPathOp.Intersect);
+                skPath.Op(skPathClip, SkiaSharp.SKPathOp.Intersect, skPath);
 
             if (clip.Transform is { })
             {
@@ -2167,8 +2169,7 @@ public partial class SkiaModel
             }
             else
             {
-                var result = skPathResult.Op(skPath, SkiaSharp.SKPathOp.Union);
-                skPathResult = result;
+                skPathResult.Op(skPath, SkiaSharp.SKPathOp.Union, skPathResult);
             }
         }
 
@@ -2182,7 +2183,7 @@ public partial class SkiaModel
             {
                 var skPathClip = ToSKPath(clipPath.Clip);
                 if (skPathClip is { })
-                    skPathResult = skPathResult.Op(skPathClip, SkiaSharp.SKPathOp.Intersect);
+                    skPathResult.Op(skPathClip, SkiaSharp.SKPathOp.Intersect, skPathResult);
             }
         }
 

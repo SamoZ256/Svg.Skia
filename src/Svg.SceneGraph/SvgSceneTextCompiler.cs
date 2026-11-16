@@ -18333,7 +18333,7 @@ internal static partial class SvgSceneTextCompiler
         return true;
     }
 
-    private static SvgElement? ResolveTextPathGeometryReference(SvgTextPath svgTextPath)
+    internal static SvgElement? ResolveTextPathGeometryReference(SvgTextPath svgTextPath)
     {
         return TryResolveSameDocumentTextPathReference(svgTextPath, out var referencedElement)
             ? referencedElement

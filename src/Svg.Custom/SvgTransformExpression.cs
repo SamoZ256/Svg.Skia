@@ -168,6 +168,12 @@ public static class SvgTransformExpression
     /// </summary>
     public const string DashArrayName = "stroke-dasharray";
 
+    /// <summary>
+    /// The third: path data is read as one function per segment, named by its command letter, whose
+    /// arguments are the segment's numbers.
+    /// </summary>
+    public const string PathDataName = "d";
+
     /// <summary>Whether <paramref name="value"/> is worth splitting at all.</summary>
     public static bool Holds(string? value)
         => value is { } && value.IndexOf(Open, StringComparison.Ordinal) >= 0;
@@ -182,6 +188,11 @@ public static class SvgTransformExpression
     /// </remarks>
     public static SvgTransformExpressionValue Parse(string localName, string? value)
     {
+        if (localName == PathDataName)
+        {
+            return ParsePathData(value ?? string.Empty);
+        }
+
         if (localName != DashArrayName)
         {
             return Parse(value);
@@ -334,6 +345,202 @@ public static class SvgTransformExpression
         }
 
         return text.Length;
+    }
+
+    /// <summary>Splits path data into one function per segment, as <c>SvgPathBuilder</c> segments it.</summary>
+    /// <remarks>
+    /// The numbers are scanned as SVG writes them, so <c>10-5</c> is two and an arc's flags are one
+    /// character each, and a segment the builder would draw is a function here with the same
+    /// arguments in the same slots. An expression has to stand apart — a separator, a command letter
+    /// or the end on either side — since <c>5{{ x }}</c> is no number the builder could read once the
+    /// stand-in is written into it.
+    /// </remarks>
+    private static SvgTransformExpressionValue ParsePathData(string text)
+    {
+        var functions = new List<SvgTransformExpressionFunction>();
+        var stray = new List<SvgTransformExpressionArgument>();
+        var group = new List<SvgTransformExpressionArgument>();
+        var command = '\0';
+        var arity = -1;
+        var repeated = false;
+        var index = 0;
+
+        while (index < text.Length)
+        {
+            var character = text[index];
+
+            if (IsSeparator(character))
+            {
+                index++;
+                continue;
+            }
+
+            if (Fenced(text, index))
+            {
+                var close = text.IndexOf(Close, index + Open.Length, StringComparison.Ordinal);
+                var end = close < 0 ? text.Length : close + Close.Length;
+                var written = text.Substring(index, end - index);
+                var apart = (index == 0 || Separates(text[index - 1])) && (end == text.Length || Separates(text[end]));
+
+                if (close >= 0 && apart && arity > 0 && SvgExpressionAttributes.TryUnwrap(written, out var expression))
+                {
+                    group.Add(new SvgTransformExpressionArgument(Segment(command, repeated), group.Count, index, written.Length, expression, written));
+                }
+                else
+                {
+                    stray.Add(new SvgTransformExpressionArgument(string.Empty, -1, index, written.Length, null, written));
+                }
+
+                index = end;
+                Complete();
+                continue;
+            }
+
+            if (IsCommand(character))
+            {
+                Abandon();
+                command = character;
+                arity = Arity(character);
+                repeated = false;
+                index++;
+
+                if (arity == 0)
+                {
+                    functions.Add(new SvgTransformExpressionFunction(character.ToString(), Array.Empty<SvgTransformExpressionArgument>()));
+                }
+
+                continue;
+            }
+
+            // An arc's flag is one character, and only these two: anything else ends the command, as
+            // it ends CoordinateParser's.
+            var flag = arity == 7 && group.Count is 3 or 4;
+            var length = flag ? (character is '0' or '1' ? 1 : 0) : ScanNumber(text, index);
+
+            // CoordinateParser stops a command at anything it cannot read, so nothing after it joins
+            // the command until the next letter.
+            if (length == 0)
+            {
+                Abandon();
+                arity = -1;
+                index++;
+                continue;
+            }
+
+            if (arity > 0)
+            {
+                group.Add(new SvgTransformExpressionArgument(Segment(command, repeated), group.Count, index, length, null, text.Substring(index, length)));
+            }
+
+            index += length;
+            Complete();
+        }
+
+        Abandon();
+
+        return new SvgTransformExpressionValue(text, functions, stray);
+
+        void Complete()
+        {
+            if (arity <= 0 || group.Count < arity)
+            {
+                return;
+            }
+
+            functions.Add(new SvgTransformExpressionFunction(Segment(command, repeated), group));
+            group = new List<SvgTransformExpressionArgument>();
+            repeated = true;
+        }
+
+        // A segment left short of its numbers draws nothing, so what was written in it drives nothing.
+        void Abandon()
+        {
+            foreach (var argument in group)
+            {
+                if (argument.IsExpression)
+                {
+                    stray.Add(argument);
+                }
+            }
+
+            group.Clear();
+        }
+    }
+
+    // After its first segment a move goes on as lines, as SvgPathBuilder reads it.
+    private static string Segment(char command, bool repeated)
+        => (repeated ? command switch { 'M' => 'L', 'm' => 'l', _ => command } : command).ToString();
+
+    // Any letter but an exponent's, as SvgPathBuilder decides where a command starts.
+    private static bool IsCommand(char character) => char.IsLetter(character) && character != 'e' && character != 'E';
+
+    // CoordinateParser's separators, which are fewer than char.IsWhiteSpace's.
+    private static bool IsSeparator(char character) => character is ' ' or '\t' or '\n' or '\r' or ',';
+
+    private static bool Separates(char character) => IsSeparator(character) || IsCommand(character);
+
+    private static int Arity(char command) => char.ToUpperInvariant(command) switch
+    {
+        'M' or 'L' or 'T' => 2,
+        'H' or 'V' or 'B' => 1,
+        'Q' or 'S' => 4,
+        'C' => 6,
+        'A' => 7,
+        'Z' => 0,
+        _ => -1
+    };
+
+    // A sign starts a number, and so does a second point: 10-5 is two numbers and so is .5.5.
+    private static int ScanNumber(string text, int start)
+    {
+        var index = start;
+
+        if (index < text.Length && text[index] is '+' or '-')
+        {
+            index++;
+        }
+
+        var digits = Digits(text, ref index);
+
+        if (index < text.Length && text[index] == '.')
+        {
+            index++;
+            digits += Digits(text, ref index);
+        }
+
+        if (digits == 0)
+        {
+            return 0;
+        }
+
+        if (index < text.Length && text[index] is 'e' or 'E')
+        {
+            var exponent = index + 1;
+
+            if (exponent < text.Length && text[exponent] is '+' or '-')
+            {
+                exponent++;
+            }
+
+            if (Digits(text, ref exponent) > 0)
+            {
+                index = exponent;
+            }
+        }
+
+        return index - start;
+    }
+
+    private static int Digits(string text, ref int index)
+    {
+        var start = index;
+
+        while (index < text.Length && char.IsDigit(text[index]))
+        {
+            index++;
+        }
+
+        return index - start;
     }
 
     private static bool Fenced(string text, int index)

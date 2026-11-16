@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using ShimSkiaSharp;
 
 namespace Svg.CodeGen.Skia.Expressions;
 
@@ -37,6 +38,14 @@ internal static class ExprHelpers
     public const string Paint = "SvgPaint";
     public const string PathData = "SvgPathData";
     public const string PathBuilderData = "SvgPathBuilderData";
+    public const string PathSlot = "SvgPathSlot";
+    public const string PathBuilderSlot = "SvgPathBuilderSlot";
+    public const string DrivenPathData = "SvgDrivenPathData";
+    public const string DrivenPathBuilderData = "SvgDrivenPathBuilderData";
+
+    /// <summary>The helpers that build what exists in SkiaSharp 3 alone, or in 4 alone.</summary>
+    public static IReadOnlyList<string> OnlyIn(bool skiaSharp3)
+        => skiaSharp3 ? new[] { PathData, PathSlot, DrivenPathData } : new[] { PathBuilderData, PathBuilderSlot, DrivenPathBuilderData };
 
     /// <summary>Whether a drawing calls the helper with no expression in it: the path data and the shared paint.</summary>
     public static bool Drawing(string key) => key is PathData or PathBuilderData or Paint;
@@ -318,7 +327,173 @@ internal static class ExprHelpers
         // A run of path commands as data, which the compiler keeps as one blob: thousands of calls,
         // each a few dozen bytes of IL and more of native code, are one loop.
         new(PathData, PathDataHelper(PathData, "SKPath")),
-        new(PathBuilderData, PathDataHelper(PathBuilderData, "SKPathBuilder"))
+        new(PathBuilderData, PathDataHelper(PathBuilderData, "SKPathBuilder")),
+
+        // A clip an expression drives is built on every draw, into a path kept per thread. A path is
+        // copied on write, so starting it over leaves alone the copy Skia kept for the clip it was
+        // last given, and reuses the storage where nothing else holds it.
+        new(PathSlot, PathSlotHelper(PathSlot, "SKPath", "Rewind")),
+        new(PathBuilderSlot, PathSlotHelper(PathBuilderSlot, "SKPathBuilder", "Reset")),
+        new(DrivenPathData, DrivenPathDataHelper(DrivenPathData, "SKPath")),
+        new(DrivenPathBuilderData, DrivenPathDataHelper(DrivenPathBuilderData, "SKPathBuilder"))
+    };
+
+    private static string[] PathSlotHelper(string name, string target, string reset) => new[]
+    {
+        "[ThreadStatic]",
+        $"private static {target}[] {name}Instances;",
+        "",
+        $"private static {target} {name}(int slot)",
+        "{",
+        $"    var paths = {name}Instances ??= new {target}[4];",
+        "    if (slot >= paths.Length)",
+        "    {",
+        "        Array.Resize(ref paths, slot + 4);",
+        $"        {name}Instances = paths;",
+        "    }",
+        "",
+        $"    var path = paths[slot] ??= new {target}();",
+        $"    path.{reset}();",
+        "    return path;",
+        "}"
+    };
+
+    /// <summary>
+    /// Replays the commands of a driven clip shape: ShimSkiaSharp.SymPath.Apply, statement for
+    /// statement, since the runtime draws what that answers and SkiaCSharpRenderTests diffs the two
+    /// at a zero threshold. The verbs are SymPathOp's.
+    /// </summary>
+    private static string[] DrivenPathDataHelper(string name, string target) => new[]
+    {
+        $"private static void {name}({target} path, ReadOnlySpan<byte> ops, ReadOnlySpan<float> p)",
+        "{",
+        "    foreach (var value in p)",
+        "    {",
+        "        if (float.IsNaN(value) || float.IsInfinity(value))",
+        "        {",
+        "            return;",
+        "        }",
+        "    }",
+        "",
+        "    var i = 0;",
+        "    float x = 0f, y = 0f, moveX = 0f, moveY = 0f;",
+        "    foreach (var op in ops)",
+        "    {",
+        "        switch (op)",
+        "        {",
+        $"            case {(int)SymPathOp.MoveTo}: path.MoveTo(p[i], p[i + 1]); x = moveX = p[i]; y = moveY = p[i + 1]; i += 2; break;",
+        $"            case {(int)SymPathOp.LineTo}: path.LineTo(p[i], p[i + 1]); x = p[i]; y = p[i + 1]; i += 2; break;",
+        $"            case {(int)SymPathOp.QuadTo}: path.QuadTo(p[i], p[i + 1], p[i + 2], p[i + 3]); x = p[i + 2]; y = p[i + 3]; i += 4; break;",
+        $"            case {(int)SymPathOp.CubicTo}: path.CubicTo(p[i], p[i + 1], p[i + 2], p[i + 3], p[i + 4], p[i + 5]); x = p[i + 4]; y = p[i + 5]; i += 6; break;",
+        $"            case {(int)SymPathOp.Close}: path.Close(); x = moveX; y = moveY; break;",
+        $"            case {(int)SymPathOp.ArcTo}:",
+        "            {",
+        "                var rx = Math.Abs(p[i]);",
+        "                var ry = Math.Abs(p[i + 1]);",
+        "                var endX = p[i + 5];",
+        "                var endY = p[i + 6];",
+        "                if (rx <= float.Epsilon || ry <= float.Epsilon)",
+        "                {",
+        "                    path.LineTo(endX, endY);",
+        "                }",
+        "                else if (!(Math.Abs(x - endX) <= float.Epsilon && Math.Abs(y - endY) <= float.Epsilon))",
+        "                {",
+        "                    path.ArcTo(rx, ry, p[i + 2], p[i + 3] != 0f ? SKPathArcSize.Large : SKPathArcSize.Small, p[i + 4] != 0f ? SKPathDirection.Clockwise : SKPathDirection.CounterClockwise, endX, endY);",
+        "                }",
+        "",
+        "                x = endX;",
+        "                y = endY;",
+        "                i += 7;",
+        "                break;",
+        "            }",
+        $"            case {(int)SymPathOp.Rect}:",
+        "            {",
+        "                var width = p[i + 2];",
+        "                var height = p[i + 3];",
+        "                var rx = p[i + 4];",
+        "                var ry = p[i + 5];",
+        "                if (width > 0f && height > 0f)",
+        "                {",
+        "                    var borrowedX = rx == 0f && ry > 0f ? p[i + 7] : rx;",
+        "                    var borrowedY = ry == 0f && rx > 0f ? p[i + 6] : ry;",
+        "                    rx = borrowedX;",
+        "                    ry = borrowedY;",
+        "                    if (rx < 0f && ry < 0f)",
+        "                    {",
+        "                        rx = 0f;",
+        "                        ry = 0f;",
+        "                    }",
+        "",
+        "                    if (rx == 0f || ry == 0f)",
+        "                    {",
+        "                        rx = 0f;",
+        "                        ry = 0f;",
+        "                    }",
+        "",
+        "                    if (rx < 0f)",
+        "                    {",
+        "                        rx = Math.Abs(rx);",
+        "                    }",
+        "",
+        "                    if (ry < 0f)",
+        "                    {",
+        "                        ry = Math.Abs(ry);",
+        "                    }",
+        "",
+        "                    if (rx > 0f && rx > width / 2f)",
+        "                    {",
+        "                        rx = width / 2f;",
+        "                    }",
+        "",
+        "                    if (ry > 0f && ry > height / 2f)",
+        "                    {",
+        "                        ry = height / 2f;",
+        "                    }",
+        "",
+        "                    var rect = SKRect.Create(p[i], p[i + 1], width, height);",
+        "                    if (rx > 0f && ry > 0f)",
+        "                    {",
+        "                        path.AddRoundRect(rect, rx, ry);",
+        "                    }",
+        "                    else",
+        "                    {",
+        "                        path.AddRect(rect);",
+        "                    }",
+        "                }",
+        "",
+        "                i += 8;",
+        "                break;",
+        "            }",
+        $"            case {(int)SymPathOp.Ellipse}:",
+        "            {",
+        "                var cx = p[i];",
+        "                var cy = p[i + 1];",
+        "                var rx = p[i + 2];",
+        "                var ry = p[i + 3];",
+        "                if (!(rx < 0f && ry < 0f))",
+        "                {",
+        "                    rx = Math.Abs(rx);",
+        "                    ry = Math.Abs(ry);",
+        "                    if (rx > 0f && ry > 0f)",
+        "                    {",
+        "                        path.AddOval(SKRect.Create(cx - rx, cy - ry, rx + rx, ry + ry));",
+        "                    }",
+        "                }",
+        "",
+        "                i += 4;",
+        "                break;",
+        "            }",
+        $"            case {(int)SymPathOp.Circle}:",
+        "                if (p[i + 2] > 0f)",
+        "                {",
+        "                    path.AddCircle(p[i], p[i + 1], p[i + 2]);",
+        "                }",
+        "",
+        "                i += 3;",
+        "                break;",
+        "        }",
+        "    }",
+        "}"
     };
 
     /// <summary>

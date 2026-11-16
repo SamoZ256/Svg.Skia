@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg.Expressions;
 
@@ -86,6 +87,99 @@ internal static class SvgSceneSymEvaluator
         }
 
         return total;
+    }
+
+    /// <summary>The path a driven clip shape draws with the values its numbers bind to.</summary>
+    public static SKPath EvaluatePath(SymPath path, ExprEvaluator evaluator)
+    {
+        var arguments = new float[path.ArgumentCount];
+        var index = 0;
+
+        foreach (var command in path.Commands)
+        {
+            foreach (var argument in command.Arguments)
+            {
+                arguments[index++] = Evaluate(argument, ExprType.Number, evaluator).AsNumber;
+            }
+        }
+
+        return path.Apply(arguments);
+    }
+
+    /// <summary>
+    /// <paramref name="clipPath"/> drawn with the values its expressions bind to, or the same instance
+    /// where nothing in it is driven.
+    /// </summary>
+    /// <remarks>
+    /// Built afresh rather than changed in place: the compiled clip is shared by the node, the clip
+    /// cache and the picture still holding its expressions. The copy drops them, for the reason a
+    /// resolved colour drops its own. <paramref name="rewritten"/> keeps a clip that several places
+    /// share one instance once rewritten.
+    /// </remarks>
+    public static ClipPath EvaluateClipPath(ClipPath clipPath, ExprEvaluator evaluator, IDictionary<object, object>? rewritten = null)
+    {
+        if (!clipPath.IsSymbolic)
+        {
+            return clipPath;
+        }
+
+        if (rewritten is { } && rewritten.TryGetValue(clipPath, out var existing))
+        {
+            return (ClipPath)existing;
+        }
+
+        List<PathClip>? clips = null;
+
+        if (clipPath.Clips is { } parts)
+        {
+            clips = new List<PathClip>(parts.Count);
+
+            foreach (var part in parts)
+            {
+                clips.Add(EvaluatePathClip(part, evaluator, rewritten));
+            }
+        }
+
+        var result = new ClipPath
+        {
+            Clips = clips,
+            Transform = clipPath.SymbolicTransform is { IsSymbolic: true } transform ? EvaluateMatrix(transform, evaluator) : clipPath.Transform,
+            Clip = clipPath.Clip is { } nested ? EvaluateClipPath(nested, evaluator, rewritten) : null
+        };
+
+        if (rewritten is { })
+        {
+            rewritten[clipPath] = result;
+        }
+
+        return result;
+    }
+
+    private static PathClip EvaluatePathClip(PathClip clip, ExprEvaluator evaluator, IDictionary<object, object>? rewritten)
+    {
+        if (!clip.IsSymbolic)
+        {
+            return clip;
+        }
+
+        if (rewritten is { } && rewritten.TryGetValue(clip, out var existing))
+        {
+            return (PathClip)existing;
+        }
+
+        var result = new PathClip
+        {
+            Path = clip.SymbolicPath is { IsSymbolic: true } path ? EvaluatePath(path, evaluator) : clip.Path,
+            Transform = clip.SymbolicTransform is { IsSymbolic: true } transform ? EvaluateMatrix(transform, evaluator) : clip.Transform,
+            Clip = clip.Clip is { } nested ? EvaluateClipPath(nested, evaluator, rewritten) : null
+        };
+
+        if (rewritten is { })
+        {
+            rewritten[clip] = result;
+        }
+
+        return result;
     }
 
     private static float Arithmetic(SymOp op, float left, float right)

@@ -2266,7 +2266,7 @@ public static class SkiaCSharpModelExtensions
             ? $"{counter.PathBuilderVarName}{counterPath}"
             : $"{counter.PathVarName}{counterPath}";
 
-        sb.AppendLine($"{indent}var {builder} = new {(detached ? "SKPathBuilder" : "SKPath")}();");
+        sb.AppendLine($"{indent}var {builder} = {NewPath(counter, detached)};");
         if (path.FillType != SKPathFillType.Winding)
         {
             // Carried through Detach, so it belongs on whichever object is being built.
@@ -2292,12 +2292,70 @@ public static class SkiaCSharpModelExtensions
         }
 
         PathRun(run, builder, counter, sb, indent);
+        Detach(counter, counterPath, builder, detached, sb, indent);
+    }
 
-        if (detached)
+    /// <summary>A path to build into: a new one, or while a driven clip is emitted the next per-thread one.</summary>
+    private static string NewPath(SkiaCSharpCodeGenCounter counter, bool detached)
+        => counter.PathSlot is { } ? Slot(counter, detached) : $"new {(detached ? "SKPathBuilder" : "SKPath")}()";
+
+    private static string Slot(SkiaCSharpCodeGenCounter counter, bool detached)
+    {
+        var slot = counter.PathSlot!.Value;
+        counter.PathSlot = slot + 1;
+        return $"{(detached ? ExprHelpers.PathBuilderSlot : ExprHelpers.PathSlot)}({slot})";
+    }
+
+    // A builder taken from the per-thread ones stays theirs, so it is not disposed.
+    private static void Detach(SkiaCSharpCodeGenCounter counter, int counterPath, string builder, bool detached, StringBuilder sb, string indent)
+    {
+        if (!detached)
         {
-            sb.AppendLine($"{indent}var {counter.PathVarName}{counterPath} = {builder}.Detach();");
+            return;
+        }
+
+        sb.AppendLine($"{indent}var {counter.PathVarName}{counterPath} = {builder}.Detach();");
+
+        if (counter.PathSlot is null)
+        {
             sb.AppendLine($"{indent}{builder}?.Dispose();");
         }
+    }
+
+    /// <summary>
+    /// A clip shape an expression drives, as the commands <see cref="SymPath.Apply"/> replays, into
+    /// a per-thread path.
+    /// </summary>
+    /// <remarks>
+    /// One call to a helper rather than a call per command, because which commands a driven shape
+    /// adds is decided by its values, and the helper decides it as the runtime does. The verbs are
+    /// constant bytes the compiler keeps as data, and the numbers go on the stack, so a draw
+    /// allocates nothing for them.
+    /// </remarks>
+    internal static void ToSKPath(this SymPath path, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    {
+        var counterPath = counter.Path;
+        var detached = counter.SkiaSharpTarget != SkiaSharpTarget.V3;
+        var builder = detached
+            ? $"{counter.PathBuilderVarName}{counterPath}"
+            : $"{counter.PathVarName}{counterPath}";
+
+        sb.AppendLine($"{indent}var {builder} = {Slot(counter, detached)};");
+        if (path.FillType != SKPathFillType.Winding)
+        {
+            sb.AppendLine($"{indent}{builder}.FillType = {path.FillType.ToSKPathFillType()};");
+        }
+
+        var ops = path.Commands.Select(command => ((int)command.Op).ToString(CultureInfo.InvariantCulture));
+        sb.AppendLine($"{indent}{(detached ? ExprHelpers.DrivenPathBuilderData : ExprHelpers.DrivenPathData)}({builder}, new byte[] {{ {string.Join(", ", ops)} }}, stackalloc float[]");
+        sb.AppendLine($"{indent}{{");
+        foreach (var command in path.Commands.Where(command => command.Arguments.Count > 0))
+        {
+            sb.AppendLine($"{indent}    {string.Join(", ", command.Arguments.Select(ToNumber))},");
+        }
+
+        sb.AppendLine($"{indent}}});");
+        Detach(counter, counterPath, builder, detached, sb, indent);
     }
 
     /// <summary>The call that adds <paramref name="command"/> to a path or a builder, or null for one that adds nothing.</summary>
@@ -2371,7 +2429,8 @@ public static class SkiaCSharpModelExtensions
             }
         }
 
-        if (verbs.Count < PathDataVerbs || !counter.PathData)
+        // Arrays the helper reads would be allocated on every draw where the path is built on every draw.
+        if (verbs.Count < PathDataVerbs || !counter.PathData || counter.PathSlot is { })
         {
             foreach (var command in run)
             {
@@ -2463,11 +2522,28 @@ public static class SkiaCSharpModelExtensions
     public static void ToSKPath(this ClipPath clipPath, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, out bool isDefault)
     {
         // Whole or not at all: the paths a clip is assembled from are transformed in place.
-        if (counter.Statics is { })
+        if (counter.Statics is { } statics)
         {
-            var nothing = true;
-            Hoist(counter, sb, indent, "SKPath", $"{counter.PathVarName}{counter.Path}", text => clipPath.ToSKPath(counter, text, indent, out nothing), () => !nothing);
-            isDefault = nothing;
+            if (counter.PathSlot is null)
+            {
+                var nothing = true;
+                Hoist(counter, sb, indent, "SKPath", $"{counter.PathVarName}{counter.Path}", text => clipPath.ToSKPath(counter, text, indent, out nothing), () => !nothing);
+                isDefault = nothing;
+                return;
+            }
+
+            // A driven clip is built on every draw, all of it, for the same reason.
+            counter.Statics = null;
+
+            try
+            {
+                clipPath.ToSKPath(counter, sb, indent, out isDefault);
+            }
+            finally
+            {
+                counter.Statics = statics;
+            }
+
             return;
         }
 
@@ -2490,8 +2566,16 @@ public static class SkiaCSharpModelExtensions
                 return;
             }
 
-            clip.Path.ToSKPath(counter, sb, indent);
+            if (clip.SymbolicPath is { IsSymbolic: true } symbolicPath)
+            {
+                symbolicPath.ToSKPath(counter, sb, indent);
+            }
+            else
+            {
+                clip.Path.ToSKPath(counter, sb, indent);
+            }
 
+            // In place: Op into a new path allocates one, and answers null where it fails.
             if (clip.Clip is { })
             {
                 var counterPathClip = ++counter.Path;
@@ -2500,19 +2584,11 @@ public static class SkiaCSharpModelExtensions
 
                 if (!isDefaultPathClip)
                 {
-                    sb.AppendLine($"{indent}{counter.PathVarName}{counterPath} = {counter.PathVarName}{counterPath}.Op({counter.PathVarName}{counterPathClip}, SKPathOp.Intersect);");
+                    sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.Op({counter.PathVarName}{counterPathClip}, SKPathOp.Intersect, {counter.PathVarName}{counterPath});");
                 }
             }
 
-            // SkPath::transform returns at once on the identity, which PaintCode's clips nearly all carry.
-            if (clip.Transform is { } clipTransform && !IsIdentity(clipTransform))
-            {
-                // Transform(SKMatrix) is obsolete in favour of Transform(in SKMatrix). Passing an
-                // expression would be ambiguous between the two, so the matrix needs a local.
-                var counterMatrix = ++counter.Matrix;
-                sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {clip.Transform.Value.ToSKMatrix()};");
-                sb.AppendLine($"{indent}{counter.PathVarName}{counterPath}.Transform(in {counter.MatrixVarName}{counterMatrix});");
-            }
+            ClipTransform(clip.Transform, clip.SymbolicTransform, $"{counter.PathVarName}{counterPath}", counter, sb, indent);
 
             if (isDefaultPathResult)
             {
@@ -2521,7 +2597,7 @@ public static class SkiaCSharpModelExtensions
             }
             else
             {
-                sb.AppendLine($"{indent}{counter.PathVarName}{counterPathResult} = {counter.PathVarName}{counterPathResult}.Op({counter.PathVarName}{counterPath}, SKPathOp.Union);");
+                sb.AppendLine($"{indent}{counter.PathVarName}{counterPathResult}.Op({counter.PathVarName}{counterPath}, SKPathOp.Union, {counter.PathVarName}{counterPathResult});");
             }
         }
 
@@ -2540,19 +2616,43 @@ public static class SkiaCSharpModelExtensions
                 }
                 else
                 {
-                    sb.AppendLine($"{indent}{counter.PathVarName}{counterPathResult} = {counter.PathVarName}{counterPathResult}.Op({counter.PathVarName}{counterPathClip}, SKPathOp.Intersect);");
+                    sb.AppendLine($"{indent}{counter.PathVarName}{counterPathResult}.Op({counter.PathVarName}{counterPathClip}, SKPathOp.Intersect, {counter.PathVarName}{counterPathResult});");
                 }
             }
         }
 
-        if (!isDefaultPathResult && clipPath.Transform is { } transform && !IsIdentity(transform))
+        if (!isDefaultPathResult)
         {
-            var counterMatrix = ++counter.Matrix;
-            sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {clipPath.Transform.Value.ToSKMatrix()};");
-            sb.AppendLine($"{indent}{counter.PathVarName}{counterPathResult}.Transform(in {counter.MatrixVarName}{counterMatrix});");
+            ClipTransform(clipPath.Transform, clipPath.SymbolicTransform, $"{counter.PathVarName}{counterPathResult}", counter, sb, indent);
         }
 
         isDefault = isDefaultPathResult;
+    }
+
+    /// <summary>Transforms a clip's path in place by its literal matrix, or by the functions an expression drives.</summary>
+    private static void ClipTransform(SKMatrix? transform, SymMatrix? symbolic, string path, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
+    {
+        string code;
+
+        if (symbolic is { IsSymbolic: true })
+        {
+            code = symbolic.ToSKMatrix().Replace("\n", "\n" + indent);
+        }
+        // SkPath::transform returns at once on the identity, which PaintCode's clips nearly all carry.
+        else if (transform is { } literal && !IsIdentity(literal))
+        {
+            code = literal.ToSKMatrix();
+        }
+        else
+        {
+            return;
+        }
+
+        // Transform(SKMatrix) is obsolete in favour of Transform(in SKMatrix). Passing an expression
+        // would be ambiguous between the two, so the matrix needs a local.
+        var counterMatrix = ++counter.Matrix;
+        sb.AppendLine($"{indent}var {counter.MatrixVarName}{counterMatrix} = {code};");
+        sb.AppendLine($"{indent}{path}.Transform(in {counter.MatrixVarName}{counterMatrix});");
     }
 
     /// <summary>
@@ -2825,7 +2925,21 @@ public static class SkiaCSharpModelExtensions
                         if (clipPathCanvasCommand.ClipPath is { })
                         {
                             var counterPath = ++counter.Path;
-                            clipPathCanvasCommand.ClipPath.ToSKPath(counter, sb, indent, out var isDefault);
+
+                            // Every construction is handed to ClipPath before another can begin, so
+                            // each clip starts the per-thread paths over from the first.
+                            counter.PathSlot = clipPathCanvasCommand.ClipPath.IsSymbolic ? 0 : null;
+                            bool isDefault;
+
+                            try
+                            {
+                                clipPathCanvasCommand.ClipPath.ToSKPath(counter, sb, indent, out isDefault);
+                            }
+                            finally
+                            {
+                                counter.PathSlot = null;
+                            }
+
                             if (!isDefault)
                             {
                                 var operation = clipPathCanvasCommand.Operation.ToSKClipOperation();

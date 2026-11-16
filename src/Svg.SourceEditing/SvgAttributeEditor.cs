@@ -395,6 +395,26 @@ public static class SvgAttributeEditor
     /// <see cref="XContainer.Elements()"/> so a comment or a run of text takes no index, and the
     /// indexes are invariant.
     /// </remarks>
+    /// <summary>
+    /// Whether the element <paramref name="addressKey"/> names is a part a clip draws: a child of a
+    /// <c>&lt;clipPath&gt;</c>, or what a <c>&lt;use&gt;</c> there points at. Only there does a
+    /// shape's geometry take an expression.
+    /// </summary>
+    public static bool IsClipped(SvgSourceDocument source, string addressKey)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        return Resolve(source.Document, addressKey) is { } element && SvgExpressionDeclarations.ClipParts(source.Document).Contains(element);
+    }
+
     /// <summary>The element an address key names, or null where it names nothing.</summary>
     /// <remarks>Internal because the key convention should have one reader, not one per editor.</remarks>
     internal static XElement? Resolve(XDocument document, string addressKey)

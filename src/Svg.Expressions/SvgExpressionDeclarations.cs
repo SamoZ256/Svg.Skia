@@ -216,6 +216,56 @@ public sealed class SvgExpressionDeclarations
 {
     public const string Namespace = "https://svg.skia/expr/1.0";
 
+    /// <summary>
+    /// The elements the clips in <paramref name="document"/> draw a part from: each child of a
+    /// <c>&lt;clipPath&gt;</c>, and what a <c>&lt;use&gt;</c> there points at.
+    /// </summary>
+    /// <remarks>
+    /// Where a shape's geometry takes an expression, asked of the text by the editors that judge it
+    /// before there is a drawing; the scene's clip compiler takes the same walk over the drawing.
+    /// </remarks>
+    public static ISet<XElement> ClipParts(XDocument document)
+    {
+        if (document is null)
+        {
+            throw new ArgumentNullException(nameof(document));
+        }
+
+        var named = new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+        foreach (var element in document.Descendants())
+        {
+            if ((string?)element.Attribute("id") is { Length: > 0 } id && !named.ContainsKey(id))
+            {
+                named[id] = element;
+            }
+        }
+
+        var parts = new HashSet<XElement>();
+
+        foreach (var clip in document.Descendants())
+        {
+            if (clip.Name.LocalName != "clipPath")
+            {
+                continue;
+            }
+
+            foreach (var child in clip.Elements())
+            {
+                for (var part = child; part is { } && parts.Add(part);)
+                {
+                    var href = (string?)part.Attribute("href") ?? (string?)part.Attribute(XNamespace.Get("http://www.w3.org/1999/xlink") + "href");
+
+                    part = part.Name.LocalName == "use" && href is { Length: > 1 } && href[0] == '#' && named.TryGetValue(href.Substring(1), out var target)
+                        ? target
+                        : null;
+                }
+            }
+        }
+
+        return parts;
+    }
+
     /// <summary>The prefix a document declares this namespace under, or a free one if it does not.</summary>
     /// <param name="root">The element carrying the document's namespace declarations.</param>
     /// <param name="declared">Whether the prefix returned is one the document already has.</param>

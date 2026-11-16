@@ -108,6 +108,13 @@ public partial class SKSvg
             scene.ApplyExpressionTransforms(BoundExpressions());
         }
 
+        // Its layers were bound when they were recorded; the next frame records them again, as it
+        // does after a mutation.
+        if (UsesAnimationLayerCaching)
+        {
+            DisableAnimationLayerCaching();
+        }
+
         return RebuildFromModel();
     }
 

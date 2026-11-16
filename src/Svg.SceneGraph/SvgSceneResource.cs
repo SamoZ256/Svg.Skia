@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg;
+using Svg.Expressions;
 using Svg.Model;
 using Svg.Model.Services;
+using Svg.SceneGraph;
 
 namespace Svg.Skia;
 
@@ -115,6 +117,10 @@ public sealed class SvgSceneResource
     /// the content, never to draw with it.
     /// </remarks>
     public IEnumerable<(SvgElement Element, ClipPath Clip)> ClipContent(SvgSceneDocument sceneDocument, SvgSceneNode targetNode)
+        => ClipContent(sceneDocument, targetNode, values: null);
+
+    /// <param name="values">What a driven child is shown with; null shows it as its stand-in draws it.</param>
+    public IEnumerable<(SvgElement Element, ClipPath Clip)> ClipContent(SvgSceneDocument sceneDocument, SvgSceneNode targetNode, ExprEvaluator? values)
     {
         if (Kind != SvgSceneResourceKind.ClipPath || SourceElement is not SvgClipPath svgClipPath)
         {
@@ -123,7 +129,20 @@ public sealed class SvgSceneResource
 
         foreach (var (element, clip) in SvgSceneClipCompiler.CompileClipChildren(svgClipPath, targetNode.GeometryBounds, sceneDocument.AssetLoader))
         {
-            yield return (element, clip);
+            yield return (element, values is null || !clip.IsSymbolic ? clip : Shown(clip, values));
+        }
+    }
+
+    // What is shown when a value will not resolve is the child as it was compiled.
+    private static ClipPath Shown(ClipPath clip, ExprEvaluator values)
+    {
+        try
+        {
+            return SvgSceneSymEvaluator.EvaluateClipPath(clip, values);
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return clip;
         }
     }
 

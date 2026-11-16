@@ -95,6 +95,9 @@ internal static class SvgSourceAttributes
         // resolve against, and one that has never read a file resolves nothing rather than throwing.
         var owner = new SvgDocument();
 
+        // The only elements whose geometry takes an expression.
+        var clipped = SvgExpressionDeclarations.ClipParts(document);
+
         foreach (var element in document.Descendants())
         {
             if (element.Name.NamespaceName is not (SvgNamespaces.SvgNamespace or ""))
@@ -141,7 +144,8 @@ internal static class SvgSourceAttributes
                             probe,
                             declaration.Name,
                             declaration.Value,
-                            owner);
+                            owner,
+                            clipped.Contains(element));
 
                         if (refused is not null)
                         {
@@ -175,7 +179,8 @@ internal static class SvgSourceAttributes
                     attribute.Name.NamespaceName,
                     attribute.Name.LocalName,
                     attribute.Value,
-                    owner);
+                    owner,
+                    clipped.Contains(element));
 
                 if (fault is null)
                 {

@@ -467,9 +467,63 @@ public class SkiaCSharpCodeGenTests
         Assert.Contains("\"skB2\"", code);
     }
 
+    /// <summary>
+    /// A clip a value drives is built on every draw, into a per-thread path and from numbers on the
+    /// stack; one nothing drives is still built once, in the static constructor.
+    /// </summary>
+    [Theory]
+    [InlineData(SkiaSharpTarget.V3, "SvgPathSlot(0)", "SvgDrivenPathData(")]
+    [InlineData(SkiaSharpTarget.V4, "SvgPathBuilderSlot(0)", "SvgDrivenPathBuilderData(")]
+    public void A_Driven_Clip_Is_Built_On_Every_Draw_And_A_Literal_One_Once(SkiaSharpTarget skiaSharp, string slot, string helper)
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 20 20" width="20" height="20">
+              <defs>
+                <e:code><e:param name="w" type="number" default="8" /></e:code>
+                <clipPath id="c">
+                  <rect width="{{ w }}" height="10" />
+                  <path d="M 0 0 L 4 0 L 4 4 L 3 5 L 2 4 L 0 4 Z" transform="rotate(10)" />
+                </clipPath>
+                <clipPath id="d"><path d="M 1 1 L 7 1 L 6 6 L 4 7 L 1 6 Z" transform="rotate(5)" /></clipPath>
+              </defs>
+              <rect width="20" height="20" fill="#000000" clip-path="url(#c)" />
+              <rect x="1" width="19" height="20" fill="#ff0000" clip-path="url(#d)" />
+            </svg>
+            """;
+        var document = SvgService.FromSvg(svg);
+        var picture = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())));
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(picture!, "Svg", "Generated", SvgExpressionDeclarations.Parse(svg)) },
+            skiaSharp: skiaSharp,
+            style: new SvgCodeStyle { Body = SvgBody.Direct });
+
+        var draw = code.Substring(code.IndexOf("public static void Draw(", System.StringComparison.Ordinal));
+        var start = draw.IndexOf(slot, System.StringComparison.Ordinal);
+        Assert.True(start >= 0, code);
+        var built = draw.Substring(start, draw.IndexOf(".ClipPath(", start, System.StringComparison.Ordinal) - start);
+
+        Assert.Contains(helper, built);
+        Assert.Contains("stackalloc float[]", built);
+        Assert.Contains("w,", built);
+        Assert.Contains(", SKPathOp.Union, ", built);
+        Assert.DoesNotContain("new float[]", built);
+        Assert.DoesNotContain("s_", built);
+        Assert.DoesNotContain("Dispose", built);
+
+        // The literal clip is built once, in the static constructor, as every clip was before an
+        // expression could drive one.
+        Assert.Single(Regex.Matches(code, Regex.Escape(slot)));
+        var statics = code.Substring(code.IndexOf("static Generated()", System.StringComparison.Ordinal));
+        Assert.Contains(".Transform(in ", statics.Substring(0, statics.IndexOf("\n        }", System.StringComparison.Ordinal)));
+    }
+
     [Theory]
     [InlineData(SkiaSharpTarget.V3, "SvgPathBuilderData(", "SKPathBuilder path")]
     [InlineData(SkiaSharpTarget.V4, "SvgPathData(", "SKPath path")]
+    [InlineData(SkiaSharpTarget.V3, "SvgPathBuilderSlot(", "SKPathBuilder SvgPathBuilderSlot")]
+    [InlineData(SkiaSharpTarget.V4, "SvgPathSlot(", "SKPath SvgPathSlot")]
+    [InlineData(SkiaSharpTarget.V3, "SvgDrivenPathBuilderData(", "SKPathBuilder path, ReadOnlySpan<byte> ops")]
+    [InlineData(SkiaSharpTarget.V4, "SvgDrivenPathData(", "SKPath path, ReadOnlySpan<byte> ops")]
     public void Text_Naming_The_Other_SkiaSharps_Path_Helper_Does_Not_Bring_It_In(SkiaSharpTarget skiaSharp, string text, string parameter)
     {
         var recorder = new SKPictureRecorder();

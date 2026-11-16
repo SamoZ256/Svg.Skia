@@ -30,6 +30,16 @@ public static class SvgExpressionAttributes
 
     private const string Close = "}}";
 
+    private static readonly string[] s_path = { "path" };
+
+    private static readonly string[] s_rect = { "rect" };
+
+    private static readonly string[] s_round = { "circle", "ellipse" };
+
+    private static readonly string[] s_circle = { "circle" };
+
+    private static readonly string[] s_radii = { "rect", "ellipse" };
+
     // The placeholder has to survive the model's own short circuits, which branch on the value:
     // "none" would drop the paint entirely and an opacity of 1 would skip creating a layer, and
     // in either case there would be nothing left for the expression to attach to.
@@ -51,63 +61,84 @@ public static class SvgExpressionAttributes
     // is compiled again. True means the value is consumed while the drawing is being built -- a
     // typeface is resolved, text is measured with it, positions are baked -- so it is substituted
     // into the document before the compile and changing it costs one.
-    private static readonly Dictionary<string, (string Placeholder, ExprType Type, bool Inherited, bool BeforeRecording, bool InArguments)> s_placeholders = new(StringComparer.Ordinal)
+    //
+    // Elements, where it is not null, names the only elements whose own attribute is lifted. Geometry
+    // shares its names with elements it means something else on -- a <text> takes a list of x, an
+    // <svg> a width it is laid out by -- and drives a clip only on the shapes the clip compiler reads
+    // it from, so everywhere else the braces stay the ordinary value they were before.
+    private static readonly Dictionary<string, (string Placeholder, ExprType Type, bool Inherited, bool BeforeRecording, bool InArguments, string[]? Elements)> s_placeholders = new(StringComparer.Ordinal)
     {
-        ["fill"] = ("#808080", ExprType.Color, true, false, false),
-        ["stroke"] = ("#808080", ExprType.Color, true, false, false),
-        ["stop-color"] = ("#808080", ExprType.Color, false, false, false),
-        ["flood-color"] = ("#808080", ExprType.Color, false, false, false),
-        ["lighting-color"] = ("#808080", ExprType.Color, false, false, false),
+        ["fill"] = ("#808080", ExprType.Color, true, false, false, null),
+        ["stroke"] = ("#808080", ExprType.Color, true, false, false, null),
+        ["stop-color"] = ("#808080", ExprType.Color, false, false, false, null),
+        ["flood-color"] = ("#808080", ExprType.Color, false, false, false, null),
+        ["lighting-color"] = ("#808080", ExprType.Color, false, false, false, null),
         // Not inherited: a group's opacity is applied to the group as a layer, and applying it
         // again per child would compound it.
-        ["opacity"] = ("1", ExprType.Number, false, false, false),
+        ["opacity"] = ("1", ExprType.Number, false, false, false, null),
         // Fully opaque, so the colour the expression scales is the one the author wrote.
-        ["fill-opacity"] = ("1", ExprType.Number, true, false, false),
-        ["stroke-opacity"] = ("1", ExprType.Number, true, false, false),
+        ["fill-opacity"] = ("1", ExprType.Number, true, false, false, null),
+        ["stroke-opacity"] = ("1", ExprType.Number, true, false, false, null),
         // One unit, which is SVG's own default, so a document whose expression will not evaluate
         // strokes the way the same document without the attribute does.
-        ["stroke-width"] = ("1", ExprType.Number, true, false, false),
+        ["stroke-width"] = ("1", ExprType.Number, true, false, false, null),
         // Nought, which is SVG's own default and shifts nothing, so a document whose expression
         // will not evaluate dashes the way the same document without the attribute does. It drives
         // where along a dash the pattern begins, and -- like a literal -- does nothing at all on an
         // element with no dash array to shift.
-        ["stroke-dashoffset"] = ("0", ExprType.Number, true, false, false),
-        ["stop-opacity"] = ("1", ExprType.Number, false, false, false),
+        ["stroke-dashoffset"] = ("0", ExprType.Number, true, false, false, null),
+        ["stop-opacity"] = ("1", ExprType.Number, false, false, false, null),
         // A hidden element contributes no commands at all, so the placeholder has to be the
         // visible state or there would be nothing left to make conditional. For display that goes
         // further: a display:none container is not compiled at all, subtree included.
         //
         // Neither needs to inherit here: the conditional wraps everything the node contributes,
         // its subtree included, so a group's answer already covers its children.
-        ["visibility"] = ("visible", ExprType.Boolean, false, false, false),
-        ["display"] = ("inline", ExprType.Boolean, false, false, false),
+        ["visibility"] = ("visible", ExprType.Boolean, false, false, false, null),
+        ["display"] = ("inline", ExprType.Boolean, false, false, false, null),
 
         // Resolved before the drawing is recorded. These carry no placeholder and none is written:
         // the attribute is left absent, so a document whose expression will not evaluate draws the
         // way the same document without the attribute does. A stand-in would be worse than nothing
         // here -- an empty font-family is a value, and a value stops the inheritance a missing one
         // would have allowed.
-        ["font-family"] = ("", ExprType.String, true, true, false),
+        ["font-family"] = ("", ExprType.String, true, true, false, null),
         // A string, not a number: SVG takes `bold` and `lighter` as well as `700`, and a number
         // reaches the same place through the language's own conversion at the author's hand.
-        ["font-weight"] = ("", ExprType.String, true, true, false),
-        ["font-style"] = ("", ExprType.String, true, true, false),
-        ["text-anchor"] = ("", ExprType.String, true, true, false),
+        ["font-weight"] = ("", ExprType.String, true, true, false, null),
+        ["font-style"] = ("", ExprType.String, true, true, false, null),
+        ["text-anchor"] = ("", ExprType.String, true, true, false, null),
         // User units. A number carries no unit, so an expression cannot say `2em`; that is the
         // language's limit rather than this table's.
-        ["font-size"] = ("", ExprType.Number, true, true, false),
-        ["letter-spacing"] = ("", ExprType.Number, true, true, false),
-        ["word-spacing"] = ("", ExprType.Number, true, true, false),
+        ["font-size"] = ("", ExprType.Number, true, true, false, null),
+        ["letter-spacing"] = ("", ExprType.Number, true, true, false, null),
+        ["word-spacing"] = ("", ExprType.Number, true, true, false, null),
         // Not a presentation attribute and not inherited: it is one element's own measurement.
-        ["textLength"] = ("", ExprType.Number, false, true, false),
+        ["textLength"] = ("", ExprType.Number, false, true, false, null),
 
         // The only attribute whose expressions drive its arguments rather than its value as a whole,
         // so the stand-in is computed from what was written rather than read from the column above:
         // an unbound scale has to read as 1 where an unbound translate reads as 0. The type is what
         // one argument is; the attribute as a whole is not a number.
-        ["transform"] = ("", ExprType.Number, false, false, true),
+        ["transform"] = ("", ExprType.Number, false, false, true, null),
         // Per item as well, read as a list rather than as functions. Inherited, as the property is.
-        ["stroke-dasharray"] = ("", ExprType.Number, true, false, true)
+        ["stroke-dasharray"] = ("", ExprType.Number, true, false, true, null),
+
+        // A clip shape's geometry, one number at a time. Nought is SVG's own initial value for each,
+        // and a clip compiled from the stand-in still records the shape for the expression to
+        // reshape, since the clip compiler builds it from the expressions rather than from the
+        // placeholder. Drawn shapes record the path they compiled to, so the audit refuses these
+        // on anything a clip does not read.
+        ["d"] = ("", ExprType.Number, false, false, true, s_path),
+        ["x"] = ("0", ExprType.Number, false, false, false, s_rect),
+        ["y"] = ("0", ExprType.Number, false, false, false, s_rect),
+        ["width"] = ("0", ExprType.Number, false, false, false, s_rect),
+        ["height"] = ("0", ExprType.Number, false, false, false, s_rect),
+        ["cx"] = ("0", ExprType.Number, false, false, false, s_round),
+        ["cy"] = ("0", ExprType.Number, false, false, false, s_round),
+        ["r"] = ("0", ExprType.Number, false, false, false, s_circle),
+        ["rx"] = ("0", ExprType.Number, false, false, false, s_radii),
+        ["ry"] = ("0", ExprType.Number, false, false, false, s_radii)
     };
 
     /// <summary>The text of a <c>&lt;text&gt;</c> or a <c>&lt;tspan&gt;</c>, as a lifted expression.</summary>
@@ -125,8 +156,20 @@ public static class SvgExpressionAttributes
     public static bool IsInherited(string localName)
         => s_placeholders.TryGetValue(localName, out var supported) && supported.Inherited;
 
-    /// <summary>Attributes an expression can currently drive.</summary>
+    /// <summary>Attributes an expression can currently drive, on some element.</summary>
     public static bool IsSupported(string localName) => s_placeholders.ContainsKey(localName);
+
+    /// <summary>
+    /// Whether an expression in <paramref name="localName"/> is lifted on <paramref name="elementName"/>,
+    /// or, where that is null, on whatever element it is written.
+    /// </summary>
+    /// <remarks>
+    /// Null is a style declaration or a recipe: neither knows the element, and geometry is lifted
+    /// only where it is the attribute of a shape.
+    /// </remarks>
+    public static bool IsSupported(string localName, string? elementName)
+        => s_placeholders.TryGetValue(localName, out var supported)
+           && (supported.Elements is not { } elements || (elementName is { } && Array.IndexOf(elements, elementName) >= 0));
 
     /// <summary>
     /// Whether a value written in <paramref name="localName"/> is consumed while the drawing is
@@ -166,22 +209,66 @@ public static class SvgExpressionAttributes
     ///
     /// </remarks>
     public static string? WhyUnsupported(string localName, string? value = null)
+        => WhyUnsupported(localName, value, elementName: null, clipped: true);
+
+    /// <summary>
+    /// <see cref="WhyUnsupported(string, string?)"/> for a value written on <paramref name="elementName"/>.
+    /// </summary>
+    /// <param name="elementName">The element it is written on, or null where that is not known.</param>
+    /// <param name="clipped">Whether that element is inside a <c>&lt;clipPath&gt;</c>, the only place geometry drives anything.</param>
+    public static string? WhyUnsupported(string localName, string? value, string? elementName, bool clipped)
     {
         if (!IsSupported(localName))
         {
-            return $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Supported)}, and reads a {Open} … {Close} written anywhere else as an ordinary value.";
+            return $"'{localName}' does not take an expression. The parser lifts {string.Join(", ", Unscoped())}, and on the shapes of a <clipPath> {string.Join(", ", Scoped())}; it reads a {Open} … {Close} written anywhere else as an ordinary value.";
+        }
+
+        // Asked about a value, only one that holds braces: a literal path is no business of this rule.
+        if (s_placeholders[localName].Elements is { } elements && (!IsSupported(localName, elementName) || !clipped) &&
+            (value is null || SvgTransformExpression.Holds(value)))
+        {
+            var on = string.Join(" or ", Array.ConvertAll(elements, element => $"<{element}>"));
+
+            return elementName is { } && IsSupported(localName, elementName)
+                ? $"'{localName}' takes an expression only inside a <clipPath>: a drawn {on} is recorded as the path it compiled to, which a bound value cannot reshape."
+                : $"'{localName}' takes an expression only on {on}, and there only inside a <clipPath>; written here it is read as an ordinary value.";
         }
 
         // Supported, and still doing nothing: the braces are somewhere inside the value that is not
         // one whole argument, which is the rule one level down from the one above.
         if (IsInArguments(localName) && value is { } && SvgTransformExpression.Parse(localName, value).Stray.Count > 0)
         {
-            return localName == SvgTransformExpression.DashArrayName
-                ? $"An expression in '{localName}' has to be the whole of one item, as in {Open} dash {Close} 4."
-                : $"An expression in '{localName}' has to be the whole of one function argument, as in translate({Open} dx {Close} 0).";
+            return localName switch
+            {
+                SvgTransformExpression.DashArrayName => $"An expression in '{localName}' has to be the whole of one item, as in {Open} dash {Close} 4.",
+                SvgTransformExpression.PathDataName => $"An expression in '{localName}' has to be the whole of one number of a command written in full, with a space, a comma or a command letter on either side, as in L {Open} x {Close} {Open} y {Close}.",
+                _ => $"An expression in '{localName}' has to be the whole of one function argument, as in translate({Open} dx {Close} 0)."
+            };
         }
 
         return null;
+    }
+
+    private static IEnumerable<string> Unscoped()
+    {
+        foreach (var supported in s_placeholders)
+        {
+            if (supported.Value.Elements is null)
+            {
+                yield return supported.Key;
+            }
+        }
+    }
+
+    private static IEnumerable<string> Scoped()
+    {
+        foreach (var supported in s_placeholders)
+        {
+            if (supported.Value.Elements is { })
+            {
+                yield return supported.Key;
+            }
+        }
     }
 
     public static string KeyFor(string localName) => Namespace + ":" + localName;
@@ -362,11 +449,18 @@ public static class SvgExpressionAttributes
     /// what keeps the two kinds from being spelled apart at one site and not another.
     /// </remarks>
     public static bool TryLift(string localName, string? value, out string expression, out string placeholder)
+        => TryLift(localName, null, value, out expression, out placeholder);
+
+    /// <summary>
+    /// <see cref="TryLift(string, string?, out string, out string)"/> for an attribute written on
+    /// <paramref name="elementName"/>, which is what lifts a shape's geometry.
+    /// </summary>
+    public static bool TryLift(string localName, string? elementName, string? value, out string expression, out string placeholder)
     {
         expression = string.Empty;
         placeholder = string.Empty;
 
-        if (!IsSupported(localName))
+        if (!IsSupported(localName, elementName))
         {
             return false;
         }

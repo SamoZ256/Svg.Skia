@@ -115,7 +115,7 @@ internal static class SvgGeometryService
             defaultAuto: false);
     }
 
-    private static SvgUnit GetComputedUnit(
+    internal static SvgUnit GetComputedUnit(
         SvgElement element,
         string propertyName,
         SvgUnit fallback,

@@ -74,6 +74,10 @@ Each argument is wholly an expression or wholly a literal, so {%{`translate(1{{ 
 ordinary value that drives nothing — and so is {%{`transform="{{ t }}"`}%}, where the braces stand
 where a function goes rather than where an argument does. A source view marks both.
 
+The path data `d` of a shape a `<clipPath>` draws goes one level down the same way: an expression is
+the whole of one **number** of one command, set apart by a space, a comma or a command letter, and
+one path may hold several — see *Driving a clip*.
+
 Whitespace inside the braces is trimmed, so {%{`{{primary}}` and `{{ primary }}`}%} are equivalent.
 
 A declaration in a `style` attribute works the same way, and the same rule applies to its value:
@@ -193,7 +197,9 @@ stays smooth.
 | `stroke-dasharray` | number, per item | One expression drives one dash or gap length, in user units, and `pathLength` scales it as it does a literal. Unbound, an item reads as 1 rather than 0, since a list that sums to nothing records no dash for the expressions to ride on. An item that binds below nothing, or a list that sums to nothing, is SVG's invalid dash array and strokes solid. With `stroke-dashoffset` it draws an arc both of whose ends move: the dash is the sweep, the gap the rest of the ring. |
 | `visibility` | boolean | `true` meaning visible. Wraps the element's drawing in a condition. |
 | `display` | boolean | `true` meaning displayed. Wraps the element and its subtree in a condition. |
-| `transform` | number, per argument | One expression drives one argument of one function. Unbound, an argument reads as the identity of **its slot** — 0 for an offset, an angle or a rotation centre, 1 for a scale factor — rather than one constant for all of them, since an unbound `scale` of 0 would leave no shape on screen to bind to. |
+| `transform` | number, per argument | One expression drives one argument of one function. Unbound, an argument reads as the identity of **its slot** — 0 for an offset, an angle or a rotation centre, 1 for a scale factor — rather than one constant for all of them, since an unbound `scale` of 0 would leave no shape on screen to bind to. On a `<clipPath>` and on what it draws it moves the clip. |
+| `d` | number, per number | Only on a `<path>` a `<clipPath>` draws (*Driving a clip*). One expression drives one number of one command, an arc's flags included, where anything but nought is set. Unbound, a number reads as 0. A bound arc is ruled on as a literal one is: no radius is a line, an end where it starts draws nothing. A bearing (`B`) is refused, since it would turn what follows by a bound angle. |
+| `x` `y` `width` `height` `rx` `ry` on `<rect>`; `cx` `cy` `r` on `<circle>`; `cx` `cy` `rx` `ry` on `<ellipse>` | number | Only on a shape a `<clipPath>` draws (*Driving a clip*), in user units. Unbound, 0. A bound size or radius is ruled on as a literal one is — no width draws nothing, a radius borrows the other and is held to half its side — and the shape is recorded from the expressions rather than its stand-in, so one that stands in at no width still clips once it is bound. |
 
 **Resolved before the drawing is recorded.** The value is consumed while the document is compiled —
 the typeface is chosen with it and the text measured against that — so it is substituted into the
@@ -228,12 +234,10 @@ No attribute takes an `integer`, and that is a decision rather than a gap: SVG h
 is whole. An integer drives a drawing by choosing — `visibility="{%{{{ steps > 0 }}}%}"` — or through
 `num()`, which is what the tables above ask for.
 
-Everything else — `x`, `y`, `cx`, `cy`, `width`, `height`, `d` — is a literal.
-Braces written in one of those are read as an ordinary value and do nothing; a source view marks it.
-
-Position through `x` or `cx` stays literal because those are consumed into the path the drawing
-records — a rect is points by the time anything could rewrite it — so `translate` is how a driven
-position is said.
+Geometry drives only a clip. A shape that is drawn is consumed into the path the drawing records —
+a rect is points by the time anything could rewrite it — so on a drawn shape `x`, `cx` or `d` holding
+braces is refused (see below), and `translate` is how a driven position is said. `points` and the
+geometry of anything else are literals, and braces there are an ordinary value a source view marks.
 
 ### What the second kind costs
 
@@ -287,14 +291,48 @@ alone still answers a hit.
 A driven transform does reach it. Binding moves the compiled scene as well as the recorded drawing,
 so an element turned by an expression answers, measures and is drawn around where it is turned to —
 hit testing, node bounds, the outline and the editor's selection handles all follow, because none of
-them is told about expressions at all: they read the scene, and the scene moved.
+them is told about expressions at all: they read the scene, and the scene moved. A driven clip does
+too: what a hit meets, and the clip the outline shows, are the clip as it is bound.
 
 The two compose in either direction: an opacity expression scales a literal colour, a colour
 expression is scaled by a literal opacity, and where both are expressions the alpha is scaled by
 whatever the number one yields. `color-interpolation="linearRGB"` converts the result, exactly as it
 would a literal.
 
-### Where a driven transform or stroke width is refused
+### Driving a clip
+
+A clip is recorded as geometry, kept beside the expressions that drive it, so a level indicator says
+what it means: the sector its level sweeps, clipping what it shows.
+
+{%{
+{%%{
+```xml
+<e:param name="level" type="number" default="0.5" />
+<e:let name="sweep">clamp(level * 360, 0, 360)</e:let>
+
+<clipPath id="level">
+  <path d="M12,12L12,2A10 10 0 0 1 {{ 12 + 10 * cos((-90 + sweep / 2) * pi / 180) }},{{ 12 + 10 * sin((-90 + sweep / 2) * pi / 180) }}A10 10 0 0 1 {{ 12 + 10 * cos((-90 + sweep) * pi / 180) }},{{ 12 + 10 * sin((-90 + sweep) * pi / 180) }}Z" />
+</clipPath>
+<circle cx="12" cy="12" r="10" fill="#1e40af" clip-path="url(#level)" />
+```
+}%%}
+}%}
+
+Two arcs of half the sweep each, so the large-arc flag stays nought and a whole turn needs no case of
+its own. This is what the PaintCode importer writes for an oval clip whose angles are driven, where it
+used to write a luma `<mask>` holding a dashed circle — two layers and a colour filter for what is,
+here, one clip. Generated code builds a driven clip on every draw into a path it keeps per thread
+(see svg-codegen-skia.md).
+
+A driven `transform` on the `<clipPath>`, on a shape in it or on a `<use>` in it moves the clip, and
+a `<use>` there draws whatever its target's own expressions say. Binding reaches hit testing and the
+outline as well as the drawing: the scene keeps the bound clip beside the compiled one.
+
+Unbound, a driven clip is its placeholder geometry, which for the sector above is nothing at all: a
+renderer that never binds — the Avalonia control, an `SKSvg` given no values — clips everything away,
+where the mask it replaces showed the whole circle.
+
+### Where a driven transform, stroke width or shape is refused
 
 A recorded matrix can be rewritten because nothing downstream measured it. Where something *was*
 measured against it while the drawing was compiled, binding another value would move the element out
@@ -306,8 +344,10 @@ from under that measurement, so the expression is **refused** rather than bound:
   layer's bounds were unioned from the transforms of the children under it, and `SaveLayer`'s bounds
   are a hard clip rather than a hint — an element bound outside them would not be clipped late, it
   would be gone.
-- a transform written **inside a `<clipPath>`**, whose contents compile to geometry and are never
-  recorded as commands, so there is no matrix left in the drawing to rewrite.
+- on a part of a **`<clipPath>`**, whatever measures it as its stand-in drew it: a `transform-origin`;
+  CSS declaring a driven property, which takes precedence over the attribute; a `clip-path` of its
+  own, measured against its stand-in's bounds; and anything inside the clip that is not one of its
+  parts — a `<g>` is passed over by the clip, so nothing records what drives it.
 - a transform on a **`<text>`** or **`<tspan>`**, whose matrix is folded into the glyph positions the
   drawing records, and one on an element that also declares **`transform-origin`**, which wraps the
   author's functions in translations computed from the value they had when the drawing was compiled.
@@ -316,6 +356,10 @@ Those last two are the reason the rule is written as *either it moves or it is n
 a list: an element that carries a driven transform and was nonetheless compiled without one is
 refused whatever the reason, so a function or an argument count SVG does not allow is caught by the
 same sentence rather than binding silently to nothing.
+
+Driven **geometry** is refused wherever it is not a clip's: on a shape that is drawn, including a
+definition a clip and a drawn `<use>` both reach; on one no clip draws; and on a path a `<textPath>`
+follows, which baked it into the positions of its glyphs.
 
 A driven **`stroke-width`** answers the first two of those — a filter, and an ancestor that opens a
 layer — for the same reason: a stroke that grows paints outside bounds that were unioned from where
@@ -331,6 +375,8 @@ Three that look like they belong on that list and do not, which is the more usef
 - a **`userSpaceOnUse`** gradient or pattern. It is built from local bounds and applied under the
   live canvas matrix, which is precisely what SVG means by user space: the paint moves with the shape.
 - **`vector-effect="non-scaling-stroke"`**, which is redone against the live matrix.
+- a **driven clip** under a layer or a filter. A clip only takes ink away, and nothing a layer or a
+  filter measures goes through one.
 
 ## 3. Language reference
 

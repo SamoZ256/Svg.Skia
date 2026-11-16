@@ -142,25 +142,179 @@ public class SvgSceneTransformAuditTests
             "<rect width=\"8\" height=\"8\" transform-origin=\"32 32\" " + Driven + " />"));
     }
 
-    /// <summary>A clipPath's own transform is baked into the clip, not recorded.</summary>
+    /// <summary>A clip records the functions behind its own transform beside the matrix they baked to.</summary>
     [Fact]
-    public void A_Transform_On_The_ClipPath_Itself_Is_Refused()
+    public void A_Transform_On_The_ClipPath_Itself_Is_Allowed()
     {
-        Assert.Contains(
-            "clipPath",
-            Audit(
-                "<defs><clipPath id=\"e\" " + Driven + "><rect width=\"32\" height=\"32\" /></clipPath></defs>" +
-                "<rect width=\"8\" height=\"8\" clip-path=\"url(#e)\" />")!);
+        Assert.Null(Audit(
+            "<defs><clipPath id=\"e\" " + Driven + "><rect width=\"32\" height=\"32\" /></clipPath></defs>" +
+            "<rect width=\"8\" height=\"8\" clip-path=\"url(#e)\" />"));
     }
 
     [Fact]
-    public void A_Transform_Written_Inside_A_ClipPath_Is_Refused()
+    public void A_Transform_Written_Inside_A_ClipPath_Is_Allowed()
+    {
+        Assert.Null(Audit(
+            "<defs><clipPath id=\"d\"><rect width=\"32\" height=\"32\" transform=\"rotate({{ a }})\" /></clipPath></defs>" +
+            "<rect width=\"8\" height=\"8\" clip-path=\"url(#d)\" />"));
+    }
+
+    private static string Clipped(string parts, string defs = "")
+        => "<defs>" + defs + "<clipPath id=\"e\">" + parts + "</clipPath></defs>" +
+           "<rect width=\"8\" height=\"8\" clip-path=\"url(#e)\" />";
+
+    [Theory]
+    [InlineData("<path d=\"M 16 16 L 16 0 A 16 16 0 0 1 {{ a }} {{ a }} Z\" />")]
+    [InlineData("<rect width=\"{{ a }}\" height=\"8\" rx=\"{{ a }}\" />")]
+    [InlineData("<circle cx=\"16\" cy=\"16\" r=\"{{ a }}\" />")]
+    [InlineData("<ellipse cx=\"{{ a }}\" cy=\"16\" rx=\"{{ a }}\" ry=\"4\" />")]
+    [InlineData("<text x=\"2\" y=\"12\" transform=\"rotate({{ a }})\">A</text>")]
+    public void Driven_Geometry_On_A_Part_Of_A_Clip_Is_Allowed(string part)
+    {
+        Assert.Null(Audit(Clipped(part)));
+    }
+
+    [Fact]
+    public void A_Definition_Only_A_Clip_Uses_Is_Allowed()
+    {
+        Assert.Null(Audit(Clipped(
+            "<use href=\"#s\" transform=\"translate({{ a }}, 0)\" />",
+            "<rect id=\"s\" width=\"{{ a }}\" height=\"8\" transform=\"rotate({{ a }})\" />")));
+    }
+
+    /// <summary>A clip only takes ink away, and nothing a layer or a filter measures goes through it.</summary>
+    [Fact]
+    public void A_Driven_Clip_Under_A_Layer_Or_A_Filter_Is_Allowed()
+    {
+        const string clip = "<defs><clipPath id=\"e\"><rect width=\"{{ a }}\" height=\"8\" /></clipPath></defs>";
+
+        Assert.Null(Audit(clip + "<g opacity=\"0.5\"><rect width=\"8\" height=\"8\" clip-path=\"url(#e)\" /></g>"));
+        Assert.Null(Audit(clip + "<g filter=\"url(#f)\"><rect width=\"8\" height=\"8\" clip-path=\"url(#e)\" /></g>"));
+    }
+
+    [Theory]
+    [InlineData("<rect width=\"{{ a }}\" height=\"8\" />", "is drawn")]
+    [InlineData("<path d=\"M 0 0 L {{ a }} 8 Z\" />", "is drawn")]
+    [InlineData("<defs><rect id=\"z\" width=\"{{ a }}\" height=\"8\" /></defs>", "not a part of any <clipPath>")]
+    public void Driven_Geometry_Anywhere_But_A_Clip_Is_Refused(string body, string reason)
+    {
+        var refusal = Audit(body);
+
+        Assert.Contains(reason, refusal);
+        Assert.Contains("cannot reshape it", refusal);
+    }
+
+    /// <summary>A part a clip draws and a drawn &lt;use&gt; draws again is a drawn shape on the second count.</summary>
+    [Fact]
+    public void A_Definition_A_Clip_Uses_And_A_Drawing_Uses_Is_Refused()
+    {
+        Assert.Contains("is drawn", Audit(
+            Clipped("<use href=\"#s\" />", "<rect id=\"s\" width=\"{{ a }}\" height=\"8\" />") +
+            "<use href=\"#s\" />"));
+    }
+
+    [Fact]
+    public void A_Clip_Part_A_TextPath_Follows_Is_Refused()
+    {
+        Assert.Contains("<textPath>", Audit(
+            Clipped("<use href=\"#p\" />", "<path id=\"p\" d=\"M 0 16 L {{ a }} 16\" />") +
+            "<text><textPath href=\"#p\">A</textPath></text>"));
+    }
+
+    [Theory]
+    [InlineData("<rect width=\"8\" height=\"8\" transform=\"rotate({{ a }})\" transform-origin=\"16 16\" />", "transform-origin")]
+    [InlineData("<rect width=\"{{ a }}\" height=\"8\" transform=\"rotate(10)\" transform-origin=\"16 16\" />", "transform-origin")]
+    [InlineData("<path d=\"M 0 0 B 45 L {{ a }} 0 Z\" />", "bearing")]
+    [InlineData("<path d=\"M {{ a }} 0 L {{ a }}0 8 Z\" />", "whole number")]
+    [InlineData("<rect width=\"{{ a }}\" height=\"8\" clip-path=\"url(#c)\" />", "clip of its own")]
+    [InlineData("<rect width=\"{{ a }}\" height=\"8\" style=\"width: 4\" />", "in CSS")]
+    [InlineData("<rect width=\"8\" height=\"8\" transform=\"rotate({{ a }} 16)\" />", "no list of functions")]
+    public void A_Part_Of_A_Clip_Measured_As_Its_Stand_In_Is_Refused(string part, string reason)
+    {
+        Assert.Contains(reason, Audit(Clipped(part)));
+    }
+
+    [Fact]
+    public void A_Stylesheet_Rule_Over_Driven_Geometry_Is_Refused()
+    {
+        Assert.Contains("in CSS", Audit(
+            "<style>.moved { cx: 4px; }</style>" +
+            Clipped("<ellipse class=\"moved\" cx=\"{{ a }}\" cy=\"4\" rx=\"3\" ry=\"2\" />")));
+    }
+
+    /// <summary>
+    /// A clip outside <c>&lt;defs&gt;</c> compiles to a container that draws nothing, which is no
+    /// drawing of it, and no layer above that container measured it.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("<g opacity=\"0.5\" filter=\"url(#f)\">", "</g>")]
+    public void A_Driven_Clip_Outside_Defs_Is_Allowed(string open, string close = "")
+    {
+        Assert.Null(Audit(
+            open +
+            "<clipPath id=\"o\" transform=\"translate(8 8) rotate({{ a }})\"><rect x=\"-4\" y=\"-4\" width=\"{{ a }}\" height=\"8\" /></clipPath>" +
+            "<clipPath id=\"z\" transform=\"rotate({{ a }})\"><rect width=\"8\" height=\"8\" /></clipPath>" +
+            close +
+            "<rect width=\"32\" height=\"32\" clip-path=\"url(#o)\" />" +
+            "<rect width=\"32\" height=\"32\" clip-path=\"url(#z)\" />"));
+    }
+
+    /// <summary>
+    /// What a clip holds gets a node only from a <c>&lt;use&gt;</c> outside it, which draws it as any
+    /// drawn shape is drawn — the usual way to show a clip's outline.
+    /// </summary>
+    [Fact]
+    public void A_Clip_Child_A_Use_Outside_It_Draws_Is_Refused()
+    {
+        Assert.Contains("is drawn", Audit(
+            "<defs><clipPath id=\"e\"><rect id=\"r\" width=\"{{ a }}\" height=\"8\" /></clipPath></defs>" +
+            "<rect width=\"8\" height=\"8\" clip-path=\"url(#e)\" />" +
+            "<use href=\"#r\" fill=\"none\" stroke=\"#ff0000\" />"));
+
+        Assert.Contains("the layer opened by", Audit(
+            "<defs><clipPath id=\"e\"><rect id=\"r\" width=\"8\" height=\"8\" transform=\"rotate({{ a }})\" /></clipPath></defs>" +
+            "<rect width=\"8\" height=\"8\" clip-path=\"url(#e)\" />" +
+            "<g opacity=\"0.5\"><use href=\"#r\" /></g>"));
+    }
+
+    [Fact]
+    public void A_Clip_Part_An_FeImage_Draws_As_Well_Is_Refused()
+    {
+        Assert.Contains("<feImage>", Audit(
+            Clipped(
+                "<use href=\"#bar\" />",
+                "<rect id=\"bar\" width=\"{{ a }}\" height=\"10\" />" +
+                "<filter id=\"i\"><feImage href=\"#bar\" /></filter>") +
+            "<rect width=\"20\" height=\"20\" filter=\"url(#i)\" />"));
+    }
+
+    /// <summary>A pattern's content is compiled apart, so a clip part it draws as well is baked there.</summary>
+    [Fact]
+    public void A_Clip_Part_A_Pattern_Draws_As_Well_Is_Refused()
+    {
+        Assert.Contains("by a pattern", Audit(
+            Clipped(
+                "<use href=\"#bar\" />",
+                "<rect id=\"bar\" width=\"{{ a }}\" height=\"10\" />" +
+                "<pattern id=\"p\" width=\"20\" height=\"20\" patternUnits=\"userSpaceOnUse\"><use href=\"#bar\" /></pattern>") +
+            "<rect width=\"20\" height=\"20\" fill=\"url(#p)\" />"));
+    }
+
+    [Fact]
+    public void A_Clip_Part_Moved_By_A_Value_And_Followed_By_A_TextPath_Is_Refused()
+    {
+        Assert.Contains("<textPath>", Audit(
+            Clipped("<use href=\"#p\" />", "<path id=\"p\" d=\"M4 4H28V28H4Z\" transform=\"rotate({{ a }} 16 16)\" />") +
+            "<text><textPath href=\"#p\">A</textPath></text>"));
+    }
+
+    [Fact]
+    public void A_Group_Inside_A_ClipPath_Is_Refused()
     {
         Assert.Contains(
-            "clipPath",
-            Audit(
-                "<defs><clipPath id=\"d\"><rect width=\"32\" height=\"32\" transform=\"rotate({{ a }})\" /></clipPath></defs>" +
-                "<rect width=\"8\" height=\"8\" clip-path=\"url(#d)\" />")!);
+            "without being one of its parts",
+            Audit(Clipped("<g transform=\"rotate({{ a }})\"><rect width=\"8\" height=\"8\" /></g>")));
     }
 
     /// <summary>Redone against the live matrix by all three back ends, so it moves with the shape.</summary>

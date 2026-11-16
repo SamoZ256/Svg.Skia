@@ -196,7 +196,8 @@ internal sealed class SkiaCSharpCalls
         var rect = clip switch
         {
             ClipRectCanvasCommand { Operation: SKClipOperation.Intersect } clipRect => clipRect.Rect,
-            ClipPathCanvasCommand { Operation: SKClipOperation.Intersect, ClipPath: { Clips: { Count: 1 } clips } path }
+            // A driven clip's stand-in says nothing about where it cuts once it is bound.
+            ClipPathCanvasCommand { Operation: SKClipOperation.Intersect, ClipPath: { Clips: { Count: 1 } clips, IsSymbolic: false } path }
                 when Plain(path.Transform) && None(path.Clip) && clips[0] is { Path.Commands: { Count: 1 } shape } && Plain(clips[0].Transform) && None(clips[0].Clip) && shape[0] is AddRectPathCommand addRect => addRect.Rect,
             _ => (SKRect?)null
         };
@@ -416,7 +417,7 @@ internal sealed class SkiaCSharpCalls
 
             // Judged on the target's side, which names what the use gives where the copy has it
             // substituted.
-            var loosen = _loose == 0 && a is SymNode or SymMatrix && Sources(b).Any(text => Reads(text, _reach));
+            var loosen = _loose == 0 && a is SymNode or SymMatrix or SymPath && Sources(b).Any(text => Reads(text, _reach));
             _loose += loosen ? 1 : 0;
 
             try
@@ -525,6 +526,7 @@ internal sealed class SkiaCSharpCalls
                 SymUnary unary => Sources(unary.Operand),
                 SymBinary binary => Sources(binary.Left).Concat(Sources(binary.Right)),
                 SymMatrix matrix => matrix.Transforms.SelectMany(transform => transform.Arguments).SelectMany(Sources),
+                SymPath path => path.Commands.SelectMany(command => command.Arguments).SelectMany(Sources),
                 _ => Enumerable.Empty<string>()
             };
 

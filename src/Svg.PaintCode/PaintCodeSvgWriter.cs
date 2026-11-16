@@ -134,55 +134,25 @@ internal sealed class PaintCodeSvgWriter
         if (group.Clip is { } clip)
         {
             var path = new XElement(Svg + "path");
+            var identifier = Identifier(clip.Name + "-clip");
 
-            // A clip carries a driven sweep as readily as a drawn shape does: a level indicator is
-            // very often an arc masking what is under it.
-            var sweeping = Sweep(clip, clipped: true);
-
-            if (sweeping is { } dashed)
+            // A level indicator is very often an arc clipping what is under it, its sweep driven.
+            if (Sector(clip) is { } sector)
             {
-                // A clip path takes fill geometry and a stroke is not part of it, so the wedge a
-                // dash draws has to mask rather than clip. White against nothing, which is opaque
-                // under any luminance, and the region is the circle's own box so the mask cuts
-                // exactly where the clip did rather than at the fifth the default would add.
-                var box = PaintCodePathData.Box(clip);
-                var mask = Identifier(clip.Name + "-mask");
-
-                path.SetAttributeValue("d", dashed.Data);
-                path.SetAttributeValue("fill", "none");
-                path.SetAttributeValue("stroke", "#ffffff");
-                path.SetAttributeValue("stroke-width", Number(dashed.Width ?? 0));
-                path.SetAttributeValue("stroke-dasharray", dashed.DashArray);
-                path.SetAttributeValue("stroke-dashoffset", dashed.Offset);
-
-                Transform(path, clip, null);
-
-                _definitions.Add(new XElement(
-                    Svg + "mask",
-                    new XAttribute("id", mask),
-                    new XAttribute("maskUnits", "userSpaceOnUse"),
-                    new XAttribute("x", Number(box.X - 1)),
-                    new XAttribute("y", Number(box.Y - 1)),
-                    new XAttribute("width", Number(box.Width + 2)),
-                    new XAttribute("height", Number(box.Height + 2)),
-                    path));
-
-                element.SetAttributeValue("mask", $"url(#{mask})");
+                path.SetAttributeValue("d", sector);
             }
             else
             {
-                var identifier = Identifier(clip.Name + "-clip");
-
                 Geometry(path, clip);
-
-                // The clip shape is placed like any other shape. Transform rather than Frame: a clip
-                // has no opacity and cannot be hidden, and copying those over would suppress the clip
-                // wherever the shape it was drawn from is marked invisible.
-                Transform(path, clip, null);
-
-                _definitions.Add(new XElement(Svg + "clipPath", new XAttribute("id", identifier), path));
-                element.SetAttributeValue("clip-path", $"url(#{identifier})");
             }
+
+            // The clip shape is placed like any other shape. Transform rather than Frame: a clip
+            // has no opacity and cannot be hidden, and copying those over would suppress the clip
+            // wherever the shape it was drawn from is marked invisible.
+            Transform(path, clip, null);
+
+            _definitions.Add(new XElement(Svg + "clipPath", new XAttribute("id", identifier), path));
+            element.SetAttributeValue("clip-path", $"url(#{identifier})");
         }
 
         // Only the canvas's own root group is exempt from carrying its anchor: that anchor is
@@ -1376,7 +1346,7 @@ internal sealed class PaintCodeSvgWriter
     /// half a stroke is not an ellipse, and neither the rim nor a wedge's straight edges would land
     /// where PaintCode puts them.
     /// </remarks>
-    private Sweeping? Sweep(PaintCodeShape shape, bool clipped = false)
+    private Sweeping? Sweep(PaintCodeShape shape)
     {
         var start = shape.Bindings.ContainsKey("startAngle");
         var end = shape.Bindings.ContainsKey("endAngle");
@@ -1389,10 +1359,7 @@ internal sealed class PaintCodeSvgWriter
         var property = start ? "startAngle" : "endAngle";
         var metrics = shape.Metrics;
 
-        // A clip is geometry, so what it is filled or stroked with says nothing about it: it is the
-        // wedge its own closed flag makes it.
-        var stroked = !clipped && shape.Stroke.Kind is PaintCodePaintKind.Color;
-        var filled = clipped || shape.Fill.Kind is not PaintCodePaintKind.None;
+        var stroked = shape.Stroke.Kind is PaintCodePaintKind.Color;
 
         string? refusal =
             !PaintCodePathData.IsRound(shape)
@@ -1403,7 +1370,7 @@ internal sealed class PaintCodeSvgWriter
                 ? "an open arc closes across its chord when it is filled, which a dash cannot draw"
             : stroked && shape.StrokeStyle.HasPattern
                 ? "the shape already carries a dash, and one stroke can only have one"
-            : metrics.IsClosed && !clipped && shape.Fill.Kind is PaintCodePaintKind.Gradient
+            : metrics.IsClosed && shape.Fill.Kind is PaintCodePaintKind.Gradient
                 ? "a gradient is laid across the wedge's own box, which a circle stroked half its width is not"
                 : null;
 
@@ -1430,11 +1397,7 @@ internal sealed class PaintCodeSvgWriter
         var drawn = metrics.IsClosed ? radius / 2 : radius;
         var circumference = Number(2 * Math.PI * drawn);
 
-        // PaintCode's own sum, written out: the sweep from the end to the start, and a whole turn
-        // for every one the end has gone past it. Ceil of nought or less is nought or less, so
-        // max(0, ...) is the ternary its generated code writes. Clamped for the reason Skia clamps
-        // its own sweep: past a whole turn it draws the whole of it, and below nothing nothing.
-        var turn = $"clamp({from} - {to} + 360 * max(0, ceil(({to} - {from}) / 360)), 0, 360) / 360";
+        var turn = $"{Swept(from, to)} / 360";
 
         // The gap is the rest of the circle, so the pattern repeats once round it exactly and an arc
         // across the point the circle starts at carries on past it rather than being cut there.
@@ -1443,6 +1406,88 @@ internal sealed class PaintCodeSvgWriter
             $"{Braces($"{turn} * {circumference}")} {Braces($"(1 - {turn}) * {circumference}")}",
             end ? Braces($"({Number(metrics.EndAngle)} - {to}) / 360 * {circumference}") : "0",
             metrics.IsClosed ? radius : null);
+    }
+
+    /// <summary>The degrees an arc from <paramref name="from"/> to <paramref name="to"/> turns through.</summary>
+    /// <remarks>
+    /// PaintCode's own sum, written out: the sweep from the end to the start, and a whole turn for
+    /// every one the end has gone past it. Ceil of nought or less is nought or less, so max(0, ...)
+    /// is the ternary its generated code writes. Clamped for the reason Skia clamps its own sweep:
+    /// past a whole turn it draws the whole of it, and below nothing nothing.
+    /// </remarks>
+    private static string Swept(string from, string to)
+        => $"clamp({from} - {to} + 360 * max(0, ceil(({to} - {from}) / 360)), 0, 360)";
+
+    /// <summary>
+    /// A clip oval whose sweep an expression drives, as path data whose moving points the
+    /// expressions place, or null where nothing drives it or an end will not translate.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Clip geometry takes expressions, so the clip says what PaintCode meant: the sector its arc
+    /// and the centre enclose, or for an open arc the segment its chord cuts off. Two arcs of half
+    /// the sweep each, so the large-arc flag is always nought and a whole turn needs no case of its
+    /// own; a sweep of nothing puts every point in one place, which clips everything as PaintCode's
+    /// does.
+    /// </para>
+    /// <para>
+    /// The points are parametric -- the centre plus each radius times the cosine or sine -- since
+    /// Skia's AddArc on an oval scales a unit circle, so an ellipse is drawn rather than refused as
+    /// a dash had to refuse it. The path starts from whichever end does not move, so that point stays
+    /// a number and a sweep clamped at a whole turn still comes round to it exactly.
+    /// </para>
+    /// </remarks>
+    private string? Sector(PaintCodeShape clip)
+    {
+        var start = clip.Bindings.ContainsKey("startAngle");
+        var end = clip.Bindings.ContainsKey("endAngle");
+        var box = PaintCodePathData.Box(clip);
+        var metrics = clip.Metrics;
+
+        if ((!start && !end) || clip.Kind is not PaintCodeShapeKind.Oval || box.Width <= 0 || box.Height <= 0 ||
+            End(clip, "startAngle", metrics.StartAngle) is not { } from ||
+            End(clip, "endAngle", metrics.EndAngle) is not { } to)
+        {
+            return null;
+        }
+
+        var radiusX = box.Width / 2;
+        var radiusY = box.Height / 2;
+        var centerX = box.X + radiusX;
+        var centerY = box.Y + radiusY;
+        var sweep = Swept(from, to);
+
+        // In SVG's y-down space the arc runs clockwise from -start to -end. With only the start
+        // driven it is walked back from the end instead, the other way round.
+        var backwards = start && !end;
+        var origin = backwards ? Number(-metrics.EndAngle) : start ? $"-{from}" : Number(-metrics.StartAngle);
+        var turn = backwards ? " - " : " + ";
+        var arc = $"A{Number(radiusX)} {Number(radiusY)} 0 0 {(backwards ? '0' : '1')} ";
+
+        var first = start && end
+            ? Point(origin)
+            : PaintCodePathData.Pair(PaintCodePathData.OnEllipse(centerX, centerY, radiusX, radiusY, backwards ? -metrics.EndAngle : -metrics.StartAngle));
+
+        var data = new StringBuilder();
+
+        if (metrics.IsClosed)
+        {
+            data.Append('M').Append(PaintCodePathData.Pair(new PaintCodePoint(centerX, centerY))).Append('L').Append(first);
+        }
+        else
+        {
+            data.Append('M').Append(first);
+        }
+
+        return data
+            .Append(arc).Append(Point($"{origin}{turn}{sweep} / 2"))
+            .Append(arc).Append(Point($"{origin}{turn}{sweep}"))
+            .Append('Z')
+            .ToString();
+
+        string Point(string degrees)
+            => Braces($"{Number(centerX)} + {Number(radiusX)} * cos(({degrees}) * pi / 180)") + "," +
+               Braces($"{Number(centerY)} + {Number(radiusY)} * sin(({degrees}) * pi / 180)");
     }
 
     /// <summary>

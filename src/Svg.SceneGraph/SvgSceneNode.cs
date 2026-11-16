@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using ShimSkiaSharp;
 using Svg;
 using Svg.Model;
-using Svg.SceneGraph;
 using Svg.Model.Services;
+using Svg.SceneGraph;
 
 namespace Svg.Skia;
 
@@ -365,12 +365,35 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
                 if (_effectState is not null)
                 {
                     _effectState.ClipPath = null;
+                    _effectState.BoundClipPath = null;
                 }
 
                 return;
             }
 
-            EnsureEffectState().ClipPath = value;
+            var state = EnsureEffectState();
+            state.ClipPath = value;
+            state.BoundClipPath = null;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="ClipPath"/> with the values its expressions are bound to, or the compiled clip where
+    /// nothing is bound or nothing drives it.
+    /// </summary>
+    /// <remarks>
+    /// Beside the compiled clip rather than in its place: that one is what the renderer records, and
+    /// a picture recorded from a bound copy would have lost the expressions it is rebound through.
+    /// </remarks>
+    public ClipPath? BoundClipPath
+    {
+        get => _effectState?.BoundClipPath ?? ClipPath;
+        internal set
+        {
+            if (_effectState is not null || value is not null)
+            {
+                EnsureEffectState().BoundClipPath = value;
+            }
         }
     }
 
@@ -946,6 +969,7 @@ public sealed class SvgSceneNode : IReadOnlyList<SvgSceneNode>
         public SKRect? Clip;
         public SKRect? InnerClip;
         public ClipPath? ClipPath;
+        public ClipPath? BoundClipPath;
         public SKPaint? MaskPaint;
         public SKPaint? MaskDstIn;
         public SKPaint? Filter;

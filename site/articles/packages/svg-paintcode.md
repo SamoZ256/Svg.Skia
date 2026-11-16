@@ -54,6 +54,7 @@ PaintCode's class can keep calling. See [a PaintCode-style API](svg-codegen-skia
 | A desk | A folder, and a group of the project whose namespace continues the project's (`.Overlays`) |
 | A canvas | One `.svg`, and one row of the project — or one drawing of a Studio project |
 | A group | `<g>`, with its clip as a `<clipPath>` |
+| An oval whose start or end angle is driven | Where it is drawn, the whole circle with a driven dash cut to the arc. Where it clips, a sector `<path>` whose moving points the expressions place: two arcs of half the sweep, parametric, so an ellipse and an open arc clip as PaintCode's do |
 | Bezier, rectangle, rounded rectangle, oval, star, polygon | `<path>`, or `<rect>` and `<ellipse>` where those say it |
 | A symbol instance | `<use>` of a copy in the same file's `<defs>`, naming the drawing it copies so an export [calls it](svg-codegen-skia#a-drawing-that-draws-another) |
 | A library colour marked as used | `<e:param type="color">` |
@@ -145,8 +146,8 @@ The rule is that the converter never writes a binding it cannot say. It writes t
 had, and records a `PaintCodeImportNote` naming the canvas, the element and the property. Nothing
 renders wrong, and what was lost is a list rather than a surprise.
 
-- **A driven stroke width, and an oval's driven start and end angle.** `stroke-width` and path data
-  are literal in the expression format.
+- **A driven stroke width or visibility inside a group that draws into a layer.** The layer's bounds
+  were measured from the stroke as it was saved, so the number is written instead.
 - **A gradient turned to an angle off the axes.** PaintCode places one from the shape's own middle,
   which is not its box's; the conversion lays it across the box. Only where the gradient was turned
   by a dial — one laid by dragging its two ends carries them, and those are written exactly.

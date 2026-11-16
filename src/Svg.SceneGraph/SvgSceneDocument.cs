@@ -121,7 +121,31 @@ public sealed class SvgSceneDocument
             Revision++;
         }
 
+        // Reshaped as well, for what hit testing and the animation layers read. Neither counts as a
+        // move: no bounds are measured through a clip.
+        var rewritten = new Dictionary<object, object>(SvgSceneExpressionEvaluator.IdentityComparer.Instance);
+
+        foreach (var node in Traverse())
+        {
+            if (node.ClipPath is { IsSymbolic: true } clipPath)
+            {
+                node.BoundClipPath = evaluator is null ? null : Bound(clipPath, evaluator, rewritten);
+            }
+        }
+
         return moved;
+    }
+
+    private static ClipPath? Bound(ClipPath clipPath, ExprEvaluator evaluator, IDictionary<object, object> rewritten)
+    {
+        try
+        {
+            return SvgSceneSymEvaluator.EvaluateClipPath(clipPath, evaluator, rewritten);
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     private static SKMatrix Placed(SymMatrix symbolic, ExprEvaluator? evaluator)

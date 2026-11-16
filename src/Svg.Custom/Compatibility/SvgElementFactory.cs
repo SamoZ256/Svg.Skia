@@ -172,7 +172,7 @@ namespace Svg
 
                         // Lifted out before the style system rejects it as malformed; a
                         // placeholder keeps the element painting for the expression to attach to.
-                        if (SvgExpressionAttributes.TryLift(localName, reader.Value, out var inlineExpression, out var inlinePlaceholder))
+                        if (SvgExpressionAttributes.TryLift(localName, element.ElementName, reader.Value, out var inlineExpression, out var inlinePlaceholder))
                         {
                             SvgExpressionAttributes.Lift(
                                 element.CustomAttributes,
@@ -226,7 +226,7 @@ namespace Svg
                             // The same lift as the presentation branch above, for the attributes
                             // that are not presentation attributes and so never reach it.
                             if (ns.Length == 0 &&
-                                SvgExpressionAttributes.TryLift(localName, reader.Value, out var liftedExpression, out var liftedPlaceholder))
+                                SvgExpressionAttributes.TryLift(localName, element.ElementName, reader.Value, out var liftedExpression, out var liftedPlaceholder))
                             {
                                 SvgExpressionAttributes.Lift(
                                     element.CustomAttributes,
@@ -800,12 +800,14 @@ namespace Svg
         /// converter directly instead, and its refusal is the message. It cannot report a converter
         /// that refuses nothing — a path builder reads <c>d="QQQ"</c> as happily as a real path.
         /// </remarks>
+        /// <param name="clipped">Whether <paramref name="element"/> sits inside a <c>&lt;clipPath&gt;</c>, where geometry takes an expression.</param>
         internal static string FindAttributeFault(
             SvgElement element,
             string ns,
             string attributeName,
             string attributeValue,
-            SvgDocument document)
+            SvgDocument document,
+            bool clipped = true)
         {
             if (element is null || attributeName is null || attributeValue is null)
             {
@@ -825,13 +827,13 @@ namespace Svg
                 // Expression code, not a value: unlifted braces make every converter refuse, which
                 // is true but reports a malformed number rather than an attribute taking no
                 // expression.
-                return SvgExpressionAttributes.WhyUnsupported(attributeName, attributeValue);
+                return SvgExpressionAttributes.WhyUnsupported(attributeName, attributeValue, element.ElementName, clipped);
             }
 
             if (SvgExpressionAttributes.IsInArguments(attributeName) &&
                 SvgTransformExpression.Holds(attributeValue))
             {
-                if (SvgExpressionAttributes.WhyUnsupported(attributeName, attributeValue) is { } stray)
+                if (SvgExpressionAttributes.WhyUnsupported(attributeName, attributeValue, element.ElementName, clipped) is { } stray)
                 {
                     return stray;
                 }
@@ -928,7 +930,8 @@ namespace Svg
             SvgElement element,
             string propertyName,
             string propertyValue,
-            SvgDocument document)
+            SvgDocument document,
+            bool clipped = true)
         {
             if (propertyValue is null)
             {
@@ -939,7 +942,15 @@ namespace Svg
 
             SvgCssDeclarationPriority.NormalizePriority(ref value, SvgElement.StyleSpecificity_InlineStyle);
 
-            return FindAttributeFault(element, string.Empty, propertyName, value, document);
+            // A declaration does not know its element, so geometry is lifted only from the attribute.
+            if (SvgExpressionAttributes.IsSupported(propertyName) &&
+                !SvgExpressionAttributes.IsSupported(propertyName, elementName: null) &&
+                SvgTransformExpression.Holds(value))
+            {
+                return $"An expression in '{propertyName}' is written as the attribute, not in style.";
+            }
+
+            return FindAttributeFault(element, string.Empty, propertyName, value, document, clipped);
         }
 
         /// <summary>Says which attribute a converter's refusal was about.</summary>

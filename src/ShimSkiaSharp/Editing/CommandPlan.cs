@@ -124,8 +124,10 @@ public sealed class CommandPlan
                     case ClipRectCanvasCommand { Operation: SKClipOperation.Intersect, Antialias: true } clipRect:
                         Open(Region.Rect(i, clipRect.Rect, _matrix));
                         break;
+                    // A driven clip is judged at no value: its stand-in may cut nothing where a bound
+                    // value cuts, so it is kept as a clip of unknown reach.
                     case ClipPathCanvasCommand { Operation: SKClipOperation.Intersect, Antialias: true, ClipPath: { } clipPath }:
-                        Open(Region.From(i, clipPath, _matrix));
+                        Open(_symbolic && clipPath.IsSymbolic ? null : Region.From(i, clipPath, _matrix));
                         break;
                     case ClipRectCanvasCommand or ClipPathCanvasCommand or BeginConditionalCanvasCommand or EndConditionalCanvasCommand or BeginCallCanvasCommand or EndCallCanvasCommand:
                         break;

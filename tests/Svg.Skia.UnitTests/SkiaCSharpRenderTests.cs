@@ -1130,6 +1130,235 @@ public class SkiaCSharpRenderTests
     public void A_Clip_Over_Driven_Geometry_Is_Kept_For_Every_Value(float level)
         => AssertExpressionsRenderTheSame($"SlidingSlats{level}", SlidingSlats, new object?[] { level }, SlidingSlats.Replace("{{ level }}", level.ToString(CultureInfo.InvariantCulture)));
 
+    // A clip whose geometry a value drives: a level sector drawn as two arcs of half its sweep each,
+    // so the large-arc flag stays nought and a whole turn needs no case of its own.
+    private const string Sector = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="x1" type="number" default="12" /><e:param name="y1" type="number" default="2" />
+              <e:param name="x2" type="number" default="12" /><e:param name="y2" type="number" default="2" />
+            </e:code>
+            <clipPath id="c"><path d="M 12 12 L 12 2 A 10 10 0 0 1 {{ x1 }} {{ y1 }} A 10 10 0 0 1 {{ x2 }} {{ y2 }} Z" /></clipPath>
+          </defs>
+          <g clip-path="url(#c)">
+            <rect x="1" y="1" width="22" height="22" fill="#1e40af" />
+            <circle cx="12" cy="12" r="6" fill="#dc2626" />
+          </g>
+        </svg>
+        """;
+
+    private static string Written(float value) => value.ToString("R", CultureInfo.InvariantCulture);
+
+    // A class name, so a point, a sign and the culture's spelling of infinity are all out.
+    private static string Named(string prefix, params float[] values)
+        => prefix + string.Concat(values.Select(value => "_" + Written(value).Replace('-', 'm').Replace('.', 'p')));
+
+    /// <summary>The document with each named expression written as the number it is given.</summary>
+    private static string Literal(string markup, params (string Name, float Value)[] values)
+    {
+        foreach (var (name, value) in values)
+        {
+            markup = markup.Replace("{{ " + name + " }}", Written(value));
+        }
+
+        return markup;
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(90f)]
+    [InlineData(180f)]
+    [InlineData(270f)]
+    [InlineData(360f)]
+    public void A_Sector_Clip_Follows_Its_Sweep(float sweep)
+    {
+        static (float X, float Y) At(double degrees)
+            => ((float)(12 + 10 * Math.Cos(degrees * Math.PI / 180)), (float)(12 + 10 * Math.Sin(degrees * Math.PI / 180)));
+
+        var (x1, y1) = At(-90 + sweep / 2);
+        var (x2, y2) = At(-90 + sweep);
+
+        AssertExpressionsRenderTheSame(
+            Named("Sector", sweep),
+            Sector,
+            new object?[] { x1, y1, x2, y2 },
+            Literal(Sector, ("x1", x1), ("y1", y1), ("x2", x2), ("y2", y2)));
+    }
+
+    // What the PaintCode importer writes: the points computed from the level inside the expressions.
+    private const string LevelSector = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="level" type="number" default="0.5" />
+              <e:let name="sweep">clamp(level * 360, 0, 360)</e:let>
+            </e:code>
+            <clipPath id="c"><path d="M12,12L12,2A10 10 0 0 1 {{ 12 + 10 * cos((-90 + sweep / 2) * pi / 180) }},{{ 12 + 10 * sin((-90 + sweep / 2) * pi / 180) }}A10 10 0 0 1 {{ 12 + 10 * cos((-90 + sweep) * pi / 180) }},{{ 12 + 10 * sin((-90 + sweep) * pi / 180) }}Z" /></clipPath>
+          </defs>
+          <g clip-path="url(#c)" transform="translate(0.5 0.25)">
+            <rect x="1" y="1" width="22" height="22" fill="#1e40af" />
+          </g>
+        </svg>
+        """;
+
+    /// <summary>
+    /// The generated drawing against the runtime binding the same values, for a document whose
+    /// numbers no literal document spells the way the expressions compute them.
+    /// </summary>
+    private static void AssertBindsTheSame(string name, string svgMarkup, object?[] arguments, SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4)
+    {
+        var model = Model(svgMarkup);
+        var declarations = SvgExpressionDeclarations.Parse(svgMarkup);
+        var evaluated = SvgSceneExpressionEvaluator.Evaluate(model, declarations, Bind(declarations, arguments));
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+        Assert.NotNull(runtime);
+
+        using var exact = Generated(model, name, skiaSharp, declarations, arguments, bake: false);
+        AssertSamePicture(name, runtime!, exact);
+        AssertDrawsDirectlyTheSame(name, model, runtime!, declarations, arguments, skiaSharp);
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(0.3f)]
+    [InlineData(0.5f)]
+    [InlineData(0.8f)]
+    [InlineData(1f)]
+    public void A_Sector_Clip_Computed_From_A_Level_Draws_As_The_Runtime_Binds_It(float level)
+        => AssertBindsTheSame(Named("LevelSector", level), LevelSector, new object?[] { level });
+
+    [Theory]
+    [InlineData(0.3f)]
+    [InlineData(1f)]
+    public void SkiaSharp3_Builds_A_Driven_Clip_As_SkiaSharp4_Does(float level)
+        => AssertBindsTheSame(Named("LevelSectorV3", level), LevelSector, new object?[] { level }, SkiaSharpTarget.V3);
+
+    private const string DrivenRect = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code><e:param name="w" type="number" default="10" /><e:param name="r" type="number" default="0" /></e:code>
+            <clipPath id="c"><rect x="2" y="2" width="{{ w }}" height="20" rx="{{ r }}" /><circle cx="20" cy="20" r="3" /></clipPath>
+          </defs>
+          <rect x="0" y="0" width="24" height="24" fill="#0f766e" clip-path="url(#c)" />
+        </svg>
+        """;
+
+    /// <summary>Every rule a rect's literal values meet, met by bound ones: no width, a radius borrowed, one clamped.</summary>
+    [Theory]
+    [InlineData(-4f, 0f)]
+    [InlineData(0f, 3f)]
+    [InlineData(7.5f, 0f)]
+    [InlineData(20f, 3f)]
+    [InlineData(20f, 15f)]
+    public void A_Rect_Clip_Follows_Its_Driven_Width_And_Radius(float w, float r)
+        => AssertExpressionsRenderTheSame(Named("DrivenRect", w, r), DrivenRect, new object?[] { w, r }, Literal(DrivenRect, ("w", w), ("r", r)));
+
+    private const string TurnedClip = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code><e:param name="a" type="number" default="0" /></e:code>
+            <clipPath id="c" transform="rotate({{ a }} 12 12)"><rect x="4" y="4" width="16" height="8" /></clipPath>
+            <clipPath id="d"><rect x="4" y="12" width="16" height="6" transform="rotate({{ a }} 12 12)" /></clipPath>
+          </defs>
+          <g clip-path="url(#c)"><rect x="0" y="0" width="24" height="24" fill="#7c3aed" /></g>
+          <g clip-path="url(#d)"><rect x="0" y="0" width="24" height="24" fill="#f59e0b" /></g>
+        </svg>
+        """;
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(30f)]
+    [InlineData(90f)]
+    public void A_Driven_Rotation_On_A_Clip_And_On_Its_Part_Turns_Them(float a)
+        => AssertExpressionsRenderTheSame(Named("TurnedClip", a), TurnedClip, new object?[] { a }, Literal(TurnedClip, ("a", a)));
+
+    private const string NestedClip = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code><e:param name="r" type="number" default="8" /><e:param name="w" type="number" default="14" /></e:code>
+            <clipPath id="inner"><circle cx="12" cy="12" r="{{ r }}" /></clipPath>
+            <clipPath id="c" clip-path="url(#inner)"><rect x="2" y="2" width="{{ w }}" height="20" /></clipPath>
+          </defs>
+          <rect x="0" y="0" width="24" height="24" fill="#be123c" clip-path="url(#c)" />
+        </svg>
+        """;
+
+    [Theory]
+    [InlineData(8f, 14f)]
+    [InlineData(5f, 20f)]
+    public void A_Driven_Clip_Cut_By_A_Driven_Clip_Of_Its_Own(float r, float w)
+        => AssertExpressionsRenderTheSame(Named("NestedClip", r, w), NestedClip, new object?[] { r, w }, Literal(NestedClip, ("r", r), ("w", w)));
+
+    private const string BoxClip = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code><e:param name="w" type="number" default="0.5" /></e:code>
+            <clipPath id="c" clipPathUnits="objectBoundingBox"><rect width="{{ w }}" height="1" /></clipPath>
+          </defs>
+          <rect x="3" y="2" width="18" height="20" fill="#0ea5e9" clip-path="url(#c)" />
+        </svg>
+        """;
+
+    // Not 1: there the clip lies on the shape's own edge, and the interpreter, knowing the value,
+    // drops a clip that cuts nothing where generated code has to keep it for every value.
+    [Theory]
+    [InlineData(0.25f)]
+    [InlineData(0.75f)]
+    public void A_Driven_Clip_In_Bounding_Box_Units(float w)
+        => AssertExpressionsRenderTheSame(Named("BoxClip", w), BoxClip, new object?[] { w }, Literal(BoxClip, ("w", w)));
+
+    private const string MovedClip = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code><e:param name="dx" type="number" default="0" /><e:param name="w" type="number" default="8" /></e:code>
+            <clipPath id="c"><rect x="2" y="2" width="{{ w }}" height="20" /></clipPath>
+            <clipPath id="d"><rect x="2" y="6" width="12" height="8" /></clipPath>
+          </defs>
+          <g transform="translate({{ dx }} 0)">
+            <rect x="0" y="0" width="16" height="24" fill="#1e40af" clip-path="url(#c)" />
+            <rect x="0" y="0" width="16" height="24" fill="#dc2626" fill-opacity="0.5" clip-path="url(#d)" />
+          </g>
+        </svg>
+        """;
+
+    [Theory]
+    [InlineData(0f, 8f)]
+    [InlineData(4f, 3f)]
+    public void A_Clip_Moves_With_A_Driven_Transform_It_Sits_Under(float dx, float w)
+        => AssertExpressionsRenderTheSame(Named("MovedClip", dx, w), MovedClip, new object?[] { dx, w }, Literal(MovedClip, ("dx", dx), ("w", w)));
+
+    /// <summary>
+    /// A part that comes to nothing stays in the union as nothing, where the literal document leaves
+    /// it out: the two have to cut alike.
+    /// </summary>
+    [Fact]
+    public void A_Driven_Part_That_Comes_To_Nothing_Leaves_The_Others()
+        => AssertExpressionsRenderTheSame("EmptyPart", DrivenRect, new object?[] { 0f, 0f }, Literal(DrivenRect, ("w", 0f), ("r", 0f)));
+
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    public void A_Clip_Whose_Geometry_Is_Not_A_Number_Clips_Everything(float x)
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code><e:param name="x" type="number" default="20" /></e:code>
+                <clipPath id="c"><path d="M 2 2 L {{ x }} 2 L 2 20 Z" /></clipPath>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="#1e40af" clip-path="url(#c)" />
+            </svg>
+            """;
+
+        AssertExpressionsRenderTheSame(
+            Named("NotANumber", x),
+            svg,
+            new object?[] { x },
+            svg.Replace("<path d=\"M 2 2 L {{ x }} 2 L 2 20 Z\" />", "<rect width=\"0\" height=\"0\" />"));
+    }
+
     [Fact]
     public void Opacity_And_Nested_Transforms()
         => AssertRendersTheSame("Layers", """

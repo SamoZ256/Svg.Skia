@@ -91,6 +91,12 @@ public class SkiaCSharpCodeGenCounter
     internal bool PathData { get; set; }
 
     /// <summary>
+    /// Set while a clip an expression drives is emitted: the next of the per-thread paths it is built
+    /// into, since it is built again on every draw.
+    /// </summary>
+    internal int? PathSlot { get; set; }
+
+    /// <summary>
     /// The static constructor's body while a direct drawing is emitted: where a path or a paint
     /// nothing the caller passes can change is built, once.
     /// </summary>

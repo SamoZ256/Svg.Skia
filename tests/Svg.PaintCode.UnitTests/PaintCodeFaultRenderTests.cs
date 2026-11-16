@@ -188,6 +188,103 @@ public class PaintCodeFaultRenderTests
     }
 
     /// <summary>
+    /// A group clipped by a wedge whose angles are driven is cut where PaintCode's own code cuts it,
+    /// whichever end moves, round or not, closed through the middle or across the chord.
+    /// </summary>
+    /// <remarks>
+    /// The expected side is PaintCode's export with the clip antialiased, as the import's is: its own
+    /// <c>ClipPath(path)</c> is aliased, which alone measures about as much as a wedge turned a degree.
+    /// What is left is two SVG arcs against AddArc's own conics, and each row is checked against the
+    /// same wedge a degree further round, which the bound has to tell apart.
+    /// </remarks>
+    [Theory]
+    [InlineData(true, false, 200, 30, true, 24, 24)]
+    [InlineData(false, true, 30, 300, true, 24, 24)]
+    [InlineData(true, true, -0.00001, 0.00001, true, 24, 24)]
+    [InlineData(true, true, -24, 24, true, 24, 24)]
+    [InlineData(true, true, 100, -100, true, 24, 24)]
+    [InlineData(true, true, 10, 800, true, 24, 24)]
+    [InlineData(true, true, 30, 30, true, 24, 24)]
+    [InlineData(false, true, 90, 300, true, 24, 14)]
+    [InlineData(false, true, 90, 200, false, 24, 24)]
+    public void A_Driven_Wedge_Clips_Where_PaintCode_Clips(bool driveStart, bool driveEnd, double start, double end, bool closed, double width, double height)
+    {
+        var bindings = new Dictionary<string, PaintCodeBinding>();
+
+        if (driveStart)
+        {
+            bindings["startAngle"] = new("x", PaintCodeValueKind.Number, 1, null, null, null, null, null);
+        }
+
+        if (driveEnd)
+        {
+            bindings["endAngle"] = new("y", PaintCodeValueKind.Number, 1, null, null, null, null, null);
+        }
+
+        var wedge = new PaintCodeShape(
+            "Wedge",
+            PaintCodeShapeKind.Oval,
+            Box(3, 3, width, height),
+            bindings,
+            null,
+            PaintCodePaint.None,
+            PaintCodePaint.None,
+            PaintCodeStroke.None,
+            false,
+            null,
+            new PaintCodeShapeMetrics(0, true, true, true, true, driveStart ? 1 : start, driveEnd ? 1 : end, closed, 0, 0));
+        var clipped = new PaintCodeGroup(
+            "Clipped",
+            new PaintCodeFrame(0, 0, 0, 0, default, 0, 1, 1, 1, false, true),
+            new Dictionary<string, PaintCodeBinding>(),
+            new PaintCodeItem[] { Filled(PaintCodeShapeKind.Rectangle, Box(2, 2, 26, 26), PaintCodeShapeMetrics.Default) },
+            wedge);
+
+        var values = new Dictionary<string, ExprValue>
+        {
+            ["x"] = ExprValue.Number((float)start),
+            ["y"] = ExprValue.Number((float)end)
+        };
+
+        var svg = Written(clipped);
+
+        Compares(svg, canvas => Cut(canvas, 0), values, SectorThreshold);
+
+        // Nothing to turn where the sweep is nothing or all of it.
+        if (start != end && Math.Abs(end - start) > 0.001)
+        {
+            Assert.True(Difference(svg, canvas => Cut(canvas, 1), values) > SectorThreshold, "A wedge a degree off is within the bound.");
+        }
+
+        void Cut(SKCanvas canvas, double off)
+        {
+            var sweep = start - end + (end > start ? 360 * Math.Ceiling((end - start) / 360) : 0) + off;
+            var oval = SKRect.Create(3, 3, (float)width, (float)height);
+
+            using var builder = new SKPathBuilder();
+
+            builder.AddArc(oval, (float)-start, (float)sweep);
+
+            if (closed)
+            {
+                builder.LineTo(oval.MidX, oval.MidY);
+            }
+
+            builder.Close();
+
+            using var path = builder.Detach();
+
+            canvas.Save();
+            canvas.ClipPath(path, SKClipOperation.Intersect, antialias: true);
+            canvas.DrawRect(SKRect.Create(2, 2, 26, 26), Paint(s_red));
+            canvas.Restore();
+        }
+    }
+
+    /// <summary>Measured at 0.0050 to 0.0080 against AddArc, the open arc the worst; a degree off, above it.</summary>
+    private const double SectorThreshold = 0.0095;
+
+    /// <summary>
     /// A wedge is drawn as a stroke and PaintCode's is filled, and the stroked rim reaches a
     /// fraction of a pixel further at low alpha: these measure 0.0066 to 0.0135, and the same
     /// wedges turned a single degree measure 0.020 to 0.027.
@@ -197,6 +294,15 @@ public class PaintCodeFaultRenderTests
     private static SKColor Accent => new(251, 62, 114);
 
     private static void Compares(string svg, Action<SKCanvas> expected, Dictionary<string, ExprValue>? values = null, double threshold = Threshold)
+    {
+        var difference = Difference(svg, expected, values);
+
+        Assert.True(
+            difference <= threshold,
+            $"{difference.ToString("F5", CultureInfo.InvariantCulture)} from what PaintCode draws, allowed {threshold.ToString("F3", CultureInfo.InvariantCulture)}.\n{svg}");
+    }
+
+    private static double Difference(string svg, Action<SKCanvas> expected, Dictionary<string, ExprValue>? values)
     {
         using var loaded = new SKSvg();
 
@@ -209,11 +315,7 @@ public class PaintCodeFaultRenderTests
         using var actual = PaintCodeSliceTests.Raster(picture!, Size, Size);
         using var drawn = Drawn(expected);
 
-        var difference = ImageHelper.CompareImages(actual, drawn);
-
-        Assert.True(
-            difference <= threshold,
-            $"{difference.ToString("F5", CultureInfo.InvariantCulture)} from what PaintCode draws, allowed {threshold.ToString("F3", CultureInfo.InvariantCulture)}.\n{svg}");
+        return ImageHelper.CompareImages(actual, drawn);
     }
 
     private static Image<Rgba32> Drawn(Action<SKCanvas> draw)
