@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Text;
 using ShimSkiaSharp;
 using Svg;
+using Svg.Expressions;
 using Svg.Model;
 using Svg.Model.Services;
 using Svg.Transforms;
@@ -218,6 +219,39 @@ public class SvgAnimationControllerTests
         Assert.True(pixel.Red < 80);
         Assert.True(pixel.Green > 200);
         Assert.True(pixel.Blue < 80);
+    }
+
+    /// <summary>
+    /// Bound right after load, while frame zero's layers are cached and no later frame is coming to
+    /// record them again; #static is recorded by the static layer, #moving by its own.
+    /// </summary>
+    [Theory]
+    [InlineData("display")]
+    [InlineData("visibility")]
+    public void SetExpressionValues_HidesADrivenElementInEveryAnimationLayer(string attributeName)
+    {
+        using var svg = new SKSvg();
+        svg.FromSvg(DrivenLayeredAnimationSvg(attributeName));
+
+        Assert.True(svg.UsesAnimationLayerCaching);
+
+        svg.SetExpressionValues(new Dictionary<string, ExprValue> { ["on"] = ExprValue.Boolean(false) });
+
+        Assert.True(svg.UsesAnimationLayerCaching);
+        AssertDrawn(false);
+
+        svg.SetAnimationTime(TimeSpan.FromSeconds(1));
+        AssertDrawn(false);
+
+        svg.SetExpressionValues(new Dictionary<string, ExprValue> { ["on"] = ExprValue.Boolean(true) });
+        AssertDrawn(true);
+
+        void AssertDrawn(bool drawn)
+        {
+            using var bitmap = DrawBitmap(svg);
+            Assert.Equal(drawn, bitmap.GetPixel(2, 2).Alpha > 200);
+            Assert.Equal(drawn, bitmap.GetPixel(8, 14).Alpha > 200);
+        }
     }
 
     [Fact]
@@ -1918,6 +1952,26 @@ public class SvgAnimationControllerTests
           <rect id="static" x="0" y="0" width="10" height="8" fill="navy" />
           <g id="animated-root">
             <rect id="moving" x="0" y="12" width="10" height="6" fill="crimson">
+              <animate attributeName="x" from="0" to="10" dur="2s" fill="freeze" />
+            </rect>
+          </g>
+        </svg>
+        """;
+
+    private static string DrivenLayeredAnimationSvg(string attributeName) => $$$"""
+        <svg xmlns="http://www.w3.org/2000/svg"
+             xmlns:e="https://svg.skia/expr/1.0"
+             width="40"
+             height="20"
+             viewBox="0 0 40 20">
+          <defs>
+            <e:code>
+              <e:param name="on" type="boolean" default="true" />
+            </e:code>
+          </defs>
+          <rect id="static" x="0" y="0" width="10" height="8" fill="navy" {{{attributeName}}}="{{ on }}" />
+          <g id="animated-root">
+            <rect id="moving" x="0" y="12" width="10" height="6" fill="crimson" {{{attributeName}}}="{{ on }}">
               <animate attributeName="x" from="0" to="10" dur="2s" fill="freeze" />
             </rect>
           </g>
