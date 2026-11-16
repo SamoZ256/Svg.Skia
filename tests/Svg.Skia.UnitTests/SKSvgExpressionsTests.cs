@@ -456,4 +456,80 @@ public class SKSvgExpressionsTests
         Assert.NotNull(svg.SetExpressionValues(
             new Dictionary<string, ExprValue>(StringComparer.Ordinal) { ["fade"] = ExprValue.Number(0.5f) }));
     }
+
+    private const string Clipped = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 32 32" width="32" height="32">
+          <defs>
+            <e:code>
+              <e:param name="w" type="number" default="8" />
+              <e:param name="dx" type="number" default="0" />
+              <e:param name="tint" type="color" default="#1e40af" />
+            </e:code>
+            <clipPath id="c"><rect x="2" y="2" width="{{ w }}" height="28" /></clipPath>
+          </defs>
+          <g id="moved" transform="translate({{ dx }} 0)">
+            <rect width="32" height="32" fill="{{ tint }}" clip-path="url(#c)" />
+          </g>
+        </svg>
+        """;
+
+    private static byte[] Pixels(SkiaSharp.SKPicture? picture)
+    {
+        Assert.NotNull(picture);
+
+        using var bitmap = new SkiaSharp.SKBitmap(32, 32);
+        using (var canvas = new SkiaSharp.SKCanvas(bitmap))
+        {
+            canvas.Clear(SkiaSharp.SKColors.Transparent);
+            canvas.DrawPicture(picture);
+        }
+
+        return bitmap.Bytes;
+    }
+
+    private static SkiaSharp.SKPicture? Moved(SKSvg svg)
+        => svg.TryGetRetainedSceneNodeById("moved", out var node) ? svg.CreateRetainedSceneNodePicture(node!) : null;
+
+    [Fact]
+    public void The_Retained_Pictures_Draw_With_The_Bound_Values()
+    {
+        using var svg = Load(Clipped);
+        using var literal = Load(Clipped
+            .Replace("{{ w }}", "20")
+            .Replace("translate({{ dx }} 0)", "translate(4 0)")
+            .Replace("{{ tint }}", "#dc2626"));
+
+        Assert.NotNull(svg.SetExpressionValues(Values(
+            ("w", ExprValue.Number(20f)),
+            ("dx", ExprValue.Number(4f)),
+            ("tint", ExprValue.Color(0xdc, 0x26, 0x26, 0xff)))));
+
+        var drawn = Pixels(svg.Picture);
+        Assert.Equal(Pixels(literal.Picture), drawn);
+
+        using (var graph = svg.CreateRetainedSceneGraphPicture())
+        {
+            Assert.Equal(drawn, Pixels(graph));
+        }
+
+        using (var node = Moved(svg))
+        using (var written = Moved(literal))
+        {
+            Assert.Equal(Pixels(written), Pixels(node));
+        }
+
+        using (var element = svg.CreateRetainedScenePicture(svg.SourceDocument!.GetElementById("moved")))
+        using (var written = literal.CreateRetainedScenePicture(literal.SourceDocument!.GetElementById("moved")))
+        {
+            Assert.Equal(Pixels(written), Pixels(element));
+        }
+
+        // With nothing bound they draw the stand-ins, as the picture does.
+        svg.ClearExpressionValues();
+
+        using (var graph = svg.CreateRetainedSceneGraphPicture())
+        {
+            Assert.Equal(Pixels(svg.Picture), Pixels(graph));
+        }
+    }
 }
