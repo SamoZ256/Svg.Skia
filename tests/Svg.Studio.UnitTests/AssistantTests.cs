@@ -3935,7 +3935,7 @@ public class AssistantTests : IDisposable
             <studio namespace="Demo.Icons">
               <drawing name="Broken">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-                  <circle cx="12" cy="12" r="{{ radius * 2 }}" fill="#0000ff" />
+                  <circle cx="12" cy="12" r="6" stroke-miterlimit="{{ radius * 2 }}" fill="#0000ff" />
                 </svg>
               </drawing>
             </studio>
@@ -3949,7 +3949,7 @@ public class AssistantTests : IDisposable
         var header = chat.Results[0][..chat.Results[0].IndexOf("\n\n", StringComparison.Ordinal)];
 
         Assert.Contains("public static", chat.Results[0], StringComparison.Ordinal);
-        Assert.Contains("\nProblems:\n- 'r' does not take an expression.", header, StringComparison.Ordinal);
+        Assert.Contains("\nProblems:\n- 'stroke-miterlimit' does not take an expression.", header, StringComparison.Ordinal);
         Assert.Contains("\n- Unknown name 'radius'", header, StringComparison.Ordinal);
         Assert.DoesNotContain("Problems", clean.Results[0][..clean.Results[0].IndexOf("\n\n", StringComparison.Ordinal)], StringComparison.Ordinal);
     }

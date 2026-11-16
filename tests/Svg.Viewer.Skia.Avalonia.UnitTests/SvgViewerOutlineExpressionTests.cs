@@ -123,4 +123,27 @@ public class SvgViewerOutlineExpressionTests
 
         Assert.Equal(literal.Left, Ring(svg).Left, 3);
     }
+
+    /// <summary>A part of a clip a value reshapes is ringed as it is bound, as hit testing finds it.</summary>
+    [Fact]
+    public void A_Clip_Part_A_Value_Reshapes_Is_Ringed_As_It_Is_Bound()
+    {
+        var svg = Load("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 100 100" width="100" height="100">
+              <defs>
+                <e:code><e:param name="w" type="number" default="0" /></e:code>
+                <clipPath id="c"><rect id="part" x="10" y="20" width="{{ w }}" height="30" /></clipPath>
+              </defs>
+              <rect width="100" height="100" fill="#3366cc" clip-path="url(#c)" />
+            </svg>
+            """);
+        var part = svg.SourceDocument!.Descendants().Single(element => element.ID == "part");
+
+        svg.SetExpressionValues(Values(("w", ExprValue.Number(40f))));
+
+        using var ring = SvgViewerOutline.Of(svg, part);
+
+        Assert.NotNull(ring);
+        Assert.Equal((10f, 20f, 50f, 50f), (ring!.Bounds.Left, ring.Bounds.Top, ring.Bounds.Right, ring.Bounds.Bottom));
+    }
 }

@@ -291,6 +291,11 @@ public class CloneCoreTests
         Assert.NotSame(originalClip, clonedClip);
         Assert.NotSame(originalClip.Path, clonedClip.Path);
         Assert.Equal(originalClip.Transform, clonedClip.Transform);
+
+        // Immutable, so shared rather than copied.
+        Assert.Same(original.SymbolicTransform, clone.SymbolicTransform);
+        Assert.Same(originalClip.SymbolicPath, clonedClip.SymbolicPath);
+        Assert.Same(originalClip.SymbolicTransform, clonedClip.SymbolicTransform);
     }
 
     private static void AssertPathClipClone(PathClip original, PathClip clone)

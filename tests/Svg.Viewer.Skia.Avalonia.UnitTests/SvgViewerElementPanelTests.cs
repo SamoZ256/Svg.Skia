@@ -6,11 +6,11 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
+using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
-using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -431,11 +431,43 @@ public class SvgViewerElementPanelTests
         Assert.False(held.Panel.Set("width", "{{ tint }}"));
 
         Assert.Equal(was, held.Text);
-        Assert.Contains("does not take an expression", held.Panel.Fault);
+        // A drawn rect is recorded as the path it compiled to, so its size takes no expression.
+        Assert.Contains("takes an expression only inside a <clipPath>", held.Panel.Fault);
 
         // A literal in the same box is nobody's business but the parser's, and is written.
         Assert.True(held.Panel.Set("width", "48"));
         Assert.Contains("width=\"48\"", held.Text);
+    }
+
+    /// <summary>
+    /// Path data takes an expression only where a clip draws it, which says nothing about a literal:
+    /// a drawn path's data is written as typed, and a clip's takes a number per argument.
+    /// </summary>
+    [AvaloniaFact]
+    public void Path_Data_Takes_An_Expression_Only_In_A_Clip_And_A_Literal_Anywhere()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs>
+                <e:code><e:param name="a" type="number" default="4" /></e:code>
+                <clipPath id="c"><path d="M 0 0 L 8 0 L 8 8 Z" /></clipPath>
+              </defs>
+              <path d="M 0 0 L 10 10" stroke="#000000" clip-path="url(#c)" />
+            </svg>
+            """);
+
+        held.Show("1");
+
+        Assert.True(held.Panel.Set("d", "M 0 0 L 20 20"));
+        Assert.Contains("d=\"M 0 0 L 20 20\"", held.Text);
+        Assert.False(held.Panel.Set("d", "M 0 0 L {{ a }} 20"));
+        Assert.Contains("only inside a <clipPath>", held.Panel.Fault);
+
+        held.Panel.Show("0/1/0");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(held.Panel.Set("d", "M 0 0 L {{ a }} 0 L 8 8 Z"));
+        Assert.Contains("L {{ a }} 0", held.Text);
     }
 
     [AvaloniaFact]

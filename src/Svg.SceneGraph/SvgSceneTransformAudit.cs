@@ -3,6 +3,7 @@
 #nullable enable
 using System.Collections.Generic;
 using System.Linq;
+using Svg.Model.Services;
 
 namespace Svg.Skia;
 
@@ -25,34 +26,91 @@ public static class SvgSceneTransformAudit
             return null;
         }
 
-        // A <clipPath>'s contents compile to geometry and are never recorded as commands, so an
-        // expression written on one reaches no node at all -- which is why this half is asked of the
-        // document and the rest of the scene.
+        // A <clipPath>'s parts compile to geometry rather than to nodes, so a value driving one is
+        // found by element, not by node -- which is why this half is asked of the document and the
+        // rest of the scene. Geometry is recorded as its expressions only there: a drawn shape is
+        // recorded as the path it compiled to.
         var driven = false;
 
         if (sceneDocument.SourceDocument is { } document)
         {
+            HashSet<SvgElement>? shapes = null;
+            HashSet<SvgElement>? followed = null;
+            HashSet<SvgElement>? apart = null;
+
             foreach (var element in document.Descendants())
             {
-                if (SvgExpressionAttributes.Lifted(element.CustomAttributes, SvgTransformExpression.Name) is null)
+                var transform = SvgExpressionAttributes.Lifted(element.CustomAttributes, SvgTransformExpression.Name) is { };
+                var geometry = SvgSceneExpressions.DrivenGeometry(element);
+
+                if (!transform && geometry is null)
                 {
                     continue;
                 }
 
                 driven = true;
+                shapes ??= SvgSceneClipCompiler.Shapes(document);
 
-                if (element.ParentsAndSelf.OfType<SvgClipPath>().Any())
+                var clipped = element is SvgClipPath || shapes.Contains(element);
+
+                // A <clipPath> outside <defs> compiles to a container that draws nothing, which is no
+                // drawing of it. What it holds gets a node only from a <use> outside the clip.
+                SvgSceneNode? compiled = null;
+                var drawn = element is not SvgClipPath && sceneDocument.TryGetNode(element, out compiled);
+                var attribute = geometry ?? SvgTransformExpression.Name;
+                var verb = geometry is { } ? "reshape" : "move";
+
+                if (geometry is { })
                 {
-                    return Refusal(
-                        element,
-                        "belongs to a <clipPath>, which is compiled to geometry rather than recorded, so a bound value has nothing left to move");
+                    if (drawn)
+                    {
+                        return Refusal(element, "is drawn, and a drawn shape is recorded as the path it was compiled to", geometry, "reshape", Unclipped);
+                    }
+
+                    if (!clipped)
+                    {
+                        return Refusal(element, "is not a part of any <clipPath>, the only place a shape is recorded as its expressions", geometry, "reshape", Unclipped);
+                    }
+                }
+
+                if (clipped)
+                {
+                    // A second consumer bakes what the clip records as expressions, and neither one
+                    // gives the main scene a node to be refused by.
+                    followed ??= Followed(document);
+
+                    if (followed.Contains(element))
+                    {
+                        return Refusal(element, "is followed by a <textPath>, which baked it into the positions of its glyphs", attribute, verb, Unclipped);
+                    }
+
+                    apart ??= Apart(document);
+
+                    if (!drawn && apart.Contains(element))
+                    {
+                        return Refusal(element, "is drawn as well, by a pattern, a marker, a mask or an <feImage>, which records it as it was compiled", attribute, verb, Unclipped);
+                    }
+
+                    if (SvgSceneClipCompiler.WhyUndriven(element) is { } because)
+                    {
+                        return Refusal(element, because, attribute, verb, Literal);
+                    }
+
+                    // Also drawn, by a <use> outside the clip: what that draws is a node like any other.
+                    if (!drawn || !transform)
+                    {
+                        continue;
+                    }
+                }
+                else if (element.ParentsAndSelf.OfType<SvgClipPath>().Any())
+                {
+                    return Refusal(element, "belongs to a <clipPath> without being one of its parts, so nothing records it", SvgTransformExpression.Name, "move", Literal);
                 }
 
                 // Either a driven transform moves, or it is named here. An element that reached no
                 // node counts as not moving: a <use> gives a definition one, so what is left is
-                // geometry another compiler baked -- a clip path's, a textPath's target.
-                if (!sceneDocument.TryGetNode(element, out var compiled) ||
-                    compiled is { SymbolicTransform: null })
+                // geometry another compiler baked -- a textPath's target, a marker's content.
+                if (!drawn || compiled is { SymbolicTransform: null })
                 {
                     return Refusal(element, "was compiled without it -- <text>, an element whose geometry another compiler baked, and a function or argument count SVG does not allow all keep the value they were compiled with");
                 }
@@ -72,7 +130,7 @@ public static class SvgSceneTransformAudit
 
             if (Enclosure(compiled) is { } enclosure)
             {
-                return Refusal(element, $"strokes inside {enclosure}, whose bounds were measured from what it was compiled with");
+                return Refusal(element, $"strokes inside {enclosure}, whose bounds were measured from what it was compiled with", SvgSceneExpressions.StrokeWidth, "widen");
             }
         }
 
@@ -83,7 +141,8 @@ public static class SvgSceneTransformAudit
 
         foreach (var node in sceneDocument.Traverse())
         {
-            if (node.SymbolicTransform is null || node.Element is not { } element)
+            // A clip's own node draws nothing, so nothing above it measured where it was.
+            if (node.SymbolicTransform is null || node.Element is not { } element || element is SvgClipPath)
             {
                 continue;
             }
@@ -184,8 +243,79 @@ public static class SvgSceneTransformAudit
         return null;
     }
 
-    private static string Refusal(SvgElement element, string because)
-        => $"the transform on {Describe(element)} {because}, so a bound value cannot move it. Write the transform as a literal, or move what measures it off the path between them.";
+    private const string Measured = "Write it as a literal, or move what measures it off the path between them.";
+
+    private const string Literal = "Write it as a literal.";
+
+    private const string Unclipped = "Write it as a literal, or drive it only on a part of a <clipPath>.";
+
+    private static string Refusal(SvgElement element, string because, string attribute = SvgTransformExpression.Name, string verb = "move", string advice = Measured)
+        => $"the {attribute} on {Describe(element)} {because}, so a bound value cannot {verb} it. {advice}";
+
+    /// <summary>
+    /// What content compiled apart from the drawing draws: whatever a pattern, a marker or a mask
+    /// holds, what an <c>&lt;feImage&gt;</c> points at, and what a <c>&lt;use&gt;</c> there reaches.
+    /// </summary>
+    private static HashSet<SvgElement> Apart(SvgDocument document)
+    {
+        var apart = new HashSet<SvgElement>();
+        var pending = new Stack<SvgElement>();
+
+        foreach (var element in document.Descendants())
+        {
+            if (element is SvgPatternServer or SvgMarker or SvgMask)
+            {
+                foreach (var child in element.Children)
+                {
+                    pending.Push(child);
+                }
+            }
+            else if (element is Svg.FilterEffects.SvgImage image &&
+                     SvgService.GetReference<SvgElement>(image, SvgService.GetEffectiveReferenceUri(image, image.Href)) is { } target)
+            {
+                pending.Push(target);
+            }
+        }
+
+        while (pending.Count > 0)
+        {
+            var reached = pending.Pop();
+
+            if (!apart.Add(reached))
+            {
+                continue;
+            }
+
+            foreach (var child in reached.Children)
+            {
+                pending.Push(child);
+            }
+
+            if (reached is SvgUse use &&
+                SvgService.GetReference<SvgElement>(use, SvgService.GetEffectiveReferenceUri(use, use.ReferencedElement)) is { } target)
+            {
+                pending.Push(target);
+            }
+        }
+
+        return apart;
+    }
+
+    /// <summary>The paths a <c>&lt;textPath&gt;</c> follows, which it bakes as its stand-in drew them.</summary>
+    private static HashSet<SvgElement> Followed(SvgDocument document)
+    {
+        var followed = new HashSet<SvgElement>();
+
+        foreach (var element in document.Descendants())
+        {
+            if (element is SvgTextPath textPath && SvgSceneTextCompiler.ResolveTextPathGeometryReference(textPath) is { } target)
+            {
+                followed.Add(target);
+            }
+        }
+
+        return followed;
+    }
 
     private static string Describe(SvgSceneNode node)
         => node.Element is { } element ? Describe(element) : "an unnamed group";

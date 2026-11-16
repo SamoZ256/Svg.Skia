@@ -342,8 +342,9 @@ public class SvgcProjectBuildTests : IDisposable
           <defs><e:code>
             <e:param name="level" type="number" default="1" />
             <e:param name="accentColorOn" type="color" default="#f00" />
-          </e:code></defs>
-          <rect x="6" y="6" width="18" height="{{ level * 18 }}" fill="{{ accentColorOn }}" />
+          </e:code>
+          <clipPath id="level"><rect x="6" y="6" width="18" height="{{ level * 18 }}" /></clipPath></defs>
+          <rect x="6" y="6" width="18" height="18" fill="{{ accentColorOn }}" clip-path="url(#level)" />
         </svg>
         """;
 

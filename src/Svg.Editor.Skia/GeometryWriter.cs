@@ -82,7 +82,8 @@ public sealed class GeometryWriter
     /// number. What depends on the map is decided by <see cref="Apply"/>, frame by frame.
     /// </remarks>
     public static GeometryWriter? Capture(SvgElement element, GeometryGesture gesture)
-        => element switch
+    {
+        var writer = element switch
         {
             SvgPath path => Path(path),
             SvgPolygon poly => Poly(poly),
@@ -95,6 +96,20 @@ public sealed class GeometryWriter
             SvgText text => Text(text, gesture),
             _ => null
         };
+
+        // Numbers written over a driven value would flatten the expression into its stand-in, so a
+        // gesture that would write one is left to the transform it falls back to. Asked of what this
+        // gesture writes: a rect whose width is driven still moves by its own x and y.
+        foreach (var (name, _) in writer?.Captured ?? Array.Empty<(string, string)>())
+        {
+            if (SvgExpressionAttributes.Lifted(element.CustomAttributes, name) is { })
+            {
+                return null;
+            }
+        }
+
+        return writer;
+    }
 
     // ---- the two maps -------------------------------------------------------------------------
 

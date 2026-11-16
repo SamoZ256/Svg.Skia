@@ -396,7 +396,7 @@ public static class SvgViewerOutline
         {
             var placement = model.ToSKMatrix(total);
 
-            foreach (var (contentElement, clip) in resource.ClipContent(scene, node))
+            foreach (var (contentElement, clip) in resource.ClipContent(scene, node, bound))
             {
                 if (model.ToSKPath(clip) is not { IsEmpty: false } content)
                 {

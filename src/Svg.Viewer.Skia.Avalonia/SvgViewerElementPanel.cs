@@ -139,6 +139,12 @@ public sealed class SvgViewerElementPanel : UserControl
 
     private string? _address;
 
+    // What the shown element is and whether a clip draws it, which decide whether its geometry
+    // takes an expression.
+    private string? _element;
+
+    private bool _clipped;
+
     /// <summary>The row naming the constant a box is reported as.</summary>
     private const string BoxRow = "e:bounds";
 
@@ -409,6 +415,8 @@ public sealed class SvgViewerElementPanel : UserControl
             return;
         }
 
+        _element = element;
+        _clipped = SvgAttributeEditor.IsClipped(open, address);
         _title.Text = SvgViewerAttributes.Title(element);
         ToolTip.SetTip(_title, $"<{element}>");
         _all.IsChecked = s_all;
@@ -1106,7 +1114,7 @@ public sealed class SvgViewerElementPanel : UserControl
         {
             // Braces that are not one whole argument drive nothing, which the row has to say before
             // the arguments it could read are judged.
-            if (SvgExpressionAttributes.WhyUnsupported(name, written) is { } stray)
+            if (SvgExpressionAttributes.WhyUnsupported(name, written, _element, _clipped) is { } stray)
             {
                 return stray;
             }
@@ -1132,7 +1140,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
         if (Typed(name) is not { } type)
         {
-            return SvgExpressionAttributes.WhyUnsupported(name);
+            return SvgExpressionAttributes.WhyUnsupported(name, null, _element, _clipped);
         }
 
         return Checked(expression, type);
@@ -1271,8 +1279,10 @@ public sealed class SvgViewerElementPanel : UserControl
     /// can be offered for — none of which may grow a name no attribute can have. The substitution
     /// already special-cases the same name the same way.
     /// </remarks>
-    private static ExprType? Typed(string name)
-        => IsText(name) ? SvgExpressionAttributes.ContentType : SvgExpressionAttributes.TypeFor(name);
+    private ExprType? Typed(string name)
+        => IsText(name)
+            ? SvgExpressionAttributes.ContentType
+            : SvgExpressionAttributes.WhyUnsupported(name, null, _element, _clipped) is null ? SvgExpressionAttributes.TypeFor(name) : null;
 
     /// <summary>A line saying why an element's text is not one value to edit.</summary>
     private static Control Told(string why)

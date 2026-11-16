@@ -15,7 +15,7 @@ namespace Svg.Skia;
 // a placeholder, so by this point the expression is a plain entry in CustomAttributes and the
 // element paints normally. The text is not parsed here: type checking needs the symbol table
 // declared in <e:code>, which only the back end sees, so the expression stays whole until then.
-internal static class SvgSceneExpressions
+internal static partial class SvgSceneExpressions
 {
     internal const string Fill = "fill";
 

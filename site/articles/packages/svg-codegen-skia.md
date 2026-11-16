@@ -60,7 +60,7 @@ This example uses `Svg.Skia` to create the intermediate model, but `Svg.CodeGen.
 
 A drawing using the [expression extension](svg-expressions) generates: its parameters become C# parameters, and each expression is emitted as code that recomputes the value at call time rather than as the number it happened to have when the drawing was compiled.
 
-A driven `transform` is generated too. The picture records how the matrix was derived — `ShimSkiaSharp`'s `SymMatrix`, the transform functions and their arguments — so the emitted code rebuilds the matrix from the argument values instead of baking one, and the refusals are the same ones the renderer applies: a driven transform under a filter, under an ancestor that opens a layer, or written inside a `<clipPath>` is refused, because each of those was measured against the matrix as the drawing was compiled.
+A driven `transform` is generated too. The picture records how the matrix was derived — `ShimSkiaSharp`'s `SymMatrix`, the transform functions and their arguments — so the emitted code rebuilds the matrix from the argument values instead of baking one, and the refusals are the same ones the renderer applies: a driven transform under a filter or under an ancestor that opens a layer is refused, because each of those was measured against the matrix as the drawing was compiled. A clip whose geometry or transform is driven is generated as well (see below).
 
 What generation still refuses outright is the other kind of expression, the kind resolved **before** the drawing is recorded — element text, `font-family`, `font-size` and the rest of the text attributes. Generation bakes the picture with the text already measured and the glyphs already positioned, so a parameter driving one could never vary at run time; the document is refused rather than generated with a signature that offers something it cannot do.
 
@@ -134,6 +134,13 @@ oval or circle with no layer open around it builds no path in either body: it is
 `DrawRect`, `DrawRoundRect`, `DrawOval` or `DrawCircle`, as the renderer draws it. `Record` stays,
 and records `Draw`.
 
+A clip that nothing drives is built once, whole, in the static constructor. One an expression drives
+is built on every draw, all of it, into paths kept per thread — `SvgPathSlot` on SkiaSharp 3,
+`SvgPathBuilderSlot` on 4 — with its parts combined in place. A driven shape is one call to
+`SvgDrivenPathData`, which applies `ShimSkiaSharp`'s `SymPath.Apply` rules to verbs held as constant
+data and numbers on the stack. On SkiaSharp 3 that allocates nothing; on 4, whose builder detaches a
+new `SKPath` each time, one path per part.
+
 ### Matrices, saves and shapes
 
 Both bodies set a matrix only before something is drawn, clipped or layered under it, so a run of
@@ -177,7 +184,8 @@ Both bodies leave out what `ShimSkiaSharp`'s `CommandPlan` finds draws nothing: 
 around content that lies inside it, which Skia would otherwise blend everything under through a
 coverage mask, and a group opacity over a single shape, whose alpha is multiplied into that shape's
 paint instead — at run time, when the opacity is an expression. A clip over a driven transform or
-stroke width is kept, since some value could carry the content across it.
+stroke width is kept, since some value could carry the content across it, and so is a driven clip,
+whose stand-in may cut nothing where a bound value cuts.
 
 ### Naming typefaces
 

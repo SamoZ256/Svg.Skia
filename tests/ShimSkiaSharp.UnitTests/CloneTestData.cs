@@ -67,9 +67,11 @@ internal static class CloneTestData
 
     public static ClipPath CreateClipPath()
     {
+        var driven = new SymMatrix(new[] { new SymTransform(SymTransformOp.Translate, new[] { SymNode.Source("dx"), SymNode.Zero }) });
         var clip = new ClipPath
         {
             Transform = SKMatrix.CreateScale(2, 3),
+            SymbolicTransform = driven,
             Clip = new ClipPath()
         };
 
@@ -77,6 +79,8 @@ internal static class CloneTestData
         {
             Path = CreatePath(),
             Transform = SKMatrix.CreateTranslation(1, 2),
+            SymbolicPath = new SymPath(SKPathFillType.Winding, new[] { new SymPathCommand(SymPathOp.Circle, new[] { SymNode.Source("x"), SymNode.One, SymNode.One }) }),
+            SymbolicTransform = driven,
             Clip = clip.Clip
         });
 

@@ -54,7 +54,7 @@ public static class SvgSceneExpressionEvaluator
     /// netstandard2.0. The model is mostly records, so the default comparer would merge two distinct
     /// paints that happen to be equal.
     /// </remarks>
-    private sealed class IdentityComparer : IEqualityComparer<object>
+    internal sealed class IdentityComparer : IEqualityComparer<object>
     {
         public static readonly IdentityComparer Instance = new();
 
@@ -288,6 +288,9 @@ public static class SvgSceneExpressionEvaluator
                         SymbolicDelta = null,
                         SymbolicTotal = null
                     });
+
+                case ClipPathCanvasCommand clip when clip.ClipPath is { IsSymbolic: true } clipPath:
+                    return Carry(command, clip with { ClipPath = SvgSceneSymEvaluator.EvaluateClipPath(clipPath, _evaluator, _rewritten) });
 
                 case DrawPictureCanvasCommand draw when draw.Picture is { } nested:
                     {

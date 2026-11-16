@@ -34,7 +34,7 @@ public class MainWindowExportTests
               <e:param name="size" type="number" default="12" min="1" max="24" />
             </e:code>
           </defs>
-          <rect width="{{ size }}" height="{{ size }}" fill="#00ff00" />
+          <rect width="1" height="1" transform="scale({{ size }})" fill="#00ff00" />
         </svg>
         """;
 

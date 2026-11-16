@@ -30,6 +30,7 @@ dotnet add package SamoZ256.ShimSkiaSharp --prerelease
 | `SKPaint` | Stores fill, stroke, shader, filter, and typography state |
 | `SymNode` | How a value was derived, where an expression drives it |
 | `SymMatrix` | How a matrix was derived: the transform functions that built it |
+| `SymPath` | How a clip shape was derived: absolute commands whose numbers may be expressions |
 | `ShimSkiaSharp.Editing.*` | Clone-on-write and traversal helpers for model editing |
 
 ## Recording and inspecting commands
@@ -72,6 +73,8 @@ A matrix is described *beside* `SymNode` rather than as a kind of one because a 
 
 `SetMatrixCanvasCommand` therefore carries `SymbolicDelta` and `SymbolicTotal` beside the `DeltaMatrix` and `TotalMatrix` it always had. Both are null where a drawing drives no transform, so nothing changes for a document that does not use the extension. The symbolic total is composed off the same save and restore stack as the baked one, which means a command's `SymbolicTotal` is already the whole composition down to it and no consumer has to keep a running matrix of its own. `SymMatrix.Apply` is the one place a function becomes an `SKMatrix`, so the recorder, the evaluator and the code generator cannot disagree about what a skew angle means.
 
+A clip an expression drives carries the same kind of description beside what it baked: `PathClip.SymbolicPath` (a `SymPath`) beside its `Path`, and `SymbolicTransform` beside the `Transform` of a `PathClip` and of a `ClipPath`. `IsSymbolic` asks the whole tree, nested clips included. The baked path is the description applied with nothing bound rather than a second reading of the same data, so the two cannot drift. `SymPath.Apply` is the one place numbers become a clip path: it applies what the converter applies to the same numbers written as literals — an arc of no radius is a line, one ending where it starts draws nothing, a rect's radii borrow and clamp — and answers an empty path rather than null for a shape that comes to nothing, since a part that is null drops the whole clip. The generated `SvgDrivenPathData` repeats it statement for statement.
+
 ## Why it exists
 
 Live `SkiaSharp` objects are excellent for rendering, but they are not ideal when you need:
@@ -88,7 +91,7 @@ Live `SkiaSharp` objects are excellent for rendering, but they are not ideal whe
 
 The editing helpers under `ShimSkiaSharp.Editing` let you update paints, paths, and command graphs either in place or with clone-on-write behavior. That makes the package useful outside SVG scenarios as well.
 
-`CommandPlan.For` reads a command list once and says what a back end may leave out without changing what is drawn: an antialiased clip that contains, exactly, everything drawn under it, and a layer a plain save draws the same — opaque over source-over content, or fading one shape, whose paint then takes the layer's alpha. Both back ends in this repository draw from it, so the renderer and the generated C# leave out the same things. With `symbolic: true` it keeps whatever an expression could change, as generated code needs; the model itself is left as recorded.
+`CommandPlan.For` reads a command list once and says what a back end may leave out without changing what is drawn: an antialiased clip that contains, exactly, everything drawn under it, and a layer a plain save draws the same — opaque over source-over content, or fading one shape, whose paint then takes the layer's alpha. Both back ends in this repository draw from it, so the renderer and the generated C# leave out the same things. With `symbolic: true` it keeps whatever an expression could change, as generated code needs — a driven clip among them, whose stand-in may cut nothing where a bound value cuts; the model itself is left as recorded.
 
 ## Relationship to other packages
 

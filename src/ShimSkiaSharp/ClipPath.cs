@@ -12,7 +12,35 @@ public class ClipPath : ICloneable, IDeepCloneable<ClipPath>
 
     public ClipPath? Clip { get; set; }
 
+    /// <summary>The whole of <see cref="Transform"/> as the functions that built it, where one is driven.</summary>
+    public SymMatrix? SymbolicTransform { get; set; }
+
     public bool IsEmpty => Clips is null || Clips.Count == 0;
+
+    /// <summary>Whether anything in this clip, nested clips included, is driven.</summary>
+    public bool IsSymbolic
+    {
+        get
+        {
+            if (SymbolicTransform?.IsSymbolic == true || Clip?.IsSymbolic == true)
+            {
+                return true;
+            }
+
+            if (Clips is { } clips)
+            {
+                foreach (var clip in clips)
+                {
+                    if (clip.IsSymbolic)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
 
     public ClipPath()
     {
@@ -38,6 +66,7 @@ public class ClipPath : ICloneable, IDeepCloneable<ClipPath>
         clone.Clips = CloneHelpers.CloneList(Clips, context, clip => clip.DeepClone(context));
         clone.Transform = Transform;
         clone.Clip = Clip?.DeepClone(context);
+        clone.SymbolicTransform = SymbolicTransform;
 
         return clone;
     }

@@ -679,13 +679,13 @@ public static class SkiaCSharpCodeGen
 
     private static IEnumerable<string> RequiredHelpers(string body, SkiaSharpTarget skiaSharp)
     {
-        // Each path data helper builds what exists in one SkiaSharp alone, and text the drawing
-        // draws can name the other's: it would not compile.
-        var other = skiaSharp == SkiaSharpTarget.V3 ? ExprHelpers.PathBuilderData : ExprHelpers.PathData;
+        // Each path helper builds what exists in one SkiaSharp alone, and text the drawing draws can
+        // name the other's: it would not compile.
+        var other = ExprHelpers.OnlyIn(skiaSharp3: skiaSharp != SkiaSharpTarget.V3);
 
         foreach (var helper in ExprHelpers.All)
         {
-            if (helper.Key != other && body.IndexOf(helper.Key + "(", StringComparison.Ordinal) >= 0)
+            if (!other.Contains(helper.Key) && body.IndexOf(helper.Key + "(", StringComparison.Ordinal) >= 0)
             {
                 yield return helper.Key;
             }

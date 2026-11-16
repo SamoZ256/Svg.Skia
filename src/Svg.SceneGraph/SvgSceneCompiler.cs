@@ -1765,7 +1765,7 @@ public static class SvgSceneCompiler
     /// functions in translations no list of them can describe, so it fails the check below and the
     /// element stays undriven.
     /// </remarks>
-    private static SymMatrix? SymbolicTransformOf(SvgElement element, SKMatrix baked, SKMatrix? trailing = null)
+    internal static SymMatrix? SymbolicTransformOf(SvgElement element, SKMatrix baked, SKMatrix? trailing = null)
     {
         // Wrapped as translate(o) . T . translate(-o), which no list of the author's functions can
         // describe. The guard below would let it through: ApplyTransformOrigin short-circuits on an

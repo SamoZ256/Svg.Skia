@@ -696,6 +696,34 @@ public class EditingHelpersTests
         Assert.True(CommandPlan.For(Clipped(ClipRect(s_frame), widened), symbolic: false).Skips(1));
     }
 
+    /// <summary>A driven clip's stand-in can cut nothing where a bound value cuts, so generated code keeps it.</summary>
+    [Fact]
+    public void CommandPlan_KeepsADrivenClip_UnlessItsValuesAreTheOnesDrawn()
+    {
+        var level = SymNode.Source("level");
+        var driven = new SymMatrix(new[] { new SymTransform(SymTransformOp.Translate, new[] { level, SymNode.Zero }) });
+        var clips = new[]
+        {
+            Part(new PathClip { SymbolicPath = new SymPath(SKPathFillType.Winding, new[] { new SymPathCommand(SymPathOp.Rect, new[] { SymNode.Zero, SymNode.Zero, level, SymNode.Literal(20), SymNode.Zero, SymNode.Zero, SymNode.Zero, SymNode.Zero }) }) }),
+            Part(new PathClip { SymbolicTransform = driven }),
+            new ClipPathCanvasCommand(new ClipPath { SymbolicTransform = driven, Clips = new List<PathClip> { new() { Path = PathOf(new AddRectPathCommand(s_frame)) } } }, SKClipOperation.Intersect, true)
+        };
+
+        foreach (var clip in clips)
+        {
+            var commands = Clipped(clip, Fill(SKRect.Create(2, 2, 10, 10)));
+
+            Assert.False(CommandPlan.For(commands, symbolic: true).Skips(1));
+            Assert.True(CommandPlan.For(commands, symbolic: false).Skips(1));
+        }
+
+        static ClipPathCanvasCommand Part(PathClip part)
+        {
+            part.Path = PathOf(new AddRectPathCommand(s_frame));
+            return new ClipPathCanvasCommand(new ClipPath { Clips = new List<PathClip> { part } }, SKClipOperation.Intersect, true);
+        }
+    }
+
     [Fact]
     public void CommandPlan_LooksInsideNestedPicturesForClips()
     {

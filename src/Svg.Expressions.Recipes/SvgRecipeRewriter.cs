@@ -170,7 +170,7 @@ public static class SvgRecipeRewriter
         foreach (var name in SvgExpressionAttributes.Supported)
         {
             // Not a value a rule can name -- see SvgRecipeValue.Names.
-            if (SvgExpressionAttributes.IsInArguments(name))
+            if (SvgExpressionAttributes.IsInArguments(name) || !SvgExpressionAttributes.IsSupported(name, elementName: null))
             {
                 continue;
             }

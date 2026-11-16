@@ -75,7 +75,7 @@ internal static class SvgSceneClipCompiler
         var clipRule = GetSvgClipRule(svgClipPath) ?? svgClipPathClipRule;
         PopulateClipChildren(svgClipPath.Children, targetBounds, assetLoader, uris, clipPath, clipRule);
 
-        clipPath.Transform = ClipTransform(svgClipPath, targetBounds);
+        (clipPath.Transform, clipPath.SymbolicTransform) = ClipTransform(svgClipPath, targetBounds);
 
         if (clipPath.Clips is { Count: 0 } && !HasClipGeometry(clipPath.Clip))
         {
@@ -115,20 +115,24 @@ internal static class SvgSceneClipCompiler
         }
 
         PopulateClipPath(referencedClipPath, targetBounds, assetLoader, uris, clipPath.Clip, svgClipPathClipRule: null);
-
-        clipPath.Clip.Transform = ClipTransform(referencedClipPath, targetBounds);
     }
 
-    private static SKMatrix ClipTransform(SvgClipPath svgClipPath, SKRect targetBounds)
+    /// <summary>
+    /// The clip's own transform after its units, and the functions behind it where one is driven.
+    /// </summary>
+    /// <remarks>The units come last, so they fold back in as the trailing literal a use offset is.</remarks>
+    private static (SKMatrix Transform, SymMatrix? Symbolic) ClipTransform(SvgClipPath svgClipPath, SKRect targetBounds)
     {
-        var transform = SKMatrix.CreateIdentity();
+        var units = SKMatrix.CreateIdentity();
         if (svgClipPath.ClipPathUnits == SvgCoordinateUnits.ObjectBoundingBox)
         {
-            transform = transform.PostConcat(SKMatrix.CreateScale(targetBounds.Width, targetBounds.Height));
-            transform = transform.PostConcat(SKMatrix.CreateTranslation(targetBounds.Left, targetBounds.Top));
+            units = units.PostConcat(SKMatrix.CreateScale(targetBounds.Width, targetBounds.Height));
+            units = units.PostConcat(SKMatrix.CreateTranslation(targetBounds.Left, targetBounds.Top));
         }
 
-        return transform.PostConcat(TransformsService.ToMatrix(svgClipPath.Transforms, svgClipPath, targetBounds, targetBounds));
+        var transform = units.PostConcat(TransformsService.ToMatrix(svgClipPath.Transforms, svgClipPath, targetBounds, targetBounds));
+
+        return (transform, SvgSceneCompiler.SymbolicTransformOf(svgClipPath, transform, units));
     }
 
     /// <summary>
@@ -150,7 +154,7 @@ internal static class SvgSceneClipCompiler
         }
 
         var clipRule = GetSvgClipRule(svgClipPath);
-        var transform = ClipTransform(svgClipPath, targetBounds);
+        var (transform, symbolic) = ClipTransform(svgClipPath, targetBounds);
 
         foreach (var child in svgClipPath.Children)
         {
@@ -159,7 +163,7 @@ internal static class SvgSceneClipCompiler
                 continue;
             }
 
-            var clip = new ClipPath { Transform = transform };
+            var clip = new ClipPath { Transform = transform, SymbolicTransform = symbolic };
             PopulateVisualClip(visualChild, targetBounds, assetLoader, new HashSet<Uri>(), clip, clipRule);
 
             if (!clip.IsEmpty)
@@ -167,6 +171,93 @@ internal static class SvgSceneClipCompiler
                 yield return (visualChild, clip);
             }
         }
+    }
+
+    /// <summary>Every element a clip draws a part from: the children of each clip, and what their uses reach.</summary>
+    /// <remarks>
+    /// The same walk <see cref="PopulateVisualClip"/> takes, without the conditions it applies as it
+    /// goes: a part those leave out drives nothing, which is no reason to refuse it.
+    /// </remarks>
+    internal static HashSet<SvgElement> Shapes(SvgDocument document)
+    {
+        var shapes = new HashSet<SvgElement>();
+
+        foreach (var element in document.Descendants())
+        {
+            if (element is not SvgClipPath clipPath)
+            {
+                continue;
+            }
+
+            foreach (var child in clipPath.Children)
+            {
+                for (var shape = Drawn(child); shape is { } && shapes.Add(shape);)
+                {
+                    shape = shape is SvgUse use
+                        ? Drawn(SvgService.GetReference<SvgVisualElement>(use, SvgService.GetEffectiveReferenceUri(use, use.ReferencedElement)))
+                        : null;
+                }
+            }
+        }
+
+        return shapes;
+
+        // What PopulateVisualClip draws a part from; a group or a symbol it passes over.
+        static SvgVisualElement? Drawn(SvgElement? element)
+            => element is SvgPath or SvgRectangle or SvgCircle or SvgEllipse or SvgLine or SvgPolyline or SvgPolygon or SvgUse or SvgText
+                ? (SvgVisualElement)element
+                : null;
+    }
+
+    /// <summary>
+    /// Why what drives <paramref name="element"/>, a part a clip draws, cannot be recorded as its
+    /// expressions, or null where it can.
+    /// </summary>
+    /// <remarks>
+    /// Each answer is a place the compile above measures the part as its stand-in drew it, or reads
+    /// it some other way than the expressions say.
+    /// </remarks>
+    internal static string? WhyUndriven(SvgElement element)
+    {
+        var transform = SvgExpressionAttributes.Lifted(element.CustomAttributes, SvgTransformExpression.Name) is { };
+        var geometry = SvgSceneExpressions.DrivenGeometry(element);
+
+        if ((transform || geometry is { }) && TransformsService.DeclaresTransformOrigin(element))
+        {
+            return "is turned about a transform-origin, measured against the shape it had when it was compiled";
+        }
+
+        if (transform && SvgSceneCompiler.SymbolicTransformOf(element, TransformsService.ToMatrix(element.Transforms)) is null)
+        {
+            return "is written in a way no list of functions can bind -- braces that are not one whole argument, or a function or argument count SVG does not allow";
+        }
+
+        if (geometry is null)
+        {
+            return null;
+        }
+
+        if (element is not SvgVisualElement visual || !SvgSceneExpressions.TryGetGeometry(visual, SvgFillRule.NonZero, SKRect.Empty, out _))
+        {
+            return "cannot be read as numbers -- braces that are not one whole number, a number that will not parse, or a bearing, which would turn what follows by a bound angle";
+        }
+
+        // A declaration writes a length over the attribute's stand-in, or is kept as a style the
+        // geometry service reads first; either way the literal document draws what CSS says.
+        foreach (var name in SvgExpressionAttributes.Supported)
+        {
+            if (!SvgExpressionAttributes.IsSupported(name, elementName: null) &&
+                SvgExpressionAttributes.Lifted(element.CustomAttributes, name) is { } &&
+                ((element.Attributes.TryGetValue(name, out var written) && written is SvgUnit { Value: not 0f }) ||
+                 element.TryGetOwnCascadedStyleDeclarationValue(name, out _)))
+            {
+                return $"is also declared as '{name}' in CSS, which takes precedence over the attribute";
+            }
+        }
+
+        return GetReferenceUri(element, "clip-path") is { }
+            ? "is clipped by a clip of its own, which is measured against the shape it had when it was compiled"
+            : null;
     }
 
     private static Uri? GetReferenceUri(SvgElement element, string name)
@@ -917,28 +1008,42 @@ internal static class SvgSceneClipCompiler
         ClipPath clipPath,
         SvgClipRule? svgClipPathClipRule)
     {
+        var fillRule = ToFillRule(visualElement, svgClipPathClipRule);
+
+        // Built from the expressions rather than from the stand-in, so a shape whose stand-in draws
+        // nothing -- a rect of no width -- still records the part a bound value reshapes.
+        if (SvgSceneExpressions.TryGetGeometry(visualElement, fillRule, targetBounds, out var geometry))
+        {
+            if (geometry is { })
+            {
+                AddVisualPathClip(visualElement, geometry.ToPlaceholder(), geometry.IsSymbolic ? geometry : null, assetLoader, uris, clipPath);
+            }
+
+            return;
+        }
+
         switch (visualElement)
         {
             case SvgPath svgPath:
-                AddVisualPathClip(svgPath, svgPath.PathData?.ToPath(ToFillRule(svgPath, svgClipPathClipRule)), assetLoader, uris, clipPath);
+                AddVisualPathClip(svgPath, svgPath.PathData?.ToPath(fillRule), null, assetLoader, uris, clipPath);
                 break;
             case SvgRectangle svgRectangle:
-                AddVisualPathClip(svgRectangle, svgRectangle.ToPath(ToFillRule(svgRectangle, svgClipPathClipRule), targetBounds), assetLoader, uris, clipPath);
+                AddVisualPathClip(svgRectangle, svgRectangle.ToPath(fillRule, targetBounds), null, assetLoader, uris, clipPath);
                 break;
             case SvgCircle svgCircle:
-                AddVisualPathClip(svgCircle, svgCircle.ToPath(ToFillRule(svgCircle, svgClipPathClipRule), targetBounds), assetLoader, uris, clipPath);
+                AddVisualPathClip(svgCircle, svgCircle.ToPath(fillRule, targetBounds), null, assetLoader, uris, clipPath);
                 break;
             case SvgEllipse svgEllipse:
-                AddVisualPathClip(svgEllipse, svgEllipse.ToPath(ToFillRule(svgEllipse, svgClipPathClipRule), targetBounds), assetLoader, uris, clipPath);
+                AddVisualPathClip(svgEllipse, svgEllipse.ToPath(fillRule, targetBounds), null, assetLoader, uris, clipPath);
                 break;
             case SvgLine svgLine:
-                AddVisualPathClip(svgLine, svgLine.ToPath(ToFillRule(svgLine, svgClipPathClipRule), targetBounds), assetLoader, uris, clipPath);
+                AddVisualPathClip(svgLine, svgLine.ToPath(fillRule, targetBounds), null, assetLoader, uris, clipPath);
                 break;
             case SvgPolyline svgPolyline:
-                AddVisualPathClip(svgPolyline, svgPolyline.Points?.ToPath(ToFillRule(svgPolyline, svgClipPathClipRule), false, targetBounds), assetLoader, uris, clipPath);
+                AddVisualPathClip(svgPolyline, svgPolyline.Points?.ToPath(fillRule, false, targetBounds), null, assetLoader, uris, clipPath);
                 break;
             case SvgPolygon svgPolygon:
-                AddVisualPathClip(svgPolygon, svgPolygon.Points?.ToPath(ToFillRule(svgPolygon, svgClipPathClipRule), true, targetBounds), assetLoader, uris, clipPath);
+                AddVisualPathClip(svgPolygon, svgPolygon.Points?.ToPath(fillRule, true, targetBounds), null, assetLoader, uris, clipPath);
                 break;
             case SvgUse svgUse:
                 PopulateUseClip(svgUse, targetBounds, assetLoader, uris, clipPath, svgClipPathClipRule);
@@ -952,6 +1057,7 @@ internal static class SvgSceneClipCompiler
     private static void AddVisualPathClip(
         SvgVisualElement visualElement,
         SKPath? path,
+        SymPath? symbolicPath,
         ISvgAssetLoader assetLoader,
         HashSet<Uri> uris,
         ClipPath clipPath)
@@ -961,10 +1067,13 @@ internal static class SvgSceneClipCompiler
             return;
         }
 
+        var transform = TransformsService.ToMatrix(visualElement.Transforms, visualElement, path.Bounds, path.Bounds);
         var pathClip = new PathClip
         {
             Path = path,
-            Transform = TransformsService.ToMatrix(visualElement.Transforms, visualElement, path.Bounds, path.Bounds),
+            Transform = transform,
+            SymbolicPath = symbolicPath,
+            SymbolicTransform = SvgSceneCompiler.SymbolicTransformOf(visualElement, transform),
             Clip = new ClipPath
             {
                 Clip = new ClipPath()
@@ -1009,8 +1118,8 @@ internal static class SvgSceneClipCompiler
             if (clipPath.Clips is { Count: > 0 } populatedClips &&
                 populatedClips.Count > previousClipCount)
             {
-                var useTransform = CreateUseClipTransform(svgUse, targetBounds);
-                ApplyUseClipTransform(populatedClips, previousClipCount, useTransform);
+                var (useTransform, useSymbolic) = CreateUseClipTransform(svgUse, targetBounds);
+                ApplyUseClipTransform(populatedClips, previousClipCount, useTransform, useSymbolic);
             }
 
             if (clipPath.Clips is { Count: > 0 } clips &&
@@ -1022,18 +1131,21 @@ internal static class SvgSceneClipCompiler
         });
     }
 
-    private static SKMatrix CreateUseClipTransform(SvgUse svgUse, SKRect targetBounds)
+    private static (SKMatrix Transform, SymMatrix? Symbolic) CreateUseClipTransform(SvgUse svgUse, SKRect targetBounds)
     {
         var mayHaveGeometryLengthCssDeclarations = svgUse.MayHaveGeometryLengthCssDeclarations();
         var x = SvgGeometryService.GetComputedUnit(svgUse, "x", svgUse.X, mayHaveGeometryLengthCssDeclarations).ToDeviceValue(UnitRenderingType.Horizontal, svgUse, targetBounds);
         var y = SvgGeometryService.GetComputedUnit(svgUse, "y", svgUse.Y, mayHaveGeometryLengthCssDeclarations).ToDeviceValue(UnitRenderingType.Vertical, svgUse, targetBounds);
         var useBounds = SKRect.Create(x, y, targetBounds.Width, targetBounds.Height);
-        return TransformsService.ToMatrix(svgUse.Transforms, svgUse, useBounds, targetBounds).PreConcat(SKMatrix.CreateTranslation(x, y));
+        var offset = SKMatrix.CreateTranslation(x, y);
+        var transform = TransformsService.ToMatrix(svgUse.Transforms, svgUse, useBounds, targetBounds).PreConcat(offset);
+        return (transform, SvgSceneCompiler.SymbolicTransformOf(svgUse, transform, offset));
     }
 
-    private static void ApplyUseClipTransform(IList<PathClip> clips, int startIndex, SKMatrix useTransform)
+    private static void ApplyUseClipTransform(IList<PathClip> clips, int startIndex, SKMatrix useTransform, SymMatrix? useSymbolic)
     {
-        if (useTransform.IsIdentity)
+        // A driven translate stands in as the identity, which is no reason to leave it out.
+        if (useTransform.IsIdentity && useSymbolic is null)
         {
             return;
         }
@@ -1041,7 +1153,9 @@ internal static class SvgSceneClipCompiler
         for (var i = startIndex; i < clips.Count; i++)
         {
             var clip = clips[i];
-            clip.Transform = useTransform.PreConcat(clip.Transform ?? SKMatrix.CreateIdentity());
+            var own = clip.Transform ?? SKMatrix.CreateIdentity();
+            clip.SymbolicTransform = SymMatrix.PreConcat(useSymbolic, useTransform, clip.SymbolicTransform, own);
+            clip.Transform = useTransform.PreConcat(own);
         }
     }
 
@@ -1067,10 +1181,12 @@ internal static class SvgSceneClipCompiler
             return;
         }
 
+        var transform = TransformsService.ToMatrix(svgText.Transforms, svgText, path.Bounds, path.Bounds);
         var pathClip = new PathClip
         {
             Path = path,
-            Transform = TransformsService.ToMatrix(svgText.Transforms, svgText, path.Bounds, path.Bounds),
+            Transform = transform,
+            SymbolicTransform = SvgSceneCompiler.SymbolicTransformOf(svgText, transform),
             Clip = new ClipPath
             {
                 Clip = new ClipPath()

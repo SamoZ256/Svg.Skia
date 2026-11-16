@@ -48,14 +48,16 @@ public static class SvgRecipeValue
         new[] { ColorName }
             .Concat(SvgExpressionAttributes.Supported.Where(name =>
                 SvgExpressionAttributes.TypeFor(name) != ExprType.Color &&
-                !SvgExpressionAttributes.IsInArguments(name)))
+                !SvgExpressionAttributes.IsInArguments(name) &&
+                SvgExpressionAttributes.IsSupported(name, elementName: null)))
             .ToList();
 
     /// <summary>What a rule called <paramref name="name"/> replaces, or null where nothing does.</summary>
     public static ExprType? TypeFor(string name)
         => name == ColorName
             ? ExprType.Color
-            : SvgExpressionAttributes.TypeFor(name) is { } type && type != ExprType.Color
+            : SvgExpressionAttributes.TypeFor(name) is { } type && type != ExprType.Color &&
+              SvgExpressionAttributes.IsSupported(name, elementName: null)
                 ? type
                 : null;
 
