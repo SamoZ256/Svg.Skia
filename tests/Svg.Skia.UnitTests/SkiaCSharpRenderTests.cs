@@ -2470,7 +2470,7 @@ public class SkiaCSharpRenderTests
 
     [Fact]
     public void A_Restore_With_Nothing_Open_Gives_Back_Nothing()
-        // As Skia's recorder ignores it: the clip and the translation set before it still hold.
+    // As Skia's recorder ignores it: the clip and the translation set before it still hold.
     {
         var recorder = new ShimSkiaSharp.SKPictureRecorder();
         var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
@@ -2592,6 +2592,131 @@ public class SkiaCSharpRenderTests
         using var generated = Generated(model, "MovelessPath", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
         AssertSamePicture("MovelessPath", runtime!, generated, BakedThreshold);
         AssertDrawsDirectlyTheSame("MovelessPath", model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
+
+    // A gradient an argument colours, one under a visibility its argument decides, a written one
+    // faded by an argument, and a driven stroke after them, which takes the shared paint without one.
+    private const string DrivenGradients = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="tint" type="color" default="#1e40af" />
+              <e:param name="shown" type="boolean" default="true" />
+              <e:param name="fade" type="number" default="1" />
+            </e:code>
+            <linearGradient id="l" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0">
+              <stop offset="0" stop-color="{{ tint }}" />
+              <stop offset="1" stop-color="#ffffff" />
+            </linearGradient>
+            <radialGradient id="r" gradientUnits="userSpaceOnUse" cx="12" cy="12" r="8">
+              <stop offset="0" stop-color="#ffffff" />
+              <stop offset="0.6" stop-color="{{ tint }}" />
+              <stop offset="1" stop-color="#facc15" />
+            </radialGradient>
+            <radialGradient id="f" gradientUnits="userSpaceOnUse" cx="20" cy="13" r="3" fx="19" fy="12">
+              <stop offset="0" stop-color="{{ tint }}" />
+              <stop offset="1" stop-color="#0f766e" />
+            </radialGradient>
+            <linearGradient id="k" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="24">
+              <stop offset="0" stop-color="#22c55e" />
+              <stop offset="1" stop-color="#7c3aed" />
+            </linearGradient>
+          </defs>
+          <path d="M 1 1 L 23 1 L 23 7 L 1 7 Z" fill="url(#l)" />
+          <circle cx="12" cy="12" r="5" fill="url(#r)" visibility="{{ shown }}" />
+          <circle cx="20" cy="13" r="3" fill="url(#f)" />
+          <path d="M 1 17 L 23 17 L 23 23 L 1 23 Z" fill="url(#k)" fill-opacity="{{ fade }}" />
+          <path d="M 2 9.5 L 22 9.5" fill="none" stroke="{{ tint }}" stroke-width="1" />
+        </svg>
+        """;
+
+    private static Type DrivenGradientsType(bool bake = false)
+    {
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(Model(DrivenGradients), Namespace, "DrivenGradients", SvgExpressionDeclarations.Parse(DrivenGradients)) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Body = SvgBody.Direct, Bake = bake });
+
+        return Compile(code, "DrivenGradients").GetType($"{Namespace}.DrivenGradients")!;
+    }
+
+    // A gradient kept from one draw to the next is drawn again only for the colours it was built
+    // from: the second draw reuses it, the third rebuilds every one, the fourth rebuilds them back,
+    // and the last skips the one under the visibility.
+    [Fact]
+    public void A_Driven_Gradient_Kept_Between_Draws_Draws_The_Colours_Of_Each()
+    {
+        var type = DrivenGradientsType();
+        var record = type.GetMethod("Record")!;
+        var declarations = SvgExpressionDeclarations.Parse(DrivenGradients);
+        var blue = new object?[] { new SKColor(0x1e, 0x40, 0xaf), true, 1f };
+        var red = new object?[] { new SKColor(0xdc, 0x26, 0x26), true, 0.4f };
+        var hidden = new object?[] { new SKColor(0x1e, 0x40, 0xaf), false, 1f };
+
+        foreach (var (label, arguments) in new[] { ("blue", blue), ("again", blue), ("red", red), ("back", blue), ("hidden", hidden) })
+        {
+            var evaluated = SvgSceneExpressionEvaluator.Evaluate(Model(DrivenGradients), declarations, Bind(declarations, arguments));
+            using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
+            using var generated = (SKPicture)record.Invoke(null, arguments)!;
+
+            AssertSamePicture($"DrivenGradients-{label}", runtime!, generated);
+        }
+    }
+
+    [Fact]
+    public void A_Direct_Draw_Of_Driven_Gradients_With_The_Same_Arguments_Allocates_Nothing()
+    {
+        var draw = DrivenGradientsType(bake: true).GetMethod("Draw")!.CreateDelegate<Action<SKCanvas, SKColor?, bool, float>>();
+
+        using var bitmap = new SKBitmap(24, 24);
+        using var canvas = new SKCanvas(bitmap);
+        draw(canvas, new SKColor(0xdc, 0x26, 0x26), true, 0.5f);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        draw(canvas, new SKColor(0xdc, 0x26, 0x26), true, 0.5f);
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [Fact]
+    public void A_Driven_Gradient_Is_Set_On_The_Shared_Paint_And_Kept_Per_Thread()
+    {
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(Model(DrivenGradients), Namespace, "DrivenGradients", SvgExpressionDeclarations.Parse(DrivenGradients)) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Body = SvgBody.Direct });
+
+        // The written gradient too: an argument fading its fill fades its stops.
+        Assert.Contains("SKShader.CreateTwoPointConicalGradient(", code);
+        Assert.Equal(4, code.Split("[ThreadStatic]\n        private static SKShader s_skGradient".Replace("\n", Environment.NewLine)).Length - 1);
+        Assert.DoesNotMatch(@"var skPaint\d+ = new SKPaint\(\);", code.Substring(code.IndexOf("public static void Draw(", StringComparison.Ordinal)));
+        Assert.Contains(".Shader = null;", code);
+    }
+
+    [Fact]
+    public void A_Driven_Gradient_Fills_Text_As_It_Fills_A_Shape()
+    {
+        static string Svg(string stop) => $$"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 48 24" width="48" height="24">
+              <defs>
+                <e:code><e:param name="tint" type="color" default="#1e40af" /></e:code>
+                <linearGradient id="t" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="48" y2="0">
+                  <stop offset="0" stop-color="{{stop}}" />
+                  <stop offset="1" stop-color="#dc2626" />
+                </linearGradient>
+              </defs>
+              <text x="2" y="18" font-family="Noto Sans" font-size="16" fill="url(#t)">Abc</text>
+              <path d="M 2 21.5 L 46 21.5" stroke="#111827" stroke-width="1" />
+            </svg>
+            """;
+
+        var direct = AssertTextRendersTheSame(
+            "ExprGradientText",
+            Svg("{{ tint }}"),
+            arguments: new object?[] { new SKColor(0x7c, 0x3a, 0xed) },
+            expectedMarkup: Svg("#7c3aed"));
+
+        Assert.Contains("private static SKShader s_skGradient", direct);
     }
 
     [Fact]
