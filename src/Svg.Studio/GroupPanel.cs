@@ -1610,6 +1610,12 @@ public sealed class GroupPanel : UserControl
             }
         }
 
+        // A driven clip path's points are read from the values, so they move with them too.
+        if (_draw.Reshaping)
+        {
+            TrackGizmo();
+        }
+
         _canvas.Publish();
 
         _element.Readouts();
