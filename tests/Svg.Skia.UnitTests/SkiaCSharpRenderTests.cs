@@ -2241,7 +2241,7 @@ public class SkiaCSharpRenderTests
 
     [Fact]
     public void A_Restore_With_Nothing_Open_Gives_Back_Nothing()
-        // As Skia's recorder ignores it: the clip and the translation set before it still hold.
+    // As Skia's recorder ignores it: the clip and the translation set before it still hold.
     {
         var recorder = new ShimSkiaSharp.SKPictureRecorder();
         var canvas = recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
@@ -2464,39 +2464,30 @@ public class SkiaCSharpRenderTests
         Assert.Contains(".Shader = null;", code);
     }
 
-    // Held to the record body's own drawing rather than the runtime's, which driven gradient text
-    // already parts from on master (0.038 here) in either body.
     [Fact]
-    public void A_Driven_Gradient_Fills_Text_On_The_Shared_Paint_As_It_Does_On_A_Paint_Of_Its_Own()
+    public void A_Driven_Gradient_Fills_Text_As_It_Fills_A_Shape()
     {
-        const string svg = """
+        static string Svg(string stop) => $$"""
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 48 24" width="48" height="24">
               <defs>
                 <e:code><e:param name="tint" type="color" default="#1e40af" /></e:code>
                 <linearGradient id="t" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="48" y2="0">
-                  <stop offset="0" stop-color="{{ tint }}" />
+                  <stop offset="0" stop-color="{{stop}}" />
                   <stop offset="1" stop-color="#dc2626" />
                 </linearGradient>
               </defs>
-              <text x="2" y="18" font-size="16" fill="url(#t)">Abc</text>
+              <text x="2" y="18" font-family="Noto Sans" font-size="16" fill="url(#t)">Abc</text>
               <path d="M 2 21.5 L 46 21.5" stroke="#111827" stroke-width="1" />
             </svg>
             """;
-        var model = Model(svg);
-        var arguments = new object?[] { new SKColor(0x7c, 0x3a, 0xed) };
 
-        SKPicture Recorded(SvgBody body, string name)
-        {
-            var code = SkiaCSharpCodeGen.GenerateFile(
-                new[] { new SkiaCSharpDrawing(model, Namespace, name, SvgExpressionDeclarations.Parse(svg)) },
-                SvgHelperScope.PerClass,
-                style: new SvgCodeStyle { Body = body, Bake = false });
-            return (SKPicture)Compile(code, name).GetType($"{Namespace}.{name}")!.GetMethod("Record")!.Invoke(null, arguments)!;
-        }
+        var direct = AssertTextRendersTheSame(
+            "ExprGradientText",
+            Svg("{{ tint }}"),
+            arguments: new object?[] { new SKColor(0x7c, 0x3a, 0xed) },
+            expectedMarkup: Svg("#7c3aed"));
 
-        using var own = Recorded(SvgBody.Record, "GradientTextOwn");
-        using var shared = Recorded(SvgBody.Direct, "GradientTextShared");
-        AssertSamePicture("GradientTextShared", own, shared);
+        Assert.Contains("private static SKShader s_skGradient", direct);
     }
 
     [Fact]
