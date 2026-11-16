@@ -23,7 +23,8 @@ public sealed class AvaloniaPicture : IDisposable
         _commands = new List<DrawCommand>();
     }
 
-    private static void RecordPathCommand(DrawPathCanvasCommand drawPathCanvasCommand, List<DrawCommand> commands)
+    /// <param name="total">What the drawing's matrices add up to since it started, through every picture it nests.</param>
+    private static void RecordPathCommand(DrawPathCanvasCommand drawPathCanvasCommand, SKMatrix total, List<DrawCommand> commands)
     {
         if (drawPathCanvasCommand.Path is null || drawPathCanvasCommand.Paint is null)
         {
@@ -31,6 +32,20 @@ public sealed class AvaloniaPicture : IDisposable
         }
 
         var (brush, pen) = drawPathCanvasCommand.Paint.ToBrushAndPen(drawPathCanvasCommand.Path.Bounds);
+
+        // Stroked in the space the drawing started in, as SkiaModel and the C# export stroke one.
+        if (drawPathCanvasCommand.Paint is { IsStrokeNonScaling: true, Style: SKPaintStyle.Stroke } &&
+            !total.IsIdentity &&
+            total.TryInvert(out var inverse) &&
+            drawPathCanvasCommand.Path.ToGeometry(brush is { }) is { } placed)
+        {
+            placed.Transform = new AM.MatrixTransform(total.ToMatrix());
+            commands.Add(new SaveDrawCommand());
+            commands.Add(new PushTransformDrawCommand(inverse.ToMatrix()));
+            commands.Add(new GeometryDrawCommand(brush, pen, placed));
+            commands.Add(new RestoreDrawCommand());
+            return;
+        }
 
         if (drawPathCanvasCommand.Path.Commands?.Count == 1)
         {
@@ -162,7 +177,8 @@ public sealed class AvaloniaPicture : IDisposable
         }
     }
 
-    private static void RecordCommand(CanvasCommand canvasCommand, List<DrawCommand> commands)
+    /// <param name="totals">What the drawing's matrices add up to since it started, the current one on top, one per save.</param>
+    private static void RecordCommand(CanvasCommand canvasCommand, Stack<SKMatrix> totals, List<DrawCommand> commands)
     {
         switch (canvasCommand)
         {
@@ -191,17 +207,23 @@ public sealed class AvaloniaPicture : IDisposable
             case SaveCanvasCommand _:
                 {
                     // TODO: SaveCanvasCommand
+                    totals.Push(totals.Peek());
                     commands.Add(new SaveDrawCommand());
                     break;
                 }
             case RestoreCanvasCommand _:
                 {
                     // TODO: RestoreCanvasCommand
+                    if (totals.Count > 1)
+                    {
+                        totals.Pop();
+                    }
                     commands.Add(new RestoreDrawCommand());
                     break;
                 }
             case SetMatrixCanvasCommand setMatrixCanvasCommand:
                 {
+                    totals.Push(totals.Pop().PreConcat(setMatrixCanvasCommand.DeltaMatrix));
                     var matrix = setMatrixCanvasCommand.DeltaMatrix.ToMatrix();
                     commands.Add(new PushTransformDrawCommand(matrix));
                     break;
@@ -217,6 +239,7 @@ public sealed class AvaloniaPicture : IDisposable
                 }
             case SaveLayerCanvasCommand saveLayerCanvasCommand:
                 {
+                    totals.Push(totals.Peek());
                     commands.Add(new SaveLayerDrawCommand(GetSimpleLayerOpacity(saveLayerCanvasCommand.Paint)));
                     break;
                 }
@@ -241,14 +264,14 @@ public sealed class AvaloniaPicture : IDisposable
                     {
                         foreach (var nestedCommand in nestedCommands)
                         {
-                            RecordCommand(nestedCommand, commands);
+                            RecordCommand(nestedCommand, totals, commands);
                         }
                     }
                     break;
                 }
             case DrawPathCanvasCommand drawPathCanvasCommand:
                 {
-                    RecordPathCommand(drawPathCanvasCommand, commands);
+                    RecordPathCommand(drawPathCanvasCommand, totals.Peek(), commands);
                     break;
                 }
             case DrawPositionedTextRunCanvasCommand drawPositionedTextRunCanvasCommand:
@@ -297,9 +320,11 @@ public sealed class AvaloniaPicture : IDisposable
             return avaloniaPicture;
         }
 
+        var totals = new Stack<SKMatrix>();
+        totals.Push(SKMatrix.Identity);
         foreach (var canvasCommand in picture.Commands)
         {
-            RecordCommand(canvasCommand, avaloniaPicture._commands);
+            RecordCommand(canvasCommand, totals, avaloniaPicture._commands);
         }
 
         return avaloniaPicture;

@@ -46,6 +46,23 @@ public class SvgOpacityVisualTests
         AssertColor(overlap, 127, 6);
     }
 
+    [AvaloniaFact]
+    public void SvgImage_MeasuresANonScalingStrokeFromTheDrawing()
+    {
+        // 4 wide however the group stretches it, where a plain stroke would be 16 and reach y = 15.
+        using var bitmap = RenderSvg("""
+            <svg xmlns="http://www.w3.org/2000/svg" width="80" height="40">
+              <g transform="scale(1 4)">
+                <line x1="10" y1="5" x2="70" y2="5" stroke="black" stroke-width="4" vector-effect="non-scaling-stroke"/>
+              </g>
+            </svg>
+            """);
+
+        AssertColor(GetPixel(bitmap, 40, 20), 0, 6);
+        AssertColor(GetPixel(bitmap, 40, 15), 255, 6);
+        AssertColor(GetPixel(bitmap, 40, 25), 255, 6);
+    }
+
     private static WriteableBitmap RenderSvg(string svg)
     {
         var source = SvgSource.LoadFromSvg(svg);
