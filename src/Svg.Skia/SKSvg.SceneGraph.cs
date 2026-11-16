@@ -372,6 +372,9 @@ public partial class SKSvg
             }
         }
 
+        // A recompiled node comes back where it was compiled, as Mutated() puts back.
+        sceneDocument.ApplyExpressionTransforms(BoundExpressions());
+
         return true;
     }
 

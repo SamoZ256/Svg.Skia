@@ -76,7 +76,10 @@ public partial class SKSvg
             }
 
             using var documentFontScope = PushDocumentFonts(sceneDocument.SourceDocument, sceneDocument.AssetLoader);
-            var newModel = RecordOverlayNodeModel(sceneDocument, RootNode, ignoreAttributes);
+            // Bound as the whole drawing is, since this goes to Skia with nothing evaluating it after.
+            var newModel = RecordOverlayNodeModel(sceneDocument, RootNode, ignoreAttributes) is { } recorded
+                ? owner.ApplyExpressionValues(recorded, sceneDocument.SourceDocument)
+                : null;
             var newPicture = newModel is null ? null : owner.SkiaModel.ToSKPicture(newModel);
 
             owner.ReplaceRegisteredPicture(Model, Picture, newModel, newPicture, deferredDisposals);
@@ -432,7 +435,9 @@ public partial class SKSvg
         if (topologyChanged || _staticAnimationLayerModel is null || _staticAnimationLayerPicture is null)
         {
             using var documentFontScope = PushDocumentFonts(sceneDocument.SourceDocument, sceneDocument.AssetLoader);
-            newStaticLayerModel = RecordStaticLayerModel(sceneDocument, rootInfos, cullRect, IgnoreAttributes);
+            newStaticLayerModel = RecordStaticLayerModel(sceneDocument, rootInfos, cullRect, IgnoreAttributes) is { } recorded
+                ? ApplyExpressionValues(recorded, sceneDocument.SourceDocument)
+                : null;
             newStaticLayerPicture = SkiaModel.ToSKPicture(newStaticLayerModel);
             if (newStaticLayerPicture is null)
             {
