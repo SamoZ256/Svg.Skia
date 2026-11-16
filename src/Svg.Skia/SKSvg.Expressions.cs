@@ -108,11 +108,15 @@ public partial class SKSvg
             scene.ApplyExpressionTransforms(BoundExpressions());
         }
 
-        // Its layers were bound when they were recorded; the next frame records them again, as it
-        // does after a mutation.
+        // Its layers were bound when they were recorded, so the frame is recorded again now: waiting
+        // for the next one leaves a paused or finished animation drawing the old values, since a frame
+        // equal to the last is never rendered.
         if (UsesAnimationLayerCaching)
         {
             DisableAnimationLayerCaching();
+            _lastRenderedAnimationFrameState = null;
+            RefreshCurrentAnimationFrame(bypassThrottle: true);
+            return Picture;
         }
 
         return RebuildFromModel();
