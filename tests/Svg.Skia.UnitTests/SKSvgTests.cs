@@ -159,11 +159,13 @@ public class SKSvgTests : SvgUnitTest
         Assert.Equal(360, image.Height);
     }
 
+    // Measured against the drawing's root, as PaintCode's drawings scale: a non-scaling stroke ignores the
+    // document's own scale(1 4) and halves with the caller's 0.5, 4 to 2; a plain one takes both, 4 to 8.
     [Theory]
-    [InlineData("", 1, 3)]
-    [InlineData("vector-effect=\"non-scaling-stroke\"", 3, 6)]
-    [InlineData("style=\"vector-effect: non-scaling-stroke\"", 3, 6)]
-    public void Save_DownScaledVectorEffectNonScalingStroke_PreservesStrokeWidth(string vectorEffect, int minOpaquePixels, int maxOpaquePixels)
+    [InlineData("", 7, 9)]
+    [InlineData("vector-effect=\"non-scaling-stroke\"", 1, 3)]
+    [InlineData("style=\"vector-effect: non-scaling-stroke\"", 1, 3)]
+    public void Save_DownScaledVectorEffectNonScalingStroke_ScalesWithTheCanvas(string vectorEffect, int minOpaquePixels, int maxOpaquePixels)
     {
         var svg = new SKSvg();
         using var input = new MemoryStream(Encoding.UTF8.GetBytes(CreateNonScalingStrokeSvgMarkup(vectorEffect)));
@@ -182,10 +184,10 @@ public class SKSvgTests : SvgUnitTest
     }
 
     [Theory]
-    [InlineData("", 1, 3)]
-    [InlineData("vector-effect=\"non-scaling-stroke\"", 3, 6)]
-    [InlineData("style=\"vector-effect: non-scaling-stroke\"", 3, 6)]
-    public void Draw_DownScaledVectorEffectNonScalingStroke_PreservesStrokeWidthAndRaisesOnDraw(string vectorEffect, int minOpaquePixels, int maxOpaquePixels)
+    [InlineData("", 7, 9)]
+    [InlineData("vector-effect=\"non-scaling-stroke\"", 1, 3)]
+    [InlineData("style=\"vector-effect: non-scaling-stroke\"", 1, 3)]
+    public void Draw_DownScaledVectorEffectNonScalingStroke_ScalesWithTheCanvasAndRaisesOnDraw(string vectorEffect, int minOpaquePixels, int maxOpaquePixels)
     {
         var svg = new SKSvg();
         using var input = new MemoryStream(Encoding.UTF8.GetBytes(CreateNonScalingStrokeSvgMarkup(vectorEffect)));
@@ -211,7 +213,7 @@ public class SKSvgTests : SvgUnitTest
     }
 
     [Fact]
-    public void Draw_AnimationLayerCachingWithNonScalingStroke_PreservesStrokeWidth()
+    public void Draw_AnimationLayerCachingWithNonScalingStroke_ScalesWithTheCanvas()
     {
         var svg = new SKSvg();
         using var input = new MemoryStream(Encoding.UTF8.GetBytes(CreateAnimationLayerNonScalingStrokeSvgMarkup()));
@@ -232,14 +234,16 @@ public class SKSvgTests : SvgUnitTest
         using var output = new MemoryStream(data.ToArray());
         using var image = Image.Load<Rgba32>(output);
         var opaquePixels = CountOpaquePixelsInColumn(image, 25);
-        Assert.InRange(opaquePixels, 3, 6);
+        Assert.InRange(opaquePixels, 1, 3);
     }
 
     private static string CreateNonScalingStrokeSvgMarkup(string vectorEffect)
     {
         return $$"""
             <svg xmlns="http://www.w3.org/2000/svg" width="100" height="40" viewBox="0 0 100 40">
-              <line x1="10" y1="20" x2="90" y2="20" stroke="black" stroke-width="4" {{vectorEffect}} />
+              <g transform="scale(1 4)">
+                <line x1="10" y1="5" x2="90" y2="5" stroke="black" stroke-width="4" {{vectorEffect}} />
+              </g>
             </svg>
             """;
     }
@@ -248,7 +252,9 @@ public class SKSvgTests : SvgUnitTest
     {
         return """
             <svg xmlns="http://www.w3.org/2000/svg" width="100" height="40" viewBox="0 0 100 40">
-              <line x1="10" y1="20" x2="90" y2="20" stroke="black" stroke-width="4" vector-effect="non-scaling-stroke" />
+              <g transform="scale(1 4)">
+                <line x1="10" y1="5" x2="90" y2="5" stroke="black" stroke-width="4" vector-effect="non-scaling-stroke" />
+              </g>
               <g id="animated-root">
                 <rect id="moving" x="0" y="34" width="5" height="4" fill="red">
                   <animate attributeName="x" from="0" to="10" dur="1s" fill="freeze" />

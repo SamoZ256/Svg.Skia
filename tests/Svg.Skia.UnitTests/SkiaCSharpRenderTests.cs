@@ -797,8 +797,8 @@ public class SkiaCSharpRenderTests
     public void A_Picture_Replays_Its_Own_Matrices_Under_The_Canvas()
     {
         // Under a scale of its own and a clip, then a shape drawn after it back under the outer matrix.
-        // Not a non-scaling stroke: inside a picture the runtime takes it against the canvas's whole
-        // matrix and generated code, recorded or replayed, against the picture's (RMS 0.071 on master).
+        // The stroke is non-scaling, measured from where the drawing started rather than the picture:
+        // each side took its own until both did (RMS 0.071).
         var nested = new ShimSkiaSharp.SKPictureRecorder();
         var inner = nested.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24));
         inner.Save();
@@ -816,7 +816,7 @@ public class SkiaCSharpRenderTests
         // it draws on, so one left set would outlast the picture there and not under DrawPicture.
         inner.Save();
         inner.SetMatrix(ShimSkiaSharp.SKMatrix.CreateScale(1.5f, 1.5f));
-        inner.DrawPath(triangle, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true, Color = new ShimSkiaSharp.SKColor(0x1e, 0x40, 0xaf, 0xff) });
+        inner.DrawPath(triangle, new ShimSkiaSharp.SKPaint { Style = ShimSkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 1.5f, IsAntialias = true, IsStrokeNonScaling = true, Color = new ShimSkiaSharp.SKColor(0x1e, 0x40, 0xaf, 0xff) });
         inner.Restore();
 
         var recorder = new ShimSkiaSharp.SKPictureRecorder();
@@ -830,11 +830,22 @@ public class SkiaCSharpRenderTests
         canvas.Restore();
         var model = recorder.EndRecording();
 
-        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        var skia = new SkiaModel(new SKSvgSettings());
+        using var runtime = skia.ToSKPicture(model);
         using var generated = Generated(model, "PictureMatrices", SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), bake: false);
         AssertSamePicture("PictureMatrices", runtime!, generated);
         AssertDrawsDirectlyTheSame("PictureMatrices", model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
         Assert.Single(Regex.Matches(Code(model, "PictureMatrices", SvgBody.Direct), @"new SKPictureRecorder\(\)"));
+
+        // A second conversion takes the picture from the renderer's cache, recorded from its own start.
+        using var again = skia.ToSKPicture(model);
+        AssertSamePicture("PictureMatrices-again", runtime!, again!);
+
+        // The renderer drawing directly under a transform, as SKSvg does, scales the drawing whole.
+        var under = new SKRect(0, 0, 24 * 1.5f + 6, 24 * 1.5f + 10);
+        using var recorded = Transformed(under, canvas => canvas.DrawPicture(runtime));
+        using var drawn = Transformed(under, canvas => skia.Draw(model, canvas));
+        AssertSamePicture("PictureMatrices-drawn", recorded, drawn);
     }
 
     private static readonly string s_noto = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "crates", "resvg", "tests", "fonts", "NotoSans-Regular.ttf"));
@@ -2824,6 +2835,34 @@ public class SkiaCSharpRenderTests
               </g>
             </svg>
             """);
+
+    [Fact]
+    public void A_Non_Scaling_Underline_Is_Measured_From_The_Drawing_Not_The_Text()
+        // The scene draws a text element's decoration inside the picture it wraps the text in (RMS 0.032).
+        => AssertTextRendersTheSame("NonScalingUnderline", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+              <g transform="translate(3 4) scale(1.5)">
+                <text x="2" y="14" font-family="Noto Sans" font-size="10" fill="#93c5fd" stroke="#1e40af" stroke-width="1" vector-effect="non-scaling-stroke" text-decoration="underline">Ab</text>
+              </g>
+            </svg>
+            """);
+
+    [Fact]
+    public void A_Non_Scaling_Stroke_In_An_Svg_Image_Is_Measured_From_The_Drawing()
+    {
+        // An image's document is a picture of its own, drawn under the image's placement (RMS 0.183).
+        var image = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><path d="M 1 1 L 9 1 L 9 9 Z" fill="none" stroke="#1e40af" stroke-width="1.5" vector-effect="non-scaling-stroke" /></svg>
+            """));
+
+        AssertRendersTheSame("NonScalingImage", $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="24" height="24">
+              <g transform="translate(2 3) scale(1.5)">
+                <image x="0" y="0" width="12" height="12" xlink:href="data:image/svg+xml;base64,{image}" />
+              </g>
+            </svg>
+            """);
+    }
 
     [Fact]
     public void A_Pattern_Fill_Draws_Directly_As_It_Records()

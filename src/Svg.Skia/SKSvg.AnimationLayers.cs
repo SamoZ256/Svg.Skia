@@ -346,12 +346,6 @@ public partial class SKSvg
             return;
         }
 
-        if (model is { } && ContainsNonScalingStroke(model))
-        {
-            SkiaModel.Draw(model, canvas);
-            return;
-        }
-
         if (picture is { })
         {
             if (SKPictureExtensions.CanDrawPicture(picture, canvas))

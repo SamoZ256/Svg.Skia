@@ -2210,9 +2210,11 @@ public partial class SkiaModel
 
         var previousCacheShapedTextBlobs = _cacheShapedTextBlobsForCurrentPicture;
         var previousCacheComplexRenderPaints = _cacheComplexRenderPaintsForCurrentPicture;
+        var previousDrawingRoot = _drawingRoot;
         var cacheRepeatedPictureObjects = ShouldCacheRepeatedPictureObjects(picture);
         _cacheShapedTextBlobsForCurrentPicture = cacheRepeatedPictureObjects;
         _cacheComplexRenderPaintsForCurrentPicture = cacheRepeatedPictureObjects;
+        _drawingRoot = null;
         try
         {
             if (commands is { Count: > 0 })
@@ -2228,6 +2230,7 @@ public partial class SkiaModel
         {
             _cacheShapedTextBlobsForCurrentPicture = previousCacheShapedTextBlobs;
             _cacheComplexRenderPaintsForCurrentPicture = previousCacheComplexRenderPaints;
+            _drawingRoot = previousDrawingRoot;
         }
 
         return skPictureRecorder.EndRecording();
@@ -2573,9 +2576,11 @@ public partial class SkiaModel
                     if (drawPictureCanvasCommand.Picture is { } picture)
                     {
                         // The recording was made with no layer open: under one it would draw as
-                        // DrawRect the lone rects that replaying the picture draws as paths.
+                        // DrawRect the lone rects that replaying the picture draws as paths. Nor was it
+                        // made from the drawing's root, which a non-scaling stroke is measured against.
                         if (!wireframe &&
                             state is not { SaveLayerDepth: > 0 } &&
+                            !ContainsNonScalingStroke(picture) &&
                             TryGetReusableRenderPicture(picture, _cacheComplexRenderPaintsForCurrentPicture, out var cachedPicture))
                         {
                             skCanvas.DrawPicture(cachedPicture);
@@ -2749,6 +2754,12 @@ public partial class SkiaModel
         }
     }
 
+    /// <summary>
+    /// The matrix the drawing being replayed started under, which a non-scaling stroke is measured
+    /// against through every picture it nests; null where that is identity, as in a recording.
+    /// </summary>
+    private SkiaSharp.SKMatrix? _drawingRoot;
+
     public void Draw(SKPicture picture, SkiaSharp.SKCanvas skCanvas, bool wireframe = false)
     {
         var commands = picture.Commands;
@@ -2757,25 +2768,34 @@ public partial class SkiaModel
             return;
         }
 
-        if (wireframe)
-        {
-            DrawPictureCommandsCore(picture, skCanvas, wireframe: true);
-            return;
-        }
-
-        var previousCacheShapedTextBlobs = _cacheShapedTextBlobsForCurrentPicture;
-        var previousCacheComplexRenderPaints = _cacheComplexRenderPaintsForCurrentPicture;
-        var cacheRepeatedPictureObjects = ShouldCacheRepeatedPictureObjects(picture);
-        _cacheShapedTextBlobsForCurrentPicture |= cacheRepeatedPictureObjects;
-        _cacheComplexRenderPaintsForCurrentPicture |= cacheRepeatedPictureObjects;
+        var previousDrawingRoot = _drawingRoot;
+        _drawingRoot = skCanvas.TotalMatrix;
         try
         {
-            DrawPictureCommandsCore(picture, skCanvas, state: new SaveLayerTracker());
+            if (wireframe)
+            {
+                DrawPictureCommandsCore(picture, skCanvas, wireframe: true);
+                return;
+            }
+
+            var previousCacheShapedTextBlobs = _cacheShapedTextBlobsForCurrentPicture;
+            var previousCacheComplexRenderPaints = _cacheComplexRenderPaintsForCurrentPicture;
+            var cacheRepeatedPictureObjects = ShouldCacheRepeatedPictureObjects(picture);
+            _cacheShapedTextBlobsForCurrentPicture |= cacheRepeatedPictureObjects;
+            _cacheComplexRenderPaintsForCurrentPicture |= cacheRepeatedPictureObjects;
+            try
+            {
+                DrawPictureCommandsCore(picture, skCanvas, state: new SaveLayerTracker());
+            }
+            finally
+            {
+                _cacheShapedTextBlobsForCurrentPicture = previousCacheShapedTextBlobs;
+                _cacheComplexRenderPaintsForCurrentPicture = previousCacheComplexRenderPaints;
+            }
         }
         finally
         {
-            _cacheShapedTextBlobsForCurrentPicture = previousCacheShapedTextBlobs;
-            _cacheComplexRenderPaintsForCurrentPicture = previousCacheComplexRenderPaints;
+            _drawingRoot = previousDrawingRoot;
         }
     }
 
@@ -2825,7 +2845,8 @@ public partial class SkiaModel
         }
     }
 
-    private static void DrawPath(
+    // The same operations, in the same order, as the C# export emits for one.
+    private void DrawPath(
         SkiaSharp.SKCanvas skCanvas,
         SkiaSharp.SKPath path,
         SkiaSharp.SKPaint? paint,
@@ -2842,20 +2863,58 @@ public partial class SkiaModel
             return;
         }
 
-        var currentMatrix = skCanvas.TotalMatrix;
-        if (currentMatrix.IsIdentity)
+        var root = _drawingRoot;
+        var matrix = skCanvas.TotalMatrix;
+        if (root is { } entry)
+        {
+            entry.TryInvert(out var inverse);
+            matrix = inverse.PreConcat(matrix);
+        }
+
+        if (matrix.IsIdentity)
         {
             skCanvas.DrawPath(path, paint);
             return;
         }
 
         using var transformedPath = new SkiaSharp.SKPath(path);
-        transformedPath.Transform(currentMatrix);
+        transformedPath.Transform(matrix);
 
         skCanvas.Save();
-        skCanvas.ResetMatrix();
+        if (root is { } rootMatrix)
+        {
+            skCanvas.SetMatrix(rootMatrix);
+        }
+        else
+        {
+            skCanvas.ResetMatrix();
+        }
+
         skCanvas.DrawPath(transformedPath, paint);
         skCanvas.Restore();
+    }
+
+    private static bool ContainsNonScalingStroke(SKPicture picture)
+    {
+        if (picture.Commands is not { } commands)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < commands.Count; i++)
+        {
+            switch (commands[i])
+            {
+                case DrawPathCanvasCommand { Paint: { IsStrokeNonScaling: true, Style: SKPaintStyle.Stroke } }:
+                    return true;
+
+                case DrawPictureCanvasCommand { Picture: { } nested }
+                    when ContainsNonScalingStroke(nested):
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private bool TryDrawDirectFilledPrimitivePath(

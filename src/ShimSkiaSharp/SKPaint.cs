@@ -165,6 +165,12 @@ public sealed class SKPaint : ICloneable, IDeepCloneable<SKPaint>
         }
     }
 
+    /// <summary>
+    /// Whether a stroke's width is taken against the matrix the drawing started under rather than the
+    /// path's own: identity in a recording, the caller's matrix in a direct draw, and the same through
+    /// every picture the drawing nests. So a drawing scales whole under the caller's matrix, as
+    /// PaintCode's do.
+    /// </summary>
     public bool IsStrokeNonScaling
     {
         get => _isStrokeNonScaling;

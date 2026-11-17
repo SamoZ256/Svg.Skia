@@ -1804,15 +1804,22 @@ public static class SkiaCSharpModelExtensions
 
         /// <param name="paint">The shared paint's local, or null where every paint is built for itself.</param>
         /// <param name="direct">Whether the canvas is the caller's, whose matrix every one set is relative to.</param>
-        public CanvasState(string? paint, string canvas, int counterCanvas, bool direct)
+        /// <param name="root">The state of the drawing a picture is replayed in; null for the drawing's own.</param>
+        public CanvasState(string? paint, string canvas, int counterCanvas, bool direct, CanvasState? root = null)
         {
             Paint = paint;
             _canvas = canvas;
             _counterCanvas = counterCanvas;
             _direct = direct;
+            Root = root ?? this;
         }
 
         public string? Paint { get; }
+
+        /// <summary>The drawing's own state, whose start a non-scaling stroke is measured from.</summary>
+        public CanvasState Root { get; }
+
+        public int CounterCanvas => _counterCanvas;
 
         public bool PaintUsed { get; private set; }
 
@@ -2845,12 +2852,13 @@ public static class SkiaCSharpModelExtensions
     /// The canvas a picture is drawn on, which takes its commands as its playback would, instead of
     /// recording a picture on every draw; null for the drawing's own.
     /// </param>
-    private static CanvasState ToCanvas(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, StringBuilder? statics, SaveLayerTracker? layers, string? source = null)
+    /// <param name="root">The state of the drawing <paramref name="source"/> belongs to.</param>
+    private static CanvasState ToCanvas(SKPicture? picture, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, StringBuilder? statics, SaveLayerTracker? layers, string? source = null, CanvasState? root = null)
     {
         var counterCanvas = ++counter.Canvas;
         var canvas = $"{counter.CanvasVarName}{counterCanvas}";
 
-        var state = new CanvasState($"skSharedPaint{counterCanvas}", canvas, counterCanvas, direct: true);
+        var state = new CanvasState($"skSharedPaint{counterCanvas}", canvas, counterCanvas, direct: true, root);
         var body = new StringBuilder();
 
         Commands(picture?.Commands, counter, body, indent, counterCanvas, source is null ? statics ?? new StringBuilder() : statics, layers ?? new SaveLayerTracker(), state);
@@ -3260,7 +3268,7 @@ public static class SkiaCSharpModelExtensions
                         // picture on every draw, around every text element the scene wraps in one.
                         if (drawPictureCanvasCommand.Picture is { })
                         {
-                            var child = ToCanvas(drawPictureCanvasCommand.Picture, counter, sb, indent, counter.Statics, layers, $"{counter.CanvasVarName}{counterCanvas}");
+                            var child = ToCanvas(drawPictureCanvasCommand.Picture, counter, sb, indent, counter.Statics, layers, $"{counter.CanvasVarName}{counterCanvas}", state.Root);
                             if (child.PaintUsed)
                             {
                                 state.Clobbered();
@@ -3306,11 +3314,13 @@ public static class SkiaCSharpModelExtensions
                                 drawPathCanvasCommand.Paint.Style == SKPaintStyle.Stroke)
                             {
                                 var counterNonScalingPath = ++counter.Path;
-                                if (state.Direct)
+                                var root = state.Root;
+                                if (root.Direct)
                                 {
-                                    // What the picture's own matrices add to the caller's, as a recording would see it.
-                                    state.BaseUsed = true;
-                                    sb.AppendLine($"{indent}skBase{counterCanvas}.TryInvert(out var inverse{counterNonScalingPath});");
+                                    // What the drawing's own matrices add to the caller's, through every
+                                    // picture it nests, as a recording would see it.
+                                    root.BaseUsed = true;
+                                    sb.AppendLine($"{indent}skBase{root.CounterCanvas}.TryInvert(out var inverse{counterNonScalingPath});");
                                     sb.AppendLine($"{indent}var matrix{counterNonScalingPath} = inverse{counterNonScalingPath}.PreConcat({counter.CanvasVarName}{counterCanvas}.TotalMatrix);");
                                 }
                                 else
@@ -3327,8 +3337,8 @@ public static class SkiaCSharpModelExtensions
                                 sb.AppendLine($"{indent}    using var {counter.PathVarName}{counterNonScalingPath} = new SKPath({counter.PathVarName}{counterPath});");
                                 sb.AppendLine($"{indent}    {counter.PathVarName}{counterNonScalingPath}.Transform(in matrix{counterNonScalingPath});");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.Save();");
-                                sb.AppendLine(state.Direct
-                                    ? $"{indent}    {counter.CanvasVarName}{counterCanvas}.SetMatrix(in skBase{counterCanvas});"
+                                sb.AppendLine(root.Direct
+                                    ? $"{indent}    {counter.CanvasVarName}{counterCanvas}.SetMatrix(in skBase{root.CounterCanvas});"
                                     : $"{indent}    {counter.CanvasVarName}{counterCanvas}.ResetMatrix();");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.DrawPath({counter.PathVarName}{counterNonScalingPath}, {counter.PaintVarName}{counterPaint});");
                                 sb.AppendLine($"{indent}    {counter.CanvasVarName}{counterCanvas}.Restore();");
