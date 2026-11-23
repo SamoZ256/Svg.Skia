@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html data-lunet-theme-mode="system" data-lunet-theme-storage-key="lunet-theme" data-lunet-css-prefix="lunet" lang="en" itemscope itemtype="http://schema.org/WebPage">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="generator" content="lunet 1.0.10.0">
+    <script>(function(){const root=document.documentElement;const key=root.getAttribute("data-lunet-theme-storage-key")||"lunet-theme";const fallback=root.getAttribute("data-lunet-theme-mode")||"system";let stored=null;try{stored=localStorage.getItem(key);}catch(_){stored=null;}const mode=(stored==="light"||stored==="dark"||stored==="system")?stored:fallback;const prefersDark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;const resolved=mode==="system"?(prefersDark?"dark":"light"):mode;root.setAttribute("data-lunet-theme-mode",mode);root.setAttribute("data-bs-theme",resolved);}());</script>
+    <link rel='icon' href='/Svg.Skia/favicon.ico' sizes='32x32'>
+    <title>UnoDraw MCP | Svg.Skia</title>
+    <link rel="stylesheet" href="/Svg.Skia/css/lite.css">
+    <script src="/Svg.Skia/js/lite-defer.js" defer></script>
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@wieslawsoltes">
+<meta name="twitter:title" content="UnoDraw MCP | Svg.Skia">
+<meta name="twitter:description" content="UnoDraw MCP UnoDraw exposes its live editor through the Model Context Protocol (MCP). A client can inspect documents, create and edit artwork, change the workspace, render previews, and export deliverables. Operations reuse the existing SVG controller, rendering, resource services, and undo history. The browser and desktop share the same tool catalog and document semantics. Use this guide for connections and complete workflows. The tool reference describes every tool, argument, enum,...">
+<meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta name="twitter:image:alt" content="UnoDraw MCP | Svg.Skia">
+<meta property="og:title" content="UnoDraw MCP | Svg.Skia">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
+<meta property="og:description" content="UnoDraw MCP UnoDraw exposes its live editor through the Model Context Protocol (MCP). A client can inspect documents, create and edit artwork, change the workspace, render previews, and export deliverables. Operations reuse the existing SVG controller, rendering, resource services, and undo history. The browser and desktop share the same tool catalog and document semantics. Use this guide for connections and complete workflows. The tool reference describes every tool, argument, enum,...">
+<meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
+<meta property="og:image:alt" content="UnoDraw MCP | Svg.Skia">
+  </head>
+  <body>
+
+    <div id="lunet" class="container">
+      <nav class="navbar navbar-expand-md sticky-top">
+        <a class="navbar-brand" href="/Svg.Skia/">
+          <img class="lunet-logo" src="/Svg.Skia/images/logo.svg" alt="Svg.Skia" width="96" height="96">
+          <span class="visually-hidden">Home</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+          data-bs-target="#navbarSupportedContent"
+          aria-controls="navbarSupportedContent"
+          aria-expanded="false"
+          aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div id="navbarSupportedContent" class="collapse navbar-collapse justify-content-between">
+<ol id='nav-id-home-0' class='navbar-nav nav-level0 show '>
+  <li id='nav-item-home-1' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/' class='nav-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a></span>  </li>
+  <li id='nav-item-home-2' class='nav-item  active'>
+    <span class='nav-item-row'><a href='/Svg.Skia/articles/' class='nav-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a></span>  </li>
+  <li id='nav-item-home-3' class='nav-item '>
+    <span class='nav-item-row'><a href='/Svg.Skia/api/' class='nav-link  '><i class='bi bi-braces' aria-hidden='true'></i> API</a></span>  </li>
+</ol>
+          <ol class="navbar-nav flex-grow-1" style="padding-right: 0.5rem;">
+            <li class="nav-item w-100">
+                <div class="lunet-search dropdown w-100">
+                  <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input id="search-input" type="search" class="form-control" placeholder="Search... (Alt+s)" aria-label="Search" aria-controls="search-results" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-search-empty-message="Enter words to search..." data-search-no-results-message="No results found.">
+                    <ul id="search-results" class="dropdown-menu w-100 p-0" style="max-height: 50vh;" role="listbox" aria-labelledby="search-input"></ul>
+                  </div>
+                </div>
+            </li>
+          </ol>
+          <div class="d-flex align-items-center gap-2 flex-shrink-0 navbar-right">
+            <div class="dropdown">
+              <button
+                id="theme-mode-toggle"
+                class="btn btn-outline-secondary btn-sm lunet-theme-toggle dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                aria-label="Theme">
+                <i class="bi bi-circle-half" data-lunet-theme-toggle-icon aria-hidden="true"></i>
+                <span
+                  data-lunet-theme-toggle-label
+                  data-theme-system-label="System"
+                  data-theme-light-label="Light"
+                  data-theme-dark-label="Dark">Theme</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="theme-mode-toggle">
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="system"><i class="bi bi-circle-half me-2"></i>System</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="light"><i class="bi bi-sun-fill me-2"></i>Light</button></li>
+                <li><button class="dropdown-item" type="button" data-lunet-theme-choice="dark"><i class="bi bi-moon-stars-fill me-2"></i>Dark</button></li>
+              </ul>
+            </div>
+<ol id='nav-id-home2-0' class='navbar-nav nav-level0 show flex-shrink-0'>
+  <li id='nav-item-home2-1' class='nav-item '>
+    <span class='nav-item-row'><a href='https://wieslawsoltes.github.io/Svg.Skia/unodraw/' class='nav-link  btn btn-primary'>UnoDraw</a></span>  </li>
+  <li id='nav-item-home2-2' class='nav-item '>
+    <span class='nav-item-row'><a href='https://github.com/wieslawsoltes/Svg.Skia' class='nav-link  btn btn-info'><i class="bi bi-github"></i> GitHub</a></span>  </li>
+</ol>
+          </div>
+        </div>
+      </nav>
+      <div class="lunet lunet-articles">
+        <section data-prismjs-copy="" data-prismjs-copy-success="" data-prismjs-copy-timeout="1200" data-copy-tooltip="Copy to Clipboard." data-copy-tooltip-success="Copied!" data-copy-tooltip-error="Failed to copy!">
+
+<div class="container-xxl">
+  <div class="row">
+      <!-- Left sidebar - responsive offcanvas (offcanvas on mobile, visible sidebar on md+) -->
+      <nav id="docs-sidebar-menu" class="col-md-3 col-lg-3 col-xl-3 col-xxl-2 offcanvas-md offcanvas-start sticky-md-top menu-sidebar align-self-start order-1 order-md-0" tabindex="-1" aria-labelledby="docs-sidebar-menu-label" aria-expanded="true">
+        <div class="offcanvas-header">
+          <h5 class="offcanvas-title" id="docs-sidebar-menu-label">Menu</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+          <ol id='menu-id-editor-0' class='menu menu-level0 show '>
+            <li id='menu-item-editor-1' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/' class='menu-link  '>Editor</a></span>  </li>
+            <li id='menu-item-editor-2' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/architecture/' class='menu-link  '>Architecture</a></span>  </li>
+            <li id='menu-item-editor-3' class='menu-item  active'>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp/' class='menu-link  '>UnoDraw MCP</a></span>  </li>
+            <li id='menu-item-editor-4' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp-tools/' class='menu-link  '>MCP Tool Reference</a></span>  </li>
+            <li id='menu-item-editor-5' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/embedding-workspace/' class='menu-link  '>Embedding SvgEditorWorkspace</a></span>  </li>
+            <li id='menu-item-editor-6' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/composing-panels-and-dialogs/' class='menu-link  '>Composing Panels and Dialogs</a></span>  </li>
+            <li id='menu-item-editor-7' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/rendering-and-svg-services/' class='menu-link  '>Rendering and Svg Services</a></span>  </li>
+          </ol>
+
+        </div>
+      </nav>
+      <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
+      <aside id="docs-sidebar-toc" class="col-12 col-xxl-2 sticky-xxl-top menu-sidebar align-self-start order-0 order-xxl-2 collapse d-xxl-block" aria-expanded="true">
+        <h3 class="toc-title">On this page</h3>
+        <nav class="js-toc"></nav>
+      </aside>
+      <!-- Main content column -->
+      <div class="col-12 col-md-9 col-lg-9 col-xl-9 col-xxl-8 order-2 order-md-1 js-toc-content">
+        <ol class='breadcrumb'>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/' class='breadcrumb-link  '><i class='bi bi-house-door' aria-hidden='true'></i> Home</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/' class='breadcrumb-link  '><i class='bi bi-book' aria-hidden='true'></i> Docs</a>  </li>
+          <li class='breadcrumb-item '>
+            <a href='/Svg.Skia/articles/editor/' class='breadcrumb-link  '>Editor</a>  </li>
+          <li class='breadcrumb-item  active'>
+            UnoDraw MCP  </li>
+        </ol>
+
+        <p id="lunet-results"></p>
+        <!-- Toggle buttons visible only on small screens -->
+        <div class="d-md-none mb-3">
+          <button
+            class="btn btn-outline-secondary btn-sm me-2"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#docs-sidebar-menu"
+            aria-controls="docs-sidebar-menu"
+            aria-label="Toggle docs menu">
+            Menu
+          </button>
+          <button
+            class="btn btn-outline-secondary btn-sm d-xxl-none"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#docs-sidebar-toc"
+            aria-controls="docs-sidebar-toc"
+            aria-expanded="false"
+            aria-label="Toggle Table Of Contents">
+            On this page
+          </button>
+        </div>
+<!-- lunet:summarize -->
+<h1 id="unodraw-mcp">UnoDraw MCP</h1>
+<p>UnoDraw exposes its live editor through the Model Context Protocol (MCP). A client
+can inspect documents, create and edit artwork, change the workspace, render
+previews, and export deliverables. Operations reuse the existing SVG controller,
+rendering, resource services, and undo history. The browser and desktop share the
+same tool catalog and document semantics.</p>
+<p>Use this guide for connections and complete workflows. The
+<a href="/Svg.Skia/articles/editor/mcp-tools">tool reference</a> describes every tool, argument, enum,
+validation bound, and nested input schema. The <a href="https://github.com/wieslawsoltes/Svg.Skia/blob/master/docs/unodraw.md">editor guide</a> explains
+native tools and shortcuts; the <a href="https://github.com/wieslawsoltes/Svg.Skia/blob/master/docs/unodraw-editor-theme.md">EditorTheme guide</a>
+explains the controls and workspace that automation operates.</p>
+<h2 id="choose-a-connection">Choose a connection</h2>
+<table class="table">
+<thead>
+<tr>
+<th>Application</th>
+<th>MCP transport</th>
+<th>How to connect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Running desktop app</td>
+<td>Streamable HTTP on loopback</td>
+<td><strong>Window → MCP Connection → Start server</strong>, then copy the client configuration.</td>
+</tr>
+<tr>
+<td>Client-launched desktop app</td>
+<td>Standard input/output</td>
+<td>Launch the built application with <code>--mcp-stdio</code>. A graphical desktop is required.</td>
+</tr>
+<tr>
+<td>Browser tab</td>
+<td>Local bridge, exposing stdio or Streamable HTTP</td>
+<td>Start <code>UnoDraw.Mcp</code>, then attach the tab through <strong>Window → MCP Connection</strong>.</td>
+</tr>
+</tbody>
+</table>
+<p>Ordinary editor launches do not start a listener or connect to a bridge. Tokens
+and connection settings are session-only; they are not saved in SVG documents,
+workspace profiles, recovery files, or URL parameters. A connection can be
+restricted to inspection and export. Disconnecting cancels pending requests and
+does not replay edits when a connection is restored.</p>
+<p>The MCP client or bridge runs on the same computer as the editor. A hosted client
+that cannot reach that computer needs its own supported local connector. UnoDraw's
+built-in listener is a loopback service, not an internet-facing OAuth service.</p>
+<h2 id="desktop-connect-to-a-running-workspace">Desktop: connect to a running workspace</h2>
+<p>Build with the repository's .NET 10 SDK and initialize the submodules:</p>
+<pre><code class="language-sh">git submodule update --init --recursive
+dotnet build samples/UnoDraw/UnoDraw.csproj -f net10.0-desktop -c Release
+dotnet samples/UnoDraw/bin/Release/net10.0-desktop/UnoDraw.dll
+</code></pre>
+<p>Open <strong>Window → MCP Connection</strong>. Choose the port, optionally select <strong>Allow
+inspection and export only</strong>, and choose <strong>Start server</strong>. The default endpoint
+is <code>http://127.0.0.1:52741/mcp</code>. The dialog displays the endpoint, its generated
+bearer token, and <strong>Copy client configuration</strong>. Close the dialog before asking a
+client to edit; open native dialogs prevent concurrent automation mutations.</p>
+<p>The copied configuration has this shape. Client-specific configuration containers
+may use another name, but the URL and authorization header are the same:</p>
+<pre><code class="language-json">{
+  &quot;mcpServers&quot;: {
+    &quot;unodraw&quot;: {
+      &quot;type&quot;: &quot;http&quot;,
+      &quot;url&quot;: &quot;http://127.0.0.1:52741/mcp&quot;,
+      &quot;headers&quot;: {
+        &quot;Authorization&quot;: &quot;Bearer &lt;token copied from the connection dialog&gt;&quot;
+      }
+    }
+  }
+}
+</code></pre>
+<p>Return to <strong>Window → MCP Connection</strong> and choose <strong>Disconnect</strong> to stop the server.
+The editor remains usable with its current documents and history.</p>
+<p>Closing the desktop window first disconnects MCP and drains its pending editor
+calls before asking about unsaved documents. Picker results that arrive after
+cancellation are discarded. If you cancel closing, the workspace remains open
+and disconnected; reconnect through the same dialog when ready.</p>
+<h3 id="desktop-startup-options">Desktop startup options</h3>
+<pre><code class="language-sh">dotnet samples/UnoDraw/bin/Release/net10.0-desktop/UnoDraw.dll --mcp-http --mcp-port 52741 drawing.svg
+</code></pre>
+<table class="table">
+<thead>
+<tr>
+<th>Option</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--mcp-http</code> or <code>--mcp</code></td>
+<td>Start the loopback HTTP endpoint after the initial document and recovery workflow are ready.</td>
+</tr>
+<tr>
+<td><code>--mcp-port PORT</code></td>
+<td>Choose an HTTP port from 1024 to 65535; default 52741.</td>
+</tr>
+<tr>
+<td><code>--mcp-stdio</code></td>
+<td>Serve MCP over the process's standard input/output. Mutually exclusive with HTTP startup.</td>
+</tr>
+<tr>
+<td><code>--mcp-read-only</code></td>
+<td>Permit inspection and export; reject editing, selection changes, UI commands, and settings changes.</td>
+</tr>
+<tr>
+<td><code>UNODRAW_MCP_TOKEN</code> environment variable</td>
+<td>Supply a persistent HTTP bearer token instead of generating a new session token.</td>
+</tr>
+</tbody>
+</table>
+<p>Tokens must contain 32–512 printable ASCII characters without whitespace. A new
+random token is generated when none is supplied. Startup diagnostics and generated
+HTTP connection information go to standard error. Desktop framework-dependent
+builds need the .NET and ASP.NET Core 10 runtimes; the .NET SDK includes both.
+Self-contained desktop publishing can include those runtimes with the application.</p>
+<h3 id="desktop-standard-inputoutput">Desktop standard input/output</h3>
+<p>Build first, then configure the client to launch the compiled application. Use
+absolute paths and the correct working environment for your installation:</p>
+<pre><code class="language-json">{
+  &quot;mcpServers&quot;: {
+    &quot;unodraw&quot;: {
+      &quot;command&quot;: &quot;dotnet&quot;,
+      &quot;args&quot;: [
+        &quot;/absolute/path/to/UnoDraw.dll&quot;,
+        &quot;--mcp-stdio&quot;
+      ]
+    }
+  }
+}
+</code></pre>
+<p>Do not use <code>dotnet run</code> as the protocol executable: restore and build output are
+not MCP messages. UnoDraw reserves stdout for JSON-RPC before starting the native
+host, and directs managed application logs to stderr. This transport does not
+open a network listener. Add <code>--mcp-read-only</code> for an inspection-only process.
+The application still owns a visible workspace; normal save and close behavior
+continues to apply.</p>
+<h2 id="browser-attach-a-tab-to-the-local-bridge">Browser: attach a tab to the local bridge</h2>
+<p>A browser page cannot listen for incoming MCP network connections. The small
+<code>UnoDraw.Mcp</code> companion accepts the client's standard MCP connection and forwards
+operations to one explicitly attached tab. The tab makes an outbound WebSocket
+connection. This private attachment protocol is not an additional MCP transport.</p>
+<p>Build the companion:</p>
+<pre><code class="language-sh">dotnet build tools/UnoDraw.Mcp/UnoDraw.Mcp.csproj -c Release
+</code></pre>
+<h3 id="http-bridge">HTTP bridge</h3>
+<p>For the published editor, start:</p>
+<pre><code class="language-sh">dotnet tools/UnoDraw.Mcp/bin/Release/net10.0/UnoDraw.Mcp.dll \
+  --http --origin https://wieslawsoltes.github.io
+</code></pre>
+<p>For a local editor hosted at <code>http://localhost:5000</code>, instead use
+<code>--origin http://localhost:5000</code>. An origin contains only the scheme, host and
+optional port. Do not include <code>/Svg.Skia/unodraw/</code> or any other path. <code>localhost</code>
+and <code>127.0.0.1</code> are different origins.</p>
+<p>The companion prints four connection values to stderr:</p>
+<ol>
+<li>The browser endpoint, normally <code>ws://127.0.0.1:52742/editor</code>.</li>
+<li>The exact permitted browser origin.</li>
+<li>A <strong>browser attachment token</strong> for the tab.</li>
+<li>The MCP HTTP endpoint and a separate <strong>MCP client bearer token</strong>.</li>
+</ol>
+<p>In the browser editor, open <strong>Window → MCP Connection</strong>, enter the WebSocket
+address and the <strong>browser attachment token</strong>, and choose <strong>Connect</strong>. Close the
+dialog. Configure the MCP client with <code>http://127.0.0.1:52742/mcp</code> and the <strong>MCP
+client bearer token</strong>. The two tokens intentionally differ and cannot be swapped.</p>
+<p>Only one tab can attach to a bridge at a time. Use another port and bridge process
+for another tab. Closing or reloading a tab disconnects it; reconnect explicitly
+and read fresh document identities before continuing.</p>
+<p>Some browser policies require permission to contact the local network or restrict
+an HTTPS page's connection to a local WebSocket. If connection is blocked, inspect
+the browser error and allow the supported local-network permission, serve the
+editor locally, or put a trusted local TLS proxy in front of the bridge and use
+<code>wss://localhost:PORT/editor</code>. A TLS proxy must preserve the page's <code>Origin</code> and
+forward the upstream <code>Host</code> as the bridge's loopback address and port. Do not
+remove origin validation or put tokens in URL query strings.</p>
+<h3 id="standard-inputoutput-bridge">Standard-input/output bridge</h3>
+<p>Omit <code>--http</code> when the MCP client launches the bridge:</p>
+<pre><code class="language-json">{
+  &quot;mcpServers&quot;: {
+    &quot;unodraw-browser&quot;: {
+      &quot;command&quot;: &quot;dotnet&quot;,
+      &quot;args&quot;: [
+        &quot;/absolute/path/to/UnoDraw.Mcp.dll&quot;,
+        &quot;--origin&quot;,
+        &quot;https://wieslawsoltes.github.io&quot;
+      ],
+      &quot;env&quot;: {
+        &quot;UNODRAW_MCP_BROWSER_TOKEN&quot;: &quot;&lt;your randomly generated attachment token&gt;&quot;
+      }
+    }
+  }
+}
+</code></pre>
+<p>Replace the environment value with a generated token of at least 32 characters,
+then enter that same value in the browser connection dialog. Omitting the
+variable generates a token and prints it in the client's server log. The bridge
+can answer discovery requests before a tab attaches; editing calls report that
+no editor is connected until attachment succeeds.</p>
+<table class="table">
+<thead>
+<tr>
+<th>Companion option</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--origin ORIGIN</code></td>
+<td>Required for serving a browser bridge; permits exactly one browser origin.</td>
+</tr>
+<tr>
+<td><code>--port PORT</code></td>
+<td>Select the loopback port; default 52742.</td>
+</tr>
+<tr>
+<td><code>--http</code></td>
+<td>Expose Streamable HTTP instead of stdio as the MCP client transport.</td>
+</tr>
+<tr>
+<td><code>--read-only</code></td>
+<td>Reject all catalog operations that can change documents, selection, UI, or settings, regardless of tab preferences.</td>
+</tr>
+<tr>
+<td><code>--describe</code></td>
+<td>Print the entire tool catalog and input schemas as JSON, then exit. Requires no tab, origin, or renderer.</td>
+</tr>
+<tr>
+<td><code>--help</code></td>
+<td>Show command-line usage.</td>
+</tr>
+<tr>
+<td><code>UNODRAW_MCP_BROWSER_TOKEN</code></td>
+<td>Browser attachment credential; generated when omitted.</td>
+</tr>
+<tr>
+<td><code>UNODRAW_MCP_TOKEN</code></td>
+<td>HTTP MCP client credential; generated when omitted. Must differ from the attachment token.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="browser-host-api">Browser host API</h3>
+<p>Embedding hosts can use the same explicit connection lifecycle as the dialog:</p>
+<pre><code class="language-javascript">const exports = await Module.getAssemblyExports(&quot;UnoDraw&quot;);
+const mcp = exports.UnoDraw.BrowserMcpConnection;
+
+const connected = JSON.parse(await mcp.Connect(
+  &quot;ws://127.0.0.1:52742/editor&quot;,
+  attachmentToken,
+  false // true restricts this tab to inspection and export
+));
+const status = JSON.parse(mcp.Status());
+const disconnected = JSON.parse(await mcp.Disconnect());
+</code></pre>
+<p>Call this after the workspace has loaded. <code>Status()</code> contains connection state,
+endpoint, and read-only mode, without credentials. The API does not accept or
+evaluate script supplied by the MCP client, and does not activate from a URL.</p>
+<h2 id="discover-tools-and-context">Discover tools and context</h2>
+<p>Use <code>tools/list</code>, following <code>nextCursor</code> until it is absent. Tool names begin with
+<code>unodraw_</code>. Every tool publishes a JSON input schema; unknown fields, invalid enum
+values, malformed arrays, out-of-range numbers, and oversized input are rejected.
+Use the <a href="/Svg.Skia/articles/editor/mcp-tools">complete generated reference</a> for exact parameters.</p>
+<table class="table">
+<thead>
+<tr>
+<th>Area</th>
+<th>Tools, without the <code>unodraw_</code> prefix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Documents</td>
+<td><code>document_list</code>, <code>document_get</code>, <code>document_new</code>, <code>document_open</code>, <code>document_activate</code>, <code>document_close</code>, <code>document_replace</code>, <code>document_export</code></td>
+</tr>
+<tr>
+<td>Objects and hierarchy</td>
+<td><code>element_list</code>, <code>element_get</code>, <code>element_insert</code>, <code>element_update</code>, <code>element_delete</code>, <code>element_reparent</code>, <code>element_rename</code>, <code>layer</code></td>
+</tr>
+<tr>
+<td>Selection and history</td>
+<td><code>selection_get</code>, <code>selection_set</code>, <code>edit</code>, <code>batch</code></td>
+</tr>
+<tr>
+<td>Geometry and drawing</td>
+<td><code>draw</code>, <code>transform</code>, <code>arrange</code>, <code>path</code>, <code>measure</code></td>
+</tr>
+<tr>
+<td>Paint and resources</td>
+<td><code>paint</code>, <code>gradient</code>, <code>filter</code>, <code>resource_list</code>, <code>resource_import</code></td>
+</tr>
+<tr>
+<td>Artboards and guides</td>
+<td><code>artboard_list</code>, <code>artboard_edit</code>, <code>guide_list</code>, <code>guide_edit</code></td>
+</tr>
+<tr>
+<td>Advanced authoring</td>
+<td><code>text</code>, <code>text_story</code>, <code>brush</code>, <code>mesh</code>, <code>symbol</code>, <code>timeline_get</code>, <code>timeline_edit</code></td>
+</tr>
+<tr>
+<td>Print and inspection</td>
+<td><code>preflight</code>, <code>print_get</code>, <code>print_set</code>, <code>print_export</code></td>
+</tr>
+<tr>
+<td>Workspace controls</td>
+<td><code>commands_list</code>, <code>commands_run</code>, <code>tools_list</code>, <code>tools_select</code>, <code>tools_options</code>, <code>view_get</code>, <code>view_set</code>, <code>workspace_get</code>, <code>workspace_set</code>, <code>shortcuts_get</code>, <code>shortcuts_set</code></td>
+</tr>
+</tbody>
+</table>
+<p>Native command discovery includes every registered command's ID, label, group,
+resolved shortcut, enabled/checked state and interaction requirement. Tool
+selection is similarly driven by the current tool catalog, rather than a second
+hard-coded set of keyboard shortcuts. Workspace and shortcut profile operations
+use the editor's existing serializers and validators.</p>
+<p>The connection lifecycle command is discoverable with <code>availableOverMcp: false</code>.
+Starting or stopping the connection stays local, preventing a remote command from
+waiting for its own connection to shut down. Other interactive commands are
+cancellable: disconnect closes an MCP-owned dialog, while native picker results
+that arrive after cancellation are discarded.</p>
+<h3 id="resources">Resources</h3>
+<p><code>resources/list</code> exposes these JSON resources:</p>
+<table class="table">
+<thead>
+<tr>
+<th>URI</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>unodraw://documents</code></td>
+<td>Open document identities, names, dirty state and active document.</td>
+</tr>
+<tr>
+<td><code>unodraw://selection</code></td>
+<td>Selected element references and bounds.</td>
+</tr>
+<tr>
+<td><code>unodraw://artboards</code></td>
+<td>Current document's named artboards.</td>
+</tr>
+<tr>
+<td><code>unodraw://guides</code></td>
+<td>Current document's guides.</td>
+</tr>
+<tr>
+<td><code>unodraw://commands</code></td>
+<td>Native command catalog and availability.</td>
+</tr>
+<tr>
+<td><code>unodraw://tools</code></td>
+<td>Drawing tools and active tool.</td>
+</tr>
+<tr>
+<td><code>unodraw://view</code></td>
+<td>Viewport and view flags.</td>
+</tr>
+<tr>
+<td><code>unodraw://workspace</code></td>
+<td>Workspace layout, panels and presets.</td>
+</tr>
+</tbody>
+</table>
+<p><code>resources/templates/list</code> also advertises
+<code>unodraw://document/{documentId}/source</code> (<code>image/svg+xml</code>) and
+<code>unodraw://document/{documentId}/elements</code> (<code>application/json</code>). The element
+resource starts with a bounded page; use <code>element_list</code> and its <code>nextOffset</code> for
+larger trees. Document and element reads do not generate SVG IDs or create undo
+entries.</p>
+<p>Clients can subscribe to context changes. Current clients use
+<code>subscriptions/listen</code>; legacy clients use <code>resources/subscribe</code> and
+<code>resources/unsubscribe</code>. Notifications invalidate context: read the resource again
+to obtain its new state. There is no event replay after reconnect. Discovery lists
+use deterministic ordering and short cache hints; live resource contents have zero
+freshness time and private cache scope.</p>
+<h3 id="prompts">Prompts</h3>
+<table class="table">
+<thead>
+<tr>
+<th>Prompt</th>
+<th>Arguments</th>
+<th>Workflow</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create-artwork</code></td>
+<td>Required <code>brief</code></td>
+<td>Inspect context, create editable artwork, organize it and render a preview.</td>
+</tr>
+<tr>
+<td><code>edit-selection</code></td>
+<td>Required <code>instruction</code></td>
+<td>Read selected objects and revision, edit them and verify the result.</td>
+</tr>
+<tr>
+<td><code>inspect-document</code></td>
+<td>Optional <code>documentId</code>, <code>focus</code></td>
+<td>Review structure, geometry, styling, accessibility or export readiness without edits.</td>
+</tr>
+<tr>
+<td><code>export-document</code></td>
+<td>Required <code>format</code>; optional <code>documentId</code></td>
+<td>Inspect the target and export the requested format.</td>
+</tr>
+</tbody>
+</table>
+<p>Prompts return workflow instructions for the client. Fetching a prompt does not
+perform edits. Completion supports the advertised prompt/resource arguments.</p>
+<h2 id="work-with-documents-safely">Work with documents safely</h2>
+<p>A <code>documentId</code> is the open document's stable GUID. It survives edits and tab
+switches but should be rediscovered after closing, reopening or reloading the
+application. Omit it to use the active document. UI operations address the active
+workspace; they reject a different document ID rather than silently changing the
+wrong tab.</p>
+<p>Read <code>revision</code> from <code>document_get</code>, <code>element_list</code>, or a previous operation. Pass
+that number as <code>expectedRevision</code> when editing. A mismatch reports stale context
+and performs no requested document edit. Read again and decide how to apply the
+change; do not blindly retry a mutation after a disconnect.</p>
+<p>Element references are a unique SVG ID, <code>id:someId</code>, <code>root</code>, or
+<code>path:0/2/1</code>. Structural paths use zero-based child indexes and require
+<code>expectedRevision</code> when used for mutations. Prefer IDs for long-lived references.
+<code>element_rename</code> updates document-local references; editing an <code>id</code> through the
+ordinary attribute update API is rejected.</p>
+<h3 id="create-artwork">Create artwork</h3>
+<p>The following blocks are the <code>name</code> and <code>arguments</code> passed to <code>tools/call</code>. An MCP
+client supplies the JSON-RPC envelope and its negotiated protocol metadata.</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;unodraw_document_new&quot;,
+  &quot;arguments&quot;: { &quot;width&quot;: 640, &quot;height&quot;: 480, &quot;name&quot;: &quot;Composition.svg&quot; }
+}
+</code></pre>
+<p>Use the returned <code>documentId</code> for subsequent calls. Insert arbitrary SVG elements
+or use the native <code>draw</code> tool:</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;unodraw_element_insert&quot;,
+  &quot;arguments&quot;: {
+    &quot;xml&quot;: &quot;&lt;g id='card'&gt;&lt;rect id='background' x='40' y='40' width='560' height='400' rx='24' fill='#24243a'/&gt;&lt;circle id='accent' cx='320' cy='220' r='96' fill='#7563ff'/&gt;&lt;/g&gt;&quot;
+  }
+}
+</code></pre>
+<p>The active-document example deliberately omits <code>documentId</code>. Production workflows
+should carry the returned ID explicitly when they can overlap native tab changes.</p>
+<h3 id="select-transform-and-style">Select, transform, and style</h3>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;unodraw_selection_set&quot;,
+  &quot;arguments&quot;: { &quot;elements&quot;: [&quot;accent&quot;] }
+}
+</code></pre>
+<p>Set <code>additive</code> to <code>true</code> to retain the current selection while adding explicit
+elements or a point hit. Repeating an additive request does not toggle objects
+out of the selection. Duplicate references, including an ID and its <code>id:</code> alias,
+select the object once. An additive point request on empty space leaves the
+selection unchanged. Invalid element references are rejected before changing
+the selection.</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;unodraw_gradient&quot;,
+  &quot;arguments&quot;: {
+    &quot;kind&quot;: &quot;Linear&quot;,
+    &quot;angle&quot;: 35,
+    &quot;stops&quot;: [
+      { &quot;offset&quot;: 0, &quot;color&quot;: &quot;#7563ff&quot; },
+      { &quot;offset&quot;: 1, &quot;color&quot;: &quot;#00c6aa&quot; }
+    ]
+  }
+}
+</code></pre>
+<p>Transforms use picture coordinates and map through parent transforms. Alignment,
+distribution, masks, booleans, path refinement, anchor operations, shape building,
+and deformation use the same algorithms as native commands. Lock rules remain
+active. Use the <code>layer</code> tool to change a branch's own visibility/lock, and unlock
+an inherited lock on its parent before editing descendants.</p>
+<h3 id="group-an-atomic-series-of-edits">Group an atomic series of edits</h3>
+<p>Read the current revision before a batch. Replace the illustrative revision <code>17</code>
+with the exact revision from that read:</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;unodraw_batch&quot;,
+  &quot;arguments&quot;: {
+    &quot;expectedRevision&quot;: 17,
+    &quot;label&quot;: &quot;Move and recolor accent&quot;,
+    &quot;operations&quot;: [
+      { &quot;name&quot;: &quot;unodraw_selection_set&quot;, &quot;arguments&quot;: { &quot;elements&quot;: [&quot;accent&quot;] } },
+      { &quot;name&quot;: &quot;unodraw_transform&quot;, &quot;arguments&quot;: { &quot;dx&quot;: 24, &quot;dy&quot;: -12 } },
+      { &quot;name&quot;: &quot;unodraw_paint&quot;, &quot;arguments&quot;: { &quot;stroke&quot;: &quot;#ffffff&quot;, &quot;strokeWidth&quot;: 3 } }
+    ]
+  }
+}
+</code></pre>
+<p>A batch creates one history entry and restores source and selection on failure.
+It accepts up to 100 operations from its documented subset: element insertion,
+update, deletion, rename and reparent; selection; transform; drawing; paint; text;
+and resource import. It cannot change documents, open dialogs, export, invoke
+undo/redo, or hold a transaction across asynchronous operations. The outer revision
+is required; stale inner revisions are rejected.</p>
+<p>Use <code>edit</code> with <code>action: &quot;undo&quot;</code> or <code>&quot;redo&quot;</code> to traverse normal editor history.
+Source replacement is also undoable. Closing a dirty tab requires
+<code>discardChanges: true</code>; export does not silently mark a document saved.</p>
+<h3 id="advanced-authoring-and-complete-svg-access">Advanced authoring and complete SVG access</h3>
+<p>The typed tools expose native linked-text stories, brush libraries, gradient
+meshes, symbol brushes, animation tracks, guides, artboards, filter graphs and
+print settings. Read their native XML through the corresponding getter, modify
+that representation, and apply it through the paired operation. This preserves
+the metadata used by the existing editing panels.</p>
+<p>Use <code>element_insert</code>, <code>element_update</code>, <code>resource_import</code>, and <code>document_replace</code>
+for SVG structures outside a convenience tool's parameter list. These operations
+support the editor's complete SVG DOM rather than a reduced drawing format.
+SVG references, effects, script/resource behavior and font availability follow
+the existing renderer's policies; importing XML is not a promise that external
+resource references cannot be resolved. XML document-type declarations are
+ignored for native serializer compatibility; external XML entities are never
+resolved at the automation boundary.</p>
+<p><code>commands_run</code> executes existing commands. Dialog and picker commands require
+<code>allowInteraction: true</code> and wait for native interaction. Parameterized tools are
+the appropriate choice for unattended work. Read-only connections reject command
+execution and mixed read/write tools, even when a particular action could be a
+read; use their dedicated read-only resources or getters.</p>
+<h2 id="preview-export-and-print">Preview, export, and print</h2>
+<p><code>document_export</code> supports SVG, SVGZ, PNG, JPEG, WebP, PDF and XPS. Choose full
+artwork, <code>selectionOnly: true</code>, or an <code>artboardId</code>. Rendered images keep native
+sRGB rendering and the editor's quality settings. JPEG has an opaque background.
+The explicit <code>scale</code> range is 0.01–16; oversized results are rejected, never
+silently downsampled.</p>
+<p>For example:</p>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;unodraw_document_export&quot;,
+  &quot;arguments&quot;: { &quot;format&quot;: &quot;png&quot;, &quot;scale&quot;: 1, &quot;transparent&quot;: true }
+}
+</code></pre>
+<p>MCP results contain metadata in <code>structuredContent</code> and native payload blocks:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Format</th>
+<th>Result payload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SVG</td>
+<td>Editable XML text in the structured result and text content.</td>
+</tr>
+<tr>
+<td>PNG, JPEG, WebP</td>
+<td>One MCP <code>image</code> block with its MIME type and base64 <code>data</code>; structured metadata identifies the content type and byte count.</td>
+</tr>
+<tr>
+<td>SVGZ, PDF, XPS, separation ZIP</td>
+<td>One embedded <code>resource</code> block with base64 <code>resource.blob</code>, MIME type and an inline export URI; structured metadata identifies that resource.</td>
+</tr>
+</tbody>
+</table>
+<p>Binary bytes appear only once in the response. The inline resource is carried in
+that result; it is not an arbitrary filesystem path or a persistent download
+endpoint. Clients should decode/save the payload using their normal artifact
+handling. Exports do not change the document, history, selection, or clipboard.</p>
+<p>Use <code>preflight</code> for native document checks, <code>print_get</code> / <code>print_set</code> for complete
+physical page setup, and <code>print_export</code> for page-layout PDF or process/named-ink
+separation ZIP. A base64 ICC output profile can be supplied for profiled CMYK
+conversion. Named inks require the print service's supported separation path or
+explicit conversion to process colors. These APIs preserve the existing
+<a href="https://github.com/wieslawsoltes/Svg.Skia/blob/master/docs/unodraw.md">print support boundaries</a>; they do not submit jobs to a printer.</p>
+<h2 id="protocol-and-operational-behavior">Protocol and operational behavior</h2>
+<p>The implementation uses the official MCP C# SDK 2.4.0. It supports the
+<a href="https://modelcontextprotocol.io/specification/2026-07-28">2026-07-28 protocol</a>
+with <code>server/discover</code> and per-request metadata, while retaining the SDK's legacy
+<code>initialize</code> handshake compatibility. Streamable HTTP uses the SDK's hybrid
+session mode for older clients. Use a conforming MCP client instead of manually
+mixing current headers with a legacy handshake.</p>
+<table class="table">
+<thead>
+<tr>
+<th>Boundary</th>
+<th>Limit or behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Complete SVG input</td>
+<td>4,194,304 characters.</td>
+</tr>
+<tr>
+<td>Typical SVG fragment/resource input</td>
+<td>1,048,576 characters; exact limits are in each schema.</td>
+</tr>
+<tr>
+<td>Element listing</td>
+<td>Up to 1000 elements per page.</td>
+</tr>
+<tr>
+<td>Atomic batch</td>
+<td>Up to 100 supported operations in one document.</td>
+</tr>
+<tr>
+<td>Raster export</td>
+<td>Up to 40 million output pixels and 16 MiB encoded binary output.</td>
+</tr>
+<tr>
+<td>Binary export</td>
+<td>Up to 16 MiB; no implicit quality reduction.</td>
+</tr>
+<tr>
+<td>Private bridge message</td>
+<td>Up to 32 MiB, allowing base64 overhead.</td>
+</tr>
+<tr>
+<td>Pending bridge calls</td>
+<td>At most 32; UI operations are serialized.</td>
+</tr>
+<tr>
+<td>HTTP response concurrency</td>
+<td>At most 2 ordinary responses; separate limits preserve cancellation/control requests and live subscriptions. Excess requests receive HTTP 429 with <code>Retry-After</code>.</td>
+</tr>
+<tr>
+<td>Stdio response concurrency</td>
+<td>At most 2 tool/resource responses and 8 live subscriptions. Excess requests receive JSON-RPC error <code>-32000</code>; cancellation and control messages remain available.</td>
+</tr>
+<tr>
+<td>Slow stdio clients</td>
+<td>Response slots remain occupied through delivery. Pending sends and overload replies are bounded; sustained flooding against blocked output disconnects the session.</td>
+</tr>
+<tr>
+<td>Attachment authentication</td>
+<td>First WebSocket message, bounded to 4 KiB with a short timeout.</td>
+</tr>
+<tr>
+<td>Connection credentials</td>
+<td>Separate browser and HTTP tokens; no token in URL.</td>
+</tr>
+<tr>
+<td>Replay</td>
+<td>None; a new connection requires new context reads.</td>
+</tr>
+</tbody>
+</table>
+<p>The server binds to IPv4 loopback and checks the remote address, <code>Host</code>, exact
+browser <code>Origin</code>, and the appropriate token. Browser origins cannot use a native
+server that has no allowed origin. The optional read-only restriction is enforced
+at operation dispatch, not only described in tool hints. Local read-only exports
+still use the renderer and its normal resource handling.</p>
+<p>Errors distinguish malformed protocol requests from tool failures such as stale
+revisions, missing documents, locked artwork or unavailable commands. Cancellation
+removes queued work before it starts and propagates to cooperative operations.
+An already committed synchronous edit is not undone merely because its caller
+stopped waiting. After cancellation or connection loss, read document state before
+issuing another mutation.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<table class="table">
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HTTP 401</td>
+<td>Use the MCP client bearer token, including the <code>Bearer </code> prefix.</td>
+</tr>
+<tr>
+<td>HTTP 403 or rejected WebSocket</td>
+<td>Check the exact origin, loopback host/port, and browser attachment token. A native HTTP server does not accept browser-origin requests.</td>
+</tr>
+<tr>
+<td>Another tab cannot attach</td>
+<td>Disconnect the first tab or use a separate bridge/port.</td>
+</tr>
+<tr>
+<td>Client lists tools but edits fail</td>
+<td>Attach the tab, close native dialogs, inspect read-only mode, and read current document IDs.</td>
+</tr>
+<tr>
+<td>Stale revision</td>
+<td>Read the document again and reconcile the requested edit.</td>
+</tr>
+<tr>
+<td>Path reference rejected</td>
+<td>Supply its matching <code>expectedRevision</code>, or use a unique SVG ID.</td>
+</tr>
+<tr>
+<td>Command requires interaction</td>
+<td>Use its parameterized tool, or explicitly set <code>allowInteraction: true</code> and complete the dialog.</td>
+</tr>
+<tr>
+<td>Export too large</td>
+<td>Choose a smaller artboard/selection, an explicit lower scale, or a vector format.</td>
+</tr>
+<tr>
+<td>Missing fonts/resources</td>
+<td>Inspect the same document in the native workspace; MCP uses the same font and resource environment.</td>
+</tr>
+<tr>
+<td>Stdio contains non-JSON output</td>
+<td>Launch the built DLL, not a build command or a shell wrapper that writes banners to stdout.</td>
+</tr>
+<tr>
+<td>Browser reload disconnected</td>
+<td>Reattach explicitly and rediscover the open documents.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="embedding-and-validation">Embedding and validation</h2>
+<p>A host assigns an <code>IEditorMcpConnection</code> to <code>SvgEditorWorkspace.McpConnection</code> to
+provide the themed connection UI. <code>workspace.CreateMcpTarget(readOnly)</code> supplies
+the UI-dispatched backend. Dispose that target when its connection ends.
+<code>EditorMcpServer.Create</code> / <code>CreateOptions</code> expose the protocol over an SDK
+transport; <code>EditorMcpHost</code> supplies the authenticated loopback HTTP and stdio hosts.
+<code>EditorMcpBridgeClient</code> connects a workspace backend to the local companion.</p>
+<p>The core adapter can also be tested without Uno using <code>EditorMcpController</code> over
+an existing <code>SvgEditorController</code>. Protocol tests use the official client,
+including current and legacy versions, notifications, cancellation, pagination
+and native payload blocks. Transport tests exercise real loopback HTTP/WebSockets,
+authentication, origin checks, disconnects and read-only enforcement. The live
+smoke harness performs edits and native PNG exports in the actual desktop and
+published browser workspaces, comparing undo/redo pixels without relaxing image
+quality.</p>
+<pre><code class="language-sh">dotnet test tests/Svg.Editor.Mcp.UnitTests/Svg.Editor.Mcp.UnitTests.csproj -c Release
+dotnet build tools/UnoDraw.Mcp/UnoDraw.Mcp.csproj -c Release
+dotnet tools/UnoDraw.Mcp/bin/Release/net10.0/UnoDraw.Mcp.dll --describe
+</code></pre>
+<p>The existing UnoDraw and Docs workflows run these checks; there is no separate
+MCP workflow. Generate the checked tool-reference pages from the compiled catalog
+with the following command. Add <code>--check</code> to verify that the pages still match
+the executable schema.</p>
+<pre><code class="language-sh">python scripts/generate_unodraw_mcp_docs.py --bridge tools/UnoDraw.Mcp/bin/Release/net10.0/UnoDraw.Mcp.dll
+</code></pre>
+
+      </div>
+  </div>
+</div>
+
+        </section>
+        <footer>
+          <hr>
+          <p>Copyright &copy; 2026, Wieslaw Soltes aka <a href="https://github.com/wieslawsoltes">wieslawsoltes</a> - Content licensed under the Creative Commons <a href="http://creativecommons.org/licenses/by/2.5/">CC BY 2.5</a> | Site generated by <a href="https://github.com/lunet-io/lunet">lunet</a> hosted on <a href="https://pages.github.com/">GitHub Pages</a></p>
+        </footer>
+      </div>
+    </div>
+
+  </body>
+</html>

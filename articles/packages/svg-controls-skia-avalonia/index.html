@@ -81,6 +81,8 @@
             </div>
 <ol id='nav-id-home2-0' class='navbar-nav nav-level0 show flex-shrink-0'>
   <li id='nav-item-home2-1' class='nav-item '>
+    <span class='nav-item-row'><a href='https://wieslawsoltes.github.io/Svg.Skia/unodraw/' class='nav-link  btn btn-primary'>UnoDraw</a></span>  </li>
+  <li id='nav-item-home2-2' class='nav-item '>
     <span class='nav-item-row'><a href='https://github.com/wieslawsoltes/Svg.Skia' class='nav-link  btn btn-info'><i class="bi bi-github"></i> GitHub</a></span>  </li>
 </ol>
           </div>
@@ -98,7 +100,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.e83948d5d085ae8a76018603c74cb437.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-13,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.bcfec5f027a494c6a6b7a68166b22ce1.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-13,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -187,6 +189,10 @@
 <td>Brush-producing markup extension for backgrounds and fills</td>
 </tr>
 <tr>
+<td><code>AvaloniaTypefaceProvider</code></td>
+<td>Resolves SVG fonts from Avalonia font collections</td>
+</tr>
+<tr>
 <td><code>Svg.Skia.SvgInteractionDispatcher</code></td>
 <td>Routed pointer helper exposed through <code>Svg.Interaction</code></td>
 </tr>
@@ -226,6 +232,25 @@ var image = new SvgImage
 };
 </code></pre>
 <p>That is the package to use when CSS overrides are part of application state.</p>
+<h2 id="fonts-and-default-settings">Fonts and default settings</h2>
+<p><code>SvgSource</code> installs <code>AvaloniaTypefaceProvider</code> ahead of the standard SkiaSharp
+providers. Embedded Avalonia fonts can therefore be used by SVG text, including
+in WebAssembly. Register application fonts with Avalonia before loading images.
+The browser default also maps CSS generic families to Avalonia's default font.
+Desktop generic font resolution keeps the existing SkiaSharp behavior.</p>
+<p>Use <code>SvgSource.ConfigureDefaultSettings(Action&lt;SKSvgSettings&gt;)</code> to update defaults
+for subsequent source loads and reloads. The callback works on a copy, and the
+result is published under the same lock used to snapshot settings for new sources.
+Existing sources keep their settings and independently copied provider lists.
+<code>SvgSource.DefaultSettings</code> exposes the mutable defaults for startup configuration;
+direct mutations must not overlap loading or other configuration.</p>
+<pre><code class="language-csharp">SvgSource.ConfigureDefaultSettings(settings =&gt;
+{
+    settings.EnableTextSelectionRendering = false;
+});
+</code></pre>
+<p>See <a href="/Svg.Skia/articles/guides/avalonia-fonts">Avalonia Fonts and Default Settings</a> for provider
+precedence, standalone <code>SKSvg</code> setup, embedded-font examples, and troubleshooting.</p>
 <h2 id="control-specific-features">Control-specific features</h2>
 <p>The <code>Svg</code> control adds behavior that does not exist in the non-Skia Avalonia package:</p>
 <ul>

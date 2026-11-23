@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Uno Sample Publishing | Svg.Skia">
-<meta name="twitter:description" content="Uno Sample Publishing The Uno sample app lives at samples/UnoSvgSkiaSample and stays out of Svg.Skia.slnx, so the default repository build and test workflow remains workload-free. Prerequisite workloads uno-check --target desktop --target web --target android --target ios Desktop dotnet build samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-desktop WebAssembly dotnet publish samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-browserwasm Android dotnet build samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-android...">
+<meta name="twitter:description" content="Uno Sample Publishing UnoDraw on GitHub Pages Launch UnoDraw to use the SVG editor in a browser. It shares the documentation's GitHub Pages site, with the application under /Svg.Skia/unodraw/ and the docs at /Svg.Skia/. The Docs workflow builds the documentation and the Release AOT WebAssembly package from the same commit. It tests the package at the nested deployment path using a static server without cross-origin isolation headers, then publishes both...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Uno Sample Publishing | Svg.Skia">
 <meta property="og:title" content="Uno Sample Publishing | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Uno Sample Publishing The Uno sample app lives at samples/UnoSvgSkiaSample and stays out of Svg.Skia.slnx, so the default repository build and test workflow remains workload-free. Prerequisite workloads uno-check --target desktop --target web --target android --target ios Desktop dotnet build samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-desktop WebAssembly dotnet publish samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-browserwasm Android dotnet build samples/UnoSvgSkiaSample/UnoSvgSkiaSample.csproj -c Release -f net10.0-android...">
+<meta property="og:description" content="Uno Sample Publishing UnoDraw on GitHub Pages Launch UnoDraw to use the SVG editor in a browser. It shares the documentation's GitHub Pages site, with the application under /Svg.Skia/unodraw/ and the docs at /Svg.Skia/. The Docs workflow builds the documentation and the Release AOT WebAssembly package from the same commit. It tests the package at the nested deployment path using a static server without cross-origin isolation headers, then publishes both...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Uno Sample Publishing | Svg.Skia">
   </head>
@@ -81,6 +81,8 @@
             </div>
 <ol id='nav-id-home2-0' class='navbar-nav nav-level0 show flex-shrink-0'>
   <li id='nav-item-home2-1' class='nav-item '>
+    <span class='nav-item-row'><a href='https://wieslawsoltes.github.io/Svg.Skia/unodraw/' class='nav-link  btn btn-primary'>UnoDraw</a></span>  </li>
+  <li id='nav-item-home2-2' class='nav-item '>
     <span class='nav-item-row'><a href='https://github.com/wieslawsoltes/Svg.Skia' class='nav-link  btn btn-info'><i class="bi bi-github"></i> GitHub</a></span>  </li>
 </ol>
           </div>
@@ -158,6 +160,25 @@
         </div>
 <!-- lunet:summarize -->
 <h1 id="uno-sample-publishing">Uno Sample Publishing</h1>
+<h2 id="unodraw-on-github-pages">UnoDraw on GitHub Pages</h2>
+<p><a href="https://wieslawsoltes.github.io/Svg.Skia/unodraw/">Launch UnoDraw</a> to use the SVG
+editor in a browser. It shares the documentation's GitHub Pages site, with the
+application under <code>/Svg.Skia/unodraw/</code> and the docs at <code>/Svg.Skia/</code>.</p>
+<p>The <code>Docs</code> workflow builds the documentation and the Release AOT WebAssembly
+package from the same commit. It tests the package at the nested deployment path
+using a static server without cross-origin isolation headers, then publishes both
+outputs together as a GitHub Pages artifact. The repository's Pages publishing
+source must be <strong>GitHub Actions</strong>, rather than a branch, so large AOT files do not
+need to be committed to Git. A failed build or browser smoke test leaves the
+previous deployment in place. Pushes to the default branch deploy automatically;
+<code>workflow_dispatch</code> also supports rebuilding that branch. Pull requests only
+build and validate. Desktop and mobile UnoDraw checks remain in the <code>UnoDraw</code>
+workflow.</p>
+<p>The browser package uses relative asset URLs (<code>WasmShellWebAppBasePath=./</code>) and
+disables WebAssembly threads for GitHub Pages hosting. Its manifest's start URL
+and scope are also relative, keeping installation within the app subfolder.
+Browser file saving uses a file picker or download according to browser support.</p>
+<h2 id="uno-control-sample">Uno control sample</h2>
 <p>The Uno sample app lives at <code>samples/UnoSvgSkiaSample</code> and stays out of <code>Svg.Skia.slnx</code>, so the default repository build and test workflow remains workload-free.</p>
 <h2 id="prerequisite-workloads">Prerequisite workloads</h2>
 <pre><code class="language-bash">uno-check --target desktop --target web --target android --target ios
