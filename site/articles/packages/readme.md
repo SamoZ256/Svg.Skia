@@ -42,9 +42,7 @@ Packaged tools such as `Svg.Skia.Converter` and `svgc` stay documented under [Sa
 
 | Package | Start here when | Guide |
 | --- | --- | --- |
-| `Svg.Editor.Skia.Uno` | You want UnoDraw's tabbed workspace, SVG authoring tools, and direct Skia editing canvas in an Uno desktop app. | [Svg.Editor.Skia.Uno](svg-editor-skia-uno) |
-| `Svg.Editor.Skia.Avalonia` | You want the existing interactive editor workspace and Skia-backed canvas in an Avalonia app. | [Svg.Editor.Skia.Avalonia](svg-editor-skia-avalonia) |
-| `Svg.Editor.Avalonia` | You want reusable side panels, standalone editor views, and dialog abstractions without the default workspace. | [Svg.Editor.Avalonia](svg-editor-avalonia) |
+| `Svg.Editor.Skia.Uno` | You want UnoDraw's tabbed workspace, SVG authoring tools, and direct Skia editing canvas in an Uno desktop app. This fork does not publish it; reference the project. | [Svg.Editor.Skia.Uno](svg-editor-skia-uno) |
 | `Svg.Editor.Skia` | You want selection math, path editing, align/distribute helpers, and editor overlay rendering for your own surface. | [Svg.Editor.Skia](svg-editor-skia) |
 | `Svg.Editor.Svg` | You want SVG document mutation services, property models, and resource-browser data structures. | [Svg.Editor.Svg](svg-editor-svg) |
 | `Svg.Editor.Core` | You want host-agnostic editor session, settings, outline nodes, artboards, clipboard, and history state. | [Svg.Editor.Core](svg-editor-core) |
@@ -69,8 +67,7 @@ Packaged tools such as `Svg.Skia.Converter` and `svgc` stay documented under [Sa
 - Choose `SvgML.Avalonia` when the SVG itself should live in Avalonia XAML resources, templates, or views instead of an external asset file, including SVG 2 static subset attributes and native Avalonia controls placed by SVG `foreignObject`.
 - Choose `SvgML.Maui` when the SVG itself should live in .NET MAUI XAML pages or controls instead of an external asset file, including SVG 2 static subset attributes and native MAUI controls placed by SVG `foreignObject`.
 - Choose `Svg.Editor.Skia.Uno` for the UnoDraw workspace and direct Skia editing canvas on Uno desktop.
-- Choose `Svg.Editor.Skia.Avalonia` for a reusable SVG editor workspace on Avalonia.
-- Choose `Svg.Editor.Avalonia`, `Svg.Editor.Skia`, `Svg.Editor.Svg`, and `Svg.Editor.Core` when you need only parts of that editor stack.
+- Choose `Svg.Editor.Skia`, `Svg.Editor.Svg`, and `Svg.Editor.Core` when you need only parts of the editor stack.
 - Choose `Svg.Controls.Avalonia` for Avalonia drawing-context integration without the `SKSvg` runtime surface.
 - Choose `Svg.Model` and `ShimSkiaSharp` when the main task is inspection, transformation, or code generation rather than direct display.
 - Choose `Svg.CodeGen.Skia` or `Svg.SourceGenerator.Skia` when startup cost should move from runtime to build time.

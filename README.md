@@ -24,10 +24,8 @@
 | `SamoZ256.Svg.Controls.Skia.Maui` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Controls.Skia.Maui.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Maui/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Controls.Skia.Maui.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Maui/) |
 | `SamoZ256.Svg.Controls.Skia.Uno` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Controls.Skia.Uno.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Uno/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Controls.Skia.Uno.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Controls.Skia.Uno/) |
 | `SamoZ256.Svg.Custom` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Custom.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Custom/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Custom.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Custom/) |
-| `SamoZ256.Svg.Editor.Avalonia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Avalonia/) |
 | `SamoZ256.Svg.Editor.Core` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Core.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Core/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Core.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Core/) |
 | `SamoZ256.Svg.Editor.Skia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Skia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Skia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Skia/) |
-| `SamoZ256.Svg.Editor.Skia.Avalonia` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Skia.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Skia.Avalonia/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Skia.Avalonia.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Skia.Avalonia/) |
 | `SamoZ256.Svg.Editor.Svg` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Editor.Svg.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Svg/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Editor.Svg.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Editor.Svg/) |
 | `SamoZ256.Svg.Expressions` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Expressions.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Expressions/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Expressions.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Expressions/) |
 | `SamoZ256.Svg.Expressions.Recipes` | [![NuGet](https://img.shields.io/nuget/vpre/SamoZ256.Svg.Expressions.Recipes.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Expressions.Recipes/) | [![NuGet Downloads](https://img.shields.io/nuget/dt/SamoZ256.Svg.Expressions.Recipes.svg)](https://www.nuget.org/packages/SamoZ256.Svg.Expressions.Recipes/) |
@@ -107,51 +105,29 @@ processing limits and how to handle `SvgProcessingLimitException`.
 - Avalonia adds an optional `NativeComposition` animation backend with fallback to `RenderLoop` or `DispatcherTimer` when retained composition is unavailable.
 - `tests/Svg.Skia.Benchmarks` adds a local BenchmarkDotNet harness for the shared animation renderer, and `samples/TestApp` exposes backend and playback controls for manual verification.
 
-## UnoDraw SVG editor
+## Svg Studio
 
-[UnoDraw](samples/UnoDraw/README.md) is the SVG editor built with Uno Platform 7
-and the existing Svg.Skia rendering pipeline. Desktop is the default target;
-browser, Android and iOS builds are opt-in. The editable SVG document stays the
-source of truth. Its `SKCanvasElement` surface replays cached Skia pictures
-while panning, zooming, and previewing gestures, with acceleration provided by the
-desktop host when available.
-
-The browser host uses Skia with WebGL by default and falls back to software
-rendering when WebGL is unavailable. `?renderer=webgpu` opts into WebGPU
-composition with Skia fallback. Both paths preserve the existing SVG renderer;
-the [migration guide](docs/unodraw-uno7.md) explains backend selection, the
-optional WebGPU compatibility copy and validation.
-
-![UnoDraw SVG workspace in its dark theme](docs/images/unodraw-workspace-dark.png)
-
-The workspace includes document tabs, light and dark themes, responsive panels,
-searchable commands, hierarchy drag/reparent, drawing and node tools, alignment,
-and path operations. Authoring tools include linked rich-text frames, an SVG
-keyframe timeline, editable Coons meshes, reusable vector brush libraries,
-open/closed variable-width outlines, shared swatches, and SVG resources.
-Print Studio adds page layout, preflight, RGB vector PDF, profiled flattened
-CMYK output, and process/named-ink separation packages with explicit support
-boundaries. Undo/redo and recovery retain the native SVG workflow.
-
-The reusable `Svg.Editor.Skia.Uno` workspace uses a UI-independent
-`SvgEditorController`, so document and authoring behavior can be tested separately
-from the host. Generated geometry/text remains portable SVG; retained metadata
-keeps higher-level mesh, brush and text-flow editing available.
+[Svg Studio](site/articles/guides/svg-studio.md) (`src/Svg.Studio`) is this fork's SVG editor. It edits
+the drawings of one product, kept as a `.svgstudio` project folder, and exports them as C#; it is
+built on `Svg.Viewer.Skia.Avalonia`.
 
 ```sh
 git submodule update --init --recursive
+dotnet run --project src/Svg.Studio/Svg.Studio.csproj
+```
+
+## UnoDraw
+
+[UnoDraw](samples/UnoDraw/README.md) is upstream's SVG editor sample, built with Uno Platform 7 on
+the `Svg.Editor.Skia.Uno` workspace. It still builds in `Svg.Skia.slnx` and its tests run in the
+main suite, but this fork publishes neither the app nor the workspace. Desktop is the default target:
+
+```sh
 dotnet run --project samples/UnoDraw/UnoDraw.csproj -f net10.0-desktop
 ```
 
-See the [UnoDraw guide](docs/unodraw.md) for tools and shortcuts, platform build
-and publish commands, metadata portability, print limitations, and revision-specific
-validation records.
-
-UnoDraw also exposes the live workspace through MCP on desktop and in the
-browser. The [MCP guide](docs/unodraw-mcp.md) covers local HTTP and stdio
-connections, the browser bridge, typed editing tools, resources, prompts,
-read-only sessions and native-quality exports. See the
-[complete tool reference](docs/unodraw-mcp-tools.md) for every input schema.
+See the [UnoDraw guide](docs/unodraw.md) for its tools, shortcuts and platform builds, and the
+[MCP guide](docs/unodraw-mcp.md) for driving it over MCP.
 
 ## NuGet
 

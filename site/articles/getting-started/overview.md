@@ -7,7 +7,7 @@ title: "Overview"
 Svg.Skia is a repository, not just a single package. The main entry points are:
 
 | Package or tool | Use it when | Main output | Detailed guide |
-| --- | --- | --- |
+| --- | --- | --- | --- |
 | `Svg.Skia` | You want to load SVG or Android VectorDrawable content and render with SkiaSharp. | `SKPicture`, bitmap, pdf, xps, svg, hit testing, animation runtime | [Svg.Skia](../packages/svg-skia) |
 | `Svg.Model` | You need the intermediate picture-recording model or SVG-related helper types. | `ShimSkiaSharp` command model | [Svg.Model](../packages/svg-model) |
 | `Svg.Custom` | You want the underlying SVG DOM used by the renderer. | `SvgDocument`, `SvgElement`, animation DOM, parser APIs | [Svg.Custom](../packages/svg-custom) |
@@ -20,7 +20,7 @@ Svg.Skia is a repository, not just a single package. The main entry points are:
 | `SvgML.Maui` | You want the SVG tree itself to be authored inline in .NET MAUI XAML, including SVG 2 static subset attributes and native controls hosted through SVG `foreignObject`. | `svg`, `rect`, `g`, filters, text nodes, `foreignObject`, SVG 2 load options, MAUI-styled SVG element tree | [SvgML.Maui](../packages/svgml-maui) |
 | `SvgML.Uno` | You want the SVG tree itself to be authored inline in Uno Platform XAML, including SVG 2 static subset attributes and native controls hosted through SVG `foreignObject`. | `svg`, `path`, `g`, filters, text nodes, `foreignObject`, SVG 2 load options, Uno-styled SVG element tree | [SvgML.Uno](../packages/svgml-uno) |
 | `Skia.Controls.Avalonia` | You need general-purpose `SKCanvas`, `SKPicture`, `SKBitmap`, or `SKPath` controls in Avalonia. | `SKCanvasControl`, `SKPictureImage`, and related controls | [Skia.Controls.Avalonia](../packages/skia-controls-avalonia) |
-| `Svg.Editor.*` | You want reusable SVG editor components, from session/services up to a full Avalonia workspace. | `SvgEditorSession`, editor services, panels, `SvgEditorWorkspace` | [Editor](../editor) |
+| `Svg.Editor.*` | You want reusable SVG editor components: session state, SVG mutation services, and selection and path-editing math. | `SvgEditorSession`, editor services, `SelectionService` | [Editor](../editor) |
 | `Svg.CodeGen.Skia` | You want to generate checked-in or pipeline-produced C# from the picture model. | C# source from `ShimSkiaSharp.SKPicture` | [Svg.CodeGen.Skia](../packages/svg-codegen-skia) |
 | `Svg.SourceGenerator.Skia` | You want compile-time generated `SKPicture` classes from `.svg` assets. | generated `*.svg.cs` files | [Svg.SourceGenerator.Skia](../packages/svg-sourcegenerator-skia) |
 | `svgc` sample tool | You want to generate C# source from SVG files outside Roslyn source generators. | C# files on disk | [Source Generator and svgc](../guides/source-generator-and-svgc) |
@@ -54,9 +54,9 @@ Choose `SvgML.Uno` when that Uno view should be authored inline in XAML instead 
 
 ### Embedded editor
 
-Start with `Svg.Editor.Skia.Avalonia` when the target is an editable SVG workspace rather than a viewer-only control.
+Start with [Svg.Viewer.Skia.Avalonia](../packages/svg-viewer-skia-avalonia), the stack [Svg Studio](../guides/svg-studio) is built from, when an Avalonia app should edit a drawing rather than only show it.
 
-Move down to the other `Svg.Editor.*` packages when the host needs only panels, dialogs, SVG mutation services, or low-level interaction helpers.
+Move down to the `Svg.Editor.*` packages when the host draws its own surface and needs only SVG mutation services or low-level interaction helpers.
 
 ### Static asset generation
 

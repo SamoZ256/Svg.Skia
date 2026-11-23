@@ -4,15 +4,12 @@ title: "Editor"
 
 # Editor
 
-The `Svg.Editor.*` packages provide a reusable SVG editor stack that applications can embed whole or in parts. UnoDraw is the desktop sample, built with Uno Platform and a direct Skia canvas. The existing Avalonia workspace and panels remain available for Avalonia integrations.
+The `Svg.Editor.*` packages are the parts of an SVG editor that do not depend on a UI framework: session state and history, document mutation, and the selection, path and overlay math a canvas needs. The host supplies the window, the canvas and the panels. The fork's own editor is [Svg Studio](../guides/svg-studio), whose canvas in [Svg.Viewer.Skia.Avalonia](../packages/svg-viewer-skia-avalonia) takes its selection bounds and handle hit-testing from `Svg.Editor.Skia`.
 
 ## Start here when
 
-- you want the tabbed UnoDraw workspace inside an Uno desktop app,
-- you want a ready-made editor surface and side-panel workspace inside an Avalonia app,
 - you need reusable SVG mutation, layer, symbol, swatch, and property services,
-- you want editor dialogs and inspectors without taking the full canvas implementation,
-- you are integrating the editor into your own shell and need host-controlled menus, preview, and file pickers.
+- you are drawing your own canvas and want selection, path editing, alignment and overlay rendering.
 
 ## Package map
 
@@ -21,22 +18,16 @@ The `Svg.Editor.*` packages provide a reusable SVG editor stack that application
 | `Svg.Editor.Core` | Shared editor session state, settings, selection ids, outline nodes, artboards, clipboard, and undo/redo history. | [Svg.Editor.Core](../packages/svg-editor-core) |
 | `Svg.Editor.Svg` | SVG document mutation services and reusable models for layers, patterns, swatches, symbols, styles, and properties. | [Svg.Editor.Svg](../packages/svg-editor-svg) |
 | `Svg.Editor.Skia` | Render-model editing helpers, selection math, path editing, alignment, and overlay rendering. | [Svg.Editor.Skia](../packages/svg-editor-skia) |
-| `Svg.Editor.Skia.Uno` | Direct Skia canvas, tabbed documents, tool controls, inspector and command search used by UnoDraw. | [Svg.Editor.Skia.Uno](../packages/svg-editor-skia-uno) |
-| `Svg.Editor.Avalonia` | Reusable Avalonia controls, standalone editor views, and dialog/file-dialog abstractions. | [Svg.Editor.Avalonia](../packages/svg-editor-avalonia) |
-| `Svg.Editor.Skia.Avalonia` | Interactive Avalonia canvas and composed workspace. | [Svg.Editor.Skia.Avalonia](../packages/svg-editor-skia-avalonia) |
 
 ## Recommended reading order
 
 1. [Architecture](architecture) for dependency order and package boundaries.
-2. [Uno workspace](../packages/svg-editor-skia-uno) for UnoDraw, or [Embedding SvgEditorWorkspace](embedding-workspace) for the Avalonia workspace.
-3. [Composing Panels and Dialogs](composing-panels-and-dialogs) if you are building your own shell.
-4. [Rendering and Svg Services](rendering-and-svg-services) if you need lower-level editing services.
-5. [API Reference](../../api) when you want the generated type-level surface for the editor assemblies.
-6. [UnoDraw MCP](mcp) for browser/desktop automation and the [MCP Tool Reference](mcp-tools) for every operation and input schema.
+2. [Rendering and Svg Services](rendering-and-svg-services) for the services each package exposes.
+3. [API Reference](../../api) when you want the generated type-level surface for the editor assemblies.
 
-## What the sample still owns
+## UnoDraw
 
-`samples/UnoDraw` provides the desktop window, branding, startup document and close lifecycle. It targets Windows, macOS and Linux/X11 through Uno's `net10.0-desktop` host. SVG parsing, document transactions, geometry and rendering stay in the reusable libraries.
+`samples/UnoDraw` is upstream's Uno Platform editor, built on these packages through the workspace in `src/Svg.Editor.Skia.Uno`. Both build with `Svg.Skia.slnx`, but this fork publishes neither; [Uno Sample Publishing](../advanced/uno-sample-publishing) shows how to run it. [UnoDraw MCP](mcp) covers its automation, and the [MCP Tool Reference](mcp-tools) every operation and input schema.
 
 The [UnoDraw guide](https://github.com/wieslawsoltes/Svg.Skia/blob/master/docs/unodraw.md) records keyboard controls, renderer versus authoring coverage, migration gaps and validation commands.
 

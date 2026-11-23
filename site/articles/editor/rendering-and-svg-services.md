@@ -4,7 +4,7 @@ title: "Rendering and Svg Services"
 
 # Rendering and Svg Services
 
-The lower editor packages are meant for applications that already have a shell or canvas architecture and only need reusable editing services.
+The editor packages are meant for applications that already have a shell or canvas architecture and only need reusable editing services.
 
 ## `Svg.Editor.Core`
 
@@ -123,6 +123,6 @@ Those adapters are the intended entry points when a host is drawing its own canv
 - `Svg.Editor.Core` gives you shared state.
 - `Svg.Editor.Svg` turns an SVG document into editor collections and editable property models.
 - `Svg.Editor.Skia` turns those collections into interactive editing behavior and overlay drawing.
-- `Svg.Editor.Avalonia` and `Svg.Editor.Skia.Avalonia` add reusable UI on top.
+- The host supplies the window, canvas and panels around them.
 
 If you want the package-by-package NuGet guidance, continue with [Packages](../packages). If you want the full type-level surface, use the generated [API Reference](../../api).

@@ -4,7 +4,7 @@ title: "Svg.Editor.Skia"
 
 # Svg.Editor.Skia
 
-`Svg.Editor.Skia` contains the editing math and overlay-rendering helpers used by the interactive canvas.
+`Svg.Editor.Skia` contains the editing math and overlay-rendering helpers that an interactive canvas is built on.
 
 ## Install
 
@@ -17,7 +17,7 @@ dotnet add package SamoZ256.Svg.Editor.Skia --prerelease
 - you are building your own canvas or surface control,
 - you need reusable handle hit-testing, transform math, and path editing,
 - you want align/distribute helpers for selected SVG elements,
-- you want the editor overlay renderer without taking the Avalonia workspace.
+- you want the editor overlay renderer.
 
 ## Main types
 
@@ -59,10 +59,10 @@ In a custom surface, the interaction controller is the entry point for:
 
 ## Relationship to the higher packages
 
-`Svg.Editor.Skia.Avalonia` exposes these helpers on `SvgEditorSurface` through the `InteractionController` and `OverlayRenderer` properties. Use `Svg.Editor.Skia` directly only when the host owns the rest of the UI composition.
+[Svg.Viewer.Skia.Avalonia](svg-viewer-skia-avalonia), which Svg Studio is built on, takes its selection bounds and handle hit-testing from `SelectionService`.
 
 ## Related docs
 
 - [Rendering and Svg Services](../editor/rendering-and-svg-services)
-- [Svg.Editor.Skia.Avalonia](svg-editor-skia-avalonia)
+- [Svg.Viewer.Skia.Avalonia](svg-viewer-skia-avalonia)
 - [Hit Testing and Scene Inspection](../guides/hit-testing-and-model-editing)

@@ -48,14 +48,12 @@ session.SetSelectedElementIds(new[] { "logo", "shadow" });
 session.PushUndoState(previousXml);
 ```
 
-`SvgEditorSession` also tracks `CurrentFile`, `Document`, `Nodes`, `Artboards`, `ExpandedNodeIds`, `PropertyFilterText`, and the selected-element id list used by the reusable UI layers.
+`SvgEditorSession` also tracks `CurrentFile`, `Document`, `Nodes`, `Artboards`, `ExpandedNodeIds`, `PropertyFilterText`, and the selected-element id list.
 
 ## Relationship to the rest of the stack
 
 - `Svg.Editor.Svg` adds SVG-specific mutation services on top of this state.
 - `Svg.Editor.Skia` adds the interaction and rendering logic.
-- `Svg.Editor.Avalonia` binds the state into reusable controls.
-- `Svg.Editor.Skia.Avalonia` exposes the complete workspace.
 
 ## Related docs
 
