@@ -21,6 +21,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
+using Svg.Editor.Core;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.PaintCode;
@@ -88,6 +89,15 @@ public partial class MainWindow : Window
 
     /// <summary>The settings window while one is open, so a second asking brings that one forward.</summary>
     private SettingsWindow? _settings;
+
+    /// <summary>The keyboard shortcuts window while one is open; see <see cref="_settings"/>.</summary>
+    private Window? _shortcuts;
+
+    /// <summary>The window's commands, its menus, and the keys it answers for them.</summary>
+    private readonly StudioCommands _registry;
+
+    /// <summary>The window's commands, for the application menu and a test to drive.</summary>
+    public StudioCommands Registry => _registry;
 
     /// <summary>Tabs holding a drawing the project has resized since it was last on screen.</summary>
     /// <remarks>
@@ -212,11 +222,6 @@ public partial class MainWindow : Window
         _welcomeRecent = this.FindControl<StackPanel>("WelcomeRecent")!;
         _welcomeRecentHeading = this.FindControl<TextBlock>("WelcomeRecentHeading")!;
 
-        // The window's own commands rather than a second pair beside them: the picker Open shows
-        // with nothing open is the one this button wants, and New is what the Project menu picks.
-        this.FindControl<Button>("WelcomeOpen")!.Click += OnOpen;
-        this.FindControl<Button>("WelcomeNew")!.Click += OnNewProject;
-
         // Every add and every close, without a call at each of the places that do one.
         _tabs.Items.CollectionChanged += (_, _) => ShowWelcome();
 
@@ -244,6 +249,14 @@ public partial class MainWindow : Window
             Regions = Panelled(),
             Layout = StudioSettings.Layout
         };
+
+        // Once the dock is there, since the Window menu has an item for each of its panels.
+        _registry = new StudioCommands(Commanded(), OperatingSystem.IsMacOS());
+
+        // The window's own commands rather than a second pair beside them: the picker Open shows
+        // with nothing open is the one this button wants, and New is what the Project menu picks.
+        this.FindControl<Button>("WelcomeOpen")!.Click += async (_, _) => await _registry.Run("open");
+        this.FindControl<Button>("WelcomeNew")!.Click += async (_, _) => await _registry.Run("new-project");
 
         // A TabControl taken out of the tree and put back comes back showing its first tab, and
         // rearranging the panels moves the middle — so without this, folding one would put you on a
@@ -301,10 +314,11 @@ public partial class MainWindow : Window
         _projectTree.AddHandler(ScrollViewer.ScrollChangedEvent, (_, _) => HideDrop());
         _tabs.TemplateApplied += OnTabsTemplateApplied;
 
-        // On the strip, and tunnelling, because TabItem handles a press itself to become selected
-        // and a bubbling handler would never see it.
+        // Tunnelling: after the canvas's own key bindings, and before a box or the strip takes the key.
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
 
+        // On the strip, and tunnelling, because TabItem handles a press itself to become selected
+        // and a bubbling handler would never see it.
         _tabs.AddHandler(PointerPressedEvent, OnTabPointerPressed, RoutingStrategies.Tunnel);
         _tabs.AddHandler(PointerMovedEvent, OnTabPointerMoved, RoutingStrategies.Tunnel);
         _tabs.AddHandler(PointerReleasedEvent, OnTabPointerReleased, RoutingStrategies.Tunnel);
@@ -319,7 +333,11 @@ public partial class MainWindow : Window
         // The window's and not only each viewer's: a tab's panels are arranged into the window's dock.
         SvgViewerDragScroll.Attach(this);
 
-        ShowMenuGestures();
+        NativeMenu.SetMenu(this, _registry.Menu(Menus()));
+
+        // Off macOS the window draws its menus, and nothing else tells them a label has moved on.
+        AddHandler(MenuItem.SubmenuOpenedEvent, (_, _) => UpdateMenu());
+
         UpdateMenu();
         UpdateTitle();
         ShowRecent();
@@ -371,15 +389,6 @@ public partial class MainWindow : Window
         // A tab is added and selected before it has been given the project's pane, so what it has to
         // show is asked for again when it changes rather than only when the tab comes forward.
         viewer.PanelsChanged += (_, _) => Panels();
-
-        // Arranged once, arranged everywhere: the same route the toolbar's toggles take, so the tab
-        // behind this one is the same body and comes up the same way next time.
-        viewer.LayoutChanged += (_, _) =>
-        {
-            StudioSettings.Layout = viewer.Layout;
-
-            Reread();
-        };
 
         // Both are dressed by the window's styles, which is also where the trimming that keeps one
         // long file name from filling the strip lives.
@@ -623,8 +632,6 @@ public partial class MainWindow : Window
 
     /// <summary>The copy being kept of the open project, for a test to drive. Null while none is.</summary>
     public ProjectRecovery? Recovery => _recovery;
-
-    private async void OnNewProject(object? sender, EventArgs e) => await NewProjectAsync();
 
     /// <summary>
     /// Opens a project that is nothing yet.
@@ -1125,8 +1132,6 @@ public partial class MainWindow : Window
 
     /// <summary>Whether a tab belongs to the open project, and goes when the project does.</summary>
     private static bool Owned(TabItem item) => item.Tag is ProjectNode;
-
-    private async void OnCloseProject(object? sender, EventArgs e) => await CloseProjectAsync();
 
     /// <summary>How the panels round the tabs are arranged. See <see cref="SvgViewerDock.Layout"/>.</summary>
     /// <remarks>Setting it arranges the window; it does not write the setting, which is what a hand
@@ -3170,7 +3175,7 @@ public partial class MainWindow : Window
     /// what it raises is the request this window already turns into tabs, for a drop as much as for
     /// this. The viewer's toolbar had this button until the menu could hold it.
     /// </remarks>
-    private async void OnOpen(object? sender, EventArgs e)
+    private async Task OpenPickedAsync()
     {
         if (Selected() is { } viewer)
         {
@@ -3232,10 +3237,8 @@ public partial class MainWindow : Window
         _welcomeRecentHeading.IsVisible = paths.Count > 0;
         _welcomeRecent.IsVisible = paths.Count > 0;
 
-        if (Item(NativeMenu.GetMenu(this), "Open Recent") is not { Menu: { } recent } item)
-        {
-            return;
-        }
+        var item = _registry.Recent;
+        var recent = item.Menu!;
 
         recent.Items.Clear();
 
@@ -3254,26 +3257,25 @@ public partial class MainWindow : Window
         item.IsEnabled = recent.Items.Count > 0;
     }
 
-    private async void OnSettings(object? sender, EventArgs e) => await ShowSettingsAsync();
-
     /// <summary>The settings, as a window, and only ever one of them.</summary>
     /// <remarks>
     /// Held while it is open because it can be asked for twice: on macOS the application menu keeps
     /// its gesture live over the window it opened, and a second modal on the same owner is a dialog
     /// nobody can reach the first of.
     /// </remarks>
-    private async Task ShowSettingsWindow()
+    private async Task ShowSettingsWindow(string? tab)
     {
         if (_settings is { } open)
         {
+            Turn(open);
             open.Activate();
 
             return;
         }
 
-        // Reread rather than nothing: what this window changes is read again when it closes, and
-        // the panels moving is the one thing that has to happen while somebody is looking at it.
-        var window = new SettingsWindow { Applied = Reread };
+        var window = new SettingsWindow();
+
+        Turn(window);
 
         _settings = window;
 
@@ -3284,6 +3286,14 @@ public partial class MainWindow : Window
         finally
         {
             _settings = null;
+        }
+
+        void Turn(SettingsWindow settings)
+        {
+            if (tab is { } && settings.Tabs.Items.OfType<TabItem>().FirstOrDefault(item => Equals(item.Header, tab)) is { } page)
+            {
+                settings.Tabs.SelectedItem = page;
+            }
         }
     }
 
@@ -3298,9 +3308,10 @@ public partial class MainWindow : Window
     /// Public because the application menu on macOS is the application's and not this window's, so
     /// something outside has to be able to ask for it.
     /// </remarks>
-    public async Task ShowSettingsAsync()
+    /// <param name="tab">The page to open on, by its header, for a caller that knows where its setting is.</param>
+    public async Task ShowSettingsAsync(string? tab = null)
     {
-        await ShowSettings().ConfigureAwait(true);
+        await ShowSettings(tab).ConfigureAwait(true);
 
         if (!StudioSettings.Autosave)
         {
@@ -3323,9 +3334,6 @@ public partial class MainWindow : Window
     /// </remarks>
     private void Reread()
     {
-        // The arrangement is the window's now, so it is read here rather than once per tab.
-        _dock.Layout = StudioSettings.Layout;
-
         foreach (var content in _tabs.Items.OfType<TabItem>().Select(item => item.Content))
         {
             switch (content)
@@ -3339,6 +3347,9 @@ public partial class MainWindow : Window
                     break;
             }
         }
+
+        // Snap and Invisible are toggles in View as well as on each tab's toolbar.
+        UpdateMenu();
     }
 
     /// <summary>Puts the grid the settings say onto one drawing's tab.</summary>
@@ -3365,16 +3376,6 @@ public partial class MainWindow : Window
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
         viewer.ShowsInvisible = StudioSettings.ShowInvisible;
     }
-
-    private async void OnSave(object? sender, EventArgs e) => await SaveAsync();
-
-    private async void OnSaveAs(object? sender, EventArgs e) => await SaveAsAsync();
-
-    private async void OnExport(object? sender, EventArgs e) => await ExportAsync();
-
-    private void OnUndo(object? sender, EventArgs e) => Undo();
-
-    private void OnRedo(object? sender, EventArgs e) => Redo();
 
     /// <summary>
     /// Takes back the last edit: the one made here, and then the one made to the project.
@@ -3420,9 +3421,8 @@ public partial class MainWindow : Window
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
 
-    private void OnDuplicate(object? sender, EventArgs e) => Duplicate();
-
-    private async void OnDelete(object? sender, EventArgs e)
+    /// <summary>Delete from the menu: what the key would have reached, the project tree's rows included.</summary>
+    private async Task DeleteChosenAsync()
     {
         // The project tree answers Delete itself while it has the focus; the menu item is the same
         // command found another way, so it goes where the key would have gone.
@@ -3479,80 +3479,8 @@ public partial class MainWindow : Window
     /// <summary>Whether the board in front already shows <paramref name="node"/>, which a board does for everything under its group.</summary>
     internal bool OnBoard(ProjectNode node) => Board() is { } board && node.DescendsFrom(board.Node);
 
-    /// <summary>
-    /// Shows each command's gesture beside it, as the platform spells that gesture.
-    /// </summary>
-    /// <remarks>
-    /// Read from the keymap rather than written down, so the menu cannot come to disagree with what
-    /// the pane answers to — they are the same list. The first of the ones the platform names, since
-    /// a menu item shows one and Redo has two.
-    /// </remarks>
-    /// <summary>Offers only what the selected tab can do.</summary>
-    /// <remarks>
-    /// Without a project, exporting is a drawing's and a group tab holds none — the item stayed live
-    /// over it and did nothing at all when it was picked, which reads as the export having failed
-    /// silently. With one, every tab is a view of the project and the project is what goes.
-    /// </remarks>
-    private void UpdateMenu()
-    {
-        var menu = NativeMenu.GetMenu(this);
-
-        if (Item(menu, "Export…") is { } export)
-        {
-            export.IsEnabled = _workspace is { } || Selected() is { Document: { } };
-        }
-
-        if (Item(menu, "Save") is { } save)
-        {
-            save.IsEnabled = Savable();
-        }
-
-        // Not among the items below: it is the application's settings and not a command on a
-        // project, so it is live whether or not one is open — and absent on macOS, where the
-        // application menu has it.
-        if (Item(menu, "Settings…") is { } settings)
-        {
-            settings.IsVisible = !OperatingSystem.IsMacOS();
-        }
-
-        // Not for a drawing the project holds: Save As points a tab at the file it wrote, and one
-        // of those has no file to be pointed at. Export writes it out instead.
-        if (Item(menu, "Save As…") is { } saveAs)
-        {
-            saveAs.IsEnabled = Selected() is { Document: { } } && _tabs.SelectedItem is not TabItem { Tag: ProjectDrawing };
-        }
-
-        // Acts on the project, and did nothing at all when picked without one.
-        if (Item(menu, "Close") is { } close)
-        {
-            close.IsEnabled = _workspace is { };
-        }
-
-        // What the gesture would reach, named. The tiers are the ones Undo walks, minus the focused
-        // box — a menu is drawn before the click that would focus anything, so the box it would
-        // reach is not knowable here and the drawing's answer is the honest one to show.
-        if (Item(menu, "Undo") is { } undo)
-        {
-            undo.IsEnabled = Selected()?.CanUndo == true || _workspace?.CanUndo == true;
-            undo.Header = Taking("Undo", Selected()?.UndoLabel ?? _workspace?.UndoLabel);
-        }
-
-        if (Item(menu, "Redo") is { } redo)
-        {
-            redo.IsEnabled = Selected()?.CanRedo == true || _workspace?.CanRedo == true;
-            redo.Header = Taking("Redo", Selected()?.RedoLabel ?? _workspace?.RedoLabel);
-        }
-
-        // Live over any tab with elements to pick, since what is picked changes under a menu that
-        // is drawn before the click; with nothing picked either does nothing, which is honest.
-        foreach (var header in new[] { "Duplicate", "Delete" })
-        {
-            if (Item(menu, header) is { } item)
-            {
-                item.IsEnabled = Selected() is { Document: { } } || Board() is { };
-            }
-        }
-    }
+    /// <summary>Offers only what the selected tab can do, with Undo and Redo naming what they would reach.</summary>
+    private void UpdateMenu() => _registry.Refresh();
 
     /// <summary>"Undo", or "Undo remove Large" where the history knows what it was.</summary>
     /// <remarks>
@@ -3562,80 +3490,269 @@ public partial class MainWindow : Window
     private static string Taking(string command, string? label)
         => label is { Length: > 0 } said ? $"{command} {said}" : command;
 
-    private void ShowMenuGestures()
+    /// <summary>Where the User Guide item goes: the guide as this repository has it.</summary>
+    private static readonly Uri UserGuide = new("https://github.com/SamoZ256/Svg.Skia/blob/master/site/articles/guides/svg-studio.md");
+
+    /// <summary>The window's menus, as the ids in each; see <see cref="StudioCommands.Menu"/>.</summary>
+    private IEnumerable<(string Header, IReadOnlyList<string> Ids)> Menus()
     {
-        if (this.GetPlatformSettings()?.HotkeyConfiguration is not { } hotkeys)
-        {
-            return;
-        }
+        const string rule = StudioCommands.Separator;
 
-        Show("Undo", hotkeys.Undo);
-        Show("Redo", hotkeys.Redo);
-
-        // Written rather than read: the platform's keymap has no Save in it, so this is the one
-        // gesture the menu and the window have to be told separately. OnKeyDown spells the same
-        // modifier the same way.
-        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
-
-        if (Item(NativeMenu.GetMenu(this), "Save") is { } save)
-        {
-            save.Gesture = new KeyGesture(Key.S, command);
-        }
-
-        if (Item(NativeMenu.GetMenu(this), "Save As…") is { } saveAs)
-        {
-            saveAs.Gesture = new KeyGesture(Key.S, command | KeyModifiers.Shift);
-        }
-
-        if (Item(NativeMenu.GetMenu(this), "Duplicate") is { } duplicate)
-        {
-            duplicate.Gesture = new KeyGesture(Key.D, command);
-        }
-
-        void Show(string header, IReadOnlyList<KeyGesture> gestures)
-        {
-            if (gestures.Count > 0 && Item(NativeMenu.GetMenu(this), header) is { } item)
-            {
-                item.Gesture = gestures[0];
-            }
-        }
+        yield return ("File", new[] { "open", StudioCommands.RecentSlot, "close", rule, "save", "saveas", rule, "export", rule, "preferences" });
+        yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", rule, "resize" });
+        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio" });
+        yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
+        yield return ("Project", new[] { "new-project", rule, "close-project" });
+        yield return ("Help", new[] { "help", "user-guide", "mcp-connection", rule, "about" });
     }
 
-    /// <summary>The menu item under <paramref name="menu"/> with this header.</summary>
-    /// <remarks>
-    /// By header, because a NativeMenuItem has no name to give it in the markup — it is not a
-    /// control, and x:Name has nothing to bind to on one.
-    /// </remarks>
-    private static NativeMenuItem? Item(NativeMenu? menu, string header)
+    private static string Panel(SvgViewerRegion region) => "panel-" + region.Header.ToLowerInvariant();
+
+    /// <summary>
+    /// Whether the Window menu turns this panel on and off. Not the project tree or Changes, which
+    /// follow the project: taken off by hand, one came back beside the wrong panel when it did.
+    /// </summary>
+    private static bool Toggled(SvgViewerRegion region) => region.Id is not (ProjectTreePanel or ChangesPanelId);
+
+    /// <summary>Everything the window can be asked to do, with its key and when it is live.</summary>
+    private IEnumerable<StudioCommand> Commanded()
     {
-        foreach (var entry in menu?.Items ?? new List<NativeMenuItemBase>())
+        const SvgEditorShortcutModifiers primary = SvgEditorShortcutModifiers.Primary;
+        const SvgEditorShortcutModifiers shift = SvgEditorShortcutModifiers.Shift;
+        const SvgEditorShortcutScope document = SvgEditorShortcutScope.Document;
+        const SvgEditorShortcutScope canvas = SvgEditorShortcutScope.Canvas;
+        const SvgEditorShortcutScope picked = SvgEditorShortcutScope.CanvasOrDocumentTree;
+
+        // Read from the keymap rather than written down, so the menu shows what the pane answers to.
+        var hotkeys = this.GetPlatformSettings()?.HotkeyConfiguration;
+
+        yield return new("open", "Open…", "File", OpenPickedAsync) { Key = SvgEditorShortcutKey.O, Modifiers = primary };
+        yield return new("close", "Close Tab", "File", () => _tabs.SelectedItem is TabItem item ? CloseTabAsync(item) : Task.CompletedTask)
         {
-            if (entry is not NativeMenuItem item)
-            {
-                continue;
-            }
+            Key = SvgEditorShortcutKey.W, Modifiers = primary, CanExecute = () => _tabs.SelectedItem is TabItem
+        };
+        yield return new("save", "Save", "File", () => SaveAsync()) { Key = SvgEditorShortcutKey.S, Modifiers = primary, CanExecute = Savable };
 
-            if (string.Equals(item.Header, header, StringComparison.Ordinal))
-            {
-                return item;
-            }
+        // Not for a drawing the project holds: Save As points a tab at the file it wrote, and one of
+        // those has no file to be pointed at. Export writes it out instead.
+        yield return new("saveas", "Save As…", "File", () => SaveAsAsync())
+        {
+            Key = SvgEditorShortcutKey.S, Modifiers = primary | shift,
+            CanExecute = () => Selected() is { Document: { } } && _tabs.SelectedItem is not TabItem { Tag: ProjectDrawing }
+        };
 
-            if (Item(item.Menu, header) is { } nested)
-            {
-                return nested;
-            }
+        // With a project, every tab is a view of it and the project is what goes; without one, a
+        // group tab holds no drawing, and the item stayed live over it doing nothing.
+        yield return new("export", "Export…", "File", () => ExportAsync()) { CanExecute = () => _workspace is { } || Selected() is { Document: { } } };
+
+        // The application's, so live with or without a project.
+        yield return new("preferences", "Settings…", "File", () => ShowSettingsAsync())
+        {
+            Key = SvgEditorShortcutKey.Comma, Modifiers = primary, InApplicationMenu = true
+        };
+
+        // Named by the tiers Undo walks, less the focused box: a menu is drawn before the click that
+        // would focus one, so the drawing's answer is the honest one to show.
+        yield return new("undo", "Undo", "Edit", Done(() => Undo()))
+        {
+            Scope = document, Key = SvgEditorShortcutKey.Z, Modifiers = primary, Platform = hotkeys?.Undo,
+            CanExecute = () => Selected()?.CanUndo == true || _workspace?.CanUndo == true,
+            Header = () => Taking("Undo", Selected()?.UndoLabel ?? _workspace?.UndoLabel)
+        };
+        yield return new("redo", "Redo", "Edit", Done(() => Redo()))
+        {
+            Scope = document, Key = SvgEditorShortcutKey.Z, Modifiers = primary | shift, Platform = hotkeys?.Redo,
+            CanExecute = () => Selected()?.CanRedo == true || _workspace?.CanRedo == true,
+            Header = () => Taking("Redo", Selected()?.RedoLabel ?? _workspace?.RedoLabel)
+        };
+
+        // Live over any tab with elements to pick: what is picked changes under a menu drawn before
+        // the click, and with nothing picked either does nothing, which is honest.
+        yield return new("duplicate", "Duplicate", "Edit", Done(() => Duplicate()))
+        {
+            Scope = picked, Key = SvgEditorShortcutKey.D, Modifiers = primary, ShownOnMac = true, CanExecute = Picks
+        };
+        yield return new("delete", "Delete", "Edit", DeleteChosenAsync) { Scope = picked, Key = SvgEditorShortcutKey.Delete, CanExecute = Picks };
+        yield return new("resize", "Resize…", "Edit", () => Selected() is { } viewer ? viewer.ResizeAsync() : Task.CompletedTask)
+        {
+            CanExecute = () => Selected() is { Document: { } }
+        };
+
+        // The project tree's own keys, listed and not run: a menu item would make them key
+        // equivalents on macOS, taken from every box in the window.
+        yield return new("project-cut", "Cut", "Project tree", null) { Scope = picked, Key = SvgEditorShortcutKey.X, Modifiers = primary };
+        yield return new("project-copy", "Copy", "Project tree", null) { Scope = picked, Key = SvgEditorShortcutKey.C, Modifiers = primary };
+        yield return new("project-paste", "Paste", "Project tree", null) { Scope = picked, Key = SvgEditorShortcutKey.V, Modifiers = primary };
+
+        yield return new("fit", "Fit", "View", Done(() => FrontCanvas()?.Fit())) { Scope = document, Key = SvgEditorShortcutKey.Number0, Modifiers = primary, CanExecute = HasCanvas };
+        yield return new("zoom100", "Actual Size", "View", Done(() => FrontCanvas()?.ActualSize())) { Scope = document, Key = SvgEditorShortcutKey.Number1, Modifiers = primary, CanExecute = HasCanvas };
+        yield return new("zoomin", "Zoom In", "View", Done(() => FrontCanvas()?.ZoomIn())) { Scope = document, Key = SvgEditorShortcutKey.Equals, Modifiers = primary, CanExecute = HasCanvas };
+        yield return new("zoomout", "Zoom Out", "View", Done(() => FrontCanvas()?.ZoomOut())) { Scope = document, Key = SvgEditorShortcutKey.Minus, Modifiers = primary, CanExecute = HasCanvas };
+
+        // The route each tab's toolbar toggle takes, so every tab and the next session agree.
+        yield return new("snapgrid", "Snap to Grid", "View", Done(() => Setting(() => StudioSettings.SnapToGrid = !StudioSettings.SnapToGrid)))
+        {
+            IsChecked = () => StudioSettings.SnapToGrid
+        };
+        yield return new("show-invisible", "Show Invisible", "View", Done(() => Setting(() => StudioSettings.ShowInvisible = !StudioSettings.ShowInvisible)))
+        {
+            IsChecked = () => StudioSettings.ShowInvisible
+        };
+        yield return new("lock-ratio", "Lock Ratio", "View", Done(LockRatio))
+        {
+            CanExecute = () => Selected() is { } || Board() is { },
+            IsChecked = () => Selected()?.LocksAspectRatio ?? Board()?.LocksAspectRatio ?? false
+        };
+
+        // The palette's letters, which the canvas answers; listed and not run.
+        foreach (var (id, label, key) in new[]
+                 {
+                     ("tool-select", "Select", SvgEditorShortcutKey.V),
+                     ("tool-direct", "Points", SvgEditorShortcutKey.A),
+                     ("tool-rectangle", "Rectangle", SvgEditorShortcutKey.R),
+                     ("tool-ellipse", "Ellipse", SvgEditorShortcutKey.O),
+                     ("tool-line", "Line", SvgEditorShortcutKey.L),
+                     ("tool-type", "Text", SvgEditorShortcutKey.T),
+                     ("tool-pen", "Pen", SvgEditorShortcutKey.P)
+                 })
+        {
+            yield return new(id, label, "Tools", null) { Scope = canvas, Key = key };
         }
 
-        return null;
+        foreach (var region in _dock.Regions.Where(Toggled))
+        {
+            yield return new(Panel(region), region.Header, "Window", Done(() => Toggle(region.Id))) { IsChecked = () => _dock.Shows(region.Id) };
+        }
+
+        yield return new("next-document", "Next Tab", "Window", Done(() => Cycle(1)))
+        {
+            Key = SvgEditorShortcutKey.Tab, Modifiers = primary, CanExecute = () => _tabs.ItemCount > 1
+        };
+        yield return new("previous-document", "Previous Tab", "Window", Done(() => Cycle(-1)))
+        {
+            Key = SvgEditorShortcutKey.Tab, Modifiers = primary | shift, CanExecute = () => _tabs.ItemCount > 1
+        };
+        yield return new("reset-layout", "Reset Layout", "Window", Done(ResetLayout));
+
+        yield return new("new-project", "New", "Project", () => NewProjectAsync());
+        yield return new("close-project", "Close", "Project", () => CloseProjectAsync()) { CanExecute = () => _workspace is { } };
+
+        yield return new("help", "Keyboard Shortcuts", "Help", Done(ShowShortcuts)) { Key = SvgEditorShortcutKey.F1 };
+        yield return new("user-guide", "User Guide", "Help", () => Launcher.LaunchUriAsync(UserGuide));
+        yield return new("mcp-connection", "MCP Connection…", "Help", () => ShowSettingsAsync("Accounts"));
+
+        // Not over a dialog: the application menu stays live over one on macOS, and this is modal.
+        yield return new("about", "About SVG Studio", "Help", () => Announce("About SVG Studio", About()))
+        {
+            InApplicationMenu = true, CanExecute = () => Asking is null && _settings is null
+        };
+
+        static Func<Task> Done(Action action) => () =>
+        {
+            action();
+
+            return Task.CompletedTask;
+        };
     }
 
-    /// <summary>Asks the viewer to resize the drawing, which is where the form and the edit live.</summary>
-    private async void OnResize(object? sender, EventArgs e)
+    private SvgViewerCanvas? FrontCanvas() => Selected()?.Canvas ?? Board()?.Canvas;
+
+    private bool HasCanvas() => FrontCanvas() is { };
+
+    private bool Picks() => Selected() is { Document: { } } || Board() is { };
+
+    private void Setting(Action change)
+    {
+        change();
+        Reread();
+    }
+
+    private void LockRatio()
     {
         if (Selected() is { } viewer)
         {
-            await viewer.ResizeAsync();
+            viewer.LocksAspectRatio = !viewer.LocksAspectRatio;
         }
+        else if (Board() is { } board)
+        {
+            board.LocksAspectRatio = !board.LocksAspectRatio;
+        }
+    }
+
+    private void Cycle(int step)
+    {
+        var count = _tabs.ItemCount;
+
+        // And kept, for a rearrangement of the panels that is still to put the front tab back.
+        _tabs.SelectedIndex = ((_tabs.SelectedIndex + step) % count + count) % count;
+        _front = _tabs.SelectedItem;
+    }
+
+    private void Toggle(string id)
+    {
+        var shown = !_dock.Shows(id);
+
+        _dock.Show(id, shown);
+
+        if (shown)
+        {
+            _dock.Select(id);
+        }
+    }
+
+    private void ResetLayout()
+    {
+        // Written rather than cleared, so the line on file is the arrangement rather than a gap
+        // meaning "whatever the default happens to be next time".
+        StudioSettings.Layout = StudioSettings.DefaultLayout;
+        _dock.Layout = StudioSettings.DefaultLayout;
+
+        // Changes before the tree, as when the window opens: a panel goes back exactly where it was
+        // only while the rest of the line is what it was when it went.
+        _dock.Show(ChangesPanelId, _workspace is { } && _changes.Tracking);
+        _dock.Show(ProjectTreePanel, _workspace is { });
+    }
+
+    /// <summary>The shortcuts, in a window of their own beside the editor rather than over it.</summary>
+    private void ShowShortcuts()
+    {
+        if (_shortcuts is { } open)
+        {
+            open.Activate();
+
+            return;
+        }
+
+        var window = new Window
+        {
+            Title = "Keyboard Shortcuts",
+            Width = 420,
+            Height = 560,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = _registry.Sheet()
+        };
+
+        window.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                window.Close();
+            }
+        };
+
+        window.Closed += (_, _) => _shortcuts = null;
+
+        _shortcuts = window;
+        window.Show(this);
+    }
+
+    private static string About()
+    {
+        var version = typeof(MainWindow).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion is { } informational
+            ? informational.Split('+')[0]
+            : "unknown";
+
+        return Build is { } build ? $"Version {version}, built from {build}." : $"Version {version}.";
     }
 
     /// <summary>
@@ -3961,14 +4078,14 @@ public partial class MainWindow : Window
     public Func<ProjectRoot, Task<IReadOnlyDictionary<string, string?>?>> AskExportSettings { get; set; }
 
     /// <summary>
-    /// How the window shows the settings.
+    /// How the window shows the settings, given the page to open on by its header, or null.
     /// </summary>
     /// <remarks>
     /// Replaceable for the reason <see cref="ConfirmDiscard"/> is: a window shown over this one is
     /// another thing a test cannot drive. What a test wants from it is the setting, which the window
     /// writes, so a test sets that and answers this with nothing.
     /// </remarks>
-    public Func<Task> ShowSettings { get; set; }
+    public Func<string?, Task> ShowSettings { get; set; }
 
     /// <summary>
     /// How the window asks where a project that has no file yet should go.
@@ -4062,6 +4179,15 @@ public partial class MainWindow : Window
     /// <returns>Whether the tab closed, or false when its unsaved work was kept.</returns>
     private async Task<bool> CloseTabAsync(TabItem item)
     {
+        // A box writes what was typed only when it is left, and a key closes the tab without leaving
+        // it, so it is left first; a let settles in a post of its own once its box is.
+        if (Focused() is TextBox)
+        {
+            FocusManager?.Focus(null);
+
+            await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+        }
+
         // A close button is one click away from losing an edit, and nothing else would have said so.
         // Only what this tab is holding: the project's own unsaved work is not lost by closing a tab.
         if (Unsaved(item) is { } name && !await ConfirmDiscard(Describe(new[] { name }, null)))
@@ -4184,11 +4310,15 @@ public partial class MainWindow : Window
 
     /// <summary>Whether Save has anything to do.</summary>
     /// <remarks>
-    /// Wider than the dot by one case: a project that has never been written can be saved even with
-    /// nothing typed into it, because saving is how it gets a name. It wears no dot for that — there
-    /// is nothing to lose — so the two questions stop being the same one here.
+    /// Wider than the dot: a project that has never been written can be saved even with nothing
+    /// typed into it, because saving is how it gets a name, and so can a drawing opened from text, such
+    /// as a Streamline icon with no project to go into. Neither wears a dot for that — there is
+    /// nothing to lose — so the two questions stop being the same one here.
     /// </remarks>
-    private bool Savable() => Marked() || _workspace is { Document.Path: null };
+    private bool Savable()
+        => Marked()
+           || _workspace is { Document.Path: null }
+           || _tabs.SelectedItem is TabItem { Tag: not ProjectNode, Content: SvgViewer { Document: { Path: null } } };
 
     /// <summary>
     /// What a tab is holding that is not on disk, named, or null when it is holding nothing.
@@ -4678,32 +4808,17 @@ public partial class MainWindow : Window
         UpdateMenu();
     }
 
-    /// <summary>Saves the drawing in the selected tab, or opens the find box over its text.</summary>
-    /// <remarks>
-    /// The modifier follows the platform rather than being spelled Control, so this is Cmd+S on
-    /// macOS and Ctrl+S everywhere else, which is what each of them means by "save".
-    /// </remarks>
+    /// <summary>Runs the command a key asks the window for; the canvas and the trees keep their own keys.</summary>
     private async void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        var command = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
-
-        if (e.Key != Key.S)
+        if (_registry.Resolve(e, Focused() is TextBox, NativeMenu.GetIsNativeMenuExported(this)) is not { } command)
         {
             return;
         }
 
-        if (e.KeyModifiers == command)
-        {
-            e.Handled = true;
+        e.Handled = true;
 
-            await SaveAsync();
-        }
-        else if (e.KeyModifiers == (command | KeyModifiers.Shift))
-        {
-            e.Handled = true;
-
-            await SaveAsAsync();
-        }
+        await _registry.Run(command.Id);
     }
 
     /// <summary>Asks where to put the open drawing, and puts it there.</summary>

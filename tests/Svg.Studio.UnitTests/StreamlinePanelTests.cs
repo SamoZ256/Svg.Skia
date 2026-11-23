@@ -285,7 +285,7 @@ public class StreamlinePanelTests : IDisposable
         var window = await Host(streamline, key: null, project: false);
 
         window.Streamline.StoredKey = () => key;
-        window.ShowSettings = () =>
+        window.ShowSettings = _ =>
         {
             key = "sk_new";
 

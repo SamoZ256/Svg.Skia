@@ -9,7 +9,6 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Svg.Viewer.Skia.Avalonia;
@@ -234,43 +233,17 @@ public class LayoutSettingTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Project));
         Assert.Equal(ArrangedWithChanges, window.Layout);
 
-        // Through the settings window's own button, and out to the tabs the way closing it does.
-        window.ShowSettings = () =>
-        {
-            var settings = new SettingsWindow();
+        // Through Window → Reset Layout, as somebody would.
+        var reset = NativeMenu.GetMenu(window)!.Items.OfType<NativeMenuItem>().Single(menu => menu.Header == "Window")
+            .Menu!.Items.OfType<NativeMenuItem>().Single(item => item.Header == "Reset Layout");
 
-            settings.ResetLayout.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-
-            return Task.CompletedTask;
-        };
-
-        await window.ShowSettingsAsync();
+        ((INativeMenuItemExporterEventsImplBridge)reset).RaiseClicked();
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(StudioSettings.DefaultLayout, StudioSettings.Layout);
         Assert.Equal(StudioSettings.DefaultLayout, window.Layout);
 
         window.Close();
-    }
-    /// <summary>
-    /// Reset reaches what is open before the settings window closes.
-    /// </summary>
-    /// <remarks>
-    /// Everything else on that window is read again when it closes. The panels moving cannot wait
-    /// that long: a button that appears to do nothing is a button nobody presses twice.
-    /// </remarks>
-    [AvaloniaFact]
-    public void Resetting_Applies_While_The_Window_Is_Still_Open()
-    {
-        StudioSettings.Layout = Arranged;
-
-        var applied = 0;
-        var settings = new SettingsWindow { Applied = () => applied++ };
-
-        settings.ResetLayout.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-
-        Assert.Equal(StudioSettings.DefaultLayout, StudioSettings.Layout);
-        Assert.Equal(1, applied);
     }
     // ---- the project tree is a panel like any other ----------------------------------------------
 

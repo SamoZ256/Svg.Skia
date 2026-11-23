@@ -18,17 +18,21 @@ public partial class App : Application
         SettingsWindow.Repaint();
     }
 
-    /// <summary>Opens the settings, from the macOS application menu.</summary>
+    private void OnSettings(object? sender, EventArgs e) => Run("preferences");
+
+    private void OnAbout(object? sender, EventArgs e) => Run("about");
+
+    /// <summary>Runs one of the window's commands, from the macOS application menu.</summary>
     /// <remarks>
     /// Handled here because the menu is the application's rather than a window's, and passed to the
     /// window it is shown over — settings belong to the application, but a window is what a window
     /// opens in front of.
     /// </remarks>
-    private async void OnSettings(object? sender, EventArgs e)
+    private async void Run(string id)
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: MainWindow window })
         {
-            await window.ShowSettingsAsync();
+            await window.Registry.Run(id);
         }
     }
 

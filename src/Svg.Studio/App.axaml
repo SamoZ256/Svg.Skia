@@ -15,12 +15,14 @@
 
   <!--
     The application's own menu, which on macOS is the one under the app's name — where a Mac keeps
-    its settings, with the shortcut every Mac application answers to. Avalonia adds Services, Hide
-    and Quit after whatever is put here. It reaches nothing on Windows or Linux, which have no such
-    menu, so the window carries the same item there instead.
+    About and its settings, with the shortcut every Mac application answers to. Avalonia adds
+    Services, Hide and Quit after whatever is put here. It reaches nothing on Windows or Linux,
+    which have no such menu, so the window's File and Help menus carry the same commands there.
   -->
   <NativeMenu.Menu>
     <NativeMenu>
+      <NativeMenuItem Header="About SVG Studio" Click="OnAbout" />
+      <NativeMenuItemSeparator />
       <NativeMenuItem Header="Settings…" Gesture="Cmd+," Click="OnSettings" />
     </NativeMenu>
   </NativeMenu.Menu>

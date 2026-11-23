@@ -244,6 +244,9 @@ public sealed class GroupPanel : UserControl
     /// <summary>The shape being drawn into the inspected drawing, where a tool is armed.</summary>
     private readonly SvgViewerDraw _draw = new();
 
+    /// <summary>The toolbar's Lock ratio, kept in step when the lock is set from elsewhere.</summary>
+    private ToggleButton? _ratio;
+
     /// <summary>Where the shape in the making goes: the row it is written beside, and which side.</summary>
     private (string Target, SvgElementDrop Where) _into;
 
@@ -658,6 +661,24 @@ public sealed class GroupPanel : UserControl
     /// identity.
     /// </remarks>
     public IReadOnlyList<ProjectDrawing> Board => _shown.Select(shown => shown.Built.Drawing).ToList();
+
+    /// <summary>The board's canvas, as <see cref="SvgViewer.Canvas"/> is a drawing's.</summary>
+    public SvgViewerCanvas Canvas => _canvas;
+
+    /// <summary>Whether a handle keeps the proportions, as the toolbar's Lock ratio says; see <see cref="SvgViewer.LocksAspectRatio"/>.</summary>
+    public bool LocksAspectRatio
+    {
+        get => _gizmo.LocksAspect;
+        set
+        {
+            _gizmo.LocksAspect = value;
+
+            if (_ratio is { } ratio)
+            {
+                ratio.IsChecked = value;
+            }
+        }
+    }
 
     /// <summary>Puts what was typed here into the project, which somebody else then saves.</summary>
     public void Commit()
@@ -3677,7 +3698,7 @@ public sealed class GroupPanel : UserControl
         _canvas.ViewChanged += (_, _) =>
             _zoom.Text = (_canvas.Scale * 100d).ToString("0", CultureInfo.CurrentCulture) + "%";
 
-        var ratio = new ToggleButton
+        var ratio = _ratio = new ToggleButton
         {
             Content = "Lock ratio",
             IsChecked = _gizmo.LocksAspect,

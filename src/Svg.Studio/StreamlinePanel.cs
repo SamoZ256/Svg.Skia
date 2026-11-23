@@ -192,7 +192,8 @@ public sealed class StreamlinePanel : UserControl
 
         var settings = new Button { Content = "Settings…", Margin = new Thickness(8, 0, 0, 0) };
 
-        settings.Click += async (_, _) => await _window.ShowSettingsAsync().ConfigureAwait(true);
+        // On the page the key is entered on.
+        settings.Click += async (_, _) => await _window.ShowSettingsAsync("Accounts").ConfigureAwait(true);
 
         var keyless = new DockPanel { Margin = new Thickness(10), IsVisible = false };
         DockPanel.SetDock(settings, Dock.Right);
