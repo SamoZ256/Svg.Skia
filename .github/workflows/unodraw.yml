@@ -1,33 +1,8 @@
 name: UnoDraw
 
+# Manual only in this fork: UnoDraw is upstream's sample, and Svg.Studio is the product.
 on:
   workflow_dispatch:
-  push:
-    branches: [master, main]
-    paths:
-      - '.github/workflows/unodraw.yml'
-      - 'global.json'
-      - 'Directory.*.props'
-      - 'build/**'
-      - 'externals/**'
-      - 'src/**'
-      - 'samples/UnoDraw/**'
-      - 'tests/Svg.Editor.*/**'
-      - 'tests/UnoDraw.BrowserSmoke/**'
-      - 'tools/UnoDraw.Mcp/**'
-  pull_request:
-    branches: [master, main, develop]
-    paths:
-      - '.github/workflows/unodraw.yml'
-      - 'global.json'
-      - 'Directory.*.props'
-      - 'build/**'
-      - 'externals/**'
-      - 'src/**'
-      - 'samples/UnoDraw/**'
-      - 'tests/Svg.Editor.*/**'
-      - 'tests/UnoDraw.BrowserSmoke/**'
-      - 'tools/UnoDraw.Mcp/**'
 
 permissions:
   contents: read

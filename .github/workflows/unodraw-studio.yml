@@ -1,15 +1,8 @@
 name: UnoDraw Studio UI
 
+# Manual only in this fork: UnoDraw is upstream's sample, and Svg.Studio is the product.
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - '.github/workflows/unodraw-studio.yml'
-      - 'src/Svg.Editor.Skia.Uno/**'
-      - 'src/Svg.Editor.Skia/**'
-      - 'samples/UnoDraw/**'
-      - 'tests/UnoDraw.StudioSmoke/**'
-      - 'tests/Svg.Editor.Skia.UnitTests/**'
 
 permissions:
   contents: read
