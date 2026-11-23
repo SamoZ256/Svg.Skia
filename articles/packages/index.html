@@ -100,7 +100,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.bcfec5f027a494c6a6b7a68166b22ce1.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.d7163390e491c80c3f054062232b4f94.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -274,18 +274,8 @@ Each is published to nuget.org with a <code>SamoZ256.</code> prefix, <code>SamoZ
 <tbody>
 <tr>
 <td><code>Svg.Editor.Skia.Uno</code></td>
-<td>You want UnoDraw's tabbed workspace, SVG authoring tools, and direct Skia editing canvas in an Uno desktop app.</td>
+<td>You want UnoDraw's tabbed workspace, SVG authoring tools, and direct Skia editing canvas in an Uno desktop app. This fork does not publish it; reference the project.</td>
 <td><a href="/Svg.Skia/articles/packages/svg-editor-skia-uno">Svg.Editor.Skia.Uno</a></td>
-</tr>
-<tr>
-<td><code>Svg.Editor.Skia.Avalonia</code></td>
-<td>You want the existing interactive editor workspace and Skia-backed canvas in an Avalonia app.</td>
-<td><a href="/Svg.Skia/articles/packages/svg-editor-skia-avalonia">Svg.Editor.Skia.Avalonia</a></td>
-</tr>
-<tr>
-<td><code>Svg.Editor.Avalonia</code></td>
-<td>You want reusable side panels, standalone editor views, and dialog abstractions without the default workspace.</td>
-<td><a href="/Svg.Skia/articles/packages/svg-editor-avalonia">Svg.Editor.Avalonia</a></td>
 </tr>
 <tr>
 <td><code>Svg.Editor.Skia</code></td>
@@ -339,8 +329,7 @@ Each is published to nuget.org with a <code>SamoZ256.</code> prefix, <code>SamoZ
 <li>Choose <code>SvgML.Avalonia</code> when the SVG itself should live in Avalonia XAML resources, templates, or views instead of an external asset file, including SVG 2 static subset attributes and native Avalonia controls placed by SVG <code>foreignObject</code>.</li>
 <li>Choose <code>SvgML.Maui</code> when the SVG itself should live in .NET MAUI XAML pages or controls instead of an external asset file, including SVG 2 static subset attributes and native MAUI controls placed by SVG <code>foreignObject</code>.</li>
 <li>Choose <code>Svg.Editor.Skia.Uno</code> for the UnoDraw workspace and direct Skia editing canvas on Uno desktop.</li>
-<li>Choose <code>Svg.Editor.Skia.Avalonia</code> for a reusable SVG editor workspace on Avalonia.</li>
-<li>Choose <code>Svg.Editor.Avalonia</code>, <code>Svg.Editor.Skia</code>, <code>Svg.Editor.Svg</code>, and <code>Svg.Editor.Core</code> when you need only parts of that editor stack.</li>
+<li>Choose <code>Svg.Editor.Skia</code>, <code>Svg.Editor.Svg</code>, and <code>Svg.Editor.Core</code> when you need only parts of the editor stack.</li>
 <li>Choose <code>Svg.Controls.Avalonia</code> for Avalonia drawing-context integration without the <code>SKSvg</code> runtime surface.</li>
 <li>Choose <code>Svg.Model</code> and <code>ShimSkiaSharp</code> when the main task is inspection, transformation, or code generation rather than direct display.</li>
 <li>Choose <code>Svg.CodeGen.Skia</code> or <code>Svg.SourceGenerator.Skia</code> when startup cost should move from runtime to build time.</li>

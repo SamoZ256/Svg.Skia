@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Svg.Editor.Skia.Uno | Svg.Skia">
-<meta name="twitter:description" content="Svg.Editor.Skia.Uno Svg.Editor.Skia.Uno contains the Uno Platform workspace and direct Skia editing canvas used by UnoDraw. It uses the same SVG DOM, geometry services and Svg.Skia renderer as the rest of the repository. The document stays editable SVG throughout open, edit, undo and save. Reference the library The library targets net10.0 and uses the repository's Uno SDK configuration. The UnoDraw application targets...">
+<meta name="twitter:description" content="Svg.Editor.Skia.Uno Svg.Editor.Skia.Uno contains the Uno Platform workspace and direct Skia editing canvas used by UnoDraw, upstream's sample editor. It uses the same SVG DOM, geometry services and Svg.Skia renderer as the rest of the repository. The document stays editable SVG throughout open, edit, undo and save. Reference the library The library targets net10.0 and uses the repository's Uno SDK configuration. The UnoDraw application targets...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Svg.Editor.Skia.Uno | Svg.Skia">
 <meta property="og:title" content="Svg.Editor.Skia.Uno | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Svg.Editor.Skia.Uno Svg.Editor.Skia.Uno contains the Uno Platform workspace and direct Skia editing canvas used by UnoDraw. It uses the same SVG DOM, geometry services and Svg.Skia renderer as the rest of the repository. The document stays editable SVG throughout open, edit, undo and save. Reference the library The library targets net10.0 and uses the repository's Uno SDK configuration. The UnoDraw application targets...">
+<meta property="og:description" content="Svg.Editor.Skia.Uno Svg.Editor.Skia.Uno contains the Uno Platform workspace and direct Skia editing canvas used by UnoDraw, upstream's sample editor. It uses the same SVG DOM, geometry services and Svg.Skia renderer as the rest of the repository. The document stays editable SVG throughout open, edit, undo and save. Reference the library The library targets net10.0 and uses the repository's Uno SDK configuration. The UnoDraw application targets...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Svg.Editor.Skia.Uno | Svg.Skia">
   </head>
@@ -100,7 +100,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.bcfec5f027a494c6a6b7a68166b22ce1.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-22,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.d7163390e491c80c3f054062232b4f94.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-22,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -146,7 +146,7 @@
         </div>
 <!-- lunet:summarize -->
 <h1 id="svgeditorskiauno">Svg.Editor.Skia.Uno</h1>
-<p><code>Svg.Editor.Skia.Uno</code> contains the Uno Platform workspace and direct Skia editing canvas used by UnoDraw. It uses the same SVG DOM, geometry services and Svg.Skia renderer as the rest of the repository. The document stays editable SVG throughout open, edit, undo and save.</p>
+<p><code>Svg.Editor.Skia.Uno</code> contains the Uno Platform workspace and direct Skia editing canvas used by UnoDraw, upstream's sample editor. It uses the same SVG DOM, geometry services and Svg.Skia renderer as the rest of the repository. The document stays editable SVG throughout open, edit, undo and save.</p>
 <h2 id="reference-the-library">Reference the library</h2>
 <p>The library targets <code>net10.0</code> and uses the repository's Uno SDK configuration. The UnoDraw application targets <code>net10.0-desktop</code> for Windows, macOS and Linux/X11; it does not require Android or iOS workloads.</p>
 <p>While developing against this repository, reference the project from an Uno application:</p>
@@ -154,7 +154,7 @@
   &lt;ProjectReference Include=&quot;..\..\src\Svg.Editor.Skia.Uno\Svg.Editor.Skia.Uno.csproj&quot; /&gt;
 &lt;/ItemGroup&gt;
 </code></pre>
-<p>Use <code>samples/UnoDraw/UnoDraw.csproj</code> as the reference for the desktop host and matching SkiaSharp native assets. The packable library's package ID is <code>Svg.Editor.Skia.Uno</code>.</p>
+<p>Use <code>samples/UnoDraw/UnoDraw.csproj</code> as the reference for the desktop host and matching SkiaSharp native assets. This fork does not publish the library as a package.</p>
 <h2 id="choose-this-library-when">Choose this library when</h2>
 <ul>
 <li>You want a tabbed SVG editor workspace in an Uno desktop application.</li>
@@ -263,15 +263,13 @@ await EditorWorkspace.OpenPathAsync(svgPath);
 <p>The canvas replays a cached Svg.Skia <code>SKPicture</code> directly into Uno's Skia surface. Pan, zoom and selection do not reserialize the document or recompile its picture. Document edits invalidate the retained picture; a gesture is committed as one undo transaction.</p>
 <p>Move, resize and rotate gestures replay a cached full-color selection picture with a translucent preview over the original artwork. The snapshot includes ancestor compositing effects and is recorded once at gesture start. Pointer movement changes its transform without rebuilding the SVG. Native polygon/polyline vertices and path nodes remain editable without replacing the original element just to select it.</p>
 <p>The desktop host selects the graphics backend and can fall back to software. Direct canvas integration enables hardware acceleration when the host provides it; confirm the active backend and measure frame timing on the target machine. XML snapshot history and complex SVG filters or external resources still contribute to editing cost.</p>
-<h2 id="coverage-and-existing-integrations">Coverage and existing integrations</h2>
+<h2 id="coverage">Coverage</h2>
 <p>UnoDraw provides native SVG drawing, selection, arrangement, path commands, resource creation, source/attribute editing, playback and export. Dedicated advanced authoring interfaces do not cover every SVG feature that the renderer can load. Consult the <a href="https://github.com/wieslawsoltes/Svg.Skia/blob/master/docs/unodraw.md">UnoDraw feature coverage guide</a> for the current boundaries and keyboard controls.</p>
-<p><code>Svg.Editor.Avalonia</code> and <code>Svg.Editor.Skia.Avalonia</code> remain separate, supported integration choices. Uno types are not replacements for Avalonia controls inside an Avalonia window.</p>
 <h2 id="related-docs">Related docs</h2>
 <ul>
 <li><a href="/Svg.Skia/articles/editor/architecture">Editor architecture</a></li>
 <li><a href="/Svg.Skia/articles/packages/svg-editor-skia">Svg.Editor.Skia</a></li>
 <li><a href="/Svg.Skia/articles/packages/svg-editor-svg">Svg.Editor.Svg</a></li>
-<li><a href="/Svg.Skia/articles/packages/svg-editor-skia-avalonia">Svg.Editor.Skia.Avalonia</a></li>
 <li><a href="/Svg.Skia/articles/reference/samples-and-tools">Samples and tools</a></li>
 </ul>
 

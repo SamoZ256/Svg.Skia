@@ -100,7 +100,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.bcfec5f027a494c6a6b7a68166b22ce1.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-19,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.d7163390e491c80c3f054062232b4f94.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-19,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -210,13 +210,11 @@ var session = new SvgEditorSession
 session.SetSelectedElementIds(new[] { &quot;logo&quot;, &quot;shadow&quot; });
 session.PushUndoState(previousXml);
 </code></pre>
-<p><code>SvgEditorSession</code> also tracks <code>CurrentFile</code>, <code>Document</code>, <code>Nodes</code>, <code>Artboards</code>, <code>ExpandedNodeIds</code>, <code>PropertyFilterText</code>, and the selected-element id list used by the reusable UI layers.</p>
+<p><code>SvgEditorSession</code> also tracks <code>CurrentFile</code>, <code>Document</code>, <code>Nodes</code>, <code>Artboards</code>, <code>ExpandedNodeIds</code>, <code>PropertyFilterText</code>, and the selected-element id list.</p>
 <h2 id="relationship-to-the-rest-of-the-stack">Relationship to the rest of the stack</h2>
 <ul>
 <li><code>Svg.Editor.Svg</code> adds SVG-specific mutation services on top of this state.</li>
 <li><code>Svg.Editor.Skia</code> adds the interaction and rendering logic.</li>
-<li><code>Svg.Editor.Avalonia</code> binds the state into reusable controls.</li>
-<li><code>Svg.Editor.Skia.Avalonia</code> exposes the complete workspace.</li>
 </ul>
 <h2 id="related-docs">Related docs</h2>
 <ul>

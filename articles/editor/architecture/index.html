@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Architecture | Svg.Skia">
-<meta name="twitter:description" content="Architecture The editor stack is layered so applications can pick the lowest level that still solves the problem. Dependency order Layer Depends on Main responsibility Svg.Editor.Core Svg.Model Host-agnostic state such as the active document, outline tree, selected ids, settings, clipboard, and undo/redo history Svg.Editor.Svg Svg.Editor.Core, Svg.Model, Svg.Skia SVG document loading, save/export helpers, resource-path rebasing, properties, layers, patterns, swatches, symbols, styles, and creation tools...">
+<meta name="twitter:description" content="Architecture The editor stack is layered so applications can pick the lowest level that still solves the problem. None of the layers depends on a UI framework. Dependency order Layer Depends on Main responsibility Svg.Editor.Core Svg.Model Host-agnostic state such as the active document, outline tree, selected ids, settings, clipboard, and undo/redo history Svg.Editor.Svg Svg.Editor.Core, Svg.Model, Svg.Skia SVG document loading, save/export helpers, resource-path rebasing, properties, layers, patterns, swatches, symbols, styles, and...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Architecture | Svg.Skia">
 <meta property="og:title" content="Architecture | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Architecture The editor stack is layered so applications can pick the lowest level that still solves the problem. Dependency order Layer Depends on Main responsibility Svg.Editor.Core Svg.Model Host-agnostic state such as the active document, outline tree, selected ids, settings, clipboard, and undo/redo history Svg.Editor.Svg Svg.Editor.Core, Svg.Model, Svg.Skia SVG document loading, save/export helpers, resource-path rebasing, properties, layers, patterns, swatches, symbols, styles, and creation tools...">
+<meta property="og:description" content="Architecture The editor stack is layered so applications can pick the lowest level that still solves the problem. None of the layers depends on a UI framework. Dependency order Layer Depends on Main responsibility Svg.Editor.Core Svg.Model Host-agnostic state such as the active document, outline tree, selected ids, settings, clipboard, and undo/redo history Svg.Editor.Svg Svg.Editor.Core, Svg.Model, Svg.Skia SVG document loading, save/export helpers, resource-path rebasing, properties, layers, patterns, swatches, symbols, styles, and...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Architecture | Svg.Skia">
   </head>
@@ -106,15 +106,11 @@
             <li id='menu-item-editor-2' class='menu-item  active'>
               <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/architecture/' class='menu-link  '>Architecture</a></span>  </li>
             <li id='menu-item-editor-3' class='menu-item '>
-              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp/' class='menu-link  '>UnoDraw MCP</a></span>  </li>
-            <li id='menu-item-editor-4' class='menu-item '>
-              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp-tools/' class='menu-link  '>MCP Tool Reference</a></span>  </li>
-            <li id='menu-item-editor-5' class='menu-item '>
-              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/embedding-workspace/' class='menu-link  '>Embedding SvgEditorWorkspace</a></span>  </li>
-            <li id='menu-item-editor-6' class='menu-item '>
-              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/composing-panels-and-dialogs/' class='menu-link  '>Composing Panels and Dialogs</a></span>  </li>
-            <li id='menu-item-editor-7' class='menu-item '>
               <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/rendering-and-svg-services/' class='menu-link  '>Rendering and Svg Services</a></span>  </li>
+            <li id='menu-item-editor-4' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp/' class='menu-link  '>UnoDraw MCP</a></span>  </li>
+            <li id='menu-item-editor-5' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp-tools/' class='menu-link  '>MCP Tool Reference</a></span>  </li>
           </ol>
 
         </div>
@@ -162,7 +158,7 @@
         </div>
 <!-- lunet:summarize -->
 <h1 id="architecture">Architecture</h1>
-<p>The editor stack is layered so applications can pick the lowest level that still solves the problem.</p>
+<p>The editor stack is layered so applications can pick the lowest level that still solves the problem. None of the layers depends on a UI framework.</p>
 <h2 id="dependency-order">Dependency order</h2>
 <table class="table">
 <thead>
@@ -188,63 +184,22 @@
 <td><code>Svg.Editor.Core</code>, <code>Svg.Editor.Svg</code>, <code>Svg.Model</code>, <code>Svg.Skia</code></td>
 <td>Transactional document controller, retained selection, viewport, transforms, path editing, align/distribute, and overlays</td>
 </tr>
-<tr>
-<td><code>Svg.Editor.Skia.Uno</code></td>
-<td><code>Svg.Editor.Skia</code>, Uno Platform</td>
-<td>Direct Skia editing canvas and the tabbed workspace hosted by UnoDraw</td>
-</tr>
-<tr>
-<td><code>Svg.Editor.Avalonia</code></td>
-<td><code>Svg.Editor.Core</code>, <code>Svg.Editor.Svg</code></td>
-<td>Reusable Avalonia panels, property editors, standalone dialog views, and dialog/file-dialog service abstractions</td>
-</tr>
-<tr>
-<td><code>Svg.Editor.Skia.Avalonia</code></td>
-<td><code>Svg.Editor.Avalonia</code>, <code>Svg.Editor.Core</code>, <code>Svg.Editor.Skia</code>, <code>Svg.Editor.Svg</code>, <code>Svg.Controls.Skia.Avalonia</code></td>
-<td>The interactive <code>SvgEditorSurface</code> and the default <code>SvgEditorWorkspace</code> composition</td>
-</tr>
 </tbody>
 </table>
 <h2 id="package-responsibilities">Package responsibilities</h2>
 <h3 id="svgeditorcore"><code>Svg.Editor.Core</code></h3>
 <p>Use this layer when your host already has its own UI and needs a durable editor session object. <code>SvgEditorSession</code> stores the document reference, current file, title, filter text, selected ids, artboards, outline nodes, settings, clipboard contents, and undo/redo snapshots.</p>
 <h3 id="svgeditorsvg"><code>Svg.Editor.Svg</code></h3>
-<p>This layer owns document mutation and resource-oriented models. It is the package behind the property inspector, layer browser, pattern list, swatches, symbols, and styles. It also carries <code>SvgDocumentService</code> for open, save, XML round-tripping, and export helpers. <code>SvgResourcePathService</code> preserves relative resource locations when a document is saved into another directory, including nested XML bases and CSS URLs.</p>
+<p>This layer owns document mutation and resource-oriented models. It is the package behind a property inspector, layer browser, pattern list, swatches, symbols, and styles. It also carries <code>SvgDocumentService</code> for open, save, XML round-tripping, and export helpers. <code>SvgResourcePathService</code> preserves relative resource locations when a document is saved into another directory, including nested XML bases and CSS URLs.</p>
 <h3 id="svgeditorskia"><code>Svg.Editor.Skia</code></h3>
 <p>This layer owns the editing math and framework-independent document controller. <code>SvgEditorController</code> provides SVG transactions, dirty checkpoints, selection, geometry commands, and retained pictures. <code>SvgEditorViewport</code> handles camera transforms and anchored zoom without changing the document. The existing <code>SelectionService</code>, <code>PathService</code>, <code>AlignService</code>, and <code>RenderingService</code> remain available, as do the <code>SvgEditorInteractionController</code> and <code>SvgEditorOverlayRenderer</code> adapters.</p>
-<h3 id="svgeditorskiauno"><code>Svg.Editor.Skia.Uno</code></h3>
-<p>This layer provides the Uno workspace used by UnoDraw. <code>SvgEditorCanvas</code> derives from <code>SKCanvasElement</code>, draws directly into the host's Skia surface, and replays the controller's cached SVG picture. <code>SvgEditorWorkspace</code> composes document tabs, the tool rail, searchable outline, contextual inspector, command search, file workflows, and recovery. Acceleration depends on the desktop host's graphics backend; a software fallback remains possible.</p>
-<h3 id="svgeditoravalonia"><code>Svg.Editor.Avalonia</code></h3>
-<p>This layer exposes reusable controls and standalone views rather than a monolithic window. The main reusable panels are <code>DocumentOutlineView</code>, <code>ResourceBrowserView</code>, <code>PropertyInspectorView</code>, <code>ToolPaletteView</code>, and <code>StatusBarView</code>. Dialog workflows are abstracted through <code>ISvgEditorDialogService</code> and <code>ISvgEditorFileDialogService</code>.</p>
-<h3 id="svgeditorskiaavalonia"><code>Svg.Editor.Skia.Avalonia</code></h3>
-<p>This remains the complete Avalonia composition. <code>SvgEditorSurface</code> extends <code>Avalonia.Svg.Skia.Svg</code> with public overlay and interaction adapters, and <code>SvgEditorWorkspace</code> composes the menu, tool palette, left-side panels, canvas, and property inspector. Migrating the desktop sample to Uno does not remove this package or change its hosting API.</p>
-<h2 id="avalonia-host-owned-seams">Avalonia host-owned seams</h2>
-<p>The reusable workspace is intentionally not the final application shell. Hosts remain responsible for:</p>
+<h2 id="hosts-in-this-repository">Hosts in this repository</h2>
 <ul>
-<li>window creation and app branding through <code>WorkspaceTitlePrefix</code>,</li>
-<li>default resource lookup via <code>ResourceAssembly</code>,</li>
-<li>preview window ownership via <code>PreviewRequested</code>,</li>
-<li>modal editors via <code>DialogService</code>,</li>
-<li>file picking and save locations via <code>FileDialogService</code>.</li>
+<li><a href="/Svg.Skia/articles/guides/svg-studio">Svg Studio</a>, the fork's editor, draws its canvas with <a href="/Svg.Skia/articles/packages/svg-viewer-skia-avalonia">Svg.Viewer.Skia.Avalonia</a>, which takes selection bounds and handle hit-testing from <code>Svg.Editor.Skia</code>'s <code>SelectionService</code>.</li>
+<li><code>samples/UnoDraw</code>, upstream's Uno Platform sample, hosts the workspace in <code>src/Svg.Editor.Skia.Uno</code>: a canvas that replays <code>SvgEditorController</code>'s cached picture straight into the host's Skia surface, with tabbed documents, an outline, an inspector and command search around it. The sample owns the window, branding, startup document and close lifecycle. Neither project is packed in this fork.</li>
 </ul>
-<p>That design keeps the reusable packages independent from any single desktop app policy.</p>
-<h2 id="uno-host-lifecycle">Uno host lifecycle</h2>
-<p>Uno hosts create their own window, attach <code>Svg.Editor.Skia.Uno.SvgEditorWorkspace</code>, observe <code>WorkspaceTitleChanged</code>, and load documents through <code>OpenPathAsync</code> or <code>NewDocument</code>. Before closing, await <code>ConfirmCloseAsync</code>; dispose the workspace after closing is accepted. Each <code>EditorDocument</code> owns its controller, history, file identity, and recovery identity.</p>
-<h2 id="sample-to-package-split">Sample-to-package split</h2>
-<p><code>samples/UnoDraw</code> is the desktop application host. It:</p>
-<ul>
-<li>instantiates the Uno <code>SvgEditorWorkspace</code>,</li>
-<li>creates and brands the desktop window,</li>
-<li>coordinates dirty-document confirmation before closing,</li>
-<li>opens a command-line SVG path or the default <code>Assets/Welcome.svg</code>,</li>
-<li>offers recovery of unsaved documents.</li>
-</ul>
-<p>Reusable editor code lives under <code>src/Svg.Editor.*</code>. UnoDraw targets <code>net10.0-desktop</code>; the reusable Avalonia packages remain available for Avalonia hosts.</p>
 <h2 id="choosing-the-smallest-useful-layer">Choosing the smallest useful layer</h2>
 <ul>
-<li>Choose <code>Svg.Editor.Skia.Uno</code> for the direct Skia canvas and workspace inside an Uno desktop app.</li>
-<li>Choose <code>Svg.Editor.Skia.Avalonia</code> for the existing editor experience inside an Avalonia app.</li>
-<li>Choose <code>Svg.Editor.Avalonia</code> when you want the panels and dialogs but not the default canvas/workspace.</li>
 <li>Choose <code>Svg.Editor.Skia</code> when you are building your own interactive surface or canvas control.</li>
 <li>Choose <code>Svg.Editor.Svg</code> when the task is document/resource mutation without UI.</li>
 <li>Choose <code>Svg.Editor.Core</code> when you only need common session state and history primitives.</li>

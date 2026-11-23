@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Svg.Editor.Skia | Svg.Skia">
-<meta name="twitter:description" content="Svg.Editor.Skia Svg.Editor.Skia contains the editing math and overlay-rendering helpers used by the interactive canvas. Install dotnet add package SamoZ256.Svg.Editor.Skia --prerelease Choose this package when you are building your own canvas or surface control, you need reusable handle hit-testing, transform math, and path editing, you want align/distribute helpers for selected SVG elements, you want the editor overlay renderer without taking the Avalonia workspace....">
+<meta name="twitter:description" content="Svg.Editor.Skia Svg.Editor.Skia contains the editing math and overlay-rendering helpers that an interactive canvas is built on. Install dotnet add package SamoZ256.Svg.Editor.Skia --prerelease Choose this package when you are building your own canvas or surface control, you need reusable handle hit-testing, transform math, and path editing, you want align/distribute helpers for selected SVG elements, you want the editor overlay renderer. Main types...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Svg.Editor.Skia | Svg.Skia">
 <meta property="og:title" content="Svg.Editor.Skia | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Svg.Editor.Skia Svg.Editor.Skia contains the editing math and overlay-rendering helpers used by the interactive canvas. Install dotnet add package SamoZ256.Svg.Editor.Skia --prerelease Choose this package when you are building your own canvas or surface control, you need reusable handle hit-testing, transform math, and path editing, you want align/distribute helpers for selected SVG elements, you want the editor overlay renderer without taking the Avalonia workspace....">
+<meta property="og:description" content="Svg.Editor.Skia Svg.Editor.Skia contains the editing math and overlay-rendering helpers that an interactive canvas is built on. Install dotnet add package SamoZ256.Svg.Editor.Skia --prerelease Choose this package when you are building your own canvas or surface control, you need reusable handle hit-testing, transform math, and path editing, you want align/distribute helpers for selected SVG elements, you want the editor overlay renderer. Main types...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Svg.Editor.Skia | Svg.Skia">
   </head>
@@ -100,7 +100,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#docs-sidebar-menu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body">
-          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.bcfec5f027a494c6a6b7a68166b22ce1.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-21,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
+          <div class='lunet-menu-async' data-lunet-menu-partial='/Svg.Skia/partials/menus/menu-packages.d7163390e491c80c3f054062232b4f94.html' data-lunet-menu-open='menu-id-packages-0' data-lunet-menu-active='menu-item-packages-21,menu-item-packages-0'><div class='menu-loading text-body-secondary small'>Loading menu…</div></div>
         </div>
       </nav>
       <!-- Right sidebar (TOC) - collapsible on mobile, visible sidebar on xxl+ -->
@@ -146,7 +146,7 @@
         </div>
 <!-- lunet:summarize -->
 <h1 id="svgeditorskia">Svg.Editor.Skia</h1>
-<p><code>Svg.Editor.Skia</code> contains the editing math and overlay-rendering helpers used by the interactive canvas.</p>
+<p><code>Svg.Editor.Skia</code> contains the editing math and overlay-rendering helpers that an interactive canvas is built on.</p>
 <h2 id="install">Install</h2>
 <pre><code class="language-bash">dotnet add package SamoZ256.Svg.Editor.Skia --prerelease
 </code></pre>
@@ -155,7 +155,7 @@
 <li>you are building your own canvas or surface control,</li>
 <li>you need reusable handle hit-testing, transform math, and path editing,</li>
 <li>you want align/distribute helpers for selected SVG elements,</li>
-<li>you want the editor overlay renderer without taking the Avalonia workspace.</li>
+<li>you want the editor overlay renderer.</li>
 </ul>
 <h2 id="main-types">Main types</h2>
 <table class="table">
@@ -223,11 +223,11 @@ var overlays = new SvgEditorOverlayRenderer();
 <li>path-edit operations such as <code>StartPathEditing(...)</code>, <code>MoveActivePathPoint(...)</code>, and <code>MakePathPointSmooth(...)</code></li>
 </ul>
 <h2 id="relationship-to-the-higher-packages">Relationship to the higher packages</h2>
-<p><code>Svg.Editor.Skia.Avalonia</code> exposes these helpers on <code>SvgEditorSurface</code> through the <code>InteractionController</code> and <code>OverlayRenderer</code> properties. Use <code>Svg.Editor.Skia</code> directly only when the host owns the rest of the UI composition.</p>
+<p><a href="/Svg.Skia/articles/packages/svg-viewer-skia-avalonia">Svg.Viewer.Skia.Avalonia</a>, which Svg Studio is built on, takes its selection bounds and handle hit-testing from <code>SelectionService</code>.</p>
 <h2 id="related-docs">Related docs</h2>
 <ul>
 <li><a href="/Svg.Skia/articles/editor/rendering-and-svg-services">Rendering and Svg Services</a></li>
-<li><a href="/Svg.Skia/articles/packages/svg-editor-skia-avalonia">Svg.Editor.Skia.Avalonia</a></li>
+<li><a href="/Svg.Skia/articles/packages/svg-viewer-skia-avalonia">Svg.Viewer.Skia.Avalonia</a></li>
 <li><a href="/Svg.Skia/articles/guides/hit-testing-and-model-editing">Hit Testing and Scene Inspection</a></li>
 </ul>
 

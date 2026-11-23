@@ -12,13 +12,13 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@wieslawsoltes">
 <meta name="twitter:title" content="Rendering and Svg Services | Svg.Skia">
-<meta name="twitter:description" content="Rendering and Svg Services The lower editor packages are meant for applications that already have a shell or canvas architecture and only need reusable editing services. Svg.Editor.Core Svg.Editor.Core contains the shared state primitives: SvgEditorSession ISvgEditorSession SvgEditorSettings SvgEditorToolKind SvgNode ArtboardInfo ClipboardSnapshot Typical usage: using Svg.Editor.Core; const string previousDocumentXml = &quot;&lt;svg viewBox=\&quot;0 0 16 16\&quot; />&quot;; var session = new SvgEditorSession(); session.WorkspaceTitle = &quot;My Editor&quot;; session.SetSelectedElementIds(new[] { &quot;layer-1&quot;, &quot;shape-42&quot; }); session.PushUndoState(previousDocumentXml);...">
+<meta name="twitter:description" content="Rendering and Svg Services The editor packages are meant for applications that already have a shell or canvas architecture and only need reusable editing services. Svg.Editor.Core Svg.Editor.Core contains the shared state primitives: SvgEditorSession ISvgEditorSession SvgEditorSettings SvgEditorToolKind SvgNode ArtboardInfo ClipboardSnapshot Typical usage: using Svg.Editor.Core; const string previousDocumentXml = &quot;&lt;svg viewBox=\&quot;0 0 16 16\&quot; />&quot;; var session = new SvgEditorSession(); session.WorkspaceTitle = &quot;My Editor&quot;; session.SetSelectedElementIds(new[] { &quot;layer-1&quot;, &quot;shape-42&quot; }); session.PushUndoState(previousDocumentXml);...">
 <meta name="twitter:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta name="twitter:image:alt" content="Rendering and Svg Services | Svg.Skia">
 <meta property="og:title" content="Rendering and Svg Services | Svg.Skia">
 <meta property="og:type" content="article">
 <meta property="og:url" content="https://wieslawsoltes.github.io/Svg.Skia">
-<meta property="og:description" content="Rendering and Svg Services The lower editor packages are meant for applications that already have a shell or canvas architecture and only need reusable editing services. Svg.Editor.Core Svg.Editor.Core contains the shared state primitives: SvgEditorSession ISvgEditorSession SvgEditorSettings SvgEditorToolKind SvgNode ArtboardInfo ClipboardSnapshot Typical usage: using Svg.Editor.Core; const string previousDocumentXml = &quot;&lt;svg viewBox=\&quot;0 0 16 16\&quot; />&quot;; var session = new SvgEditorSession(); session.WorkspaceTitle = &quot;My Editor&quot;; session.SetSelectedElementIds(new[] { &quot;layer-1&quot;, &quot;shape-42&quot; }); session.PushUndoState(previousDocumentXml);...">
+<meta property="og:description" content="Rendering and Svg Services The editor packages are meant for applications that already have a shell or canvas architecture and only need reusable editing services. Svg.Editor.Core Svg.Editor.Core contains the shared state primitives: SvgEditorSession ISvgEditorSession SvgEditorSettings SvgEditorToolKind SvgNode ArtboardInfo ClipboardSnapshot Typical usage: using Svg.Editor.Core; const string previousDocumentXml = &quot;&lt;svg viewBox=\&quot;0 0 16 16\&quot; />&quot;; var session = new SvgEditorSession(); session.WorkspaceTitle = &quot;My Editor&quot;; session.SetSelectedElementIds(new[] { &quot;layer-1&quot;, &quot;shape-42&quot; }); session.PushUndoState(previousDocumentXml);...">
 <meta property="og:image" content="https://wieslawsoltes.github.io/Svg.Skia/images/demo.png">
 <meta property="og:image:alt" content="Rendering and Svg Services | Svg.Skia">
   </head>
@@ -105,16 +105,12 @@
               <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/' class='menu-link  '>Editor</a></span>  </li>
             <li id='menu-item-editor-2' class='menu-item '>
               <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/architecture/' class='menu-link  '>Architecture</a></span>  </li>
-            <li id='menu-item-editor-3' class='menu-item '>
-              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp/' class='menu-link  '>UnoDraw MCP</a></span>  </li>
-            <li id='menu-item-editor-4' class='menu-item '>
-              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp-tools/' class='menu-link  '>MCP Tool Reference</a></span>  </li>
-            <li id='menu-item-editor-5' class='menu-item '>
-              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/embedding-workspace/' class='menu-link  '>Embedding SvgEditorWorkspace</a></span>  </li>
-            <li id='menu-item-editor-6' class='menu-item '>
-              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/composing-panels-and-dialogs/' class='menu-link  '>Composing Panels and Dialogs</a></span>  </li>
-            <li id='menu-item-editor-7' class='menu-item  active'>
+            <li id='menu-item-editor-3' class='menu-item  active'>
               <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/rendering-and-svg-services/' class='menu-link  '>Rendering and Svg Services</a></span>  </li>
+            <li id='menu-item-editor-4' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp/' class='menu-link  '>UnoDraw MCP</a></span>  </li>
+            <li id='menu-item-editor-5' class='menu-item '>
+              <span class='menu-item-row'><a href='/Svg.Skia/articles/editor/mcp-tools/' class='menu-link  '>MCP Tool Reference</a></span>  </li>
           </ol>
 
         </div>
@@ -162,7 +158,7 @@
         </div>
 <!-- lunet:summarize -->
 <h1 id="rendering-and-svg-services">Rendering and Svg Services</h1>
-<p>The lower editor packages are meant for applications that already have a shell or canvas architecture and only need reusable editing services.</p>
+<p>The editor packages are meant for applications that already have a shell or canvas architecture and only need reusable editing services.</p>
 <h2 id="svgeditorcore"><code>Svg.Editor.Core</code></h2>
 <p><code>Svg.Editor.Core</code> contains the shared state primitives:</p>
 <ul>
@@ -324,7 +320,7 @@ var renderer = new SvgEditorOverlayRenderer();
 <li><code>Svg.Editor.Core</code> gives you shared state.</li>
 <li><code>Svg.Editor.Svg</code> turns an SVG document into editor collections and editable property models.</li>
 <li><code>Svg.Editor.Skia</code> turns those collections into interactive editing behavior and overlay drawing.</li>
-<li><code>Svg.Editor.Avalonia</code> and <code>Svg.Editor.Skia.Avalonia</code> add reusable UI on top.</li>
+<li>The host supplies the window, canvas and panels around them.</li>
 </ul>
 <p>If you want the package-by-package NuGet guidance, continue with <a href="/Svg.Skia/articles/packages">Packages</a>. If you want the full type-level surface, use the generated <a href="/Svg.Skia/api">API Reference</a>.</p>
 
