@@ -320,7 +320,7 @@ public partial class SKSvg
 
         using var documentFontScope = PushDocumentFonts(SourceDocument, AssetLoader);
         var model = SvgSceneRenderer.RenderSelection(sceneDocument, nodes);
-        return model is null ? null : SkiaModel.ToSKPicture(model);
+        return model is null ? null : SkiaModel.ToSKPicture(ApplyExpressionValues(model, SourceDocument));
     }
 
     public SKPicture? CreateRetainedSceneModel(SvgElement element, SKRect? clip = null)

@@ -524,6 +524,12 @@ public class SKSvgExpressionsTests
             Assert.Equal(Pixels(written), Pixels(element));
         }
 
+        using (var selection = svg.CreateRetainedSceneSelectionPicture(new[] { svg.SourceDocument!.GetElementById("moved") }))
+        using (var written = literal.CreateRetainedSceneSelectionPicture(new[] { literal.SourceDocument!.GetElementById("moved") }))
+        {
+            Assert.Equal(Pixels(written), Pixels(selection));
+        }
+
         // With nothing bound they draw the stand-ins, as the picture does.
         svg.ClearExpressionValues();
 
