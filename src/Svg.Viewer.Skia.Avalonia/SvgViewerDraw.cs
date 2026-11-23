@@ -46,20 +46,23 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// </remarks>
 public sealed class SvgViewerDraw
 {
-    /// <summary>The tools, as the element each writes; <c>circle</c> is the ellipse tool with Shift held.</summary>
-    public static readonly IReadOnlyList<string> Shapes = new[] { "rect", "ellipse", "line", "text", "polygon", "polyline", "path" };
-
-    /// <summary>Each tool's button: a glyph, since the strip is a column beside the drawing and a word is too wide for one.</summary>
-    private static readonly IReadOnlyDictionary<string, (string Glyph, Key Key, string Tip)> Tools =
-        new Dictionary<string, (string, Key, string)>(StringComparer.Ordinal)
+    /// <summary>
+    /// The strip's tools in its order: what each arms (null is Select, and a shape is the element it
+    /// writes, <c>circle</c> being the ellipse with Shift held), its button, its name and its letter.
+    /// </summary>
+    /// <remarks>A glyph on the button, since the strip is a column beside the drawing and a word is too wide for one.</remarks>
+    public static readonly IReadOnlyList<(string? Tool, string Glyph, string Name, Key Key, string Use)> Tools =
+        new (string?, string, string, Key, string)[]
         {
-            ["rect"] = ("▭", Key.R, "Rectangle (R): drag a box; Shift for a square"),
-            ["ellipse"] = ("◯", Key.O, "Ellipse (O): drag a box; Shift for a circle"),
-            ["line"] = ("╱", Key.L, "Line (L): drag from one end to the other; Shift for 45° steps"),
-            ["text"] = ("T", Key.T, "Text (T): click where the baseline starts"),
-            ["polygon"] = ("⬠", Key.None, "Polygon: click each corner; click the first again or press Enter to finish, Backspace to take one back"),
-            ["polyline"] = ("∧", Key.None, "Polyline: click each point; click the last again or press Enter to finish, Backspace to take one back"),
-            ["path"] = ("✒", Key.P, "Pen (P): click for a corner, drag for a curve; click the first point to close, the last or Enter to finish"),
+            (null, "↖", "Select", Key.V, "pick and move what is drawn"),
+            (PointsTool, "⌖", "Points", Key.A, "drag a point or a handle; double-click the outline to add a point, Delete to remove one"),
+            ("rect", "▭", "Rectangle", Key.R, "drag a box; Shift for a square"),
+            ("ellipse", "◯", "Ellipse", Key.O, "drag a box; Shift for a circle"),
+            ("line", "╱", "Line", Key.L, "drag from one end to the other; Shift for 45° steps"),
+            ("text", "T", "Text", Key.T, "click where the baseline starts"),
+            ("polygon", "⬠", "Polygon", Key.None, "click each corner; click the first again or press Enter to finish, Backspace to take one back"),
+            ("polyline", "∧", "Polyline", Key.None, "click each point; click the last again or press Enter to finish, Backspace to take one back"),
+            ("path", "✒", "Pen", Key.P, "click for a corner, drag for a curve; click the first point to close, the last or Enter to finish"),
         };
 
     /// <summary>How near a click has to come to a point to mean that point, on screen.</summary>
@@ -132,6 +135,20 @@ public sealed class SvgViewerDraw
 
     /// <summary>Raised when the tool changes, armed or put away.</summary>
     public event EventHandler? Changed;
+
+    /// <summary>Arms a tool of <see cref="Tools"/>, or puts the tool away for null: what the strip and the letters do.</summary>
+    public void Arm(string? tool)
+    {
+        if (tool == PointsTool)
+        {
+            Reshaping = true;
+        }
+        else
+        {
+            Shape = tool;
+            Reshaping = false;
+        }
+    }
 
     /// <summary>Whether a shape is in the making.</summary>
     public bool IsBusy => _busy;
@@ -950,14 +967,9 @@ public sealed class SvgViewerDraw
         var column = new StackPanel { Orientation = Orientation.Vertical, Spacing = 2 };
         var buttons = new List<(string? Shape, ToggleButton Button)>();
 
-        Add(null, "↖", "Select (V): pick and move what is drawn");
-        Add(PointsTool, "⌖", "Points (A): drag a point or a handle; double-click the outline to add a point, Delete to remove one");
-
-        foreach (var shape in Shapes)
+        foreach (var (tool, glyph, name, key, use) in Tools)
         {
-            var (glyph, _, tip) = Tools[shape];
-
-            Add(shape, glyph, tip);
+            Add(tool, glyph, key == Key.None ? $"{name}: {use}" : $"{name} ({key}): {use}");
         }
 
         draw.Changed += (_, _) => Sync();
@@ -993,13 +1005,11 @@ public sealed class SvgViewerDraw
             {
                 if (button.IsChecked == true)
                 {
-                    draw.Reshaping = shape == PointsTool;
-                    draw.Shape = shape == PointsTool ? null : shape;
+                    draw.Arm(shape);
                 }
                 else if (Armed(shape))
                 {
-                    draw.Reshaping = false;
-                    draw.Shape = null;
+                    draw.Arm(null);
                 }
 
                 Sync();
@@ -1060,26 +1070,18 @@ public sealed class SvgViewerDraw
             }
         }
 
-        if (e.Key is Key.V || e.Key is Key.Escape && (_shape is { } || _reshaping) && !_busy)
+        if (e.Key is Key.Escape && (_shape is { } || _reshaping) && !_busy)
         {
-            Shape = null;
-            Reshaping = false;
+            Arm(null);
 
             return true;
         }
 
-        if (e.Key is Key.A)
+        foreach (var (tool, _, _, key, _) in Tools)
         {
-            Reshaping = true;
-
-            return true;
-        }
-
-        foreach (var (shape, tool) in Tools)
-        {
-            if (tool.Key != Key.None && tool.Key == e.Key)
+            if (key != Key.None && key == e.Key)
             {
-                Shape = shape;
+                Arm(tool);
 
                 return true;
             }

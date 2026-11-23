@@ -29,6 +29,32 @@ namespace Svg.Viewer.Skia.Avalonia.UnitTests;
 /// </remarks>
 public class SvgViewerDrawTests
 {
+    /// <summary>
+    /// Arming goes from any tool to any other in one change, and the points tool and a shape are
+    /// never both armed; the strip, the letters and a host all arm this way.
+    /// </summary>
+    [Fact]
+    public void Arming_Changes_The_Tool_Once_From_Any_Tool()
+    {
+        foreach (var from in SvgViewerDraw.Tools)
+        {
+            foreach (var to in SvgViewerDraw.Tools)
+            {
+                var draw = new SvgViewerDraw();
+                draw.Arm(from.Tool);
+
+                var changes = 0;
+                draw.Changed += (_, _) => changes++;
+
+                draw.Arm(to.Tool);
+
+                Assert.Equal(from.Tool == to.Tool ? 0 : 1, changes);
+                Assert.Equal(to.Name == "Points", draw.Reshaping);
+                Assert.Equal(to.Name == "Points" ? null : to.Tool, draw.Shape);
+            }
+        }
+    }
+
     private const string Plain = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
           <rect id="back" x="0" y="0" width="4" height="4" fill="#3366cc" />
