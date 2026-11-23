@@ -52,6 +52,54 @@ public static class SvgSceneRenderer
         return recorder.EndRecording();
     }
 
+    /// <summary>
+    /// Records selected subtrees in document coordinates, retaining their ancestors' transforms,
+    /// clipping, masks, filters and group opacity. Selection order does not change SVG paint order.
+    /// The scene and source document are not modified.
+    /// </summary>
+    public static SKPicture? RenderSelection(SvgSceneDocument sceneDocument,
+        IReadOnlyCollection<SvgSceneNode> selectedNodes)
+    {
+        if (sceneDocument is null)
+            throw new ArgumentNullException(nameof(sceneDocument));
+        if (selectedNodes is null)
+            throw new ArgumentNullException(nameof(selectedNodes));
+        if (selectedNodes.Count == 0)
+            return null;
+
+        var selection = new SelectionRenderContext(selectedNodes);
+        if (!selection.Includes(sceneDocument.Root))
+            return null;
+        var cullRect = sceneDocument.CullRect;
+        if (cullRect.IsEmpty)
+            cullRect = sceneDocument.Root.TransformedBounds;
+        if (cullRect.IsEmpty)
+            return null;
+
+        using var documentFontScope = PushDocumentFonts(sceneDocument);
+        var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(cullRect);
+        RenderNodeToCanvasCore(sceneDocument, sceneDocument.Root, canvas, selection: selection);
+        return recorder.EndRecording();
+    }
+
+    private sealed class SelectionRenderContext
+    {
+        public HashSet<SvgSceneNode> Selected { get; }
+        private readonly HashSet<SvgSceneNode> _ancestors = new();
+
+        public SelectionRenderContext(IReadOnlyCollection<SvgSceneNode> nodes)
+        {
+            Selected = new HashSet<SvgSceneNode>(nodes);
+            foreach (var node in nodes)
+                for (var parent = node.Parent; parent is not null; parent = parent.Parent)
+                    if (!_ancestors.Add(parent))
+                        break;
+        }
+
+        public bool Includes(SvgSceneNode node) => Selected.Contains(node) || _ancestors.Contains(node);
+    }
+
     internal static SKPicture? RenderNodePicture(
         SvgSceneDocument sceneDocument,
         SvgSceneNode node,
@@ -109,8 +157,10 @@ public static class SvgSceneRenderer
         bool enableTransform = true,
         bool ignoreCurrentOpacity = false,
         bool ignoreCurrentMask = false,
-        bool ignoreCurrentFilter = false)
+        bool ignoreCurrentFilter = false,
+        SelectionRenderContext? selection = null)
     {
+        using var processingScope = SvgProcessingLimits.Enter("scene rendering");
         if (until is not null && ReferenceEquals(node, until))
         {
             return false;
@@ -124,6 +174,14 @@ public static class SvgSceneRenderer
         if (node.SuppressSubtreeRendering)
         {
             return true;
+        }
+
+        if (selection is not null)
+        {
+            if (selection.Selected.Contains(node))
+                selection = null; // An explicitly selected subtree is rendered in full, once.
+            else if (!selection.Includes(node))
+                return true;
         }
 
         using var commandSource = canvas.PushCommandSource(
@@ -155,10 +213,10 @@ public static class SvgSceneRenderer
             (node.Filter is null || !enableFilter);
         if (IsStateFreeNode(node, enableTransform, enableClip, enableMask, enableOpacity, enableFilter, enableBlendMode, enableIsolation))
         {
-            return RenderCalledContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until);
+            return RenderCalledContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until, selection);
         }
 
-        if (TryRenderTransformOnlySimpleChildrenToCanvas(
+        if (selection is null && TryRenderTransformOnlySimpleChildrenToCanvas(
                 node,
                 canvas,
                 ignoreAttributes,
@@ -237,7 +295,7 @@ public static class SvgSceneRenderer
             enableGlobalFilterLayer = SaveFilterLayerToCanvas(node, canvas, filter);
         }
 
-        if (!RenderCalledContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until))
+        if (!RenderCalledContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until, selection))
         {
             RestoreNode(canvas, node, enableMask, enableOpacity, enableFilter, enableBlendMode, enableIsolation, enableGlobalFilterLayer);
             return false;
@@ -421,17 +479,20 @@ public static class SvgSceneRenderer
     /// <summary>
     /// The node's content, marked as a call where a use names the drawing it copies: the range
     /// holds only what the use references, its own transform, clip and layers staying outside.
+    /// Never while rendering a selection: that draws part of the content, which the call would
+    /// still claim whole.
     /// </summary>
     private static bool RenderCalledContentToCanvas(
         SvgSceneDocument sceneDocument,
         SvgSceneNode node,
         SKCanvas canvas,
         DrawAttributes ignoreAttributes,
-        SvgSceneNode? until)
+        SvgSceneNode? until,
+        SelectionRenderContext? selection)
     {
-        if (node.CallTarget is not { } target || until is not null || ignoreAttributes != DrawAttributes.None)
+        if (node.CallTarget is not { } target || until is not null || ignoreAttributes != DrawAttributes.None || selection is not null)
         {
-            return RenderNodeContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until);
+            return RenderNodeContentToCanvas(sceneDocument, node, canvas, ignoreAttributes, until, selection);
         }
 
         canvas.BeginCall(target, node.CallArguments!);
@@ -445,8 +506,15 @@ public static class SvgSceneRenderer
         SvgSceneNode node,
         SKCanvas canvas,
         DrawAttributes ignoreAttributes,
-        SvgSceneNode? until)
+        SvgSceneNode? until,
+        SelectionRenderContext? selection = null)
     {
+        if (selection is not null)
+        {
+            // An ancestor contributes its compositing state, but not its unselected local artwork.
+            return RenderChildrenToCanvas(sceneDocument, node, canvas, ignoreAttributes, until, selection);
+        }
+
         if (!ShouldApplyPaintOrder(node))
         {
             if (node.IsRenderable)
@@ -665,11 +733,13 @@ public static class SvgSceneRenderer
         SvgSceneNode node,
         SKCanvas canvas,
         DrawAttributes ignoreAttributes,
-        SvgSceneNode? until)
+        SvgSceneNode? until,
+        SelectionRenderContext? selection = null)
     {
         for (var i = 0; i < node.Children.Count; i++)
         {
-            if (!RenderNodeToCanvasCore(sceneDocument, node.Children[i], canvas, ignoreAttributes, until))
+            if (!RenderNodeToCanvasCore(sceneDocument, node.Children[i], canvas, ignoreAttributes, until,
+                    selection: selection))
             {
                 return false;
             }

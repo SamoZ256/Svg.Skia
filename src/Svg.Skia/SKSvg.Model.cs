@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Xml;
 using ShimSkiaSharp;
@@ -85,6 +86,8 @@ public partial class SKSvg : IDisposable
 
     public static SkiaSharp.SKPicture? ToPicture(SvgFragment svgFragment, SkiaModel skiaModel, ISvgAssetLoader assetLoader)
     {
+        using var processingScope = SvgProcessingLimits.Enter("SVG picture creation");
+        SvgProcessingLimits.ValidateElementTree(svgFragment);
         using var documentFontScope = PushDocumentFonts(svgFragment as SvgDocument ?? svgFragment.OwnerDocument, assetLoader);
         var picture = SvgSceneRuntime.CreateModel(
             svgFragment,
@@ -96,6 +99,8 @@ public partial class SKSvg : IDisposable
 
     public static void Draw(SkiaSharp.SKCanvas skCanvas, SvgFragment svgFragment, SkiaModel skiaModel, ISvgAssetLoader assetLoader)
     {
+        using var processingScope = SvgProcessingLimits.Enter("SVG drawing");
+        SvgProcessingLimits.ValidateElementTree(svgFragment);
         using var documentFontScope = PushDocumentFonts(svgFragment as SvgDocument ?? svgFragment.OwnerDocument, assetLoader);
         var picture = SvgSceneRuntime.CreateModel(
             svgFragment,
@@ -611,10 +616,35 @@ public partial class SKSvg : IDisposable
             return null;
         }
 
+        // Structural DOM edits can introduce the first clip, filter, mask or stylesheet
+        // declaration without passing through an attribute setter on this document.
+        sourceDocument.InvalidateComputedStyleCache();
         InvalidateRetainedSceneGraph();
+        ClearAnimationRenderState();
+        if (AnimationController is { } existingController)
+        {
+            existingController.RefreshBindings();
+            if (!existingController.HasAnimations)
+            {
+                ReplaceAnimationController(null);
+            }
+        }
+        else if (sourceDocument.Descendants().Any(element => element is SvgAnimationElement))
+        {
+            // Authoring can add the first animation to a previously static document.
+            var controller = new SvgAnimationController(sourceDocument);
+            if (controller.HasAnimations)
+            {
+                ReplaceAnimationController(controller);
+            }
+            else
+            {
+                controller.Dispose();
+            }
+        }
+
         if (AnimationController is { })
         {
-            ClearAnimationRenderState();
             RefreshCurrentAnimationFrame(bypassThrottle: true);
             return Picture;
         }
@@ -891,10 +921,15 @@ public partial class SKSvg : IDisposable
 
     private SkiaSharp.SKPicture? LoadSvgDocument(SvgDocument? svgDocument, Uri? baseUri = null)
     {
+        using var processingScope = SvgProcessingLimits.Enter("SVG document loading");
         if (svgDocument is null)
         {
             return null;
         }
+
+        // Documents supplied by callers need the same boundary as parsed XML,
+        // before animation, script, font, or retained-scene traversals begin.
+        SvgProcessingLimits.ValidateElementTree(svgDocument);
 
         if (AssetLoader is ISvgDocumentFontLoader fontLoader)
         {
@@ -1314,6 +1349,7 @@ public partial class SKSvg : IDisposable
 
     private SkiaSharp.SKPicture? RenderSvgDocument(SvgDocument svgDocument, bool invalidateRetainedSceneGraph = true)
     {
+        using var processingScope = SvgProcessingLimits.Enter("SVG document rendering");
         DisableAnimationLayerCaching();
 
         using var substituted = BeginExpressionSubstitution(svgDocument);
@@ -2839,6 +2875,7 @@ public partial class SKSvg : IDisposable
 
     private bool RenderAnimationFrame(SvgAnimationFrameState frameState, bool raiseInvalidation, bool bypassThrottle)
     {
+        using var processingScope = SvgProcessingLimits.Enter("SVG animation frame");
         if (SourceDocument is null || AnimationController is null)
         {
             return false;

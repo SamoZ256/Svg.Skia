@@ -59,6 +59,7 @@
       retained-scene/browser-focused behavior against the original parser/runtime logic.
     -->
     <Compile Remove="$(SvgSourcesBasePath)\Source\SvgAttributeCollection.cs" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\SvgDocument.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgDeferredPaintServer.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgGradientServer.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Painting\SvgGradientStop.cs" />
@@ -69,6 +70,7 @@
     <Compile Remove="$(SvgSourcesBasePath)\Source\Paths\SvgPathBuilder.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Resources\svg11.dtd" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\SvgElementFactory.cs" />
+    <Compile Remove="$(SvgSourcesBasePath)\Source\SvgExtentions.cs" />
     <Compile Remove="$(SvgSourcesBasePath)\Source\Text\SvgDominantBaseline.cs" />
   </ItemGroup>
 

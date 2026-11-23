@@ -2122,6 +2122,7 @@ public static class SkiaCSharpModelExtensions
 
         sb.AppendLine($"{indent}var {counter.FontVarName}{counterFont} = new SKFont({typefaceExpression}, {paint.TextSize.ToFloatString()});");
         LinearMetrics(counter, sb, indent, counterFont);
+        SyntheticOblique(counter, sb, indent, counterFont, paint.Typeface, skewX: 0f);
 
         if (!paint.IsAntialias)
         {
@@ -2147,6 +2148,24 @@ public static class SkiaCSharpModelExtensions
     private static void LinearMetrics(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, int counterFont)
         => sb.AppendLine($"{indent}{counter.FontVarName}{counterFont}.LinearMetrics = true;");
 
+    /// <summary>
+    /// SkiaModel.ApplyTypefaceAdjustments shears an italic or oblique request that only an upright
+    /// face answered, by its SyntheticObliqueSkewX. The face is known only when the code runs.
+    /// </summary>
+    private static void SyntheticOblique(SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, int counterFont, SKTypeface? typeface, float skewX)
+    {
+        if (skewX != 0f || typeface?.FontSlant is not (SKFontStyleSlant.Italic or SKFontStyleSlant.Oblique))
+        {
+            return;
+        }
+
+        var font = $"{counter.FontVarName}{counterFont}";
+        sb.AppendLine($"{indent}if ({font}.Typeface?.FontSlant == SKFontStyleSlant.Upright)");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{indent}    {font}.SkewX = -0.3f;");
+        sb.AppendLine($"{indent}}}");
+    }
+
     public static void ToSKFont(this SKFont font, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, SKTypeface? requested = null)
     {
         if (counter.Statics is { })
@@ -2171,6 +2190,7 @@ public static class SkiaCSharpModelExtensions
 
         sb.AppendLine($"{indent}var {counter.FontVarName}{counterFont} = new SKFont({typefaceExpression}, {font.Size.ToFloatString()}, {font.ScaleX.ToFloatString()}, {font.SkewX.ToFloatString()});");
         LinearMetrics(counter, sb, indent, counterFont);
+        SyntheticOblique(counter, sb, indent, counterFont, font.Typeface, font.SkewX);
 
         if (font.Edging != SKFontEdging.Antialias)
         {

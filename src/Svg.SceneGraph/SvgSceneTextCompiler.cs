@@ -3803,6 +3803,7 @@ internal static partial class SvgSceneTextCompiler
         RotationState? rotationState,
         AbsolutePositionState? absolutePositionState)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var contentNodeList = ToContentNodeList(contentNodes);
         for (var nodeIndex = 0; nodeIndex < contentNodeList.Count; nodeIndex++)
         {
@@ -4125,6 +4126,7 @@ internal static partial class SvgSceneTextCompiler
         AbsolutePositionState? absolutePositionState,
         SvgSceneContextPaint? contextPaint)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var contentNodeList = ToContentNodeList(contentNodes);
         for (var nodeIndex = 0; nodeIndex < contentNodeList.Count; nodeIndex++)
         {
@@ -6709,6 +6711,7 @@ internal static partial class SvgSceneTextCompiler
         RotationState? rotationState,
         AbsolutePositionState? absolutePositionState)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var contentNodeList = ToContentNodeList(contentNodes);
         for (var nodeIndex = 0; nodeIndex < contentNodeList.Count; nodeIndex++)
         {
@@ -10337,6 +10340,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool HasNestedTextPathContent(SvgTextPath svgTextPath)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var contentNodes = GetContentNodeList(svgTextPath);
         for (var i = 0; i < contentNodes.Count; i++)
         {
@@ -10352,6 +10356,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool HasNestedTextPathContent(SvgTextBase svgTextBase)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var contentNodes = GetContentNodeList(svgTextBase);
         for (var i = 0; i < contentNodes.Count; i++)
         {
@@ -12644,7 +12649,7 @@ internal static partial class SvgSceneTextCompiler
             spacing = Math.Max(0f, spacing);
             return true;
         }
-        catch
+        catch (Exception exception) when (exception is not SvgProcessingLimitException)
         {
             return false;
         }
@@ -13842,7 +13847,7 @@ internal static partial class SvgSceneTextCompiler
             value = ResolveTextUnitValue(unit, renderingType, svgTextBase, viewport, assetLoader);
             return true;
         }
-        catch
+        catch (Exception exception) when (exception is not SvgProcessingLimitException)
         {
             return false;
         }
@@ -13949,7 +13954,7 @@ internal static partial class SvgSceneTextCompiler
             inlineSize = ResolveTextUnitValue(unit, isVertical ? UnitRenderingType.Vertical : UnitRenderingType.Horizontal, svgTextBase, viewport, assetLoader);
             return inlineSize >= 0f;
         }
-        catch
+        catch (Exception exception) when (exception is not SvgProcessingLimitException)
         {
             inlineSize = 0f;
             return false;
@@ -14211,7 +14216,7 @@ internal static partial class SvgSceneTextCompiler
                 : ResolveTextUnitValue(unit, UnitRenderingType.Vertical, styleSource, geometryBounds, assetLoader);
             return true;
         }
-        catch
+        catch (Exception exception) when (exception is not SvgProcessingLimitException)
         {
             return false;
         }
@@ -15080,6 +15085,7 @@ internal static partial class SvgSceneTextCompiler
         out List<SequentialTextRun> runs,
         bool preservePreLineBreaks = false)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         runs = new List<SequentialTextRun>();
         var hasAnchorContent = false;
         var trimLeadingWhitespace = trimLeadingWhitespaceAtStart;
@@ -15102,6 +15108,7 @@ internal static partial class SvgSceneTextCompiler
         bool textReferencesEnabled,
         bool preservePreLineBreaks = false)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var contentNodeList = ToContentNodeList(contentNodes);
         for (var nodeIndex = 0; nodeIndex < contentNodeList.Count; nodeIndex++)
         {
@@ -15224,6 +15231,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool TryCollectTextPathRuns(SvgTextPath svgTextPath, SKRect viewport, out List<TextPathRun> runs)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         runs = new List<TextPathRun>();
         var trimLeadingWhitespace = true;
         var previousEndedWithSpace = false;
@@ -15326,6 +15334,7 @@ internal static partial class SvgSceneTextCompiler
         ref bool trimLeadingWhitespace,
         ref bool previousEndedWithSpace)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var contentNodeList = ToContentNodeList(contentNodes);
         for (var nodeIndex = 0; nodeIndex < contentNodeList.Count; nodeIndex++)
         {
@@ -19558,6 +19567,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool HasPositionedDescendantTextChunk(SvgElement element)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         foreach (var node in GetContentNodes(element))
         {
             if (node is SvgTextBase textBase)
@@ -19579,6 +19589,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool HasAbsolutelyPositionedDescendantTextChunk(SvgElement element)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         foreach (var node in GetContentNodes(element))
         {
             if (node is not SvgTextBase textBase)
@@ -19602,6 +19613,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool ContainsUnsupportedFlattenedTextLengthContent(SvgElement element)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         foreach (var node in GetContentNodes(element))
         {
             switch (node)
@@ -19730,6 +19742,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool ContainsPreparedSequentialTextSubtreeBarrier(SvgTextBase svgTextBase)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         if (IsVerticalWritingMode(svgTextBase) ||
             HasOwnTextLengthAdjustment(svgTextBase))
         {
@@ -19756,11 +19769,13 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool CanRenderTextSubtree(SvgElement svgElement)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         return CanRenderTextSubtree(svgElement, DrawAttributes.None);
     }
 
     private static bool CanRenderTextSubtree(SvgElement svgElement, DrawAttributes ignoreAttributes)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         return HasFeatures(svgElement, ignoreAttributes) &&
                (svgElement is not SvgVisualElement visualElement || MaskingService.CanDraw(visualElement, ignoreAttributes));
     }
@@ -21641,6 +21656,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool HasCustomTextOpenTypePaintProperty(SvgElement element)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         if (!element.MayHaveTextOpenTypeDeclarations())
         {
             return false;
@@ -21664,6 +21680,7 @@ internal static partial class SvgSceneTextCompiler
         string propertyName,
         string defaultValue)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         if (!element.ComputedStyle.TryGetPropertyValue(propertyName, out var value) ||
             string.IsNullOrWhiteSpace(value))
         {
@@ -22589,6 +22606,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool UsesPreLineWhitespaceInTextSubtree(SvgTextBase svgTextBase)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         if (UsesPreLineWhitespace(svgTextBase))
         {
             return true;
@@ -22616,6 +22634,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool PreservesInlineLineBreaksInTextSubtree(SvgTextBase svgTextBase)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         if (PreservesInlineLineBreaks(svgTextBase))
         {
             return true;
@@ -22841,6 +22860,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool ContainsRotateValuesInTextSubtree(SvgTextBase svgTextBase)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         if (HasRotateValues(svgTextBase))
         {
             return true;
@@ -23512,6 +23532,7 @@ internal static partial class SvgSceneTextCompiler
         ISvgAssetLoader assetLoader,
         out List<FlattenedTextCodepoint> codepoints)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         return TryCollectFlattenedTextCodepoints(
             svgTextBase,
             trimLeadingWhitespaceAtStart,
@@ -23561,6 +23582,7 @@ internal static partial class SvgSceneTextCompiler
         bool preservePreLineBreaks,
         out List<FlattenedTextCodepoint> codepoints)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         codepoints = new List<FlattenedTextCodepoint>();
         var trimLeadingWhitespace = trimLeadingWhitespaceAtStart;
         var previousEndedWithSpace = false;
@@ -23590,6 +23612,7 @@ internal static partial class SvgSceneTextCompiler
         bool assignRotations = false,
         RotationState? rotationState = null)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var contentNodeList = ToContentNodeList(contentNodes);
         for (var nodeIndex = 0; nodeIndex < contentNodeList.Count; nodeIndex++)
         {
@@ -23827,6 +23850,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static int CountRenderedTextCodepoints(SvgTextBase svgTextBase, bool trimLeadingWhitespaceAtStart)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var trimLeadingWhitespace = trimLeadingWhitespaceAtStart;
         var previousEndedWithSpace = false;
         return CountRenderedTextCodepoints(GetContentNodeList(svgTextBase), svgTextBase, ref trimLeadingWhitespace, ref previousEndedWithSpace);
@@ -23838,6 +23862,7 @@ internal static partial class SvgSceneTextCompiler
         ref bool trimLeadingWhitespace,
         ref bool previousEndedWithSpace)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         var count = 0;
         var contentNodeList = ToContentNodeList(contentNodes);
         for (var nodeIndex = 0; nodeIndex < contentNodeList.Count; nodeIndex++)
@@ -24039,6 +24064,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static bool TryAppendReferencedElementContent(SvgElement referencedElement, StringBuilder builder, HashSet<SvgElement> visited)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         if (referencedElement is SvgUnknownElement or NonSvgElement)
         {
             return false;
@@ -24665,6 +24691,7 @@ internal static partial class SvgSceneTextCompiler
 
     private static void AppendRawTextContent(SvgElement element, StringBuilder builder, HashSet<SvgElement> visited)
     {
+        using var processingScope = SvgProcessingLimits.Enter("text traversal");
         if (!visited.Add(element))
         {
             return;

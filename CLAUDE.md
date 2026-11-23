@@ -41,7 +41,7 @@ with `git submodule update --init --recursive`.
 
 ```sh
 dotnet build Svg.Skia.slnx -c Release
-dotnet test  Svg.Skia.slnx -c Release                          # ~5100 tests, about a minute
+dotnet test  Svg.Skia.slnx -c Release                          # ~9250 tests, about three minutes
 dotnet test tests/Svg.Skia.UnitTests/Svg.Skia.UnitTests.csproj -c Release \
   -f net10.0 --filter "FullyQualifiedName~W3CTestSuiteTests"   # one project, one subset
 dotnet format Svg.Skia.slnx --no-restore --include <changed .cs files>   # or just: the format skill
@@ -49,8 +49,8 @@ dotnet build Svg.Skia.slnx -c Release --no-incremental -v n    # the only way to
 ```
 
 `Svg.Skia.slnx` is the solution (XML `.slnx`, not `.sln`); a new project must be added to it to be
-built at all. Six sit outside it — CI builds the three MAUI ones separately, and `MauiSvgSkiaSample`,
-`UnoSvgSkiaSample` and `tests/Avalonia.Svg.Skia.UiTests` are built by nothing.
+built at all. Seven sit outside it — CI builds the three MAUI ones separately, a manual workflow the
+font browser sample, and nothing `MauiSvgSkiaSample`, `UnoSvgSkiaSample` or `Avalonia.Svg.Skia.UiTests`.
 
 `Directory.Packages.props` centralises versions, `build/*.props` are per-dependency imports to
 `<Import>`, and multi-targeting is common — check `TargetFrameworks` before a modern BCL API.
@@ -93,8 +93,8 @@ ShimSkiaSharp.SKPicture   flat list of CanvasCommand — the renderer-independen
 ## Known state
 
 A clean checkout builds clean and the suite is fully green — anything failing is something you did
-or something that drifted, so investigate rather than assume it was already broken. The 48 `CS0618`
-warnings are `Svg.Custom` deprecating its own paint-server API, and are expected. W3C text rows use
+or something that drifted, so investigate rather than assume it was already broken. Judge warnings
+by a build of master, not a count: most are SkiaSharp 4 `CS0618` or NuGet advisories. W3C text rows use
 per-fixture thresholds calibrated against a particular native Skia: a hairline failure after a
 SkiaSharp bump usually wants a threshold nudge and almost never a re-captured baseline. Only
 `Svg.Studio.UiTests` cover `App.axaml`; they take the real pointer, so run only in `studio-ui.yml`.

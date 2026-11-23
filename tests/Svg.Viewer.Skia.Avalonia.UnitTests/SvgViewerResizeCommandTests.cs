@@ -1,11 +1,13 @@
 // Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Svg.Skia;
 using Xunit;
 
@@ -72,6 +74,25 @@ public class SvgViewerResizeCommandTests
 
         Assert.Contains("viewBox=\"0 0 24 24\"", viewer.Source);
         Assert.Contains("width=\"48\"", viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Past_A_Processing_Limit_Is_Refused_With_A_Note()
+    {
+        // Text the viewer holds but cannot build, as replace_drawing can leave it: each gesture
+        // that parses it again has to answer with the limit, not throw out of the pointer handler.
+        var viewer = await Host(Drawing);
+        var deep = string.Concat(Enumerable.Repeat("<g>", 300)) + string.Concat(Enumerable.Repeat("</g>", 300));
+        viewer.SetSource(Drawing.Replace("</svg>", deep + "</svg>"));
+        Dispatcher.UIThread.RunJobs();
+        var held = viewer.Source;
+
+        Assert.False(viewer.Resize(new SvgSizeRequest(48f, null, null)));
+        Assert.False(viewer.Reframe(0f, 0f, 2f, 2f));
+
+        Assert.Equal(held, viewer.Source);
+        var note = viewer.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Name == "NoteText");
+        Assert.Contains("limit", note.Text, StringComparison.OrdinalIgnoreCase);
     }
 
     [AvaloniaFact]

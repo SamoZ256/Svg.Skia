@@ -195,6 +195,7 @@ internal static class SvgScenePaintingService
 
     private static bool IsValidHitTestPaintServer(SvgPaintServer? server, SvgElement owner, int depth = 0)
     {
+        using var processingScope = SvgProcessingLimits.Enter("paint server resolution");
         if (server is null || server == SvgPaintServer.None || depth >= 8)
         {
             return false;
@@ -362,6 +363,7 @@ internal static class SvgScenePaintingService
         GradientPaintCache? gradientPaintCache,
         int contextPaintDepth = 0)
     {
+        using var processingScope = SvgProcessingLimits.Enter("paint server resolution");
         if (server is null)
         {
             return false;
@@ -884,6 +886,7 @@ internal static class SvgScenePaintingService
                 break;
             }
 
+            SvgProcessingLimits.CheckDepth(gradientServers.Count + 1, SvgProcessingLimits.MaximumReferenceDepth, "gradient reference nesting");
             gradientServers.Add(currentGradientServer);
             currentGradientServer = SvgDeferredPaintServer.TryGet<SvgGradientServer>(currentGradientServer.InheritGradient, svgVisualElement);
         } while (currentGradientServer is not null);
@@ -1446,6 +1449,10 @@ internal static class SvgScenePaintingService
         ISvgAssetLoader assetLoader,
         DrawAttributes ignoreAttributes)
     {
+        using var processingScope = SvgProcessingLimits.Enter("pattern reference expansion");
+        // Caller-created DOMs may assign a concrete pattern server directly, without
+        // a deferred URL lookup. Its expansion still consumes the shared work budget.
+        SvgProcessingLimits.CountReferenceResolution();
         if (!SvgPatternPaintStateResolver.TryCreate(svgPatternServer, svgVisualElement, skBounds, out var patternState) ||
             patternState is null)
         {

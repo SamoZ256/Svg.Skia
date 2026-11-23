@@ -2985,8 +2985,20 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
 
         var was = workspace.Text;
+        string? refusal;
 
-        if (commit(workspace) is { } refusal)
+        try
+        {
+            refusal = commit(workspace);
+        }
+        catch (SvgProcessingLimitException limit)
+        {
+            // An edit that parses the text again - a page edge dragged, a resize - can meet text the
+            // viewer already holds but could not build. The workspace has put the text back.
+            refusal = limit.Message;
+        }
+
+        if (refusal is { })
         {
             ShowNote(refusal);
 

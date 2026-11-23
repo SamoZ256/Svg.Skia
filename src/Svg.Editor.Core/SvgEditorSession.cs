@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -17,6 +18,8 @@ public partial class SvgEditorSession : ISvgEditorSession
     private SvgEditorToolKind _currentTool;
     private readonly Stack<string> _undo = new();
     private readonly Stack<string> _redo = new();
+    private readonly Stack<string> _undoLabels = new();
+    private readonly Stack<string> _redoLabels = new();
 
     public SvgDocument? Document
     {
@@ -82,13 +85,21 @@ public partial class SvgEditorSession : ISvgEditorSession
 
     public int UndoCount => _undo.Count;
     public int RedoCount => _redo.Count;
+    /// <summary>Operation labels, with the next operation to undo first.</summary>
+    public IReadOnlyList<string> UndoLabels => _undoLabels.ToArray();
+    /// <summary>Operation labels, with the next operation to redo first.</summary>
+    public IReadOnlyList<string> RedoLabels => _redoLabels.ToArray();
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public void PushUndoState(string xml)
+    public void PushUndoState(string xml) => PushUndoState(xml, "Edit");
+
+    public void PushUndoState(string xml, string label)
     {
         _undo.Push(xml);
+        _undoLabels.Push(string.IsNullOrWhiteSpace(label) ? "Edit" : label);
         _redo.Clear();
+        _redoLabels.Clear();
         NotifyHistoryChanged();
     }
 
@@ -101,6 +112,7 @@ public partial class SvgEditorSession : ISvgEditorSession
         }
 
         _redo.Push(currentXml);
+        _redoLabels.Push(_undoLabels.Pop());
         xml = _undo.Pop();
         NotifyHistoryChanged();
         return true;
@@ -114,8 +126,12 @@ public partial class SvgEditorSession : ISvgEditorSession
             return false;
         }
 
+        var label = _redoLabels.Pop();
         if (currentXml is { Length: > 0 })
+        {
             _undo.Push(currentXml);
+            _undoLabels.Push(label);
+        }
 
         xml = _redo.Pop();
         NotifyHistoryChanged();
@@ -129,7 +145,29 @@ public partial class SvgEditorSession : ISvgEditorSession
 
         _undo.Clear();
         _redo.Clear();
+        _undoLabels.Clear();
+        _redoLabels.Clear();
         NotifyHistoryChanged();
+    }
+
+    /// <summary>Transforms every snapshot atomically, preserving undo and redo order.</summary>
+    public void TransformHistory(Func<string, string> transform)
+    {
+        if (transform is null)
+            throw new ArgumentNullException(nameof(transform));
+
+        // Stage both stacks before changing either. A failed URI relocation must leave
+        // every history entry usable with the document's original resource base URI.
+        string Convert(string xml) => transform(xml)
+            ?? throw new InvalidOperationException("A history transformation returned an empty snapshot.");
+        var undo = _undo.Select(Convert).Reverse().ToArray();
+        var redo = _redo.Select(Convert).Reverse().ToArray();
+        _undo.Clear();
+        _redo.Clear();
+        foreach (var xml in undo)
+            _undo.Push(xml);
+        foreach (var xml in redo)
+            _redo.Push(xml);
     }
 
     public void SetClipboard(SvgElement? element, string? xml)
@@ -171,6 +209,8 @@ public partial class SvgEditorSession : ISvgEditorSession
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UndoCount)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RedoCount)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UndoLabels)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RedoLabels)));
     }
 
     private void SetField<T>(ref T field, T value, string propertyName)
