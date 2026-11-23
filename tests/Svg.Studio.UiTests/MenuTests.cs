@@ -1,3 +1,4 @@
+using OpenQA.Selenium;
 using Xunit;
 
 namespace Svg.Studio.UiTests;
@@ -60,5 +61,20 @@ public class MenuTests
         studio.Command("s");
 
         studio.Until(() => studio.Title == "square.svg — SVG Studio", "the mark gone once it is saved");
+    }
+
+    /// <remarks>⌘K is a key equivalent of the Help menu on macOS, which a headless test never has.</remarks>
+    [Fact]
+    public void Command_K_Opens_Search_And_Return_Runs_What_Was_Typed()
+    {
+        using var studio = Studio.Launch();
+
+        studio.Find("WelcomeOpen");
+        studio.Command("k");
+
+        studio.Find("CommandQuery");
+        studio.Press("keyboard shortcuts" + Keys.Enter);
+
+        studio.Window("Keyboard Shortcuts");
     }
 }

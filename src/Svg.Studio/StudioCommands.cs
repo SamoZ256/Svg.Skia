@@ -10,7 +10,7 @@ using Svg.Editor.Core;
 
 namespace Svg.Studio;
 
-/// <summary>One thing Studio can be asked to do: by a menu, by a key, and later by search.</summary>
+/// <summary>One thing Studio can be asked to do: by a menu, by a key, or by search.</summary>
 /// <remarks>
 /// Ids follow upstream's <see cref="SvgEditorShortcutCatalog"/> where the meaning is the same, so a
 /// command reads the same in both editors. No <see cref="Execute"/> is a key another control
@@ -28,7 +28,7 @@ public sealed record StudioCommand(string Id, string Label, string Category, Fun
 
     public SvgEditorShortcutModifiers Modifiers { get; init; }
 
-    /// <summary>The platform's own gestures, which replace <see cref="Key"/>: undo and redo.</summary>
+    /// <summary>Gestures as Avalonia has them, which replace <see cref="Key"/>: undo and redo, and the palette's letters.</summary>
     public IReadOnlyList<KeyGesture>? Platform { get; init; }
 
     public Func<bool> CanExecute { get; init; } = static () => true;

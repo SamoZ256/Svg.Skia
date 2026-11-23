@@ -158,7 +158,9 @@ land is drawn while you carry it. The arrangement is remembered, so it is there 
 **Window → Reset Layout** puts it back for when it has gone somewhere you would rather it had not. The
 **Window** menu also takes a panel off or puts it back for this session — all but the project tree and
 **Changes**, which come and go with the project — and moves between tabs
-(⌃⇥ and ⌃⇧⇥); **Help → Keyboard Shortcuts** lists every key Studio answers to.
+(⌃⇥ and ⌃⇧⇥); **Help → Keyboard Shortcuts** lists every key Studio answers to, and **Help → Search
+Commands…** (⌘K, Ctrl+K elsewhere) finds a command, a tool, or a drawing or group of the project by
+name, and runs or opens it.
 
 ## A group's tab: several icons at once
 

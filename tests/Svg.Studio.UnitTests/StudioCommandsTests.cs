@@ -163,12 +163,12 @@ public class StudioCommandsTests
 
         foreach (var mac in new[] { true, false })
         {
-            var declared = window.Registry.All.Where(command => command.Key is { }).ToList();
-            var commands = new StudioCommands(declared, mac);
-            var keys = declared.Select(command => StudioCommands.Gesture(command.Key!.Value, command.Modifiers, mac)).ToList();
+            // Every gesture, the palette's letters and the platform's undo among them.
+            var commands = new StudioCommands(window.Registry.All, mac);
+            var keys = commands.All.SelectMany(commands.Gestures).ToList();
 
             Assert.Equal(keys.Count, keys.Distinct().Count());
-            Assert.All(declared, command => Assert.NotEmpty(commands.Shortcut(command)));
+            Assert.All(commands.All.Where(command => commands.Gestures(command).Count > 0), command => Assert.NotEmpty(commands.Shortcut(command)));
         }
 
         window.Close();
