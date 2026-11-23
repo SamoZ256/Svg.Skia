@@ -453,7 +453,7 @@ public class MainWindowAutosaveTests : IDisposable
         _now = _now.AddSeconds(31d);
         Assert.True(Recovery(window).Pulse());
 
-        window.ShowSettings = () => Task.CompletedTask;
+        window.ShowSettings = _ => Task.CompletedTask;
 
         await window.ShowSettingsAsync();
         Dispatcher.UIThread.RunJobs();
@@ -576,7 +576,7 @@ public class MainWindowAutosaveTests : IDisposable
     /// </remarks>
     private static async Task Toggle(MainWindow window)
     {
-        window.ShowSettings = () =>
+        window.ShowSettings = _ =>
         {
             StudioSettings.Autosave = !StudioSettings.Autosave;
 

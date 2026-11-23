@@ -356,7 +356,7 @@ public class SnapToGridTests : IDisposable
 
         // Through the window's own seam, since a headless run cannot show a modal: what the settings
         // window does to the setting is tested on the settings window.
-        window.ShowSettings = () => Task.CompletedTask;
+        window.ShowSettings = _ => Task.CompletedTask;
 
         await window.ShowSettingsAsync();
         Dispatcher.UIThread.RunJobs();

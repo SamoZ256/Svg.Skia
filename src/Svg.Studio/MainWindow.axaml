@@ -177,93 +177,11 @@
     </Style>
   </Window.Styles>
 
-  <!--
-    Declared once as a native menu and shown by a NativeMenuBar: on macOS the bar draws nothing and
-    the items go to the system menu bar, where a File menu belongs, and everywhere else the same
-    items are drawn in the window.
-  -->
-  <NativeMenu.Menu>
-    <NativeMenu>
-      <NativeMenuItem Header="File">
-        <NativeMenuItem.Menu>
-          <NativeMenu>
-            <NativeMenuItem Header="Open…" Click="OnOpen" />
-            <!--
-              Filled in code from the list on disk. Empty here because the markup cannot know what
-              was opened last time, and the item is disabled until something has been.
-            -->
-            <NativeMenuItem Header="Open Recent">
-              <NativeMenuItem.Menu>
-                <NativeMenu />
-              </NativeMenuItem.Menu>
-            </NativeMenuItem>
-            <NativeMenuItemSeparator />
-            <!--
-              The command was a keystroke and nothing else: Ctrl+S worked and no part of the window
-              said so, which is the whole of why it is here.
-            -->
-            <NativeMenuItem Header="Save" Click="OnSave" />
-            <NativeMenuItem Header="Save As…" Click="OnSaveAs" />
-            <NativeMenuItemSeparator />
-            <!--
-              One command for both forms: the save panel asks which, and names the file after the
-              answer, so nothing here has to ask twice. With a project open there is one form and
-              one thing to write — the project — so the panel only asks where.
-            -->
-            <NativeMenuItem Header="Export…" Click="OnExport" />
-            <!--
-              Hidden on macOS, where the same item is in the application menu and a second copy in a
-              window's own File menu is the thing a Mac application does not do. No rule above it:
-              a separator is not a NativeMenuItem to be hidden with it, and a menu ending in one is
-              worse than a menu with one grouping fewer.
-            -->
-            <NativeMenuItem Header="Settings…" Click="OnSettings" />
-          </NativeMenu>
-        </NativeMenuItem.Menu>
-      </NativeMenuItem>
-      <!--
-        Edit rather than File: a resize changes the drawing, and the tab goes modified until it is
-        saved like any other edit.
-      -->
-      <NativeMenuItem Header="Edit">
-        <NativeMenuItem.Menu>
-          <NativeMenu>
-            <!--
-              The gestures are set in code from the platform's own keymap rather than written here,
-              so what the menu shows is what the pane answers to on this machine.
-            -->
-            <NativeMenuItem Header="Undo" Click="OnUndo" />
-            <NativeMenuItem Header="Redo" Click="OnRedo" />
-            <NativeMenuItemSeparator />
-            <NativeMenuItem Header="Duplicate" Click="OnDuplicate" />
-            <!-- No gesture: a ⌫ key equivalent would take Backspace from every box in the window. -->
-            <NativeMenuItem Header="Delete" Click="OnDelete" />
-            <NativeMenuItemSeparator />
-            <NativeMenuItem Header="Resize…" Click="OnResize" />
-          </NativeMenu>
-        </NativeMenuItem.Menu>
-      </NativeMenuItem>
-      <!--
-        Its own menu rather than items in File: what these two act on is the project itself — which
-        File opens drawings and writes them out of, and Edit edits one in.
-      -->
-      <NativeMenuItem Header="Project">
-        <NativeMenuItem.Menu>
-          <NativeMenu>
-            <!--
-              Here rather than in File, which opens drawings: a project is not one, and File's New
-              would have had to ask which of the two was meant.
-            -->
-            <NativeMenuItem Header="New" Click="OnNewProject" />
-            <NativeMenuItemSeparator />
-            <NativeMenuItem Header="Close" Click="OnCloseProject" />
-          </NativeMenu>
-        </NativeMenuItem.Menu>
-      </NativeMenuItem>
-    </NativeMenu>
-  </NativeMenu.Menu>
-
   <DockPanel LastChildFill="True">
+    <!--
+      Draws the window's menus everywhere but macOS, where the system menu bar has them. They are
+      built from the window's commands in code; see StudioCommands.
+    -->
     <NativeMenuBar DockPanel.Dock="Top" />
 
     <!--

@@ -191,6 +191,9 @@ public sealed class ChangesPanel : UserControl
         return _path is { };
     }
 
+    /// <summary>Whether the last <see cref="Track"/> found something to show.</summary>
+    public bool Tracking => _path is { };
+
     /// <summary>Asks git again, for a save, a return to the window, or a command of its own.</summary>
     /// <param name="notes">
     /// Where a conflict is said instead of offering the merge window, which is then offered on the

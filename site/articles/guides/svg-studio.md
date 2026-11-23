@@ -155,7 +155,10 @@ header and drop it on another header to sit behind it, or on the edge of a panel
 Drop it against the foot of the drawing and it sits under the drawing; drop it against the **edge of
 the window** and it runs under everything, taking nothing from the strip beside it. Where it would
 land is drawn while you carry it. The arrangement is remembered, so it is there again next time, and
-**Settings** has **Reset layout** for when it has gone somewhere you would rather it had not.
+**Window → Reset Layout** puts it back for when it has gone somewhere you would rather it had not. The
+**Window** menu also takes a panel off or puts it back for this session — all but the project tree and
+**Changes**, which come and go with the project — and moves between tabs
+(⌃⇥ and ⌃⇧⇥); **Help → Keyboard Shortcuts** lists every key Studio answers to.
 
 ## A group's tab: several icons at once
 

@@ -58,9 +58,6 @@
 
           <CheckBox x:Name="AutosaveBox" Content="Keep a copy of unsaved work"
                     ToolTip.Tip="A copy kept under your application data while there is work not on disk, offered back if Studio does not close cleanly. The project's own file is written only when you save." />
-
-          <Button x:Name="ResetLayoutButton" Content="Reset panel layout" HorizontalAlignment="Left"
-                  ToolTip.Tip="Puts every panel back where it started." />
         </StackPanel>
       </ScrollViewer>
     </TabItem>

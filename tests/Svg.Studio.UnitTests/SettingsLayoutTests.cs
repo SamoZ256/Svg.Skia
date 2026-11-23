@@ -28,7 +28,7 @@ public class SettingsLayoutTests
         // Every control a test or the code reaches is on one of them, not left outside the tabs.
         Control[] reached =
         [
-            settings.Theme, settings.Autosave, settings.ResetLayout,
+            settings.Theme, settings.Autosave,
             settings.SnapToGrid, settings.GridSize, settings.RotationStep, settings.CaptionSize, settings.DrawingCaptions,
             settings.RelaxedText, settings.ConvertAsks, settings.ConvertIntegers, settings.ConvertOrganizes,
             settings.StreamlineKey, settings.AnthropicKey, settings.McpEnabled, settings.McpPort, settings.CopyMcpCommand
