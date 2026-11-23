@@ -31,8 +31,6 @@ title: "Packages and Namespaces"
 | [Svg.Editor.Core](../packages/svg-editor-core) | `Svg.Editor.Core` | Editor session, settings, outline, artboard, clipboard, and history primitives |
 | [Svg.Editor.Svg](../packages/svg-editor-svg) | `Svg.Editor.Svg` | SVG mutation services and property/resource models |
 | [Svg.Editor.Skia](../packages/svg-editor-skia) | `Svg.Editor.Skia` | Selection math, path editing, align/distribute, and overlay rendering |
-| [Svg.Editor.Avalonia](../packages/svg-editor-avalonia) | `Svg.Editor.Avalonia` | Reusable Avalonia panels, editor views, and dialog abstractions |
-| [Svg.Editor.Skia.Avalonia](../packages/svg-editor-skia-avalonia) | `Svg.Editor.Skia.Avalonia` | Interactive editor surface and composed workspace |
 
 ## Generated-code packages
 

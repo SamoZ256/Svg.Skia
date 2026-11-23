@@ -19,8 +19,6 @@ The generated API reference under `/api` is built from these projects:
 - `../src/Svg.Editor.Core/Svg.Editor.Core.csproj`
 - `../src/Svg.Editor.Svg/Svg.Editor.Svg.csproj`
 - `../src/Svg.Editor.Skia/Svg.Editor.Skia.csproj`
-- `../src/Svg.Editor.Avalonia/Svg.Editor.Avalonia.csproj`
-- `../src/Svg.Editor.Skia.Avalonia/Svg.Editor.Skia.Avalonia.csproj`
 - `../src/ShimSkiaSharp/ShimSkiaSharp.csproj`
 - `../src/Svg.SourceGenerator.Skia/Svg.SourceGenerator.Skia.csproj`
 
@@ -31,7 +29,7 @@ Current API settings:
 - configuration: `Release`
 - default target framework override: `netstandard2.0`
 - Avalonia 12 project overrides:
-  `Svg.Controls.Avalonia`, `Svg.Controls.Skia.Avalonia`, `Skia.Controls.Avalonia`, `Svg.Editor.Avalonia`, and `Svg.Editor.Skia.Avalonia` build API metadata with `net8.0`
+  `Svg.Controls.Avalonia`, `Svg.Controls.Skia.Avalonia`, and `Skia.Controls.Avalonia` build API metadata with `net8.0`
 - MAUI package coverage:
   `Svg.Controls.Skia.Maui` is covered by authored package documentation instead of generated API metadata because the docs workflow runs on Ubuntu and does not install MAUI workloads
 - output path: `/api`

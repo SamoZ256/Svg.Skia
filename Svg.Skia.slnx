@@ -78,12 +78,10 @@
   <Folder Name="/src/">
     <Project Path="src/ShimSkiaSharp/ShimSkiaSharp.csproj" />
     <Project Path="src/Skia.Controls.Avalonia/Skia.Controls.Avalonia.csproj" />
-    <Project Path="src/Svg.Editor.Avalonia/Svg.Editor.Avalonia.csproj" />
     <Project Path="src/Svg.Editor.Core/Svg.Editor.Core.csproj" />
     <Project Path="src/Svg.Editor.Mcp/Svg.Editor.Mcp.csproj" />
     <Project Path="src/Svg.Editor.Mcp.Hosting/Svg.Editor.Mcp.Hosting.csproj" />
     <Project Path="src/Svg.Editor.Skia/Svg.Editor.Skia.csproj" />
-    <Project Path="src/Svg.Editor.Skia.Avalonia/Svg.Editor.Skia.Avalonia.csproj" />
     <Project Path="src/Svg.Editor.Skia.Uno/Svg.Editor.Skia.Uno.csproj" />
     <Project Path="src/Svg.Editor.Svg/Svg.Editor.Svg.csproj" />
     <Project Path="src/Svg.CodeGen.Skia/Svg.CodeGen.Skia.csproj" />
@@ -123,7 +121,6 @@
     <Project Path="tests/Svg.Controls.Skia.Avalonia.InvariantGlobalization.UnitTests/Svg.Controls.Skia.Avalonia.InvariantGlobalization.UnitTests.csproj" />
     <Project Path="tests/Svg.Controls.Skia.Avalonia.UnitTests/Svg.Controls.Skia.Avalonia.UnitTests.csproj" />
     <Project Path="tests/Svg.Controls.Skia.Uno.UnitTests/Svg.Controls.Skia.Uno.UnitTests.csproj" />
-    <Project Path="tests/Svg.Editor.Skia.Avalonia.UnitTests/Svg.Editor.Skia.Avalonia.UnitTests.csproj" />
     <Project Path="tests/Svg.Highlighting.UnitTests/Svg.Highlighting.UnitTests.csproj" />
     <Project Path="tests/Svg.Viewer.Skia.Avalonia.UnitTests/Svg.Viewer.Skia.Avalonia.UnitTests.csproj" />
     <Project Path="tests/Svg.Studio.UnitTests/Svg.Studio.UnitTests.csproj" />

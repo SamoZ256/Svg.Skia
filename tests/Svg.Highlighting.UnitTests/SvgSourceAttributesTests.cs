@@ -428,10 +428,9 @@ public class SvgSourceAttributesTests
     }
 
     [Fact]
-    public void Style_Misses_The_Table_And_Is_Still_Used()
+    public void Style_Is_An_Element_The_Table_Knows()
     {
-        // The one name that is not in the element table and is not a mistake: the loader picks the
-        // unknown elements of that name back out and reads them as stylesheets.
+        // SVG.NET types <style> as SvgStyle, so it is in the table rather than an exception to it.
         Assert.Empty(Of("<style>rect { fill: red }</style>"));
     }
 

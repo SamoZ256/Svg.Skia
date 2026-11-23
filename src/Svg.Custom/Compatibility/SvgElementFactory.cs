@@ -774,12 +774,10 @@ namespace Svg
         /// An unrecognised name becomes an <see cref="SvgUnknownElement"/>, drawn by nothing. A
         /// warning rather than a refusal, and worded <em>this renderer</em> rather than <em>SVG</em>,
         /// because the table cannot tell a typo from real SVG that is not implemented here.
-        /// <c>&lt;style&gt;</c> is the one name that misses the table and is still used.
         /// </remarks>
         internal static string FindElementFault(string elementName)
         {
             if (string.IsNullOrEmpty(elementName)
-                || elementName == "style"
                 || elementName == "svg"
                 || availableElementsWithoutSvg.ContainsKey(elementName))
             {

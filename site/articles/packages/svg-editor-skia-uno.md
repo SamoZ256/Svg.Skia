@@ -4,7 +4,7 @@ title: "Svg.Editor.Skia.Uno"
 
 # Svg.Editor.Skia.Uno
 
-`Svg.Editor.Skia.Uno` contains the Uno Platform workspace and direct Skia editing canvas used by UnoDraw. It uses the same SVG DOM, geometry services and Svg.Skia renderer as the rest of the repository. The document stays editable SVG throughout open, edit, undo and save.
+`Svg.Editor.Skia.Uno` contains the Uno Platform workspace and direct Skia editing canvas used by UnoDraw, upstream's sample editor. It uses the same SVG DOM, geometry services and Svg.Skia renderer as the rest of the repository. The document stays editable SVG throughout open, edit, undo and save.
 
 ## Reference the library
 
@@ -18,7 +18,7 @@ While developing against this repository, reference the project from an Uno appl
 </ItemGroup>
 ```
 
-Use `samples/UnoDraw/UnoDraw.csproj` as the reference for the desktop host and matching SkiaSharp native assets. The packable library's package ID is `Svg.Editor.Skia.Uno`.
+Use `samples/UnoDraw/UnoDraw.csproj` as the reference for the desktop host and matching SkiaSharp native assets. This fork does not publish the library as a package.
 
 ## Choose this library when
 
@@ -90,16 +90,13 @@ Move, resize and rotate gestures replay a cached full-color selection picture wi
 
 The desktop host selects the graphics backend and can fall back to software. Direct canvas integration enables hardware acceleration when the host provides it; confirm the active backend and measure frame timing on the target machine. XML snapshot history and complex SVG filters or external resources still contribute to editing cost.
 
-## Coverage and existing integrations
+## Coverage
 
 UnoDraw provides native SVG drawing, selection, arrangement, path commands, resource creation, source/attribute editing, playback and export. Dedicated advanced authoring interfaces do not cover every SVG feature that the renderer can load. Consult the [UnoDraw feature coverage guide](https://github.com/wieslawsoltes/Svg.Skia/blob/master/docs/unodraw.md) for the current boundaries and keyboard controls.
-
-`Svg.Editor.Avalonia` and `Svg.Editor.Skia.Avalonia` remain separate, supported integration choices. Uno types are not replacements for Avalonia controls inside an Avalonia window.
 
 ## Related docs
 
 - [Editor architecture](../editor/architecture)
 - [Svg.Editor.Skia](svg-editor-skia)
 - [Svg.Editor.Svg](svg-editor-svg)
-- [Svg.Editor.Skia.Avalonia](svg-editor-skia-avalonia)
 - [Samples and tools](../reference/samples-and-tools)

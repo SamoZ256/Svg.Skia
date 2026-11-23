@@ -1,8 +1,0 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:editor="clr-namespace:Svg.Editor.Avalonia"
-        x:Class="Svg.Editor.Avalonia.PathEditorWindow"
-        Width="600" Height="400"
-        Title="Edit Path">
-    <editor:PathSegmentsEditorView x:Name="EditorView" />
-</Window>

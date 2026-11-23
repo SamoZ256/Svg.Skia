@@ -1458,13 +1458,6 @@ public sealed class SvgViewerDock
     {
         Grid.SetColumn(control, across ? at : 0);
         Grid.SetRow(control, across ? 0 : at);
-
-        if (across ? at >= grid.ColumnDefinitions.Count : at >= grid.RowDefinitions.Count)
-        {
-            throw new InvalidOperationException(
-                $"DIAG place {control.GetType().Name} at {at} across={across} cols={grid.ColumnDefinitions.Count} rows={grid.RowDefinitions.Count}");
-        }
-
         grid.Children.Add(control);
     }
 

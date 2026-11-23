@@ -4,27 +4,36 @@ title: "Uno Sample Publishing"
 
 # Uno Sample Publishing
 
-## UnoDraw on GitHub Pages
+## UnoDraw
 
-[Launch UnoDraw](https://wieslawsoltes.github.io/Svg.Skia/unodraw/) to use the SVG
-editor in a browser. It shares the documentation's GitHub Pages site, with the
-application under `/Svg.Skia/unodraw/` and the docs at `/Svg.Skia/`.
+`samples/UnoDraw`, upstream's Uno Platform editor, builds with `Svg.Skia.slnx`,
+but this fork does not publish it. The `Docs` workflow builds only this site, and
+the `UnoDraw` workflow, which builds the desktop, Android and iOS targets and runs
+the sample's own checks, runs only when dispatched by hand. The fork's editor is
+[Svg Studio](../guides/svg-studio).
 
-The `Docs` workflow builds the documentation and the Release AOT WebAssembly
-package from the same commit. It tests the package at the nested deployment path
-using a static server without cross-origin isolation headers, then publishes both
-outputs together as a GitHub Pages artifact. The repository's Pages publishing
-source must be **GitHub Actions**, rather than a branch, so large AOT files do not
-need to be committed to Git. A failed build or browser smoke test leaves the
-previous deployment in place. Pushes to the default branch deploy automatically;
-`workflow_dispatch` also supports rebuilding that branch. Pull requests only
-build and validate. Desktop and mobile UnoDraw checks remain in the `UnoDraw`
-workflow.
+Run the desktop target on Windows, macOS or Linux/X11. It needs no extra
+workload; pass an SVG path after `--` to open it at startup.
+
+```bash
+dotnet run --project samples/UnoDraw/UnoDraw.csproj -f net10.0-desktop
+```
+
+The WebAssembly target is opt-in. Publish it by hand and serve the `wwwroot`
+folder of the output from any static server:
+
+```bash
+dotnet workload install wasm-tools
+dotnet publish samples/UnoDraw/UnoDraw.csproj -c Release -f net10.0-browserwasm \
+  -p:UnoDrawTargetFrameworks=net10.0-browserwasm -o artifacts/unodraw-browser
+```
 
 The browser package uses relative asset URLs (`WasmShellWebAppBasePath=./`) and
-disables WebAssembly threads for GitHub Pages hosting. Its manifest's start URL
-and scope are also relative, keeping installation within the app subfolder.
-Browser file saving uses a file picker or download according to browser support.
+disables WebAssembly threads, so it runs from a subfolder without cross-origin
+isolation headers. Its manifest's start URL and scope are also relative, keeping
+installation within that folder. Browser file saving uses a file picker or
+download according to browser support. `tests/UnoDraw.BrowserSmoke/README.md`
+shows how to run the browser checks against that output.
 
 ## Uno control sample
 

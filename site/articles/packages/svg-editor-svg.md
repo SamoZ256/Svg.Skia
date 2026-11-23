@@ -69,7 +69,7 @@ if (document?.Children.Count > 0 && document.Children[0] is Svg.SvgElement eleme
 
 ## Why this package exists separately
 
-AvalonDraw originally carried these services in the sample app. Extracting them into `Svg.Editor.Svg` makes the property editor, layer browser, and resource browser reusable without taking the default Avalonia workspace.
+Keeping these services out of any UI package lets a host build its own property editor, layer browser, and resource browser on them.
 
 ## Related docs
 

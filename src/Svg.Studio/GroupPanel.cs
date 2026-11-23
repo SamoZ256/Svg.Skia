@@ -19,7 +19,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SkiaSharp;
 using Svg.CodeGen.Skia.Projects;
-using Svg.Editor.Skia;
 using Svg.Expressions;
 using Svg.Highlighting;
 using Svg.Skia;

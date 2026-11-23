@@ -1,8 +1,0 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:editor="clr-namespace:Svg.Editor.Avalonia"
-        x:Class="Svg.Editor.Avalonia.PatternEditorWindow"
-        Width="400" Height="300"
-        Title="Edit Pattern">
-    <editor:PatternEditorView x:Name="EditorView" />
-</Window>
