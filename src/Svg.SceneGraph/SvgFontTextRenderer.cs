@@ -711,15 +711,16 @@ namespace Svg.Skia
 
             private void AddCssFontFaces(SvgDocument document)
             {
-                foreach (var unknown in document.Descendants().OfType<SvgUnknownElement>())
+                // SVG.NET types <style> as SvgStyle, which is not an SvgUnknownElement.
+                foreach (var styleElement in document.Descendants().Where(element => element is SvgStyle or SvgUnknownElement))
                 {
-                    if (string.IsNullOrWhiteSpace(unknown.Content) ||
-                        unknown.Content.IndexOf("@font-face", StringComparison.OrdinalIgnoreCase) < 0)
+                    if (string.IsNullOrWhiteSpace(styleElement.Content) ||
+                        styleElement.Content.IndexOf("@font-face", StringComparison.OrdinalIgnoreCase) < 0)
                     {
                         continue;
                     }
 
-                    foreach (var cssFace in ParseCssFontFaces(unknown.Content))
+                    foreach (var cssFace in ParseCssFontFaces(styleElement.Content))
                     {
                         if (!CanResolveSvgFontReference(cssFace.SourceUri))
                         {

@@ -202,7 +202,8 @@ public partial class SkiaSvgAssetLoader : ISvgDocumentFontLoader
             return provider;
         }
 
-        foreach (var styleElement in document.Descendants().OfType<SvgUnknownElement>())
+        // SVG.NET types <style> as SvgStyle, which is not an SvgUnknownElement.
+        foreach (var styleElement in document.Descendants().Where(element => element is SvgStyle or SvgUnknownElement))
         {
             if (string.IsNullOrWhiteSpace(styleElement.Content) ||
                 styleElement.Content.IndexOf("@font-face", StringComparison.OrdinalIgnoreCase) < 0)

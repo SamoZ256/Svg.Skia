@@ -3992,6 +3992,37 @@ public class SvgRetainedSceneGraphTests : SvgUnitTest
     }
 
     [Fact]
+    public void SvgFont_NamedOnlyByAStyleBlock_DrawsItsGlyphs()
+    {
+        // The CSS family differs from the font's own, so only the <style> block can name it.
+        const string svgFontGlyphSvg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+              <defs>
+                <style type="text/css"><![CDATA[
+                  @font-face {
+                    font-family: 'StyleAlias';
+                    src: url('#AliasedFontFace') format('svg');
+                  }
+                ]]></style>
+                <font id="AliasedFontFace" horiz-adv-x="100">
+                  <font-face font-family="InternalName" units-per-em="100" ascent="100" descent="0" />
+                  <glyph unicode="A" horiz-adv-x="100" d="M10 0H30V100H10Z" />
+                </font>
+              </defs>
+              <text x="10" y="110" fill="black" font-family="StyleAlias" font-size="100">A</text>
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.FromSvg(svgFontGlyphSvg);
+
+        Assert.NotNull(svg.Model);
+        Assert.NotEmpty(svg.Model!.FindCommands<DrawPathCanvasCommand>());
+        Assert.Empty(svg.Model.FindCommands<DrawTextCanvasCommand>());
+        Assert.Empty(svg.Model.FindCommands<DrawTextBlobCanvasCommand>());
+    }
+
+    [Fact]
     public void RetainedSceneGraph_UsesArabicJoiningTypes_ForSvgFontArabicForms()
     {
         const string arabicFormSvg = """
