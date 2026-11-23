@@ -593,7 +593,7 @@ namespace Svg
             try
             {
                 Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-                base.Write(writer);
+                base.Write(SvgBookkeepingFilterWriter.Wrap(writer));
             }
             finally
             {
