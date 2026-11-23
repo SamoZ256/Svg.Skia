@@ -662,6 +662,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
             _arranges = value;
 
+            // A host arranging the panels shows and hides them itself, and a second switch here
+            // would only empty the tree under its own.
+            _elementsButton.IsVisible = value;
+
             Regions();
         }
     }
