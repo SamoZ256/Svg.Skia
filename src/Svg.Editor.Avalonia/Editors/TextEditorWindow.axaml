@@ -1,8 +1,0 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:editor="clr-namespace:Svg.Editor.Avalonia"
-        x:Class="Svg.Editor.Avalonia.TextEditorWindow"
-        Width="600" Height="400"
-        Title="Edit SVG Text">
-    <editor:TextEditorView x:Name="EditorView" />
-</Window>

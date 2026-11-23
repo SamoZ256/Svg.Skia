@@ -87,8 +87,6 @@ with api.dotnet
         { name: "Svg.Editor.Core", path: "../src/Svg.Editor.Core/Svg.Editor.Core.csproj" },
         { name: "Svg.Editor.Svg", path: "../src/Svg.Editor.Svg/Svg.Editor.Svg.csproj" },
         { name: "Svg.Editor.Skia", path: "../src/Svg.Editor.Skia/Svg.Editor.Skia.csproj" },
-        { name: "Svg.Editor.Avalonia", path: "../src/Svg.Editor.Avalonia/Svg.Editor.Avalonia.csproj", properties: { TargetFramework: "net8.0" } },
-        { name: "Svg.Editor.Skia.Avalonia", path: "../src/Svg.Editor.Skia.Avalonia/Svg.Editor.Skia.Avalonia.csproj", properties: { TargetFramework: "net8.0" } },
         { name: "ShimSkiaSharp", path: "../src/ShimSkiaSharp/ShimSkiaSharp.csproj" },
         { name: "Svg.SourceGenerator.Skia", path: "../src/Svg.SourceGenerator.Skia/Svg.SourceGenerator.Skia.csproj" }
     ]
