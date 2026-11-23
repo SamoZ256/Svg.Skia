@@ -10,6 +10,7 @@ og_type: website
     <h1>Svg.Skia</h1>
     <p class="lead"><strong>Svg.Skia</strong> loads SVG 1.1 and Android VectorDrawable content, builds a reusable picture model, and turns it into <code>SKPicture</code> output, Avalonia visuals, generated C# code, and conversion artifacts.</p>
     <div class="svgskia-hero-actions">
+      <a class="btn btn-primary btn-lg" href="unodraw/">Try UnoDraw</a>
       <a class="btn btn-primary btn-lg" href="articles/getting-started/overview"><i class="bi bi-signpost-split" aria-hidden="true"></i> Choose a Package</a>
       <a class="btn btn-outline-secondary btn-lg" href="api"><i class="bi bi-braces" aria-hidden="true"></i> Browse API</a>
       <a class="btn btn-outline-secondary btn-lg" href="https://github.com/wieslawsoltes/Svg.Skia"><i class="bi bi-github" aria-hidden="true"></i> GitHub Repository</a>
@@ -62,9 +63,9 @@ og_type: website
     <span class="svgskia-package-title"><i class="bi bi-filetype-cs" aria-hidden="true"></i> Generated Code</span>
     <p>Compile SVG assets into C# or source-generated pictures for static assets and AOT-friendly workflows.</p>
   </a>
-  <a class="svgskia-package-card" href="articles/packages/svg-editor-skia-avalonia">
+  <a class="svgskia-package-card" href="articles/editor">
     <span class="svgskia-package-title"><i class="bi bi-pencil-square" aria-hidden="true"></i> Editor Packages</span>
-    <p>Reusable editor state, SVG mutation services, Avalonia panels, and a full interactive workspace extracted from AvalonDraw.</p>
+    <p>Reusable SVG editing services, the UnoDraw workspace with a direct Skia canvas, and existing Avalonia panels and workspace.</p>
   </a>
   <a class="svgskia-package-card" href="articles/guides/cli-conversion">
     <span class="svgskia-package-title"><i class="bi bi-terminal" aria-hidden="true"></i> Tooling</span>
@@ -85,7 +86,7 @@ og_type: website
   </a>
   <a class="svgskia-link-card" href="articles/editor">
     <span class="svgskia-link-card-title"><i class="bi bi-layout-three-columns" aria-hidden="true"></i> Editor</span>
-    <p>Embed the extracted AvalonDraw editor packages as a full workspace or as lower-level reusable components.</p>
+    <p>Embed the UnoDraw workspace, the Avalonia editor, or the shared document, geometry and history components.</p>
   </a>
   <a class="svgskia-link-card" href="articles/guides">
     <span class="svgskia-link-card-title"><i class="bi bi-journal-code" aria-hidden="true"></i> Guides</span>

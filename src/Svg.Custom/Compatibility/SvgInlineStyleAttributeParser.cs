@@ -15,6 +15,8 @@ internal sealed class SvgInlineStyleAttributeParser
 
     public void ApplyStyles(SvgElement element, string styleText)
     {
+        SvgCssInputGuard.ValidateDeclarationList(styleText);
+
         // The attribute is applied whole, so what it lifted last time goes first: a property it no
         // longer mentions has to lose its expression, and nothing downstream would ever clear it.
         SvgExpressionAttributes.Forget(element.CustomAttributes, SvgElement.StyleSpecificity_InlineStyle);
@@ -24,7 +26,9 @@ internal sealed class SvgInlineStyleAttributeParser
             return;
         }
 
-        var inlineSheet = stylesheetParser.Parse("#a{" + styleText + "}");
+        var stylesheetText = "#a{" + styleText + "}";
+        SvgCssInputGuard.ValidateStylesheet(stylesheetText);
+        var inlineSheet = stylesheetParser.Parse(stylesheetText);
         foreach (var rule in inlineSheet.StyleRules)
         {
             foreach (var declaration in rule.Style)

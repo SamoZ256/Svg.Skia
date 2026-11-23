@@ -11,6 +11,9 @@ namespace Svg.Skia;
 
 public partial class SkiaModel
 {
+    // Match Avalonia's SkiaTypeface.CreateSKFont simulation for regular-only fonts.
+    private const float SyntheticObliqueSkewX = -0.3f;
+
     private static readonly char[] s_fontFamilyTrimChars = { '\'', '"' };
 
     private static readonly Dictionary<string, string[]> s_genericFontFamilyMap = new(StringComparer.OrdinalIgnoreCase)
@@ -224,7 +227,10 @@ public partial class SkiaModel
         };
     }
 
-    internal static IEnumerable<string> EnumerateFontFamilyCandidates(string? fontFamily, bool browserCompatible = false)
+    internal static IEnumerable<string> EnumerateFontFamilyCandidates(
+        string? fontFamily,
+        bool browserCompatible = false,
+        bool expandGenericFamilies = true)
     {
         var genericFontFamilyMap = browserCompatible
             ? s_browserCompatibleGenericFontFamilyMap
@@ -249,7 +255,7 @@ public partial class SkiaModel
 
                 yield return candidate;
 
-                if (genericFontFamilyMap.TryGetValue(candidate, out var mappedFamilies))
+                if (expandGenericFamilies && genericFontFamilyMap.TryGetValue(candidate, out var mappedFamilies))
                 {
                     foreach (var mapped in mappedFamilies)
                     {
@@ -262,7 +268,7 @@ public partial class SkiaModel
             }
         }
 
-        if (yielded.Count == 0 && genericFontFamilyMap.TryGetValue("sans-serif", out var fallbackFamilies))
+        if (expandGenericFamilies && yielded.Count == 0 && genericFontFamilyMap.TryGetValue("sans-serif", out var fallbackFamilies))
         {
             foreach (var mapped in fallbackFamilies)
             {
@@ -872,6 +878,7 @@ public partial class SkiaModel
 
     public SkiaSharp.SKShader? ToSKShader(SKShader? shader)
     {
+        using var processingScope = SvgProcessingLimits.Enter("native picture conversion");
         switch (shader)
         {
             case ColorShader colorShader:
@@ -1105,6 +1112,7 @@ public partial class SkiaModel
 
     public SkiaSharp.SKImageFilter? ToSKImageFilter(SKImageFilter? imageFilter)
     {
+        using var processingScope = SvgProcessingLimits.Enter("native picture conversion");
         switch (imageFilter)
         {
             case ArithmeticImageFilter arithmeticImageFilter:
@@ -1587,7 +1595,7 @@ public partial class SkiaModel
             Subpixel = paint.SubpixelText
         };
 
-        ApplyTypefaceAdjustments(paint, skFont, typefaceResolution.SuppressSyntheticBold);
+        ApplyTypefaceAdjustments(paint.Typeface, skFont, typefaceResolution.SuppressSyntheticBold);
         return skFont;
     }
 
@@ -1606,12 +1614,13 @@ public partial class SkiaModel
             Embolden = font.Embolden
         };
 
-        ApplyTypefaceAdjustments(font, skFont, typefaceResolution.SuppressSyntheticBold);
+        ApplyTypefaceAdjustments(font.Typeface, skFont, typefaceResolution.SuppressSyntheticBold);
         return skFont;
     }
 
     public SkiaSharp.SKPaint? ToSKPaint(SKPaint? paint)
     {
+        using var processingScope = SvgProcessingLimits.Enter("native picture conversion");
         if (paint is null)
         {
             return null;
@@ -1647,19 +1656,21 @@ public partial class SkiaModel
         return skPaint;
     }
 
-    private void ApplyTypefaceAdjustments(ShimSkiaSharp.SKPaint sourcePaint, SkiaSharp.SKFont targetFont, bool suppressSyntheticBold)
+    private void ApplyTypefaceAdjustments(SKTypeface? sourceTypeface, SkiaSharp.SKFont targetFont, bool suppressSyntheticBold)
     {
-        if (ShouldEmboldenTypeface(sourcePaint.Typeface, targetFont.Typeface, suppressSyntheticBold))
+        if (ShouldEmboldenTypeface(sourceTypeface, targetFont.Typeface, suppressSyntheticBold))
         {
             targetFont.Embolden = true;
         }
-    }
 
-    private void ApplyTypefaceAdjustments(ShimSkiaSharp.SKFont sourceFont, SkiaSharp.SKFont targetFont, bool suppressSyntheticBold)
-    {
-        if (ShouldEmboldenTypeface(sourceFont.Typeface, targetFont.Typeface, suppressSyntheticBold))
+        // Embedded families may have only upright font data even when their platform
+        // typeface simulates italic. Preserve an explicit skew and never shear a real
+        // italic/oblique face a second time.
+        if (targetFont.SkewX == 0f &&
+            sourceTypeface?.FontSlant is SKFontStyleSlant.Italic or SKFontStyleSlant.Oblique &&
+            targetFont.Typeface?.FontSlant == SkiaSharp.SKFontStyleSlant.Upright)
         {
-            targetFont.Embolden = true;
+            targetFont.SkewX = SyntheticObliqueSkewX;
         }
     }
 
@@ -2136,6 +2147,7 @@ public partial class SkiaModel
 
     public SkiaSharp.SKPath? ToSKPath(ClipPath? clipPath)
     {
+        using var processingScope = SvgProcessingLimits.Enter("native clip path conversion");
         if (clipPath?.Clips is null)
         {
             return null;
@@ -2198,6 +2210,7 @@ public partial class SkiaModel
 
     public SkiaSharp.SKPicture? ToSKPicture(SKPicture? picture)
     {
+        using var processingScope = SvgProcessingLimits.Enter("native picture conversion");
         if (picture is null)
         {
             return null;
@@ -2805,6 +2818,7 @@ public partial class SkiaModel
         bool wireframe = false,
         SaveLayerTracker? state = null)
     {
+        using var processingScope = SvgProcessingLimits.Enter("native picture conversion");
         var commands = picture.Commands;
         if (commands is null)
         {

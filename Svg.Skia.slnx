@@ -56,7 +56,7 @@
     <Project Path="src/Svg.Custom/Svg.Custom.csproj" />
   </Folder>
   <Folder Name="/samples/">
-    <Project Path="samples/AvalonDraw/AvalonDraw.csproj" />
+    <Project Path="samples/UnoDraw/UnoDraw.csproj" />
     <Project Path="samples/AvaloniaControlsSample/AvaloniaControlsSample.csproj" />
     <Project Path="samples/AvaloniaSKPictureImageSample/AvaloniaSKPictureImageSample.csproj" />
     <Project Path="samples/AvaloniaSvgSample/AvaloniaSvgSample.csproj" />
@@ -80,8 +80,11 @@
     <Project Path="src/Skia.Controls.Avalonia/Skia.Controls.Avalonia.csproj" />
     <Project Path="src/Svg.Editor.Avalonia/Svg.Editor.Avalonia.csproj" />
     <Project Path="src/Svg.Editor.Core/Svg.Editor.Core.csproj" />
+    <Project Path="src/Svg.Editor.Mcp/Svg.Editor.Mcp.csproj" />
+    <Project Path="src/Svg.Editor.Mcp.Hosting/Svg.Editor.Mcp.Hosting.csproj" />
     <Project Path="src/Svg.Editor.Skia/Svg.Editor.Skia.csproj" />
     <Project Path="src/Svg.Editor.Skia.Avalonia/Svg.Editor.Skia.Avalonia.csproj" />
+    <Project Path="src/Svg.Editor.Skia.Uno/Svg.Editor.Skia.Uno.csproj" />
     <Project Path="src/Svg.Editor.Svg/Svg.Editor.Svg.csproj" />
     <Project Path="src/Svg.CodeGen.Skia/Svg.CodeGen.Skia.csproj" />
     <Project Path="src/Svg.CodeGen.Skia.Projects/Svg.CodeGen.Skia.Projects.csproj" />
@@ -126,6 +129,7 @@
     <Project Path="tests/Svg.Studio.UnitTests/Svg.Studio.UnitTests.csproj" />
     <Project Path="tests/Svg.Studio.UiTests/Svg.Studio.UiTests.csproj" />
     <Project Path="tests/Svg.Editor.Skia.UnitTests/Svg.Editor.Skia.UnitTests.csproj" />
+    <Project Path="tests/Svg.Editor.Mcp.UnitTests/Svg.Editor.Mcp.UnitTests.csproj" />
     <Project Path="tests/Svg.Editor.Svg.UnitTests/Svg.Editor.Svg.UnitTests.csproj" />
     <Project Path="tests/Svg.CodeGen.Skia.Projects.UnitTests/Svg.CodeGen.Skia.Projects.UnitTests.csproj" />
     <Project Path="tests/Svg.Expressions.Recipes.UnitTests/Svg.Expressions.Recipes.UnitTests.csproj" />
@@ -134,5 +138,8 @@
     <Project Path="tests/Svg.JavaScript.UnitTests/Svg.JavaScript.UnitTests.csproj" />
     <Project Path="tests/Svg.Skia.UnitTests/Svg.Skia.UnitTests.csproj" />
     <Project Path="tests/Svg.SourceEditing.UnitTests/Svg.SourceEditing.UnitTests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/UnoDraw.Mcp/UnoDraw.Mcp.csproj" />
   </Folder>
 </Solution>

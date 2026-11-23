@@ -76,6 +76,9 @@ browser-compatible SVG 2 static features on top. Detailed reference articles
 are available for [SVG 1.1 static subset support](site/articles/reference/svg-11-static-subset-support.md)
 and [SVG 2 static subset support](site/articles/reference/svg-2-static-subset-support.md).
 
+See [input depth and stack safety](docs/input-stack-safety.md) for the supported
+processing limits and how to handle `SvgProcessingLimitException`.
+
 | Area | SVG 1.1 static support | SVG 2 static subset support |
 | --- | --- | --- |
 | Document model and loading | Parses and preserves core SVG documents, nested fragments, groups, definitions, symbols, use references, images, metadata, and compatibility attributes. | Adds processing mode and external-resource policy contracts through `SvgDocumentLoadOptions` and `SvgParameters`, including secure static resource behavior in covered paths. |
@@ -103,6 +106,52 @@ and [SVG 2 static subset support](site/articles/reference/svg-2-static-subset-su
 - `SvgML.Avalonia`, `SvgML.Maui`, and `SvgML.Uno` now live in the same repository, so inline Avalonia, .NET MAUI, and Uno XAML-authored SVG trees, including native controls hosted through SVG `foreignObject` and the supported SVG 2 static subset, build against the local `Svg.Skia` sources and ship from the same release pipeline.
 - Avalonia adds an optional `NativeComposition` animation backend with fallback to `RenderLoop` or `DispatcherTimer` when retained composition is unavailable.
 - `tests/Svg.Skia.Benchmarks` adds a local BenchmarkDotNet harness for the shared animation renderer, and `samples/TestApp` exposes backend and playback controls for manual verification.
+
+## UnoDraw SVG editor
+
+[UnoDraw](samples/UnoDraw/README.md) is the SVG editor built with Uno Platform 7
+and the existing Svg.Skia rendering pipeline. Desktop is the default target;
+browser, Android and iOS builds are opt-in. The editable SVG document stays the
+source of truth. Its `SKCanvasElement` surface replays cached Skia pictures
+while panning, zooming, and previewing gestures, with acceleration provided by the
+desktop host when available.
+
+The browser host uses Skia with WebGL by default and falls back to software
+rendering when WebGL is unavailable. `?renderer=webgpu` opts into WebGPU
+composition with Skia fallback. Both paths preserve the existing SVG renderer;
+the [migration guide](docs/unodraw-uno7.md) explains backend selection, the
+optional WebGPU compatibility copy and validation.
+
+![UnoDraw SVG workspace in its dark theme](docs/images/unodraw-workspace-dark.png)
+
+The workspace includes document tabs, light and dark themes, responsive panels,
+searchable commands, hierarchy drag/reparent, drawing and node tools, alignment,
+and path operations. Authoring tools include linked rich-text frames, an SVG
+keyframe timeline, editable Coons meshes, reusable vector brush libraries,
+open/closed variable-width outlines, shared swatches, and SVG resources.
+Print Studio adds page layout, preflight, RGB vector PDF, profiled flattened
+CMYK output, and process/named-ink separation packages with explicit support
+boundaries. Undo/redo and recovery retain the native SVG workflow.
+
+The reusable `Svg.Editor.Skia.Uno` workspace uses a UI-independent
+`SvgEditorController`, so document and authoring behavior can be tested separately
+from the host. Generated geometry/text remains portable SVG; retained metadata
+keeps higher-level mesh, brush and text-flow editing available.
+
+```sh
+git submodule update --init --recursive
+dotnet run --project samples/UnoDraw/UnoDraw.csproj -f net10.0-desktop
+```
+
+See the [UnoDraw guide](docs/unodraw.md) for tools and shortcuts, platform build
+and publish commands, metadata portability, print limitations, and revision-specific
+validation records.
+
+UnoDraw also exposes the live workspace through MCP on desktop and in the
+browser. The [MCP guide](docs/unodraw-mcp.md) covers local HTTP and stdio
+connections, the browser bridge, typed editing tools, resources, prompts,
+read-only sessions and native-quality exports. See the
+[complete tool reference](docs/unodraw-mcp-tools.md) for every input schema.
 
 ## NuGet
 
@@ -608,6 +657,40 @@ var fromPath = SvgResourceExtension.CreateBrush(
 ```
 
 The Skia-backed controls also accept optional `css` and `currentCss` arguments on the static helper so you can apply styles while creating the brush from code.
+
+#### Browser and embedded fonts
+
+SVG text uses SkiaSharp fonts, which are separate from browser CSS fonts and
+Avalonia's font collections. WebAssembly has very limited system font access;
+missing fonts can therefore appear as boxes even when Avalonia `TextBlock` text
+works correctly.
+
+`Svg.Controls.Skia.Avalonia` installs an `AvaloniaTypefaceProvider` by default.
+Register fonts with Avalonia as usual (for example, `.WithInterFont()`), then load
+SVG images after Avalonia initialization. Embedded families and `avares://` font
+references are resolved through Avalonia on all platforms. In the browser, CSS
+generic families such as `sans-serif` fall back to Avalonia's configured default
+font. Concrete family lists keep their order, so an unknown name does not hide a
+later available font.
+
+Use the supported settings API to customize subsequent SVG loads and reloads:
+
+```csharp
+using Avalonia.Svg.Skia;
+
+SvgSource.ConfigureDefaultSettings(settings =>
+{
+    settings.EnableTextSelectionRendering = false;
+    // Insert application-specific providers at index 0 to give them priority.
+});
+```
+
+`SvgSource.DefaultSettings` also exposes the defaults for startup configuration.
+Existing SVG sources retain their settings until reloaded. You no longer need to
+access `SvgSource.s_skiaModel.Settings`; that field remains for compatibility.
+
+See [Avalonia font configuration](site/articles/guides/avalonia-fonts.md) for embedded-font setup,
+provider precedence, standalone `SKSvg` usage, and the runnable browser sample.
 
 #### Avalonia Previewer
 
