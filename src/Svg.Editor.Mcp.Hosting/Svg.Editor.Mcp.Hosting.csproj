@@ -3,8 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <IsPackable>true</IsPackable>
-    <PackageId>Svg.Editor.Mcp.Hosting</PackageId>
+    <IsPackable>false</IsPackable>
     <Description>Local MCP hosting and browser relay for the SVG editor.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;editor;mcp;uno</PackageTags>

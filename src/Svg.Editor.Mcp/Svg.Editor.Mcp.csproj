@@ -3,8 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <IsPackable>true</IsPackable>
-    <PackageId>Svg.Editor.Mcp</PackageId>
+    <IsPackable>false</IsPackable>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>svg;editor;mcp;automation;skia</PackageTags>
     <RootNamespace>Svg.Editor.Mcp</RootNamespace>
