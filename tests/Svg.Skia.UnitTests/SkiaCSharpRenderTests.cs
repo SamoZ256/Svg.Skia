@@ -2937,6 +2937,61 @@ public class SkiaCSharpRenderTests
         AssertDrawsDirectlyTheSame("TypefaceTemplateDirect", model!, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), typeface: template);
     }
 
+    /// <summary>
+    /// A slant that only an upright face answers is sheared, by the runtime and by the code alike.
+    /// </summary>
+    /// <remarks>
+    /// The code cannot decide it when it is generated: which face a template or a font manager hands
+    /// back is known only when it runs.
+    /// </remarks>
+    [Theory]
+    [InlineData("italic")]
+    [InlineData("oblique")]
+    public void A_Slant_Only_An_Upright_Face_Answers_Is_Sheared_In_The_Code_Too(string style)
+    {
+        var font = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "externals", "resvg", "crates", "resvg", "tests", "fonts", "NotoSans-Regular.ttf"));
+        Assert.True(File.Exists(font), font);
+        using var upright = SKTypeface.FromFile(font);
+        var settings = new SKSvgSettings();
+        settings.TypefaceProviders!.Insert(0, new AnySlant(upright));
+
+        var document = SvgService.FromSvg($"""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 24" width="48" height="24">
+              <text x="4" y="18" font-family="Noto Sans" font-size="14" font-style="{style}" fill="#1e40af">Ab7</text>
+            </svg>
+            """);
+        Assert.NotNull(document);
+
+        var model = SvgSceneRuntime.CreateModel(document!, new SkiaSvgAssetLoader(new SkiaModel(settings)));
+        Assert.NotNull(model);
+
+        using var runtime = new SkiaModel(settings).ToSKPicture(model!);
+        Assert.NotNull(runtime);
+
+        var name = $"UprightOnly_{style}";
+        var template = $"SKTypeface.FromFile(@\"{font}\")";
+        var code = SkiaCSharpCodeGen.GenerateFile(
+            new[] { new SkiaCSharpDrawing(model!, Namespace, name, SvgExpressionDeclarations.Empty) },
+            SvgHelperScope.PerClass,
+            style: new SvgCodeStyle { Typeface = template });
+
+        var type = Compile(code, name).GetType($"{Namespace}.{name}")!;
+        using var generated = (SKPicture)type.GetMethod("Record", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, null)!;
+
+        AssertSamePicture(name, runtime!, generated);
+        AssertDrawsDirectlyTheSame($"{name}Direct", model!, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), typeface: template);
+    }
+
+    private sealed class AnySlant : Svg.Skia.TypefaceProviders.ITypefaceProvider
+    {
+        private readonly SKTypeface _typeface;
+
+        public AnySlant(SKTypeface typeface) => _typeface = typeface;
+
+        public SKTypeface? FromFamilyName(string fontFamily, SKFontStyleWeight fontWeight, SKFontStyleWidth fontWidth, SKFontStyleSlant fontStyle)
+            => fontFamily.Trim('\'', '"') == _typeface.FamilyName ? _typeface : null;
+    }
+
     /// <summary>What a PaintCode host keeps beside the API, which the generated code only names.</summary>
     private const string PaintCodeHost = """
         namespace PaintCode
