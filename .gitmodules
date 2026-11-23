@@ -1,3 +1,5 @@
+# The pinned commit is the tip of the branch codex/copy-custom-state-on-deepcopy, not on master:
+# if a clone cannot fetch it, that branch has been deleted or force-pushed.
 [submodule "externals/SVG"]
 	path = externals/SVG
 	url = https://github.com/wieslawsoltes/SVG.git
