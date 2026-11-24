@@ -467,6 +467,7 @@ internal static class SvgScenePaintingService
                     {
                         SvgLinearGradientServer svgLinearGradientServer => CreateLinearGradient(svgLinearGradientServer, skBounds, svgVisualElement, opacity, ignoreAttributes, skColorSpace, gradientPaintCache),
                         SvgRadialGradientServer svgRadialGradientServer => CreateTwoPointConicalGradient(svgRadialGradientServer, skBounds, svgVisualElement, opacity, ignoreAttributes, skColorSpace, gradientPaintCache),
+                        SvgSweepGradientServer svgSweepGradientServer => CreateSweepGradient(svgSweepGradientServer, skBounds, svgVisualElement, opacity, ignoreAttributes, skColorSpace, gradientPaintCache),
                         _ => null
                     };
                     if (shader is not null)
@@ -1332,6 +1333,91 @@ internal static class SvgScenePaintingService
         return isRadialGradient
             ? new RadialGradientShader(skCenter, radius, skColorsF, skColorSpace, skColorPos, shaderTileMode, localMatrix)
             : new TwoPointConicalGradientShader(skFocal, focalRadius, skCenter, radius, skColorsF, skColorSpace, skColorPos, shaderTileMode, localMatrix);
+    }
+
+    private static SKShader? CreateSweepGradient(
+        SvgSweepGradientServer svgSweepGradientServer,
+        SKRect skBounds,
+        SvgVisualElement svgVisualElement,
+        Sym<float> opacity,
+        DrawAttributes ignoreAttributes,
+        SKColorSpace skColorSpace,
+        GradientPaintCache? gradientPaintCache)
+    {
+        var svgReferencedGradientServers = GetLinkedGradientServers(svgSweepGradientServer, svgVisualElement);
+        var (shaderTileMode, svgGradientTransform, svgGradientUnits) = GetGradientSettings(svgReferencedGradientServers);
+
+        SvgSweepGradientServer? firstCenterX = null;
+        SvgSweepGradientServer? firstCenterY = null;
+        SvgSweepGradientServer? firstStartAngle = null;
+        SvgSweepGradientServer? firstEndAngle = null;
+
+        for (var i = 0; i < svgReferencedGradientServers.Count; i++)
+        {
+            if (svgReferencedGradientServers[i] is not SvgSweepGradientServer gradientServerHref)
+            {
+                continue;
+            }
+
+            if (firstCenterX is null && gradientServerHref.CenterX != SvgUnit.None && SvgService.TryGetAttribute(gradientServerHref, "cx", out _))
+            {
+                firstCenterX = gradientServerHref;
+            }
+
+            if (firstCenterY is null && gradientServerHref.CenterY != SvgUnit.None && SvgService.TryGetAttribute(gradientServerHref, "cy", out _))
+            {
+                firstCenterY = gradientServerHref;
+            }
+
+            if (firstStartAngle is null && SvgService.TryGetAttribute(gradientServerHref, "startAngle", out _))
+            {
+                firstStartAngle = gradientServerHref;
+            }
+
+            if (firstEndAngle is null && SvgService.TryGetAttribute(gradientServerHref, "endAngle", out _))
+            {
+                firstEndAngle = gradientServerHref;
+            }
+        }
+
+        var centerXUnit = firstCenterX?.CenterX ?? new SvgUnit(SvgUnitType.Percentage, 50f);
+        var centerYUnit = firstCenterY?.CenterY ?? new SvgUnit(SvgUnitType.Percentage, 50f);
+        var startAngle = firstStartAngle?.StartAngle ?? 0f;
+        var endAngle = firstEndAngle?.EndAngle ?? 360f;
+
+        var centerX = centerXUnit.Normalize(svgGradientUnits).ToDeviceValue(UnitRenderingType.Horizontal, svgSweepGradientServer, skBounds);
+        var centerY = centerYUnit.Normalize(svgGradientUnits).ToDeviceValue(UnitRenderingType.Vertical, svgSweepGradientServer, skBounds);
+
+        // Skia refuses these and returns no shader, which SkiaModel and generated code would not
+        // draw alike; refusing here sends both to the fallback.
+        if (!IsFinite(centerX) || !IsFinite(centerY) || !IsFinite(startAngle) || !IsFinite(endAngle) ||
+            startAngle > endAngle)
+        {
+            return null;
+        }
+
+        var isLinearRgb = skColorSpace == SKColorSpace.SrgbLinear;
+        if (!TryCreateGradientStops(
+                svgSweepGradientServer,
+                svgReferencedGradientServers,
+                opacity,
+                ignoreAttributes,
+                isLinearRgb,
+                gradientPaintCache,
+                out var singleColor,
+                out var skColorsF,
+                out var skColorPos))
+        {
+            return null;
+        }
+
+        if (skColorsF is null)
+        {
+            return SKShader.CreateColor(singleColor, skColorSpace);
+        }
+
+        var skCenter = new SKPoint(centerX, centerY);
+        return new SweepGradientShader(skCenter, startAngle, endAngle, skColorsF, skColorSpace, skColorPos, shaderTileMode, GetGradientMatrix(svgGradientUnits, skBounds, svgGradientTransform));
     }
 
     private static SKShader? CreatePatternShader(

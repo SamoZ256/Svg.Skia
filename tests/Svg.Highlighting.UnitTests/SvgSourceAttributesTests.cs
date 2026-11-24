@@ -435,6 +435,20 @@ public class SvgSourceAttributesTests
     }
 
     [Fact]
+    public void A_Sweep_Gradient_Is_An_Element_This_Renderer_Knows()
+    {
+        // In no SVG specification, but this renderer draws it, so it is not a typo.
+        Assert.Empty(Of("<sweepGradient id=\"s\" cx=\"12\" startAngle=\"-45\" endAngle=\"1e2\"><stop offset=\"0\" /></sweepGradient>"));
+    }
+
+    [Fact]
+    public void An_Angle_Written_With_A_Unit_Is_Reported()
+    {
+        // Unitless degrees, as Skia takes them; the default angle would stand.
+        Assert.Equal("\"90deg\"", Marked("<sweepGradient startAngle=\"90deg\" />"));
+    }
+
+    [Fact]
     public void An_Element_This_Renderer_Does_Not_Implement_Reads_The_Same_As_A_Typo()
     {
         // <view> is real SVG 1.1 and the table cannot tell it from a misspelling, so the wording
