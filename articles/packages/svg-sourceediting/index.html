@@ -181,7 +181,11 @@ document,</li>
 </tr>
 <tr>
 <td><code>SvgAttributeEditor</code></td>
-<td><code>SetAttribute</code> on any element, named by its address, and <code>Attributes</code> to read what one is written with; <code>Content</code> and <code>SetContent</code> for the text between a <code>&lt;text&gt;</code>, <code>&lt;tspan&gt;</code> or <code>&lt;textPath&gt;</code>'s tags</td>
+<td><code>SetAttribute</code> on any element, named by its address, and <code>Attributes</code> to read what one is written with; <code>Content</code> and <code>SetContent</code> for the text between a <code>&lt;text&gt;</code>, <code>&lt;tspan&gt;</code> or <code>&lt;textPath&gt;</code>'s tags; <code>Driven</code> for the expression a value is written with, on the element or a group around it</td>
+</tr>
+<tr>
+<td><code>SvgSourceEdits</code></td>
+<td>What one gesture writes, as steps for one commit: every element they name is found before anything is written</td>
 </tr>
 <tr>
 <td><code>SvgSourceDocument</code></td>
@@ -228,7 +232,9 @@ contract is that what it reads, it writes back exactly.</p>
 <h2 id="one-thing-to-take-back-per-gesture">One thing to take back per gesture</h2>
 <p><code>SvgSourceWorkspace</code> is the history. A commit is the whole of what somebody did — a resize writes
 three attributes and is one thing to take back — and a step is reversed by reading the drawing's own
-text back.</p>
+text back. <code>SvgSourceEdits</code> is such a gesture written down: its <code>Apply</code> finds every element its steps
+name first, so a key the host cannot place, or the file no longer has, is refused before anything is
+written, and is meant to run inside a commit, which puts back a step refused after an earlier one.</p>
 <p>Reversing by snapshot is usually the wrong answer, and it is the right one here for two reasons.
 <code>ToText</code> is byte-faithful, so the text is a lossless record of the tree rather than an approximation
 of it: the annotations that carry the author's bytes are rebuilt from the author's bytes, which is
@@ -339,9 +345,13 @@ path <code>SvgElementAddress.Key</code> spells — as a string, since that type 
 package deliberately cannot see it. The walk that resolves the path is mirrored rather than borrowed
 for the same reason, so the two rules that make the two agree are pinned by a test: the root is the
 empty key, and a comment or a run of text takes no index.</p>
-<p>It refuses an attribute a <code>style</code> declaration overrides. The declaration wins, so writing the
-attribute would leave a document where the change paints nothing and nothing said so; editing inside
-the declaration needs the scanner that splits one properly, which is internal to the SVG parser.</p>
+<p>A property a <code>style</code> declaration sets is written into that declaration, since it is what paints:
+the declaration CSS reads, the last unless an earlier one is <code>!important</code>, and only its value, so
+the rest of the style stays as written. The declarations are split where CSS splits them, not inside
+quotes, comments or brackets. A value that would end the declaration early or leave a quote or a
+comment open is refused, and taking a property away takes every declaration of it and the attribute,
+since one left would take over. Geometry and <code>transform</code> set in a style are still refused: what is
+written for them is attribute grammar, which no browser reads in a style.</p>
 <h2 id="related-docs">Related docs</h2>
 <ul>
 <li><a href="/Svg.Skia/articles/packages/svg-expressions">Svg.Expressions</a> — the language, its declarations and the rules quoted above</li>
