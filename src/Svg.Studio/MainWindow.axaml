@@ -150,6 +150,33 @@
       <Setter Property="Background" Value="#14808080" />
     </Style>
 
+    <Style Selector="Border#ControlBar">
+      <Setter Property="MinHeight" Value="38" />
+      <Setter Property="Padding" Value="8,3" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="BorderBrush" Value="#20808080" />
+    </Style>
+
+    <Style Selector="Border#StatusBar">
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="BorderThickness" Value="0,1,0,0" />
+      <Setter Property="BorderBrush" Value="#20808080" />
+    </Style>
+
+    <!-- A bar of switches, not a form: compact, and the status bar's smaller still. -->
+    <Style Selector="Border#ControlBar Button, Border#ControlBar ToggleButton">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="8,3" />
+      <Setter Property="MinHeight" Value="28" />
+    </Style>
+
+    <Style Selector="Border#StatusBar Button, Border#StatusBar ToggleButton">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Padding" Value="6,1" />
+      <Setter Property="MinHeight" Value="22" />
+    </Style>
+
     <Style Selector="TabControl#Tabs">
       <Setter Property="ItemsPanel">
         <ItemsPanelTemplate>
@@ -183,6 +210,10 @@
       built from the window's commands in code; see StudioCommands.
     -->
     <NativeMenuBar DockPanel.Dock="Top" />
+
+    <!-- Both about whichever tab is in front, and filled in code; see StudioBars. -->
+    <Border x:Name="ControlBar" DockPanel.Dock="Top" />
+    <Border x:Name="StatusBar" DockPanel.Dock="Bottom" />
 
     <!--
       The tree belongs to the window rather than to a tab: it names the drawings the tabs hold, so

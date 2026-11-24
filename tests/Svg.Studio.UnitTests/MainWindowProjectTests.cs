@@ -549,25 +549,32 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(fitted > 0d);
 
-        Press(panel, "+");
+        Press(window, "+");
         Assert.True(canvas.Scale > fitted);
 
-        Press(panel, "−");
+        Press(window, "−");
         Assert.Equal(fitted, canvas.Scale, 6);
 
         // One drawing unit per pixel, whatever the pane is; and back to the fit.
-        Press(panel, "1:1");
+        var zoom = window.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "Zoom");
+
+        zoom.Text = "100";
+        zoom.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal(1d, canvas.Scale, 6);
 
-        Press(panel, "Fit");
+        Press(window, "Fit");
         Assert.Equal(fitted, canvas.Scale, 6);
 
     }
 
-    /// <summary>Presses one of the canvas's own buttons.</summary>
-    private static void Press(GroupPanel panel, string content)
+    /// <summary>Presses one of the status bar's buttons, which are about the board in front.</summary>
+    private static void Press(MainWindow window, string content)
     {
-        panel.GetVisualDescendants()
+        window.GetVisualDescendants()
+            .OfType<Border>()
+            .Single(bar => bar.Name == "StatusBar")
+            .GetVisualDescendants()
             .OfType<Button>()
             .First(button => Equals(button.Content, content))
             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1178,7 +1185,9 @@ public class MainWindowProjectTests : IDisposable
         var area = Area(Shown(panel, home));
 
         Arm(window, panel, PhysicalKey.O);
-        Drag(window, canvas, Edge(canvas, area), Over(canvas, area.Left + 8f, area.Top + area.Height / 4f + 6f));
+
+        // Half a unit in: still on the line's grip, and on the drawing however the window's layout rounds.
+        Drag(window, canvas, Edge(canvas, area, 0.5f), Over(canvas, area.Left + 8f, area.Top + area.Height / 4f + 6f));
 
         Assert.Equal(place, (home.X, home.Y));
         Assert.Contains("<ellipse", home.Text, StringComparison.Ordinal);

@@ -19,6 +19,10 @@
   -->
   <Styles.Resources>
     <ResourceDictionary>
+      <!-- The viewer's own, for its note: the window's status bar says it now. -->
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgViewerSourceBrushes.axaml" />
+      </ResourceDictionary.MergedDictionaries>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
           <!-- A shade above the canvas's own #1A1A1E, so the drawing surface reads as sunk into

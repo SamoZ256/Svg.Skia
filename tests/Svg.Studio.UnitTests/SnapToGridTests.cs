@@ -128,9 +128,12 @@ public class SnapToGridTests : IDisposable
     private static Point Edge(SvgViewerCanvas canvas, SKRect area, float by = 0f)
         => Over(canvas, area.Left + by, area.Top + area.Height / 4f);
 
-    /// <summary>The board's own snap toggle.</summary>
-    private static ToggleButton Toggle(GroupPanel panel)
-        => panel.GetVisualDescendants()
+    /// <summary>The control bar's snap toggle.</summary>
+    private static ToggleButton Toggle(MainWindow window)
+        => window.GetVisualDescendants()
+            .OfType<Border>()
+            .Single(bar => bar.Name == "ControlBar")
+            .GetVisualDescendants()
             .OfType<ToggleButton>()
             .Single(button => Equals(button.Content, "Snap"));
 
@@ -303,16 +306,16 @@ public class SnapToGridTests : IDisposable
         window.Close();
     }
 
-    /// <summary>The board's toggle is the setting, and every other tab hears about it.</summary>
+    /// <summary>The control bar's toggle is the setting, and every tab hears about it.</summary>
     [AvaloniaFact]
-    public async Task The_Boards_Toggle_Is_The_Setting_Everywhere()
+    public async Task The_Bars_Toggle_Is_The_Setting_Everywhere()
     {
         var window = await Host(Write("icons.svgstudio", Project));
         var panel = Board(window);
 
         Assert.False(Canvas(panel).Grid.IsOn);
 
-        Toggle(panel).IsChecked = true;
+        Toggle(window).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(StudioSettings.SnapToGrid);
@@ -406,8 +409,8 @@ public class SnapToGridTests : IDisposable
         Assert.Equal(24f, Canvas(panel).Grid.Step);
         Assert.Equal(45f, Canvas(panel).Grid.Turn);
 
-        // And the toolbar's toggle came along, which is what makes them one switch.
-        Assert.True(Toggle(panel).IsChecked);
+        // And the control bar's toggle came along, which is what makes them one switch.
+        Assert.True(Toggle(window).IsChecked);
 
         window.Close();
     }
