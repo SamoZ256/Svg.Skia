@@ -331,6 +331,47 @@ public class SnapToGridTests : IDisposable
         window.Close();
     }
 
+    /// <summary>Show Grid draws the lines and Snap lands on them, each without the other, on a board and a drawing alike.</summary>
+    [AvaloniaFact]
+    public async Task The_Grid_Shows_Without_Snapping()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var board = Canvas(Board(window));
+
+        Pick(window, "Show Grid");
+
+        Assert.True(StudioSettings.ShowGrid);
+        Assert.Equal(Step, board.GridLines?.Step);
+        Assert.False(board.Grid.IsOn);
+
+        await window.ShowAsync(window.Workspace!.Document.Root.Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var drawing = ((SvgViewer)((TabItem)Tabs(window).SelectedItem!).Content!).Canvas;
+
+        Assert.Equal(Step, drawing.GridLines?.Step);
+        Assert.False(drawing.Grid.IsOn);
+
+        Pick(window, "Show Grid");
+        Pick(window, "Snap to Grid");
+
+        foreach (var canvas in new[] { board, drawing })
+        {
+            Assert.Equal(SvgViewerGrid.None, canvas.GridLines);
+            Assert.True(canvas.Grid.IsOn);
+        }
+
+        window.Close();
+    }
+
+    private static void Pick(MainWindow window, string item)
+    {
+        var view = NativeMenu.GetMenu(window)!.Items.OfType<NativeMenuItem>().Single(menu => menu.Header == "View");
+
+        ((INativeMenuItemExporterEventsImplBridge)view.Menu!.Items.OfType<NativeMenuItem>().Single(entry => entry.Header == item)).RaiseClicked();
+        Dispatcher.UIThread.RunJobs();
+    }
+
     /// <summary>The settings window writes all three, and the tabs behind it are told.</summary>
     [AvaloniaFact]
     public async Task The_Settings_Window_Writes_The_Grid()

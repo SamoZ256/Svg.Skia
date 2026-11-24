@@ -3455,6 +3455,7 @@ public partial class MainWindow : Window
         viewer.Grid = grid;
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
         viewer.ShowsInvisible = StudioSettings.ShowInvisible;
+        viewer.Canvas.GridLines = StudioSettings.ShowGrid ? grid : SvgViewerGrid.None;
     }
 
     /// <summary>
@@ -3613,7 +3614,7 @@ public partial class MainWindow : Window
         yield return ("File", new[] { "open", StudioCommands.RecentSlot, "close", rule, "save", "saveas", rule, "export", rule, "preferences" });
         yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", rule, "resize" });
         yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
-        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio" });
+        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid" });
         yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
         yield return ("Help", new[] { "help", "commands", "user-guide", "mcp-connection", rule, "about" });
@@ -3769,6 +3770,10 @@ public partial class MainWindow : Window
         {
             CanExecute = () => Selected() is { } || Board() is { },
             IsChecked = () => Selected()?.LocksAspectRatio ?? Board()?.LocksAspectRatio ?? false
+        };
+        yield return new("show-grid", "Show Grid", "View", Done(() => Setting(() => StudioSettings.ShowGrid = !StudioSettings.ShowGrid)))
+        {
+            IsChecked = () => StudioSettings.ShowGrid
         };
 
         // The palette's own tools and letters. The canvas answers the letters; these are run from

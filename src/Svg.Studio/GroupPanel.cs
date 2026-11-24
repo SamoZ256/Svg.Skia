@@ -906,6 +906,7 @@ public sealed class GroupPanel : UserControl
         _gizmo.Grid = grid;
         _paging.Grid = grid;
         _points.Grid = grid;
+        _canvas.GridLines = StudioSettings.ShowGrid ? StudioSettings.Grid : SvgViewerGrid.None;
 
         if (_snapping is { })
         {
