@@ -20,27 +20,7 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// four numbers rather than one transform. They travel together because one
 /// <see cref="SvgSourceWorkspace.Commit"/> of all of them is one thing to take back.
 /// </remarks>
-public readonly record struct SvgViewerEdit(string Label, IReadOnlyList<(string Name, string Value)> Writes)
-{
-    /// <summary>Writes the gesture onto one element of a drawing.</summary>
-    /// <remarks>
-    /// The first refusal stops the rest: a commit rolls the whole document back on one, so a
-    /// half-written gesture is not a state the file can be left in.
-    /// </remarks>
-    /// <returns>The sentence refusing the edit, or null where it was made.</returns>
-    public string? Write(SvgSourceDocument source, string address)
-    {
-        foreach (var (name, value) in Writes)
-        {
-            if (SvgAttributeEditor.SetAttribute(source, address, name, value) is { } refusal)
-            {
-                return refusal;
-            }
-        }
-
-        return null;
-    }
-}
+public readonly record struct SvgViewerEdit(string Label, IReadOnlyList<(string Name, string Value)> Writes);
 
 /// <summary>
 /// Moving, rotating and scaling one element by dragging it.

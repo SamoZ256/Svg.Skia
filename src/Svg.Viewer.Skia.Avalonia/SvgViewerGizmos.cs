@@ -23,43 +23,6 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// <param name="Use">For mask or clip content, which of the elements using it to take hold of it through.</param>
 public readonly record struct SvgViewerGizmoMember(SvgElement Element, string Key, int Use = 0);
 
-/// <summary>What a finished gesture wants written, for however many elements it moved.</summary>
-public readonly record struct SvgViewerEdits(
-    string Label,
-    IReadOnlyList<(string Key, IReadOnlyList<(string Name, string Value)> Writes)> Members)
-{
-    /// <summary>Writes every member into one document, stopping at the first refusal.</summary>
-    /// <remarks>
-    /// One document and one commit, however many elements it carries: a commit hands the edit the
-    /// whole document and pushes one state, so a drag of six shapes is one thing to take back and a
-    /// refusal on the fourth puts the first three back with it.
-    /// </remarks>
-    /// <param name="address">What the host calls each member, turned into an address in the file.</param>
-    /// <returns>The sentence refusing the edit, or null where it was made.</returns>
-    public string? Write(SvgSourceDocument source, Func<string, string?> address)
-    {
-        foreach (var (key, writes) in Members)
-        {
-            if (address(key) is not { } at)
-            {
-                return Unwritten;
-            }
-
-            foreach (var (name, value) in writes)
-            {
-                if (SvgAttributeEditor.SetAttribute(source, at, name, value) is { } refusal)
-                {
-                    return refusal;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private const string Unwritten = "That element is not written in this drawing's file, so it cannot be dragged.";
-}
-
 /// <summary>
 /// Moving, turning and scaling a selection of elements by dragging one box round them all.
 /// </summary>
@@ -381,12 +344,12 @@ public sealed class SvgViewerGizmos
     }
 
     /// <summary>Ends the drag and hands back what the file should say, or null where nothing moved.</summary>
-    public SvgViewerEdits? End()
+    public SvgSourceEdits? End()
     {
         if (_held.Count <= 1)
         {
             return _one.End() is { } one && _only is { } only
-                ? new SvgViewerEdits(one.Label, new[] { (only.Key, one.Writes) })
+                ? new SvgSourceEdits(one.Label, new SvgSourceEdit[] { new SvgSourceEdit.SetAttributes(only.Key, one.Writes) })
                 : null;
         }
 
@@ -399,12 +362,12 @@ public sealed class SvgViewerGizmos
 
         var moved = _held
             .Where(held => held.Moved)
-            .Select(held => (held.Member.Key, held.Writes!))
+            .Select(held => (SvgSourceEdit)new SvgSourceEdit.SetAttributes(held.Member.Key, held.Writes!))
             .ToList();
 
         return moved.Count == 0
             ? null
-            : new SvgViewerEdits(
+            : new SvgSourceEdits(
                 _handle switch
                 {
                     8 => $"rotate {_held.Count} elements",

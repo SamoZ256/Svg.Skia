@@ -139,7 +139,7 @@ public static class SvgAttributeEditor
     /// </summary>
     /// <remarks>
     /// Such a declaration wins over the attribute, which is why <see cref="SetAttribute(SvgSourceDocument, string, string, string?)"/>
-    /// refuses to write one it would override.
+    /// writes into it rather than under it.
     /// </remarks>
     public static string? Styled(SvgSourceDocument source, string addressKey, string name)
     {
@@ -174,7 +174,24 @@ public static class SvgAttributeEditor
             throw new ArgumentNullException(nameof(addressKey));
         }
 
-        var name = (attributeName ?? throw new ArgumentNullException(nameof(attributeName))).Trim();
+        if (attributeName is null)
+        {
+            throw new ArgumentNullException(nameof(attributeName));
+        }
+
+        return Resolve(source.Document, addressKey) is { } element
+            ? SetAttribute(element, attributeName, value)
+            : SvgElementEditor.Missing(addressKey);
+    }
+
+    /// <inheritdoc cref="SetAttribute(SvgSourceDocument, string, string, string?)"/>
+    /// <remarks>
+    /// A property a declaration in the element's style sets is written there, since the declaration
+    /// is what paints; the rest of the style is left as it was written.
+    /// </remarks>
+    internal static string? SetAttribute(XElement element, string attributeName, string? value)
+    {
+        var name = attributeName.Trim();
 
         if (name.Length == 0)
         {
@@ -189,14 +206,9 @@ public static class SvgAttributeEditor
             return "A namespace declaration is not something to edit here.";
         }
 
-        if (Resolve(source.Document, addressKey) is not { } element)
+        if (name.IndexOf(':') < 0 && (string?)element.Attribute("style") is { } style && Winner(style, name) is { } declaration)
         {
-            return SvgElementEditor.Missing(addressKey);
-        }
-
-        if (Overridden(element, name) is { } overridden)
-        {
-            return overridden;
+            return s_geometry.Contains(name) ? Overridden(element, name) : Restyle(element, style, declaration, name, value);
         }
 
         // A prefix stands for a namespace, and an attribute named for one is that attribute rather
@@ -487,8 +499,8 @@ public static class SvgAttributeEditor
     /// </summary>
     /// <remarks>
     /// A style declaration beats the presentation attribute under it, so writing the attribute
-    /// would leave a document where the change paints nothing. Editing inside the declaration is
-    /// another matter and not one this can reach.
+    /// would leave a document where the change paints nothing. Asked where the declaration cannot
+    /// be written either: geometry, and where a clip takes a shape's paint.
     /// </remarks>
     internal static string? Overridden(XElement element, string name)
         => Styled(element, name) is { }
@@ -496,39 +508,232 @@ public static class SvgAttributeEditor
             : null;
 
     /// <summary>What a <c>style</c> declaration on the element sets the attribute to, overriding it, or null.</summary>
-    /// <remarks>
-    /// Read rather than parsed: the scanner that splits a style attribute properly is internal to
-    /// the SVG parser, and a name followed by a colon is enough to know the attribute is not the
-    /// value being painted. Saying so wrongly costs a refusal; missing it costs an edit that does
-    /// nothing and says it worked.
-    /// </remarks>
+    /// <remarks>As written, its <c>!important</c> included.</remarks>
     internal static string? Styled(XElement element, string attributeName)
+        => (string?)element.Attribute("style") is { } style && Winner(style, attributeName) is { } declaration
+            ? style.Substring(declaration.ValueStart, declaration.WrittenEnd - declaration.ValueStart)
+            : null;
+
+    /// <summary>
+    /// The expression the file writes <paramref name="name"/> with for the element, as written and
+    /// without <c>!important</c>, or null where a literal or nothing does.
+    /// </summary>
+    /// <remarks>
+    /// Its style before its attribute, as the cascade paints them, and for a property that inherits
+    /// the nearest element around it that sets it. Not a <c>&lt;style&gt;</c> sheet, what a
+    /// <c>&lt;use&gt;</c> passes on, or a <c>var()</c>.
+    /// </remarks>
+    public static string? Driven(SvgSourceDocument source, string addressKey, string name)
     {
-        if ((string?)element.Attribute("style") is not { } style)
+        if (source is null)
         {
-            return null;
+            throw new ArgumentNullException(nameof(source));
         }
 
-        // The last that says it, as CSS paints it, unless an earlier one is !important and it is not.
-        string? found = null;
-        var important = false;
-
-        foreach (var declaration in style.Split(';'))
+        for (var at = Resolve(source.Document, addressKey); at is { }; at = at.Parent)
         {
-            var colon = declaration.IndexOf(':');
+            var value = (string?)at.Attribute("style") is { } style && Winner(style, name) is { } declaration
+                ? style.Substring(declaration.ValueStart, declaration.ValueEnd - declaration.ValueStart)
+                : (string?)at.Attribute(name);
 
-            if (colon > 0 && string.Equals(declaration.Substring(0, colon).Trim(), attributeName, StringComparison.OrdinalIgnoreCase))
+            if (value is null ? SvgElementEditor.Inherits(name) : value.Trim() == "inherit")
             {
-                var value = declaration.Substring(colon + 1).Trim();
-                var weighs = Regex.IsMatch(value, @"!\s*important$", RegexOptions.IgnoreCase);
+                continue;
+            }
 
-                if (weighs || !important)
+            return value?.IndexOf("{{", StringComparison.Ordinal) >= 0 ? value : null;
+        }
+
+        return null;
+    }
+
+    // SVG 2 makes some of these CSS properties, but what is written for them is attribute grammar
+    // (unitless lengths, rotate(a cx cy), bare path data), which in style="" no browser reads.
+    private static readonly HashSet<string> s_geometry = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "transform", "d", "points", "x", "y", "width", "height", "cx", "cy", "r", "rx", "ry", "x1", "y1", "x2", "y2"
+    };
+
+    /// <summary>One declaration of a style attribute, as offsets into it.</summary>
+    /// <param name="Start">Just after the separator before it.</param>
+    /// <param name="End">At the separator after it, or the end.</param>
+    /// <param name="ValueStart">Its value, trimmed, up to <paramref name="ValueEnd"/> without <c>!important</c> and to <paramref name="WrittenEnd"/> with it.</param>
+    private readonly record struct Declaration(string Name, int Start, int End, int ValueStart, int ValueEnd, int WrittenEnd)
+    {
+        public bool Important => WrittenEnd != ValueEnd;
+    }
+
+    /// <summary>The style's declarations, split where CSS splits them.</summary>
+    /// <remarks>
+    /// Upstream's <c>SvgInlineStyleService</c> scanner, kept as offsets so one value can be replaced
+    /// and nothing else moves: not inside quotes, comments or brackets, which keeps a data: URL and
+    /// an expression's braces whole.
+    /// </remarks>
+    private static List<Declaration> Declarations(string style) => Declarations(style, out _);
+
+    /// <param name="closed">Whether the style ends outside every quote, comment and bracket it opens.</param>
+    private static List<Declaration> Declarations(string style, out bool closed)
+    {
+        var found = new List<Declaration>();
+        var (start, depth, quote, comment, colon) = (0, 0, '\0', false, -1);
+
+        for (var i = 0; i < style.Length; i++)
+        {
+            var c = style[i];
+
+            if (comment)
+            {
+                if (c == '*' && i + 1 < style.Length && style[i + 1] == '/')
                 {
-                    (found, important) = (value, weighs);
+                    comment = false;
+                    i++;
                 }
+
+                continue;
+            }
+
+            if (c == '\\')
+            {
+                i++;
+
+                continue;
+            }
+
+            if (quote != '\0')
+            {
+                quote = c == quote ? '\0' : quote;
+
+                continue;
+            }
+
+            if (c == '/' && i + 1 < style.Length && style[i + 1] == '*')
+            {
+                comment = true;
+                i++;
+            }
+            else if (c is '\'' or '"')
+            {
+                quote = c;
+            }
+            else if (c is '(' or '[' or '{')
+            {
+                depth++;
+            }
+            else if (c is ')' or ']' or '}')
+            {
+                depth = Math.Max(0, depth - 1);
+            }
+            else if (c == ':' && depth == 0 && colon < 0)
+            {
+                colon = i;
+            }
+            else if (c == ';' && depth == 0)
+            {
+                Add(start, i, colon);
+                (start, colon) = (i + 1, -1);
             }
         }
 
+        Add(start, style.Length, colon);
+
+        closed = quote == '\0' && !comment && depth == 0;
+
         return found;
+
+        void Add(int from, int to, int at)
+        {
+            if (at < 0)
+            {
+                return;
+            }
+
+            var name = Regex.Replace(style.Substring(from, at - from), @"/\*.*?\*/", string.Empty, RegexOptions.Singleline).Trim();
+            var (valueStart, writtenEnd) = (at + 1, to);
+
+            while (valueStart < writtenEnd && char.IsWhiteSpace(style[valueStart]))
+            {
+                valueStart++;
+            }
+
+            while (writtenEnd > valueStart && char.IsWhiteSpace(style[writtenEnd - 1]))
+            {
+                writtenEnd--;
+            }
+
+            var important = Regex.Match(style.Substring(valueStart, writtenEnd - valueStart), @"\s*!\s*important$", RegexOptions.IgnoreCase);
+
+            if (name.Length > 0)
+            {
+                found.Add(new Declaration(name, from, to, valueStart, important.Success ? valueStart + important.Index : writtenEnd, writtenEnd));
+            }
+        }
+    }
+
+    /// <summary>The declaration of <paramref name="name"/> that paints: the last, unless an earlier one is <c>!important</c>; an empty one sets nothing.</summary>
+    private static Declaration? Winner(string style, string name)
+    {
+        Declaration? winner = null;
+
+        foreach (var declaration in Declarations(style))
+        {
+            if (string.Equals(declaration.Name, name, StringComparison.OrdinalIgnoreCase)
+                && declaration.ValueEnd > declaration.ValueStart
+                && (declaration.Important || winner is not { Important: true }))
+            {
+                winner = declaration;
+            }
+        }
+
+        return winner;
+    }
+
+    /// <summary>Writes <paramref name="value"/> in place of the value of the declaration that paints, or takes <paramref name="name"/> away.</summary>
+    private static string? Restyle(XElement element, string style, Declaration winner, string name, string? value)
+    {
+        if (value is null)
+        {
+            // Every declaration of it, and the attribute: a losing one, or the attribute under it,
+            // would take over, and taking it away would read as a new value.
+            foreach (var declaration in Declarations(style).Where(each => string.Equals(each.Name, name, StringComparison.OrdinalIgnoreCase)).Reverse())
+            {
+                style = declaration.End < style.Length && style[declaration.End] == ';'
+                    ? style.Remove(declaration.Start, declaration.End + 1 - declaration.Start)
+                    : declaration.Start > 0 && style[declaration.Start - 1] == ';'
+                        ? style.Remove(declaration.Start - 1, declaration.End - declaration.Start + 1)
+                        : style.Remove(declaration.Start, declaration.End - declaration.Start);
+            }
+
+            element.SetAttributeValue("style", style.Trim(' ', ';', '\t', '\r', '\n').Length == 0 ? null : style.TrimStart());
+
+            // A style can name what no attribute can, such as -inkscape-font-specification or a --custom property.
+            if (XmlConvert.IsStartNCNameChar(name[0]) && name.All(XmlConvert.IsNCNameChar))
+            {
+                element.SetAttributeValue(name, null);
+            }
+
+            return null;
+        }
+
+        var written = value.Trim();
+        var spliced = style.Substring(0, winner.ValueStart) + written + style.Substring(winner.ValueEnd);
+
+        // Read back: a value that ends the declaration early, opens a quote or a comment, or carries
+        // its own !important would leave the style saying something other than what was asked.
+        return written.Length > 0
+               && !Regex.IsMatch(written, @"!\s*important$", RegexOptions.IgnoreCase)
+               && Declarations(spliced, out var closed).Count == Declarations(style).Count
+               && closed
+               && Winner(spliced, name) is { } again
+               && again.Start == winner.Start
+               && spliced.Substring(again.ValueStart, again.ValueEnd - again.ValueStart) == written
+            ? Set(element, spliced)
+            : $"'{value}' cannot be written inside the style declaration that sets '{name}'.";
+
+        static string? Set(XElement element, string spliced)
+        {
+            element.SetAttributeValue("style", spliced);
+
+            return null;
+        }
     }
 }

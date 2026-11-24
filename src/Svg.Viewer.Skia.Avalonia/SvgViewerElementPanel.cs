@@ -550,9 +550,8 @@ public sealed class SvgViewerElementPanel : UserControl
             Tag = name
         };
 
-        // A style declaration wins over the attribute and writing one it overrides is refused, so
-        // the row says what the element is painted with and where that can be changed, and offers
-        // nothing that would be turned away.
+        // A style declaration wins over the attribute, so the row says what the element is painted
+        // with and where that can be changed rather than offering a box for the attribute under it.
         if (styled is { })
         {
             box.IsReadOnly = true;
@@ -628,7 +627,9 @@ public sealed class SvgViewerElementPanel : UserControl
         _shown.Add(row);
         _drawn[box] = value;
 
-        if (set)
+        // Not for a row its style paints: removing it would take the declaration too, which the row
+        // says is changed under Inline style.
+        if (set && styled is null)
         {
             // Not the edit class: every edit button in the viewer is visible, and this one is not
             // always.

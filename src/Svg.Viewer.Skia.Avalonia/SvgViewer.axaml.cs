@@ -315,7 +315,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
                 : _gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale)
                   || _paging.Hits(new SkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale));
 
-        _points.Driven = (key, name) => SourceAddress(key) is { } address && Driven(address, name) is { };
+        _points.Driven = (key, name) => _workspace?.Document is { } source && SourceAddress(key) is { } address && SvgAttributeEditor.Driven(source, address, name) is { };
 
         _canvas.EditBegun += (_, at) => BeginEdit(at);
         _canvas.EditMoved += (_, at) => DragEdit(at);
@@ -996,9 +996,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     }
 
     /// <summary>Writes a points edit, or puts the shape back and says why the file would not take it.</summary>
-    private void WritePoints(SvgViewerEdits edit)
+    private void WritePoints(SvgSourceEdits edit)
     {
-        if (Written(edit.Label, source => edit.Write(source, SourceAddress)) is { } refusal)
+        if (Written(edit) is { } refusal)
         {
             _points.Revert();
 
@@ -1447,11 +1447,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
+        // The table once rather than per member, which would be the file read and walked for each.
+        var source = _workspace?.Document;
+        var addresses = SourceAddresses();
+
         ShowNote(
             _gizmo.Begin(
                 new ShimSkiaSharp.SKPoint(point.X, point.Y),
                 (float)_canvas.Scale,
-                key => SourceAddress(key) is { } address ? Driven(address, "transform") : null));
+                key => source is { } && addresses.TryGetValue(key, out var address) ? SvgAttributeEditor.Driven(source, address, "transform") : null));
 
         ShowGizmo();
     }
@@ -1617,7 +1621,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         //
         // However many elements moved, one commit: a document is serialised once and pushed onto
         // the history once, so a drag of six shapes is one thing to take back.
-        var refusal = Written(edit.Label, source => edit.Write(source, SourceAddress));
+        var refusal = Written(edit);
 
         if (refusal is { })
         {
@@ -1869,24 +1873,6 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         return true;
     }
-
-    /// <summary>
-    /// The element's attribute as the file spells it — its transform, its points — where an
-    /// expression writes it, and null otherwise.
-    /// </summary>
-    /// <remarks>
-    /// Read off the source rather than the compiled scene, because a document whose values have
-    /// never been bound draws its placeholders and carries no symbolic matrix to be found — and the
-    /// expression is still there in the file, waiting to be overwritten by a number. Handed to the
-    /// drag so that a gesture it cannot put in the geometry is composed onto this text rather than
-    /// onto the number the expression came to.
-    /// </remarks>
-    private string? Driven(string address, string name)
-        => SvgSourceDocument.Read(PaneSource(), out _) is { } source
-           && SvgAttributeEditor.Attribute(source, address, name) is { } written
-           && written.Contains("{{", StringComparison.Ordinal)
-            ? written
-            : null;
 
     private void OutlineElement(SvgViewerElementNode? node)
         => _canvas.Highlight = node is null ? null : SvgViewerPicks.Outline(Picks());
@@ -3048,6 +3034,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// For a pane that reports a refusal itself rather than through the status line: the element
     /// panel says what is wrong beside the row it is wrong about.
     /// </remarks>
+    /// <summary>Commits a gesture's edits, every element of it placed in the file before anything is written.</summary>
+    private string? Written(SvgSourceEdits edit)
+    {
+        var addresses = SourceAddresses();
+
+        return Written(edit.Label, source => edit.Apply(source, key => addresses.TryGetValue(key, out var at) ? at : null));
+    }
+
     private string? Written(string label, Func<SvgSourceDocument, string?> edit)
     {
         if (_workspace is not { } workspace)

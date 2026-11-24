@@ -7,6 +7,7 @@ using System.Drawing;
 using System.Linq;
 using Svg.Editor.Skia;
 using Svg.Skia;
+using Svg.SourceEditing;
 using Shim = ShimSkiaSharp;
 using SK = SkiaSharp;
 
@@ -25,7 +26,7 @@ public sealed record SvgViewerPointMarks(
 /// </summary>
 /// <remarks>
 /// In the role of <see cref="SvgViewerGizmo"/>: it moves the built element as the hand moves so the
-/// drawing follows, and hands the host one <see cref="SvgViewerEdits"/> to commit when it is let go
+/// drawing follows, and hands the host one <see cref="SvgSourceEdits"/> to commit when it is let go
 /// of. What a point is and what moving one writes is <see cref="GeometryPoints"/>'s. Everything a
 /// host says and hears is in the space the drawings are arranged in, as with
 /// <see cref="SvgViewerGizmos"/>, and the placement is taken off inside.
@@ -319,7 +320,7 @@ public sealed class SvgViewerPoints
     }
 
     /// <summary>Lets go, and says what to write, or null where the point is where it was.</summary>
-    public SvgViewerEdits? End()
+    public SvgSourceEdits? End()
     {
         if (!_dragging || _points is not { } points)
         {
@@ -379,7 +380,7 @@ public sealed class SvgViewerPoints
     /// whatever is drawn under it. The sentence refusing an edit is in <paramref name="refusal"/>.
     /// </returns>
     /// <param name="adding">Shift, which keeps what is chosen where a click would otherwise let go of it.</param>
-    public bool Click(Shim.SKPoint at, float scale, int clicks, bool adding, out SvgViewerEdits? edit, out string? refusal)
+    public bool Click(Shim.SKPoint at, float scale, int clicks, bool adding, out SvgSourceEdits? edit, out string? refusal)
     {
         edit = null;
         refusal = null;
@@ -447,7 +448,7 @@ public sealed class SvgViewerPoints
     /// are chosen, those handles drawn back into their anchors.
     /// </summary>
     /// <returns>Whether there was anything chosen to delete; the edit or the refusal is in the out parameters.</returns>
-    public bool Remove(out SvgViewerEdits? edit, out string? refusal)
+    public bool Remove(out SvgSourceEdits? edit, out string? refusal)
     {
         edit = null;
         refusal = null;
@@ -549,8 +550,8 @@ public sealed class SvgViewerPoints
             ? "That shape's points are written as an expression, so they cannot be edited here."
             : null;
 
-    private SvgViewerEdits Edit(string label, IReadOnlyList<(string Name, string Value)> writes)
-        => new(label, new[] { (_member!.Value.Key, writes) });
+    private SvgSourceEdits Edit(string label, IReadOnlyList<(string Name, string Value)> writes)
+        => new(label, new SvgSourceEdit[] { new SvgSourceEdit.SetAttributes(_member!.Value.Key, writes) });
 
     /// <summary>Recompiles the one element the points belong to, and draws the frame.</summary>
     private void Redraw()

@@ -1778,6 +1778,22 @@ public class SvgViewerElementPanelTests
         window.Close();
     }
 
+    /// <summary>
+    /// An attribute its style paints over offers no ×: removing it takes the declaration with it now,
+    /// which the row says is changed under Inline style.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Paint_Its_Style_Paints_Over_Offers_No_Remove()
+    {
+        var held = new Held("""<svg xmlns="http://www.w3.org/2000/svg"><rect fill="blue" style="fill: red" stroke="green" /></svg>""");
+        var window = held.Show("0");
+
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), button => Equals(button.Tag, "fill") && button.Classes.Contains("reset"));
+        Assert.Contains(window.GetVisualDescendants().OfType<Button>(), button => Equals(button.Tag, "stroke") && button.Classes.Contains("reset"));
+
+        window.Close();
+    }
+
     /// <summary>A row with no colour opens its picker somewhere a click shows, black included.</summary>
     [AvaloniaFact]
     public void An_Unset_Colour_Can_Be_Picked_Black()

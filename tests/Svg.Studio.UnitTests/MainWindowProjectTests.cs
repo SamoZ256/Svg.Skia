@@ -1061,6 +1061,38 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(was.Y, home.Y);
     }
 
+    /// <summary>A group whose transform an expression writes, on a drawing of the board.</summary>
+    private const string DrivenOnBoard = """
+        <studio namespace="Demo.Icons">
+          <drawing name="moved" class="Moved" x="0" y="0">
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs><e:code><e:param name="shift" type="number" default="2" /></e:code></defs>
+              <g id="group" transform="translate({{ shift }}, 0)"><rect width="16" height="16" fill="#00ff00" /></g>
+            </svg>
+          </drawing>
+        </studio>
+        """;
+
+    /// <summary>The board composes a drag onto the expression, as a drawing's tab does, rather than writing a number over it.</summary>
+    [AvaloniaFact]
+    public async Task A_Driven_Group_On_The_Board_Is_Offset_Rather_Than_Overwritten()
+    {
+        var window = await Host(Write("icons.svgstudio", DrivenOnBoard));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+        Assert.True(Elements(panel).TrySelect("1"));
+        Dispatcher.UIThread.RunJobs();
+
+        var moved = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var area = Area(Shown(panel, moved));
+
+        Drag(window, canvas, Over(canvas, area.MidX, area.MidY), Over(canvas, area.MidX + 30f, area.MidY));
+
+        Assert.Contains("transform=\"translate({{ shift }}, 0) translate(", moved.Text, StringComparison.Ordinal);
+    }
+
     [AvaloniaFact]
     public async Task Delete_On_The_Board_Takes_The_Shape_Out_Of_Its_Drawing_And_Is_One_Step_To_Take_Back()
     {
