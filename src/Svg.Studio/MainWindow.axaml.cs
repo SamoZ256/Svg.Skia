@@ -13,8 +13,8 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.LogicalTree;
 using Avalonia.Layout;
+using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -28,6 +28,7 @@ using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.PaintCode;
 using Svg.Skia;
+using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
@@ -3500,14 +3501,46 @@ public partial class MainWindow : Window
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
 
+    /// <summary>Whether the project tree has the keyboard: its rows answer Delete, Copy and the like themselves.</summary>
+    private bool InProjectTree() => Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused);
+
+    /// <summary>Select All: a box's text, the project tree's rows, or the elements of the tab in front.</summary>
+    /// <remarks>
+    /// By what has the keyboard, since on a Mac ⌘A is the menu's and reaches no box itself. The
+    /// keyboard is the application's, so it may be in another window, which the drawing is not.
+    /// </remarks>
+    private void SelectAll()
+    {
+        switch (Focused())
+        {
+            case TextBox box:
+                box.SelectAll();
+                break;
+            case SelectableTextBlock text:
+                text.SelectAll();
+                break;
+            case var _ when InProjectTree():
+                _projectTree.SelectAll();
+                break;
+            case var _ when Here():
+                Front(SvgElementSelect.All);
+                break;
+        }
+    }
+
+    /// <summary>Whether the keyboard is in this window, or nowhere; an item of a menu it draws is in it too.</summary>
+    private bool Here() => Focused() is not ILogical focused || focused == this || this.IsLogicalAncestorOf(focused);
+
+    /// <summary>Selects in the tab in front, as its Select menu does.</summary>
+    private bool Front(SvgElementSelect how, string? name = null)
+        => Selected() is { } viewer ? viewer.Select(how, name) : Board()?.Select(how, name) == true;
+
     /// <summary>Delete from the menu: what the key would have reached, the project tree's rows included.</summary>
     private async Task DeleteChosenAsync()
     {
         // The project tree answers Delete itself while it has the focus; the menu item is the same
         // command found another way, so it goes where the key would have gone.
-        if (Focused() is Visual focused
-            && _projectTree.IsVisualAncestorOf(focused)
-            && (_projectTree.SelectedItem as TreeViewItem)?.Tag is ProjectNode node)
+        if (InProjectTree() && (_projectTree.SelectedItem as TreeViewItem)?.Tag is ProjectNode node)
         {
             await RemoveAsync(Chosen(node));
 
@@ -3528,7 +3561,7 @@ public partial class MainWindow : Window
     /// <returns>Whether anything was written.</returns>
     public bool Duplicate()
     {
-        if (Focused() is TextBox || Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused))
+        if (Focused() is TextBox || InProjectTree())
         {
             return false;
         }
@@ -3542,7 +3575,7 @@ public partial class MainWindow : Window
     /// <summary>Takes what the selected tab has picked out of its drawing.</summary>
     public bool Delete()
     {
-        if (Focused() is TextBox || Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused))
+        if (Focused() is TextBox || InProjectTree())
         {
             return false;
         }
@@ -3579,6 +3612,7 @@ public partial class MainWindow : Window
 
         yield return ("File", new[] { "open", StudioCommands.RecentSlot, "close", rule, "save", "saveas", rule, "export", rule, "preferences" });
         yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", rule, "resize" });
+        yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
         yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio" });
         yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
@@ -3617,7 +3651,9 @@ public partial class MainWindow : Window
         yield return new("open", "Open…", "File", OpenPickedAsync) { Key = SvgEditorShortcutKey.O, Modifiers = primary };
         yield return new("close", "Close Tab", "File", () => _tabs.SelectedItem is TabItem item ? CloseTabAsync(item) : Task.CompletedTask)
         {
-            Key = SvgEditorShortcutKey.W, Modifiers = primary, CanExecute = () => _tabs.SelectedItem is TabItem
+            Key = SvgEditorShortcutKey.W,
+            Modifiers = primary,
+            CanExecute = () => _tabs.SelectedItem is TabItem
         };
         yield return new("save", "Save", "File", () => SaveAsync()) { Key = SvgEditorShortcutKey.S, Modifiers = primary, CanExecute = Savable };
 
@@ -3625,7 +3661,8 @@ public partial class MainWindow : Window
         // those has no file to be pointed at. Export writes it out instead.
         yield return new("saveas", "Save As…", "File", () => SaveAsAsync())
         {
-            Key = SvgEditorShortcutKey.S, Modifiers = primary | shift,
+            Key = SvgEditorShortcutKey.S,
+            Modifiers = primary | shift,
             CanExecute = () => Selected() is { Document: { } } && _tabs.SelectedItem is not TabItem { Tag: ProjectDrawing }
         };
 
@@ -3636,20 +3673,28 @@ public partial class MainWindow : Window
         // The application's, so live with or without a project.
         yield return new("preferences", "Settings…", "File", () => ShowSettingsAsync())
         {
-            Key = SvgEditorShortcutKey.Comma, Modifiers = primary, InApplicationMenu = true
+            Key = SvgEditorShortcutKey.Comma,
+            Modifiers = primary,
+            InApplicationMenu = true
         };
 
         // Named by the tiers Undo walks, less the focused box: a menu is drawn before the click that
         // would focus one, so the drawing's answer is the honest one to show.
         yield return new("undo", "Undo", "Edit", Done(() => Undo()))
         {
-            Scope = document, Key = SvgEditorShortcutKey.Z, Modifiers = primary, Platform = hotkeys?.Undo,
+            Scope = document,
+            Key = SvgEditorShortcutKey.Z,
+            Modifiers = primary,
+            Platform = hotkeys?.Undo,
             CanExecute = () => Selected()?.CanUndo == true || _workspace?.CanUndo == true,
             Header = () => Taking("Undo", Selected()?.UndoLabel ?? _workspace?.UndoLabel)
         };
         yield return new("redo", "Redo", "Edit", Done(() => Redo()))
         {
-            Scope = document, Key = SvgEditorShortcutKey.Z, Modifiers = primary | shift, Platform = hotkeys?.Redo,
+            Scope = document,
+            Key = SvgEditorShortcutKey.Z,
+            Modifiers = primary | shift,
+            Platform = hotkeys?.Redo,
             CanExecute = () => Selected()?.CanRedo == true || _workspace?.CanRedo == true,
             Header = () => Taking("Redo", Selected()?.RedoLabel ?? _workspace?.RedoLabel)
         };
@@ -3658,13 +3703,47 @@ public partial class MainWindow : Window
         // the click, and with nothing picked either does nothing, which is honest.
         yield return new("duplicate", "Duplicate", "Edit", Done(() => Duplicate()))
         {
-            Scope = picked, Key = SvgEditorShortcutKey.D, Modifiers = primary, ShownOnMac = true, CanExecute = Picks
+            Scope = picked,
+            Key = SvgEditorShortcutKey.D,
+            Modifiers = primary,
+            ShownOnMac = true,
+            CanExecute = Picks
         };
         yield return new("delete", "Delete", "Edit", DeleteChosenAsync) { Scope = picked, Key = SvgEditorShortcutKey.Delete, CanExecute = Picks };
         yield return new("resize", "Resize…", "Edit", () => Selected() is { } viewer ? viewer.ResizeAsync() : Task.CompletedTask)
         {
             CanExecute = () => Selected() is { Document: { } }
         };
+
+        // Shown on a Mac, where it is then the menu's over every box, so it goes where the key would.
+        yield return new("selectall", "All", "Select", Done(SelectAll))
+        {
+            Scope = picked,
+            Key = SvgEditorShortcutKey.A,
+            Modifiers = primary,
+            ShownOnMac = true,
+            CanExecute = () => Focused() is TextBox or SelectableTextBlock || InProjectTree() || Here() && Picks()
+        };
+        yield return new("deselect", "Deselect", "Select", Done(() => Front(SvgElementSelect.None)))
+        {
+            Scope = picked,
+            Key = SvgEditorShortcutKey.A,
+            Modifiers = primary | shift,
+            CanExecute = Picks
+        };
+
+        foreach (var (id, label, how) in new[]
+                 {
+                     ("selectinverse", "Inverse", SvgElementSelect.Inverse),
+                     ("samefill", "Same Fill", SvgElementSelect.Fill),
+                     ("samestroke", "Same Stroke", SvgElementSelect.Stroke),
+                     ("samestrokeweight", "Same Stroke Width", SvgElementSelect.StrokeWidth),
+                     ("sameopacity", "Same Opacity", SvgElementSelect.Opacity),
+                     ("sametype", "Same Type", SvgElementSelect.Type)
+                 })
+        {
+            yield return new(id, label, "Select", Done(() => Front(how))) { CanExecute = Picks };
+        }
 
         // The project tree's own keys, listed and not run: a menu item would make them key
         // equivalents on macOS, taken from every box in the window.
@@ -3711,11 +3790,15 @@ public partial class MainWindow : Window
 
         yield return new("next-document", "Next Tab", "Window", Done(() => Cycle(1)))
         {
-            Key = SvgEditorShortcutKey.Tab, Modifiers = primary, CanExecute = () => _tabs.ItemCount > 1
+            Key = SvgEditorShortcutKey.Tab,
+            Modifiers = primary,
+            CanExecute = () => _tabs.ItemCount > 1
         };
         yield return new("previous-document", "Previous Tab", "Window", Done(() => Cycle(-1)))
         {
-            Key = SvgEditorShortcutKey.Tab, Modifiers = primary | shift, CanExecute = () => _tabs.ItemCount > 1
+            Key = SvgEditorShortcutKey.Tab,
+            Modifiers = primary | shift,
+            CanExecute = () => _tabs.ItemCount > 1
         };
         yield return new("reset-layout", "Reset Layout", "Window", Done(ResetLayout));
 
@@ -3728,7 +3811,9 @@ public partial class MainWindow : Window
         // under it could not take the keyboard into the box.
         yield return new("commands", "Search Commands…", "Help", Done(ShowCommands))
         {
-            Key = SvgEditorShortcutKey.K, Modifiers = primary, CanExecute = () => Asking is null
+            Key = SvgEditorShortcutKey.K,
+            Modifiers = primary,
+            CanExecute = () => Asking is null
         };
         yield return new("user-guide", "User Guide", "Help", () => Launcher.LaunchUriAsync(UserGuide));
         yield return new("mcp-connection", "MCP Connection…", "Help", () => ShowSettingsAsync("Accounts"));
@@ -3736,7 +3821,8 @@ public partial class MainWindow : Window
         // Not over a dialog: the application menu stays live over one on macOS, and this is modal.
         yield return new("about", "About SVG Studio", "Help", () => Announce("About SVG Studio", About()))
         {
-            InApplicationMenu = true, CanExecute = () => Asking is null && _settings is null
+            InApplicationMenu = true,
+            CanExecute = () => Asking is null && _settings is null
         };
 
         static Func<Task> Done(Action action) => () =>
@@ -3940,7 +4026,11 @@ public partial class MainWindow : Window
         // Capped, so a long group name leaves its drawing's name room to be read.
         var category = new TextBlock
         {
-            Text = entry.Category, Opacity = 0.5, Margin = new Thickness(12, 0, 0, 0), MaxWidth = 160, TextTrimming = TextTrimming.CharacterEllipsis
+            Text = entry.Category,
+            Opacity = 0.5,
+            Margin = new Thickness(12, 0, 0, 0),
+            MaxWidth = 160,
+            TextTrimming = TextTrimming.CharacterEllipsis
         };
 
         DockPanel.SetDock(check, Dock.Left);

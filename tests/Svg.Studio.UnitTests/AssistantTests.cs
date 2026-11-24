@@ -543,6 +543,46 @@ public class AssistantTests : IDisposable
         Assert.Contains("Selected elements: 0", new AssistantTools(window).Context(), StringComparison.Ordinal);
     }
 
+    /// <summary>A mode selects as the Select menu does, and answers in the file's keys where the built drawing's differ.</summary>
+    [AvaloniaFact]
+    public async Task Select_With_A_Mode_Answers_In_The_Files_Keys()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var drawing = window.Workspace!.Document.Root.Children[0] is ProjectGroup group ? group.Children[0] : null;
+
+        await window.ShowAsync(drawing!);
+        Dispatcher.UIThread.RunJobs();
+
+        var viewer = Viewer(window);
+        var chat = new ScriptedChat(
+            Call("select", new() { ["mode"] = "uses", ["name"] = "tint" }),
+            Call("select", new() { ["mode"] = "Inverse", ["keys"] = new[] { "0" } }),
+            Call("select", new() { ["mode"] = "Inverse", ["keys"] = new[] { "0" } }),
+            Call("select", new() { ["mode"] = "Uses", ["name"] = "nothing" }),
+            Call("select", new() { }),
+            Say("Done."));
+
+        await Send(window, chat, "select what reads tint");
+
+        Assert.Equal("Selected 1: 0.", chat.Results[0]);
+
+        // Inverse is of the keys given rather than of what is selected, so asking twice is one answer.
+        Assert.Equal("Selection cleared.", chat.Results[1]);
+        Assert.Equal(chat.Results[1], chat.Results[2]);
+
+        Assert.Equal("Nothing drawn here reads nothing.", chat.Results[3]);
+        Assert.Equal("Give keys, or a mode.", chat.Results[4]);
+        Assert.Empty(viewer.Elements.SelectedAddresses);
+
+        // Nothing is required now: keys alone, a mode alone, or both.
+        var tool = new AssistantTools(window).For(small: false, docs: false).OfType<AIFunction>().Single(tool => tool.Name == "select");
+
+        Assert.False(tool.JsonSchema.TryGetProperty("required", out _));
+        Assert.Contains(
+            "Uses",
+            tool.JsonSchema.GetProperty("properties").GetProperty("mode").GetProperty("enum").EnumerateArray().Select(value => value.GetString()));
+    }
+
     [AvaloniaFact]
     public async Task Saving_Waits_For_The_Person()
     {

@@ -11,6 +11,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
@@ -426,6 +427,11 @@ public sealed class GroupPanel : UserControl
         _tree.DuplicateRequested = _ => Duplicate();
         _tree.ClipRequested = ApplyClip;
         _tree.NewClipRequested = NewClip;
+        _tree.SelectRequested = Select;
+        _tree.Declared = () => (_parameters.Parameters ?? Array.Empty<SvgViewerParameter>()).Select(parameter => parameter.Name).Concat(_parameters.Lets.Select(let => let.Name));
+
+        _canvas.ContextMenu = _tree.Menu();
+        _canvas.AddHandler(ContextRequestedEvent, OnCanvasContext, RoutingStrategies.Tunnel);
 
         _element.NewClipRequested = property => _elementWanted is { } row && NewClip(row, property);
         _element.ClipRequested = (content, property) => _elementWanted is { } row && ApplyClip(content, row, property);
@@ -2170,7 +2176,11 @@ public sealed class GroupPanel : UserControl
     /// on, and then — of that drawing alone — which element is under it. Hit testing the wrong
     /// picture would answer confidently about a shape somebody was not pointing at.
     /// </remarks>
-    private void Pick(Point at)
+    /// <param name="context">
+    /// A right click, which is about the selection: it picks in the drawing it lands on, and keeps the
+    /// selection on a frame, on the bare board and on the page of the drawing already being read.
+    /// </param>
+    private void Pick(Point at, bool context = false)
     {
         // A click on the selection's handles or in its box, with nothing else drawn there, keeps it —
         // unless it is the same mask or clip content where another element uses it.
@@ -2184,6 +2194,11 @@ public sealed class GroupPanel : UserControl
         // drawings it holds, so what this takes from them is the little it covers.
         if (_canvas.TryGetDrawingPoint(at, out var board) && Framed(board) is { } framed)
         {
+            if (context)
+            {
+                return;
+            }
+
             Choose(framed.Group, framed.Bounds);
 
             return;
@@ -2191,6 +2206,11 @@ public sealed class GroupPanel : UserControl
 
         if (!_canvas.TryGetPlacementAt(at, out var placement, out var point) || placement is null)
         {
+            if (context)
+            {
+                return;
+            }
+
             // Beside every drawing rather than inside one, which is the board itself: that is a
             // click on nothing, and it puts the tab back to being about the group. Without it there
             // was no way back to what the group declares once a drawing had been picked.
@@ -2210,6 +2230,12 @@ public sealed class GroupPanel : UserControl
 
         if (_canvas.ElementAt(svg, point, out var use) is not { } element)
         {
+            // Another drawing's page is turned to, as a click turns to it, so the menu is about that drawing.
+            if (context && ReferenceEquals(_inspecting?.Placement, placement))
+            {
+                return;
+            }
+
             // On the drawing but on none of its ink, which is the page — a thing in its own right,
             // the way a group's frame is. This used to be a click that did nothing, kept that way so
             // that missing a shape by two pixels did not throw away what was being read; missing it
@@ -2249,6 +2275,26 @@ public sealed class GroupPanel : UserControl
         // Tracked here for it too. The handles are measured from one drawing's scene, so picking the
         // same shape in a second copy has to move them even though the row did not change.
         TrackGizmo();
+    }
+
+    /// <summary>Picks what a right click lands on before the element tree's menu opens over it, as a drawing's tab does.</summary>
+    private void OnCanvasContext(object? sender, ContextRequestedEventArgs e)
+    {
+        if (_draw.Shape is { } || _draw.Reshaping || _canvas.IsHeld)
+        {
+            e.Handled = true;
+
+            return;
+        }
+
+        _canvas.Focus();
+
+        if (e.TryGetPosition(_canvas, out var at))
+        {
+            Pick(at, context: true);
+        }
+
+        _canvas.ContextMenu!.PlacementRect = new Rect(_canvas.Bounds.Width / 2, _canvas.Bounds.Height / 2, 1, 1);
     }
 
     /// <summary>Puts <paramref name="svg"/> in the tree, if it is not the one already there.</summary>
@@ -3407,14 +3453,79 @@ public sealed class GroupPanel : UserControl
     /// <summary>Picks the rows the file spells at <paramref name="sourceKeys"/>, as the rebuilt drawing will spell them.</summary>
     private void Follow(string written, SvgViewerDocument document, IReadOnlyCollection<string> sourceKeys)
     {
-        var wanted = new HashSet<string>(sourceKeys, StringComparer.Ordinal);
+        // In the order asked for, since the first is the tree's anchor, as a drawing's tab keeps it.
+        var rows = SvgSourceElements.Addresses(written, document.Built(written))
+            .GroupBy(pair => pair.Value, StringComparer.Ordinal)
+            .ToDictionary(spelt => spelt.Key, spelt => spelt.First().Key, StringComparer.Ordinal);
 
         _page = false;
         _picked.Clear();
-        _picked.AddRange(
-            SvgSourceElements.Addresses(written, document.Built(written))
-                .Where(pair => wanted.Contains(pair.Value))
-                .Select(pair => pair.Key));
+        _picked.AddRange(sourceKeys.Select(key => rows.TryGetValue(key, out var row) ? row : null).OfType<string>());
+    }
+
+    /// <summary>Selects as the Select menu does, in the drawing being read, as a drawing's tab does.</summary>
+    /// <returns>Whether the selection changed; where nothing matched it is kept, and the notice says why.</returns>
+    public bool Select(SvgElementSelect how, string? name = null)
+    {
+        if (_canvas.IsEditing)
+        {
+            return false;
+        }
+
+        if (_draw.Reshaping && how is SvgElementSelect.All or SvgElementSelect.None)
+        {
+            if (!_points.IsShowing)
+            {
+                return false;
+            }
+
+            if (how == SvgElementSelect.All)
+            {
+                _points.ChooseAll();
+            }
+            else
+            {
+                _points.Deselect();
+            }
+
+            ShowGizmo();
+
+            return true;
+        }
+
+        if (_inspecting is not { Built.Document: { SourceText: { } } document } inspecting)
+        {
+            return false;
+        }
+
+        var written = TargetFor(inspecting.Built.Drawing).Text;
+
+        if (SvgSourceDocument.Read(written, out var unreadable) is not { } source)
+        {
+            Says(unreadable);
+
+            return false;
+        }
+
+        var spelt = SvgSourceElements.Addresses(written, document.Built(written));
+        var picked = _picked.Select(row => spelt.TryGetValue(row, out var key) ? key : null).OfType<string>().ToList();
+        var chosen = SvgElementEditor.Select(source, how, picked, name, out var note);
+
+        Says(note);
+
+        if (chosen.Count == 0 && how is not (SvgElementSelect.None or SvgElementSelect.Inverse))
+        {
+            return false;
+        }
+
+        // Not Deselect(), which would let go of the drawing being read as well.
+        Follow(written, document, chosen);
+        _tree.TrySelect(_picked.ToList());
+
+        Ring();
+        TrackGizmo();
+
+        return true;
     }
 
     /// <remarks>
@@ -3424,19 +3535,20 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void OnCanvasKeyDown(object? sender, KeyEventArgs e)
     {
-        // A chosen point has the keys before the tool does: Escape lets go of the point and only
-        // a second one puts the tool away, and Delete takes out the point and not the element.
-        // Every point of the shape, while there is one; A by itself is the tool's own letter.
-        if (!_canvas.IsEditing && _draw.Reshaping && _points.IsShowing && e.Key == Key.A
-            && e.KeyModifiers == (this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control))
+        var command = this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
+
+        // Select All and Deselect, of the points while that tool is out; A by itself is the tool's own letter.
+        if (e.Key == Key.A && (e.KeyModifiers & ~KeyModifiers.Shift) == command)
         {
             e.Handled = true;
 
-            _points.ChooseAll();
-            ShowGizmo();
+            Select(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? SvgElementSelect.None : SvgElementSelect.All);
 
             return;
         }
+
+        // A chosen point has the keys before the tool does: Escape lets go of the point and only
+        // a second one puts the tool away, and Delete takes out the point and not the element.
 
         if (!_canvas.IsEditing && _draw.Reshaping && _points.Chosen.Count > 0 && e.KeyModifiers == KeyModifiers.None)
         {
@@ -3490,8 +3602,6 @@ public sealed class GroupPanel : UserControl
 
             return;
         }
-
-        var command = this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
 
         // Back as well as Delete: the two are one key on a Mac keyboard.
         if (e.Key is Key.Delete or Key.Back && e.KeyModifiers == KeyModifiers.None)

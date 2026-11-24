@@ -16,17 +16,19 @@ which dirtied `ExprLexer.cs` and **217 files** under `externals/SVG`.
 ## The command
 
 ```sh
-FILES=$( { git diff --name-only --diff-filter=ACMR HEAD -- '*.cs'
-           git ls-files -o --exclude-standard -- '*.cs'; } | sort -u )
-[ -n "$FILES" ] && dotnet format Svg.Skia.slnx --no-restore --include $FILES
+{ git diff --name-only --diff-filter=ACMR HEAD -- '*.cs'
+  git ls-files -o --exclude-standard -- '*.cs'; } | sort -u | tr '\n' '\0' |
+  xargs -0 -r dotnet format Svg.Skia.slnx --no-restore --include
 ```
 
 Two sources, because neither alone is the set of files a commit will carry: `git diff` finds what is
 modified and staged, `git ls-files -o` finds new files that are not tracked yet.
 
-Keep the `[ -n "$FILES" ]` guard. Without it an empty set is still safe — `--include ""` formats
-nothing, and `--include` with no value at all is a hard error — so neither failure mode silently
-widens the run to the solution. The guard just makes the no-op explicit.
+The list goes through `xargs`, not a variable, because the shell here is zsh, which does not split an
+unquoted `$FILES` into words. Until 2026-11-24 this read `--include $FILES`, which handed `dotnet
+format` the whole list as one path that matched nothing: it formatted nothing and said nothing. `-0`
+keeps a path with a space in it whole, and `-r` skips the run when nothing changed; without it
+`--include` gets no value, which is a hard error, so neither failure widens the run to the solution.
 
 Formatting a specific set by hand is the same call with the paths written out:
 
@@ -40,9 +42,8 @@ Run `git status --short` and confirm it lists only files you touched, and `git d
 for lines you did not write.
 
 A scoped run usually produces no collateral, but it does reformat a file it is given — not only the
-part you changed. `src/Svg.Studio/GroupPanel.cs` is the known one: a run over it expands a
-pre-existing single-line `switch` nobody has touched, and it has done so in two separate sessions.
-Revert whatever came back that is not yours:
+part you changed, and a file last edited while the command formatted nothing may never have been
+formatted at all. Revert whatever came back that is not yours:
 
 ```sh
 git checkout -- <file>

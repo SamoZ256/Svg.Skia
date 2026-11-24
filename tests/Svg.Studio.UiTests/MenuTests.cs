@@ -39,7 +39,7 @@ public class MenuTests
 
         studio.Find("WelcomeOpen");
 
-        foreach (var menu in new[] { "File", "Edit", "View", "Window", "Project", "Help" })
+        foreach (var menu in new[] { "File", "Edit", "Select", "View", "Window", "Project", "Help" })
         {
             Assert.NotEmpty(studio.MenuItems(menu));
         }

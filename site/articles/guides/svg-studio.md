@@ -284,6 +284,27 @@ The copy is keyed by the project's own folder, so a project that has never been 
 look one up under again and is not covered until you name it. Switch the copies off in
 **Settings** — the application menu on macOS, `File → Settings…` elsewhere.
 
+## Selecting
+
+**Select** in the menu bar picks by what the file says. **All** (⌘A, Ctrl+A elsewhere) picks
+everything drawn — not `<defs>`, the declarations, or what a clip path or mask holds — and
+**Deselect** (⇧⌘A) lets go. **Inverse** picks what is drawn and not picked, keeping a group whole
+unless something in it was picked. **Same Fill**, **Same Stroke**, **Same Stroke Width** and **Same
+Opacity** pick every element whose value is written the same as the first picked one's: on itself,
+or for all but opacity on a group around it, its `style` before its attribute. The text is
+compared, so `{{ tint }}` matches `{{tint}}` and not the colour it comes to, and `#2A7DE1` matches
+`#2a7de1` but not `red`. Select reads attributes and `style=""`, not a `<style>` sheet; where a
+drawing has one and the value is not written, it says so rather than guessing. Picking a shape
+leaves groups out; picking a group takes groups too. **Same Type** picks every element of its kind.
+⌘A in a box selects its text, and with **Points** out it picks every point of the shape.
+
+A right click on the canvas (a two-finger click on a trackpad) opens the element tree's menu. A
+shape not already picked is picked first, and anywhere else the selection stays, so **Same**
+compares with the first of what is picked. Its **Select** has all of the above and **Uses of**,
+which lists the names the drawing declares and picks every element that reads the one chosen.
+Nothing opens while a drawing tool or **Points** is out. A group's tab does the same in the
+drawing clicked.
+
 ## The Attributes tab
 
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
@@ -390,8 +411,9 @@ or `mask #sweep`. The filter finds it by that.
 row, or onto the **Clip path** or **Mask** box of the element picked, and it clips or masks that
 element; whatever did so before stays in `<defs>`. A shape kept in `<defs>` drops the same way and is
 moved into a clip path made for it, or a mask while `Alt` (`⌥`) is held. The row it would land on is
-outlined green for a clip and violet for a mask, and says which. The tree's menu has **New clip path**
-and **New mask**, which cover the picked element, its stroke and its markers with a rectangular path
+outlined green for a clip and violet for a mask, and says which. The tree's menu, which a right click
+(a two-finger click on a trackpad) on the canvas opens too, has **New clip path** and **New mask**,
+which cover the picked element, its stroke and its markers with a rectangular path
 and pick that path; a new mask's path is white. With two rows picked it has **Clip … with …** and
 **Mask … with …**: a clip path, a mask or a shape in `<defs>` is what clips or masks the other row, and
 of two drawn rows the one painted later is moved into the new clip path or mask, staying where it was
@@ -409,8 +431,8 @@ click on a `<use>` reshapes the shape it draws, which changes it everywhere it i
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project, its drawings and each node's own and inherited settings, lists every problem in them, reads
 the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
-reads and changes a group's declarations, declares or renames one parameter or let with every use of
-it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
+selects them by key or as the Select menu does, reads and changes a group's declarations, declares
+or renames one parameter or let with every use of it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
 Before a commit, `get_changes` tells it what has changed since the last one, as the Changes panel
 would, counting what the project holds unsaved but not edits still held in a tab; `git_history` lists
 the project's commits, and `get_drawing` and `render` take any of them as a revision to show a

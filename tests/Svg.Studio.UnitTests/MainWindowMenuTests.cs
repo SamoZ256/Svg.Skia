@@ -109,7 +109,7 @@ public class MainWindowMenuTests : IDisposable
         var window = await Host();
 
         Assert.Equal(
-            new[] { "File", "Edit", "View", "Window", "Project", "Help" },
+            new[] { "File", "Edit", "Select", "View", "Window", "Project", "Help" },
             NativeMenu.GetMenu(window)!.Items.OfType<NativeMenuItem>().Select(item => item.Header));
 
         window.Close();
@@ -242,6 +242,56 @@ public class MainWindowMenuTests : IDisposable
         window.Close();
     }
 
+    // ---- Select ---------------------------------------------------------------------------------
+
+    /// <remarks>On a Mac ⌘A is the menu's over every box, so the menu has to go where the key would have.</remarks>
+    [AvaloniaFact]
+    public async Task Select_All_From_The_Menu_Goes_Where_The_Key_Would()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+        var viewer = Front(window);
+
+        // The search box, which is one the window always has room for.
+        Assert.True(await window.Registry.Run("commands"));
+        Type(window, "abc");
+
+        Assert.True(await window.Registry.Run("selectall"));
+        Assert.Equal((0, 3), (Query(window).SelectionStart, Query(window).SelectionEnd));
+        Assert.Empty(viewer.Elements.SelectedAddresses);
+
+        viewer.Canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(await window.Registry.Run("selectall"));
+        Assert.Equal(new[] { "0" }, viewer.Elements.SelectedAddresses);
+
+        Assert.True(await window.Registry.Run("deselect"));
+        Assert.Empty(viewer.Elements.SelectedAddresses);
+
+        window.Close();
+    }
+
+    /// <remarks>Text that can be selected and is not a box: the assistant's answers, and the viewer's error.</remarks>
+    [AvaloniaFact]
+    public async Task Select_All_From_The_Menu_Selects_Selectable_Text_It_Is_In()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+        var viewer = Front(window);
+        var text = viewer.GetVisualDescendants().OfType<SelectableTextBlock>().Single(block => block.Name == "ErrorText");
+
+        viewer.GetVisualDescendants().OfType<Grid>().Single(grid => grid.Name == "ErrorPanel").IsVisible = true;
+        text.Text = "broken";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(text.Focus());
+        Assert.True(await window.Registry.Run("selectall"));
+
+        Assert.Equal((0, 6), (text.SelectionStart, text.SelectionEnd));
+        Assert.Empty(viewer.Elements.SelectedAddresses);
+
+        window.Close();
+    }
+
     // ---- command search -----------------------------------------------------------------------
 
     private static Border Search(MainWindow window) => window.FindControl<Border>("CommandSearch")!;
@@ -337,7 +387,7 @@ public class MainWindowMenuTests : IDisposable
         Type(window, "rectangle");
         Press(window, PhysicalKey.Enter);
 
-        Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>().Where(button => button.IsChecked == true && Equals(button.Tag, "rect")));
+        Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>(), button => button.IsChecked == true && Equals(button.Tag, "rect"));
 
         window.Close();
     }
@@ -639,14 +689,14 @@ public class MainWindowMenuTests : IDisposable
         window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Empty(window.GetVisualDescendants().OfType<ToggleButton>().Where(button => button.IsChecked == true && Equals(button.Tag, "rect")));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<ToggleButton>(), button => button.IsChecked == true && Equals(button.Tag, "rect"));
 
         // On the canvas the letter arms the tool.
         viewer.Canvas.Focus();
         window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>().Where(button => button.IsChecked == true && Equals(button.Tag, "rect")));
+        Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>(), button => button.IsChecked == true && Equals(button.Tag, "rect"));
 
         window.Close();
     }

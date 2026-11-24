@@ -267,7 +267,7 @@ public sealed class AssistantTools
         Add(RemoveElements, "remove_elements", "Removes elements of a drawing, with everything inside them, as a single undo step.");
         Add(MoveElement, "move_element", "Moves an element of a drawing inside or beside another, as a single undo step, and says the key it lands at. A move into itself, or across a <defs>, <clipPath> or <mask>, is refused.");
         Add(DuplicateElements, "duplicate_elements", "Copies elements of a drawing, each right after itself with every id in it renamed, as a single undo step, and says the copies' keys and ids.");
-        Add(Select, "select", "Selects elements of the drawing in front, by address key, so the person sees them.");
+        Add(Select, "select", "Selects elements of the drawing in front so the person sees them: by address key, or as Studio's Select menu does — all, none, the inverse of keys, those whose fill, stroke, stroke-width or opacity is written as the first key's is, every element of a kind, or what reads a declared name — and names the keys it selected.");
         Add(Open, "open", "Opens a group or drawing of the project in its tab.");
         Add(AddGroup, "add_group", "Adds an empty group inside a group, and opens it.");
         Add(AddDrawing, "add_drawing", "Adds a drawing from SVG text inside a group, and opens it; with template, through one of the project's templates as an import puts it, declaring on the group what it needs and lacks, in the same undo step.");
@@ -1367,7 +1367,9 @@ public sealed class AssistantTools
         });
 
     private Task<string> Select(
-        [Description("The address keys to select, from get_drawing. None clears the selection.")] string[] keys)
+        [Description("Address keys from get_drawing. Alone, the elements to select, and an empty list clears the selection. With mode, what it starts from: Inverse selects every drawn element outside them, and Fill, Stroke, StrokeWidth, Opacity and Type compare with the first.")] string[]? keys = null,
+        [Description("Selects as Studio's Select menu does, by what the file writes: All or None of the drawn elements, the Inverse of keys, those whose Fill, Stroke, StrokeWidth or Opacity is written as the first key's is, every element of a Type, or the Uses of a declared name. Left out, the keys themselves.")] SvgElementSelect? mode = null,
+        [Description("For Uses, the declared name; for Type, an element name as get_drawing writes it, such as rect, in place of a key.")] string? name = null)
         => Ui(() =>
         {
             if (_window.FrontViewer is not { } viewer)
@@ -1375,27 +1377,59 @@ public sealed class AssistantTools
                 return "The tab in front is not a drawing.";
             }
 
+            if (keys is null && mode is null)
+            {
+                return "Give keys, or a mode.";
+            }
+
+            keys ??= Array.Empty<string>();
+
             // The tree is keyed by the drawing that was built, which a group's declarations are written
             // into, so a key of the file is looked up the other way round.
             var tree = viewer.SourceAddresses()
                 .GroupBy(pair => pair.Value)
                 .ToDictionary(group => group.Key, group => group.First().Key, StringComparer.Ordinal);
-            var picked = keys.Select(key => tree.TryGetValue(Key(key), out var built) ? built : null).OfType<string>().ToList();
             var missing = keys.Where(key => !tree.ContainsKey(Key(key))).ToList();
+            var asked = keys.Select(Key).Where(tree.ContainsKey).ToList();
+            string? note = null;
 
-            if (keys.Length > 0 && picked.Count == 0)
+            if (mode is { } how)
+            {
+                if (SvgSourceDocument.Read(viewer.Source, out var unreadable) is not { } source)
+                {
+                    return unreadable ?? "The drawing in front cannot be read.";
+                }
+
+                asked = SvgElementEditor.Select(source, how, asked, name, out note).ToList();
+
+                // Nothing to select is an answer, not a refusal, and not a step.
+                if (asked.Count == 0 && how is not (SvgElementSelect.None or SvgElementSelect.Inverse))
+                {
+                    return Report(note + Missed(missing), null);
+                }
+            }
+            else if (keys.Length > 0 && asked.Count == 0)
             {
                 return "None of those keys is an element of the drawing in front.";
             }
+
+            var picked = asked.Select(key => tree.TryGetValue(key, out var built) ? built : null).OfType<string>().ToList();
 
             // By what is selected afterwards: TrySelect is false for a row the Elements filter hides,
             // and selects it all the same.
             viewer.Elements.TrySelect(picked);
 
+            var said = picked.Count == 0 ? "Selection cleared."
+                : mode is null ? "Selected."
+                : $"Selected {asked.Count}: {string.Join(", ", asked.Take(Most))}{(asked.Count > Most ? $" and {asked.Count - Most} more" : null)}.";
+
             return viewer.Elements.SelectedAddresses.ToHashSet(StringComparer.Ordinal).SetEquals(picked)
-                ? Report((keys.Length == 0 ? "Selection cleared." : "Selected.") + (missing.Count > 0 ? $" Not elements of this drawing: {string.Join(", ", missing)}." : string.Empty), "select")
+                ? Report(string.Join(" ", new[] { said, note }.OfType<string>()) + Missed(missing), "select")
                 : "Nothing changed: the Elements pane has no row for any of them"
                   + (viewer.Elements.Filter is { Length: > 0 } filter ? $"; the filter \"{filter}\" typed there hides them, and clearing it shows them." : ".");
+
+            static string Missed(IReadOnlyList<string> missing)
+                => missing.Count > 0 ? $" Not elements of this drawing: {string.Join(", ", missing)}." : string.Empty;
         });
 
     private Task<string> Undo() => Ui(() => Step(back: true));

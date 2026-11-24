@@ -1612,6 +1612,79 @@ public class MainWindowProjectTests : IDisposable
             badge.Text);
     }
 
+    /// <summary>A right click on a drawing of the board picks in it, and what the menu then does is done there.</summary>
+    [AvaloniaFact]
+    public async Task A_Right_Click_On_The_Board_Picks_In_The_Drawing_It_Lands_On()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+
+        var area = Area(Drawn(panel)[1]);
+        var at = Gestures.Over(canvas, area.MidX, area.MidY);
+
+        Gestures.Press(window, canvas, at, MouseButton.Right);
+        Gestures.Release(window, canvas, at, MouseButton.Right);
+
+        Assert.True(canvas.ContextMenu!.IsOpen);
+        canvas.ContextMenu.Close();
+
+        Assert.True(window.Duplicate());
+        Dispatcher.UIThread.RunJobs();
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var ink = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+
+        Assert.Equal(1, home.Text.Split("<rect").Length - 1);
+        Assert.Equal(2, ink.Text.Split("<rect").Length - 1);
+    }
+
+    /// <summary>Beside every drawing a right click is about what is picked, where a left click lets go of it.</summary>
+    [AvaloniaFact]
+    public async Task A_Right_Click_On_The_Bare_Board_Keeps_What_Is_Picked()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+        var canvas = Canvas(panel);
+
+        Pick(window, panel, 0);
+
+        var board = Drawn(panel).Select(Area).ToList();
+        var beside = Gestures.Over(canvas, board.Max(area => area.Right) + 40f, board.Max(area => area.Bottom) + 40f);
+
+        Gestures.Press(window, canvas, beside, MouseButton.Right);
+        Gestures.Release(window, canvas, beside, MouseButton.Right);
+
+        Assert.Equal(new[] { "0" }, Elements(panel).SelectedAddresses);
+        Assert.True(canvas.ContextMenu!.IsOpen);
+
+        canvas.ContextMenu.Close();
+    }
+
+    /// <summary>Deselect on a board lets go of what is picked and not of the drawing being read, so All has one to pick in.</summary>
+    [AvaloniaFact]
+    public async Task Deselect_On_The_Board_Keeps_The_Drawing_All_Picks_In()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        Pick(window, panel, 1);
+
+        Assert.True(await window.Registry.Run("deselect"));
+        Assert.Empty(Elements(panel).SelectedAddresses);
+
+        Assert.True(await window.Registry.Run("selectall"));
+        Assert.Equal(new[] { "0" }, Elements(panel).SelectedAddresses);
+
+        Assert.True(window.Duplicate());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, ((ProjectDrawing)window.Workspace!.Document.Root.Children[0]).Text.Split("<rect").Length - 1);
+        Assert.Equal(2, ((ProjectDrawing)window.Workspace!.Document.Root.Children[1]).Text.Split("<rect").Length - 1);
+    }
+
     [AvaloniaFact]
     public async Task Duplicate_On_The_Board_Writes_The_Copy_And_Picks_It()
     {

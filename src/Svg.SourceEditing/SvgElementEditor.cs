@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Svg.Expressions;
 
@@ -28,6 +29,20 @@ public enum SvgElementDrop
     Before,
     After,
     Inside
+}
+
+/// <summary>What Select picks, by what the file writes.</summary>
+public enum SvgElementSelect
+{
+    All,
+    None,
+    Inverse,
+    Fill,
+    Stroke,
+    StrokeWidth,
+    Opacity,
+    Type,
+    Uses
 }
 
 public static class SvgElementEditor
@@ -897,7 +912,7 @@ public static class SvgElementEditor
     private static string? Holds(XElement parent, XElement placed)
     {
         var (into, name) = (parent.Name.LocalName, placed.Name.LocalName);
-        var any = name is "desc" or "title" or "metadata" or "set" || name.StartsWith("animate", StringComparison.Ordinal);
+        var any = Describes(name);
         var takes = into switch
         {
             "linearGradient" or "radialGradient" => any || name is "stop",
@@ -916,6 +931,194 @@ public static class SvgElementEditor
     }
 
     private static bool IsText(XElement element) => element.Name.LocalName is "text" or "tspan" or "textPath";
+
+    /// <summary>
+    /// The elements <paramref name="how"/> picks, as address keys outermost only and in document order,
+    /// with the one compared with first; and what to tell somebody where there are none, or where what
+    /// was looked through was cut short.
+    /// </summary>
+    /// <param name="selected">What is picked now: what Inverse turns over, and the first of it what Same and Type compare with.</param>
+    /// <param name="name">For Uses, the declared name; for Type, an element name in place of comparing with one.</param>
+    /// <remarks>
+    /// By the file rather than the picture, so <c>{{ tint }}</c> is its own fill and not the colour it
+    /// comes to: values are compared as written, on the element or for all but opacity on a group
+    /// around it, its <c>style</c> before its attribute. A <c>&lt;style&gt;</c> sheet is not read.
+    /// </remarks>
+    public static IReadOnlyList<string> Select(SvgSourceDocument source, SvgElementSelect how, IReadOnlyList<string> selected, string? name, out string? note)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        note = null;
+
+        if (how == SvgElementSelect.None || source.Document.Root is not { } root)
+        {
+            return Array.Empty<string>();
+        }
+
+        var drawn = Drawable(root).ToList();
+        var drawable = new HashSet<XElement>(drawn);
+
+        var picked = selected.Select(key => SvgAttributeEditor.Resolve(source.Document, key)).Select(Lifted).OfType<XElement>().ToList();
+        var reference = picked.FirstOrDefault();
+        IEnumerable<XElement> found;
+
+        switch (how)
+        {
+            case SvgElementSelect.All:
+                found = drawn.Where(element => element.Parent == root);
+                note = drawable.Count == 0 ? "Nothing is drawn here." : null;
+                break;
+
+            case SvgElementSelect.Inverse:
+                {
+                    var held = new HashSet<XElement>(picked);
+                    var around = new HashSet<XElement>(picked.SelectMany(element => element.Ancestors()));
+
+                    // A group around something picked is opened rather than taken, so its other children are.
+                    IEnumerable<XElement> Inverse(XElement parent)
+                        => parent.Elements()
+                            .Where(element => drawable.Contains(element) && !held.Contains(element))
+                            .SelectMany(element => around.Contains(element) ? Inverse(element) : new[] { element });
+
+                    found = Inverse(root);
+                    break;
+                }
+
+            case SvgElementSelect.Uses:
+                {
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        note = "Say which name.";
+
+                        return Array.Empty<string>();
+                    }
+
+                    var holding = new List<XElement>();
+                    var unreadable = SvgDeclarationReferences.Walk(source.Document, name!.Trim(), null, out _, holding);
+
+                    found = holding.Select(Lifted).OfType<XElement>().ToList();
+                    note = string.Join(
+                        " ",
+                        new[] { found.Any() ? null : $"Nothing drawn here reads {name.Trim()}.", unreadable is { } ? unreadable + " Uses past it were not looked for." : null }
+                            .OfType<string>()) is { Length: > 0 } said ? said : null;
+                    break;
+                }
+
+            case SvgElementSelect.Type:
+                {
+                    var kind = string.IsNullOrWhiteSpace(name) ? reference is { } ? SvgAttributeEditor.ElementName(reference) : null : name!.Trim();
+
+                    if (kind is null)
+                    {
+                        note = "There is no element to compare with.";
+
+                        return Array.Empty<string>();
+                    }
+
+                    found = drawn.Where(element => string.Equals(SvgAttributeEditor.ElementName(element), kind, StringComparison.Ordinal)).ToList();
+                    note = found.Any() ? null : $"Nothing drawn here is a <{kind}>.";
+                    break;
+                }
+
+            default:
+                {
+                    if (reference is null)
+                    {
+                        note = "There is no element to compare with.";
+
+                        return Array.Empty<string>();
+                    }
+
+                    var property = how switch
+                    {
+                        SvgElementSelect.Fill => "fill",
+                        SvgElementSelect.Stroke => "stroke",
+                        SvgElementSelect.StrokeWidth => "stroke-width",
+                        _ => "opacity"
+                    };
+
+                    var inherits = property != "opacity";
+
+                    string? Written(XElement element)
+                        => Spelt(Set(inherits ? element.AncestorsAndSelf() : new[] { element }, property));
+
+                    var wanted = Written(reference);
+
+                    // Unwritten where a sheet may write it is not known to be the same as unwritten elsewhere.
+                    if (wanted is null && root.Descendants().Any(element => element.Name.LocalName == "style" && !string.IsNullOrWhiteSpace(element.Value)))
+                    {
+                        note = $"Its {property} is not written on it{(inherits ? " or on a group around it" : null)}, and the drawing's <style> sheet, which Select does not read, may set it.";
+
+                        return Array.Empty<string>();
+                    }
+
+                    // A shape is compared with shapes; a group with groups and shapes, as a group is most of the way to what it holds.
+                    bool Groups(XElement element) => element.Elements().Any(drawable.Contains);
+
+                    var groups = Groups(reference);
+
+                    found = drawn.Where(element => (groups || !Groups(element)) && Written(element) == wanted).ToList();
+                    break;
+                }
+        }
+
+        var hit = new HashSet<XElement>(found);
+        var chosen = drawn.Where(element => hit.Contains(element) && !element.Ancestors().Any(hit.Contains)).ToList();
+
+        // What was compared with first, or the group that took it in: the selection's anchor is what it is about.
+        if (how is not (SvgElementSelect.All or SvgElementSelect.Inverse or SvgElementSelect.Uses)
+            && reference is { } && chosen.FindIndex(element => reference.AncestorsAndSelf().Contains(element)) is > 0 and var at)
+        {
+            var first = chosen[at];
+
+            chosen.RemoveAt(at);
+            chosen.Insert(0, first);
+        }
+
+        return chosen.Select(SvgAttributeEditor.Key).ToList();
+
+        // A part of a run of text, or what describes or animates, stands for the drawn element holding
+        // it; what a <defs>, a clip path or a mask keeps stands for nothing, wherever it is written.
+        XElement? Lifted(XElement? element) => element?.AncestorsAndSelf().TakeWhile(each => !Kept(each)).FirstOrDefault(drawable.Contains);
+    }
+
+    /// <summary>
+    /// What Select picks among, in document order: what is drawn, and not the root, what a <c>&lt;defs&gt;</c>
+    /// and its kind keep off the canvas, a part of a run of text, what only describes or animates, a
+    /// sheet, a script, or another namespace's, the declarations among them.
+    /// </summary>
+    private static IEnumerable<XElement> Drawable(XElement parent)
+        => parent.Elements()
+            .Where(element => !Kept(element)
+                              && element.Name.LocalName is not ("style" or "script")
+                              && !Describes(element.Name.LocalName)
+                              && (element.Name.Namespace == XNamespace.None || element.Name.Namespace == SvgAttributeEditor.SvgNamespace))
+            .SelectMany(element => IsText(element) ? new[] { element } : Drawable(element).Prepend(element));
+
+    /// <summary>Whether an element named <paramref name="localName"/> only describes or animates what holds it.</summary>
+    private static bool Describes(string localName)
+        => localName is "desc" or "title" or "metadata" or "set" || localName.StartsWith("animate", StringComparison.Ordinal);
+
+    /// <summary>A value as Select compares it: spaces and <c>!important</c> aside, and a colour's case, but not an expression's or a reference's.</summary>
+    private static string? Spelt(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        var spelt = Regex.Replace(Regex.Replace(value.Trim(), @"\s*!\s*important$", string.Empty, RegexOptions.IgnoreCase), @"\s+", " ")
+            .Replace("{{ ", "{{")
+            .Replace(" }}", "}}");
+
+        // The function's name in any case, as the parser takes it; the id it names keeps its own.
+        spelt = Regex.Replace(spelt, @"url\(", "url(", RegexOptions.IgnoreCase);
+
+        return spelt.Contains("{{") || spelt.Contains("url(") ? spelt : spelt.ToLowerInvariant();
+    }
 
     private static string? Parted(XElement element, string verb)
         => element.Parent is { } parent && IsText(parent)

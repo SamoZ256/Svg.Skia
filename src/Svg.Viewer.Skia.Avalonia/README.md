@@ -42,7 +42,9 @@ of these controls.
 | Fit | `Ctrl`/`Cmd` `0`, or the toolbar |
 | Actual size | `Ctrl`/`Cmd` `1`, or the toolbar |
 | Move an element | Drag its row in the element tree |
-| A new group | The element tree's own menu |
+| A new group | The element tree's own menu, which a right click on the canvas opens too, on what it lands on |
+| Select all, or none | `Ctrl`/`Cmd` `A`, and with `Shift` none, or Select on that menu |
+| Select the same fill, stroke, stroke width, opacity or kind, or what reads a name | That menu's Select, comparing what the file writes |
 | Clip or mask an element | Drop a `<clipPath>`, a `<mask>` or a shape kept in `<defs>` on its row (`Alt` makes the shape a mask) or on its Clip path or Mask box; **New clip path** and **New mask** are on the element tree's menu |
 | Reach a row or box out of sight | Hold the drag near the pane's edge, which scrolls it, faster the nearer the edge |
 | Undo | Whatever the platform calls it — `Ctrl`/`Cmd` `Z` |

@@ -74,6 +74,11 @@ public class SvgViewerCanvas : SKCanvasControl
     private SvgViewerPointMarks? _points;
     private bool _pageOutlined = true;
     private bool _editing;
+
+    /// <summary>The button of the run of clicks <see cref="Clicks"/> counts, and the platform's count before it.</summary>
+    private PointerUpdateKind _clickKind;
+
+    private int _clicksBefore;
     private bool _editMoved;
     private IPointer? _editPointer;
 
@@ -234,6 +239,9 @@ public class SvgViewerCanvas : SKCanvasControl
 
     /// <summary>Whether an edit gesture is in flight, between <see cref="EditBegun"/> and its end.</summary>
     public bool IsEditing => _editing;
+
+    /// <summary>Whether a press is still held: an edit, a sweep, a carry or a pan.</summary>
+    public bool IsHeld => _editing || _marquee || _moving is { } || _dragging;
 
     /// <summary>The edit gesture, in control coordinates, as <see cref="Picked"/> reports a click.</summary>
     public event EventHandler<Point>? EditBegun;
@@ -1415,7 +1423,16 @@ public class SvgViewerCanvas : SKCanvasControl
         var properties = e.GetCurrentPoint(this).Properties;
 
         Modifiers = e.KeyModifiers;
-        Clicks = e.ClickCount;
+
+        // The platform counts a press of any button towards a double-click: a right click, and the
+        // left click that dismisses its menu, would otherwise be one.
+        if (e.ClickCount == 1 || properties.PointerUpdateKind != _clickKind)
+        {
+            _clicksBefore = e.ClickCount - 1;
+        }
+
+        _clickKind = properties.PointerUpdateKind;
+        Clicks = e.ClickCount - _clicksBefore;
 
         // Recorded before the pan is decided on, so a host that has turned panning off can still be
         // clicked. Whether this becomes a pick is settled on release.

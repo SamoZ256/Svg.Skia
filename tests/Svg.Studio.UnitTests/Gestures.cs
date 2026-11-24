@@ -84,7 +84,12 @@ internal static class Gestures
             window,
             Root(window, control, at),
             0,
-            new PointerPointProperties(Held(button), button == MouseButton.Middle ? PointerUpdateKind.MiddleButtonPressed : PointerUpdateKind.LeftButtonPressed),
+            new PointerPointProperties(Held(button), button switch
+            {
+                MouseButton.Middle => PointerUpdateKind.MiddleButtonPressed,
+                MouseButton.Right => PointerUpdateKind.RightButtonPressed,
+                _ => PointerUpdateKind.LeftButtonPressed
+            }),
             modifiers,
             clicks)
         {
@@ -113,7 +118,12 @@ internal static class Gestures
             window,
             Root(window, control, at),
             0,
-            new PointerPointProperties(RawInputModifiers.None, button == MouseButton.Middle ? PointerUpdateKind.MiddleButtonReleased : PointerUpdateKind.LeftButtonReleased),
+            new PointerPointProperties(RawInputModifiers.None, button switch
+            {
+                MouseButton.Middle => PointerUpdateKind.MiddleButtonReleased,
+                MouseButton.Right => PointerUpdateKind.RightButtonReleased,
+                _ => PointerUpdateKind.LeftButtonReleased
+            }),
             modifiers,
             button)
         {
@@ -136,8 +146,12 @@ internal static class Gestures
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static RawInputModifiers Held(MouseButton button)
-        => button == MouseButton.Middle ? RawInputModifiers.MiddleMouseButton : RawInputModifiers.LeftMouseButton;
+    private static RawInputModifiers Held(MouseButton button) => button switch
+    {
+        MouseButton.Middle => RawInputModifiers.MiddleMouseButton,
+        MouseButton.Right => RawInputModifiers.RightMouseButton,
+        _ => RawInputModifiers.LeftMouseButton
+    };
 
     private static Point Root(Window window, Control control, Point at)
         => control.TranslatePoint(at, window) ?? throw new InvalidOperationException("The control is not in the window.");
