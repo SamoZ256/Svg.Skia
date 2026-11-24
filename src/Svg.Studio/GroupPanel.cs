@@ -349,7 +349,7 @@ public sealed class GroupPanel : UserControl
                   || _paging.Hits(new SKPoint(arranged.X, arranged.Y), (float)_canvas.Scale)
                   || (!Grabbed(at) && _gizmo.Hits(arranged, (float)_canvas.Scale)));
 
-        _points.Driven = (key, name) => Writing(new[] { key }) is { } writing && Driven(writing, key, name) is { };
+        _points.Driven = (key, name) => Writing(new[] { key }) is { } writing && Driven(writing, SvgSourceDocument.Read(writing.Target.Text, out _), key, name) is { };
 
         // The handles go away while a tool is armed, since a press on them would draw rather than
         // drag, and come back on whatever is picked when it is put down.
@@ -2700,7 +2700,9 @@ public sealed class GroupPanel : UserControl
 
         // The table once, rather than once per member: it is the file read and walked, and asking
         // the gesture to ask for it per element made a drag of twenty twenty parses of one text.
-        Says(_gizmo.Begin(arranged, (float)_canvas.Scale, key => Driven(writing, key, "transform")));
+        var source = SvgSourceDocument.Read(writing.Target.Text, out _);
+
+        Says(_gizmo.Begin(arranged, (float)_canvas.Scale, key => Driven(writing, source, key, "transform")));
 
         ShowGizmo();
     }
@@ -2823,9 +2825,7 @@ public sealed class GroupPanel : UserControl
         // all or nothing besides: a refusal on the fourth element puts the first three back with it.
         var refusal = writing.Target.Commit(
             edit.Label,
-            source => edit.Write(
-                source,
-                key => writing.Addresses.TryGetValue(key, out var at) ? at : null));
+            source => edit.Apply(source, key => writing.Addresses.TryGetValue(key, out var at) ? at : null));
 
         if (refusal is { })
         {
@@ -2840,12 +2840,12 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>Writes a points edit into the picked shape's drawing, or puts the shape back and says why not.</summary>
     /// <remarks>By what the edit names rather than by what is picked: a picked &lt;use&gt; writes the shape it draws.</remarks>
-    private void WritePoints(SvgViewerEdits edit)
+    private void WritePoints(SvgSourceEdits edit)
     {
-        var refusal = Writing(edit.Members.Select(member => member.Key).ToList()) is { } writing
+        var refusal = Writing(edit.Keys) is { } writing
             ? writing.Target.Commit(
                 edit.Label,
-                source => edit.Write(source, key => writing.Addresses.TryGetValue(key, out var at) ? at : null))
+                source => edit.Apply(source, key => writing.Addresses.TryGetValue(key, out var at) ? at : null))
             : Unwritten;
 
         if (refusal is { })
@@ -3618,25 +3618,13 @@ public sealed class GroupPanel : UserControl
         }
     }
 
-    /// <summary>
-    /// The element's attribute as the file spells it — its transform, its points — where an
-    /// expression writes it, and null otherwise.
-    /// </summary>
-    /// <remarks>
-    /// Handed to the drag rather than used to refuse it: a gesture the element's own geometry can
-    /// hold does not touch the transform at all, and one that cannot is composed onto this text
-    /// instead of onto the number the expression came to.
-    /// </remarks>
+    /// <summary>The expression the file writes the element's <paramref name="name"/> with, read as a drawing's tab reads it.</summary>
     private static string? Driven(
         (ISvgViewerDeclarationTarget Target, IReadOnlyDictionary<string, string> Addresses) writing,
+        SvgSourceDocument? source,
         string key,
         string name)
-        => writing.Addresses.TryGetValue(key, out var address)
-           && SvgSourceDocument.Read(writing.Target.Text, out _) is { } source
-           && SvgAttributeEditor.Attribute(source, address, name) is { } written
-           && written.Contains("{{", StringComparison.Ordinal)
-            ? written
-            : null;
+        => source is { } && writing.Addresses.TryGetValue(key, out var address) ? SvgAttributeEditor.Driven(source, address, name) : null;
 
     /// <summary>One drawing built the way the project builds it, or why it could not be.</summary>
     /// <summary>

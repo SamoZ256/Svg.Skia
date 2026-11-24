@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Svg.Expressions;
 using Svg.Skia;
+using Svg.SourceEditing;
 using Xunit;
 using Shim = ShimSkiaSharp;
 
@@ -72,18 +73,18 @@ public class SvgViewerGizmosTests
     }
 
     /// <summary>What one member of a finished gesture wants written, as one string.</summary>
-    private static string Wrote(SvgViewerEdits? edits, string key)
+    private static string Wrote(SvgSourceEdits? edits, string key)
     {
         Assert.NotNull(edits);
 
-        var member = edits!.Value.Members.FirstOrDefault(one => one.Key == key);
+        var member = edits!.Value.Steps.OfType<SvgSourceEdit.SetAttributes>().FirstOrDefault(one => one.Key == key);
 
-        return member.Writes is null
+        return member is null
             ? "nothing"
             : string.Join(" ", member.Writes.Select(write => $"{write.Name}={write.Value}"));
     }
 
-    private static SvgViewerEdits? Drag(SvgViewerGizmos gizmos, (float X, float Y) from, (float X, float Y) to)
+    private static SvgSourceEdits? Drag(SvgViewerGizmos gizmos, (float X, float Y) from, (float X, float Y) to)
     {
         Assert.Null(gizmos.Begin(new Shim.SKPoint(from.X, from.Y), 1f));
 

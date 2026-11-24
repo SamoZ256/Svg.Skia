@@ -31,7 +31,8 @@ dotnet add package SamoZ256.Svg.SourceEditing --prerelease
 | --- | --- |
 | `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's replacement rules — the half of a recipe that is not declarations |
-| `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with; `Content` and `SetContent` for the text between a `<text>`, `<tspan>` or `<textPath>`'s tags |
+| `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with; `Content` and `SetContent` for the text between a `<text>`, `<tspan>` or `<textPath>`'s tags; `Driven` for the expression a value is written with, on the element or a group around it |
+| `SvgSourceEdits` | What one gesture writes, as steps for one commit: every element they name is found before anything is written |
 | `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` — or one element of it by `TextOf` |
 | `SvgSourceWorkspace` | That drawing and its history: `Commit`, `Undo`, `Redo`, `IsModified`, `MarkSaved`, and `UndoStep`, `RedoStep`, `Holds` and `Undone` for a caller to know its own steps again |
 | `SvgElementEditor` | `Move` an element to where a drop puts it, `Insert` a new one there, `Remove` and `Duplicate` several; each that places one says the key it lands at |
@@ -74,7 +75,9 @@ contract is that what it reads, it writes back exactly.
 
 `SvgSourceWorkspace` is the history. A commit is the whole of what somebody did — a resize writes
 three attributes and is one thing to take back — and a step is reversed by reading the drawing's own
-text back.
+text back. `SvgSourceEdits` is such a gesture written down: its `Apply` finds every element its steps
+name first, so a key the host cannot place, or the file no longer has, is refused before anything is
+written, and is meant to run inside a commit, which puts back a step refused after an earlier one.
 
 Reversing by snapshot is usually the wrong answer, and it is the right one here for two reasons.
 `ToText` is byte-faithful, so the text is a lossless record of the tree rather than an approximation
@@ -217,9 +220,13 @@ package deliberately cannot see it. The walk that resolves the path is mirrored 
 for the same reason, so the two rules that make the two agree are pinned by a test: the root is the
 empty key, and a comment or a run of text takes no index.
 
-It refuses an attribute a `style` declaration overrides. The declaration wins, so writing the
-attribute would leave a document where the change paints nothing and nothing said so; editing inside
-the declaration needs the scanner that splits one properly, which is internal to the SVG parser.
+A property a `style` declaration sets is written into that declaration, since it is what paints:
+the declaration CSS reads, the last unless an earlier one is `!important`, and only its value, so
+the rest of the style stays as written. The declarations are split where CSS splits them, not inside
+quotes, comments or brackets. A value that would end the declaration early or leave a quote or a
+comment open is refused, and taking a property away takes every declaration of it and the attribute,
+since one left would take over. Geometry and `transform` set in a style are still refused: what is
+written for them is attribute grammar, which no browser reads in a style.
 
 ## Related docs
 
