@@ -73,7 +73,8 @@ public class MenuTests
         studio.Command("k");
 
         studio.Find("CommandQuery");
-        studio.Press("keyboard shortcuts" + Keys.Enter);
+        studio.Press("keyboard shortcuts");
+        studio.Press(Keys.Return);
 
         studio.Window("Keyboard Shortcuts");
     }
