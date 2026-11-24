@@ -337,7 +337,7 @@ public class MainWindowMenuTests : IDisposable
         Type(window, "rectangle");
         Press(window, PhysicalKey.Enter);
 
-        Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>().Where(button => button.IsChecked == true && Equals(button.Tag, "rect")));
+        Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>(), button => button.IsChecked == true && Equals(button.Tag, "rect"));
 
         window.Close();
     }
@@ -639,14 +639,14 @@ public class MainWindowMenuTests : IDisposable
         window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Empty(window.GetVisualDescendants().OfType<ToggleButton>().Where(button => button.IsChecked == true && Equals(button.Tag, "rect")));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<ToggleButton>(), button => button.IsChecked == true && Equals(button.Tag, "rect"));
 
         // On the canvas the letter arms the tool.
         viewer.Canvas.Focus();
         window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>().Where(button => button.IsChecked == true && Equals(button.Tag, "rect")));
+        Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>(), button => button.IsChecked == true && Equals(button.Tag, "rect"));
 
         window.Close();
     }

@@ -13,8 +13,8 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.LogicalTree;
 using Avalonia.Layout;
+using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -3617,7 +3617,9 @@ public partial class MainWindow : Window
         yield return new("open", "Open…", "File", OpenPickedAsync) { Key = SvgEditorShortcutKey.O, Modifiers = primary };
         yield return new("close", "Close Tab", "File", () => _tabs.SelectedItem is TabItem item ? CloseTabAsync(item) : Task.CompletedTask)
         {
-            Key = SvgEditorShortcutKey.W, Modifiers = primary, CanExecute = () => _tabs.SelectedItem is TabItem
+            Key = SvgEditorShortcutKey.W,
+            Modifiers = primary,
+            CanExecute = () => _tabs.SelectedItem is TabItem
         };
         yield return new("save", "Save", "File", () => SaveAsync()) { Key = SvgEditorShortcutKey.S, Modifiers = primary, CanExecute = Savable };
 
@@ -3625,7 +3627,8 @@ public partial class MainWindow : Window
         // those has no file to be pointed at. Export writes it out instead.
         yield return new("saveas", "Save As…", "File", () => SaveAsAsync())
         {
-            Key = SvgEditorShortcutKey.S, Modifiers = primary | shift,
+            Key = SvgEditorShortcutKey.S,
+            Modifiers = primary | shift,
             CanExecute = () => Selected() is { Document: { } } && _tabs.SelectedItem is not TabItem { Tag: ProjectDrawing }
         };
 
@@ -3636,20 +3639,28 @@ public partial class MainWindow : Window
         // The application's, so live with or without a project.
         yield return new("preferences", "Settings…", "File", () => ShowSettingsAsync())
         {
-            Key = SvgEditorShortcutKey.Comma, Modifiers = primary, InApplicationMenu = true
+            Key = SvgEditorShortcutKey.Comma,
+            Modifiers = primary,
+            InApplicationMenu = true
         };
 
         // Named by the tiers Undo walks, less the focused box: a menu is drawn before the click that
         // would focus one, so the drawing's answer is the honest one to show.
         yield return new("undo", "Undo", "Edit", Done(() => Undo()))
         {
-            Scope = document, Key = SvgEditorShortcutKey.Z, Modifiers = primary, Platform = hotkeys?.Undo,
+            Scope = document,
+            Key = SvgEditorShortcutKey.Z,
+            Modifiers = primary,
+            Platform = hotkeys?.Undo,
             CanExecute = () => Selected()?.CanUndo == true || _workspace?.CanUndo == true,
             Header = () => Taking("Undo", Selected()?.UndoLabel ?? _workspace?.UndoLabel)
         };
         yield return new("redo", "Redo", "Edit", Done(() => Redo()))
         {
-            Scope = document, Key = SvgEditorShortcutKey.Z, Modifiers = primary | shift, Platform = hotkeys?.Redo,
+            Scope = document,
+            Key = SvgEditorShortcutKey.Z,
+            Modifiers = primary | shift,
+            Platform = hotkeys?.Redo,
             CanExecute = () => Selected()?.CanRedo == true || _workspace?.CanRedo == true,
             Header = () => Taking("Redo", Selected()?.RedoLabel ?? _workspace?.RedoLabel)
         };
@@ -3658,7 +3669,11 @@ public partial class MainWindow : Window
         // the click, and with nothing picked either does nothing, which is honest.
         yield return new("duplicate", "Duplicate", "Edit", Done(() => Duplicate()))
         {
-            Scope = picked, Key = SvgEditorShortcutKey.D, Modifiers = primary, ShownOnMac = true, CanExecute = Picks
+            Scope = picked,
+            Key = SvgEditorShortcutKey.D,
+            Modifiers = primary,
+            ShownOnMac = true,
+            CanExecute = Picks
         };
         yield return new("delete", "Delete", "Edit", DeleteChosenAsync) { Scope = picked, Key = SvgEditorShortcutKey.Delete, CanExecute = Picks };
         yield return new("resize", "Resize…", "Edit", () => Selected() is { } viewer ? viewer.ResizeAsync() : Task.CompletedTask)
@@ -3711,11 +3726,15 @@ public partial class MainWindow : Window
 
         yield return new("next-document", "Next Tab", "Window", Done(() => Cycle(1)))
         {
-            Key = SvgEditorShortcutKey.Tab, Modifiers = primary, CanExecute = () => _tabs.ItemCount > 1
+            Key = SvgEditorShortcutKey.Tab,
+            Modifiers = primary,
+            CanExecute = () => _tabs.ItemCount > 1
         };
         yield return new("previous-document", "Previous Tab", "Window", Done(() => Cycle(-1)))
         {
-            Key = SvgEditorShortcutKey.Tab, Modifiers = primary | shift, CanExecute = () => _tabs.ItemCount > 1
+            Key = SvgEditorShortcutKey.Tab,
+            Modifiers = primary | shift,
+            CanExecute = () => _tabs.ItemCount > 1
         };
         yield return new("reset-layout", "Reset Layout", "Window", Done(ResetLayout));
 
@@ -3728,7 +3747,9 @@ public partial class MainWindow : Window
         // under it could not take the keyboard into the box.
         yield return new("commands", "Search Commands…", "Help", Done(ShowCommands))
         {
-            Key = SvgEditorShortcutKey.K, Modifiers = primary, CanExecute = () => Asking is null
+            Key = SvgEditorShortcutKey.K,
+            Modifiers = primary,
+            CanExecute = () => Asking is null
         };
         yield return new("user-guide", "User Guide", "Help", () => Launcher.LaunchUriAsync(UserGuide));
         yield return new("mcp-connection", "MCP Connection…", "Help", () => ShowSettingsAsync("Accounts"));
@@ -3736,7 +3757,8 @@ public partial class MainWindow : Window
         // Not over a dialog: the application menu stays live over one on macOS, and this is modal.
         yield return new("about", "About SVG Studio", "Help", () => Announce("About SVG Studio", About()))
         {
-            InApplicationMenu = true, CanExecute = () => Asking is null && _settings is null
+            InApplicationMenu = true,
+            CanExecute = () => Asking is null && _settings is null
         };
 
         static Func<Task> Done(Action action) => () =>
@@ -3940,7 +3962,11 @@ public partial class MainWindow : Window
         // Capped, so a long group name leaves its drawing's name room to be read.
         var category = new TextBlock
         {
-            Text = entry.Category, Opacity = 0.5, Margin = new Thickness(12, 0, 0, 0), MaxWidth = 160, TextTrimming = TextTrimming.CharacterEllipsis
+            Text = entry.Category,
+            Opacity = 0.5,
+            Margin = new Thickness(12, 0, 0, 0),
+            MaxWidth = 160,
+            TextTrimming = TextTrimming.CharacterEllipsis
         };
 
         DockPanel.SetDock(check, Dock.Left);
