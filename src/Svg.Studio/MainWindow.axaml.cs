@@ -28,6 +28,7 @@ using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.PaintCode;
 using Svg.Skia;
+using Svg.SourceEditing;
 using Svg.Viewer.Skia.Avalonia;
 
 namespace Svg.Studio;
@@ -3500,14 +3501,46 @@ public partial class MainWindow : Window
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
 
+    /// <summary>Whether the project tree has the keyboard: its rows answer Delete, Copy and the like themselves.</summary>
+    private bool InProjectTree() => Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused);
+
+    /// <summary>Select All: a box's text, the project tree's rows, or the elements of the tab in front.</summary>
+    /// <remarks>
+    /// By what has the keyboard, since on a Mac ⌘A is the menu's and reaches no box itself. The
+    /// keyboard is the application's, so it may be in another window, which the drawing is not.
+    /// </remarks>
+    private void SelectAll()
+    {
+        switch (Focused())
+        {
+            case TextBox box:
+                box.SelectAll();
+                break;
+            case SelectableTextBlock text:
+                text.SelectAll();
+                break;
+            case var _ when InProjectTree():
+                _projectTree.SelectAll();
+                break;
+            case var _ when Here():
+                Front(SvgElementSelect.All);
+                break;
+        }
+    }
+
+    /// <summary>Whether the keyboard is in this window, or nowhere; an item of a menu it draws is in it too.</summary>
+    private bool Here() => Focused() is not ILogical focused || focused == this || this.IsLogicalAncestorOf(focused);
+
+    /// <summary>Selects in the tab in front, as its Select menu does.</summary>
+    private bool Front(SvgElementSelect how, string? name = null)
+        => Selected() is { } viewer ? viewer.Select(how, name) : Board()?.Select(how, name) == true;
+
     /// <summary>Delete from the menu: what the key would have reached, the project tree's rows included.</summary>
     private async Task DeleteChosenAsync()
     {
         // The project tree answers Delete itself while it has the focus; the menu item is the same
         // command found another way, so it goes where the key would have gone.
-        if (Focused() is Visual focused
-            && _projectTree.IsVisualAncestorOf(focused)
-            && (_projectTree.SelectedItem as TreeViewItem)?.Tag is ProjectNode node)
+        if (InProjectTree() && (_projectTree.SelectedItem as TreeViewItem)?.Tag is ProjectNode node)
         {
             await RemoveAsync(Chosen(node));
 
@@ -3528,7 +3561,7 @@ public partial class MainWindow : Window
     /// <returns>Whether anything was written.</returns>
     public bool Duplicate()
     {
-        if (Focused() is TextBox || Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused))
+        if (Focused() is TextBox || InProjectTree())
         {
             return false;
         }
@@ -3542,7 +3575,7 @@ public partial class MainWindow : Window
     /// <summary>Takes what the selected tab has picked out of its drawing.</summary>
     public bool Delete()
     {
-        if (Focused() is TextBox || Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused))
+        if (Focused() is TextBox || InProjectTree())
         {
             return false;
         }
@@ -3579,6 +3612,7 @@ public partial class MainWindow : Window
 
         yield return ("File", new[] { "open", StudioCommands.RecentSlot, "close", rule, "save", "saveas", rule, "export", rule, "preferences" });
         yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", rule, "resize" });
+        yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
         yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio" });
         yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
@@ -3680,6 +3714,36 @@ public partial class MainWindow : Window
         {
             CanExecute = () => Selected() is { Document: { } }
         };
+
+        // Shown on a Mac, where it is then the menu's over every box, so it goes where the key would.
+        yield return new("selectall", "All", "Select", Done(SelectAll))
+        {
+            Scope = picked,
+            Key = SvgEditorShortcutKey.A,
+            Modifiers = primary,
+            ShownOnMac = true,
+            CanExecute = () => Focused() is TextBox or SelectableTextBlock || InProjectTree() || Here() && Picks()
+        };
+        yield return new("deselect", "Deselect", "Select", Done(() => Front(SvgElementSelect.None)))
+        {
+            Scope = picked,
+            Key = SvgEditorShortcutKey.A,
+            Modifiers = primary | shift,
+            CanExecute = Picks
+        };
+
+        foreach (var (id, label, how) in new[]
+                 {
+                     ("selectinverse", "Inverse", SvgElementSelect.Inverse),
+                     ("samefill", "Same Fill", SvgElementSelect.Fill),
+                     ("samestroke", "Same Stroke", SvgElementSelect.Stroke),
+                     ("samestrokeweight", "Same Stroke Width", SvgElementSelect.StrokeWidth),
+                     ("sameopacity", "Same Opacity", SvgElementSelect.Opacity),
+                     ("sametype", "Same Type", SvgElementSelect.Type)
+                 })
+        {
+            yield return new(id, label, "Select", Done(() => Front(how))) { CanExecute = Picks };
+        }
 
         // The project tree's own keys, listed and not run: a menu item would make them key
         // equivalents on macOS, taken from every box in the window.

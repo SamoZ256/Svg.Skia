@@ -427,6 +427,8 @@ public sealed class GroupPanel : UserControl
         _tree.DuplicateRequested = _ => Duplicate();
         _tree.ClipRequested = ApplyClip;
         _tree.NewClipRequested = NewClip;
+        _tree.SelectRequested = Select;
+        _tree.Declared = () => (_parameters.Parameters ?? Array.Empty<SvgViewerParameter>()).Select(parameter => parameter.Name).Concat(_parameters.Lets.Select(let => let.Name));
 
         _canvas.ContextMenu = _tree.Menu();
         _canvas.AddHandler(ContextRequestedEvent, OnCanvasContext, RoutingStrategies.Tunnel);
@@ -2278,7 +2280,7 @@ public sealed class GroupPanel : UserControl
     /// <summary>Picks what a right click lands on before the element tree's menu opens over it, as a drawing's tab does.</summary>
     private void OnCanvasContext(object? sender, ContextRequestedEventArgs e)
     {
-        if (_draw.Shape is { } || _draw.Reshaping || _canvas.IsEditing)
+        if (_draw.Shape is { } || _draw.Reshaping || _canvas.IsHeld)
         {
             e.Handled = true;
 
@@ -3451,14 +3453,79 @@ public sealed class GroupPanel : UserControl
     /// <summary>Picks the rows the file spells at <paramref name="sourceKeys"/>, as the rebuilt drawing will spell them.</summary>
     private void Follow(string written, SvgViewerDocument document, IReadOnlyCollection<string> sourceKeys)
     {
-        var wanted = new HashSet<string>(sourceKeys, StringComparer.Ordinal);
+        // In the order asked for, since the first is the tree's anchor, as a drawing's tab keeps it.
+        var rows = SvgSourceElements.Addresses(written, document.Built(written))
+            .GroupBy(pair => pair.Value, StringComparer.Ordinal)
+            .ToDictionary(spelt => spelt.Key, spelt => spelt.First().Key, StringComparer.Ordinal);
 
         _page = false;
         _picked.Clear();
-        _picked.AddRange(
-            SvgSourceElements.Addresses(written, document.Built(written))
-                .Where(pair => wanted.Contains(pair.Value))
-                .Select(pair => pair.Key));
+        _picked.AddRange(sourceKeys.Select(key => rows.TryGetValue(key, out var row) ? row : null).OfType<string>());
+    }
+
+    /// <summary>Selects as the Select menu does, in the drawing being read, as a drawing's tab does.</summary>
+    /// <returns>Whether the selection changed; where nothing matched it is kept, and the notice says why.</returns>
+    public bool Select(SvgElementSelect how, string? name = null)
+    {
+        if (_canvas.IsEditing)
+        {
+            return false;
+        }
+
+        if (_draw.Reshaping && how is SvgElementSelect.All or SvgElementSelect.None)
+        {
+            if (!_points.IsShowing)
+            {
+                return false;
+            }
+
+            if (how == SvgElementSelect.All)
+            {
+                _points.ChooseAll();
+            }
+            else
+            {
+                _points.Deselect();
+            }
+
+            ShowGizmo();
+
+            return true;
+        }
+
+        if (_inspecting is not { Built.Document: { SourceText: { } } document } inspecting)
+        {
+            return false;
+        }
+
+        var written = TargetFor(inspecting.Built.Drawing).Text;
+
+        if (SvgSourceDocument.Read(written, out var unreadable) is not { } source)
+        {
+            Says(unreadable);
+
+            return false;
+        }
+
+        var spelt = SvgSourceElements.Addresses(written, document.Built(written));
+        var picked = _picked.Select(row => spelt.TryGetValue(row, out var key) ? key : null).OfType<string>().ToList();
+        var chosen = SvgElementEditor.Select(source, how, picked, name, out var note);
+
+        Says(note);
+
+        if (chosen.Count == 0 && how is not (SvgElementSelect.None or SvgElementSelect.Inverse))
+        {
+            return false;
+        }
+
+        // Not Deselect(), which would let go of the drawing being read as well.
+        Follow(written, document, chosen);
+        _tree.TrySelect(_picked.ToList());
+
+        Ring();
+        TrackGizmo();
+
+        return true;
     }
 
     /// <remarks>
@@ -3468,19 +3535,20 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void OnCanvasKeyDown(object? sender, KeyEventArgs e)
     {
-        // A chosen point has the keys before the tool does: Escape lets go of the point and only
-        // a second one puts the tool away, and Delete takes out the point and not the element.
-        // Every point of the shape, while there is one; A by itself is the tool's own letter.
-        if (!_canvas.IsEditing && _draw.Reshaping && _points.IsShowing && e.Key == Key.A
-            && e.KeyModifiers == (this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control))
+        var command = this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
+
+        // Select All and Deselect, of the points while that tool is out; A by itself is the tool's own letter.
+        if (e.Key == Key.A && (e.KeyModifiers & ~KeyModifiers.Shift) == command)
         {
             e.Handled = true;
 
-            _points.ChooseAll();
-            ShowGizmo();
+            Select(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? SvgElementSelect.None : SvgElementSelect.All);
 
             return;
         }
+
+        // A chosen point has the keys before the tool does: Escape lets go of the point and only
+        // a second one puts the tool away, and Delete takes out the point and not the element.
 
         if (!_canvas.IsEditing && _draw.Reshaping && _points.Chosen.Count > 0 && e.KeyModifiers == KeyModifiers.None)
         {
@@ -3534,8 +3602,6 @@ public sealed class GroupPanel : UserControl
 
             return;
         }
-
-        var command = this.GetPlatformSettings()?.HotkeyConfiguration.CommandModifiers ?? KeyModifiers.Control;
 
         // Back as well as Delete: the two are one key on a Mac keyboard.
         if (e.Key is Key.Delete or Key.Back && e.KeyModifiers == KeyModifiers.None)

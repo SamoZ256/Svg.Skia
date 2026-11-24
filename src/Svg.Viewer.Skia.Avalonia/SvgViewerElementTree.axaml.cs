@@ -113,7 +113,10 @@ public partial class SvgViewerElementTree : UserControl
         DragDrop.SetAllowDrop(_tree, true);
 
         _tree.ContextMenu = Menu();
-        _tree.KeyDown += OnTreeKeyDown;
+
+        // Tunnelling: the TreeView's own Select All runs first otherwise, and takes every open row,
+        // the drawing itself, its <defs> and its declarations with them.
+        _tree.AddHandler(KeyDownEvent, OnTreeKeyDown, RoutingStrategies.Tunnel);
 
         _empty = this.FindControl<TextBlock>("EmptyLabel")!;
         _filter = this.FindControl<TextBox>("FilterBox")!;
@@ -171,6 +174,12 @@ public partial class SvgViewerElementTree : UserControl
     /// <summary>Clips or masks a row with a new clip path or mask covering it, for the same kind of host.</summary>
     public Func<string, string, bool>? NewClipRequested { get; set; }
 
+    /// <summary>Selects as the Select menu does, for a host that can read its file; the name is for Uses.</summary>
+    public Func<SvgElementSelect, string?, bool>? SelectRequested { get; set; }
+
+    /// <summary>The names Select ▸ Uses of lists: what the drawing declares.</summary>
+    public Func<IEnumerable<string>>? Declared { get; set; }
+
     /// <summary>The rows' menu, showing whatever a host has wired and nothing where it wired nothing.</summary>
     /// <remarks>
     /// Also the canvas's, which a host gives a menu of its own: one per control, since a menu shared by
@@ -186,7 +195,28 @@ public partial class SvgViewerElementTree : UserControl
         var maskWith = Item(string.Empty, () => With("mask"));
         var duplicate = Item("Duplicate", () => DuplicateRequested is { } write && write(_selectedAddresses.ToList()));
         var delete = Item("Delete", () => DeleteRequested is { } write && write(_selectedAddresses.ToList()));
-        var menu = new ContextMenu { ItemsSource = new[] { group, clip, mask, clipWith, maskWith, duplicate, delete } };
+        var all = Item("All", () => Select(SvgElementSelect.All));
+        var none = Item("Deselect", () => Select(SvgElementSelect.None));
+        var same = new MenuItem
+        {
+            Header = "Same",
+            ItemsSource = new[]
+            {
+                Item("Fill", () => Select(SvgElementSelect.Fill)),
+                Item("Stroke", () => Select(SvgElementSelect.Stroke)),
+                Item("Stroke Width", () => Select(SvgElementSelect.StrokeWidth)),
+                Item("Opacity", () => Select(SvgElementSelect.Opacity)),
+                Item("Type", () => Select(SvgElementSelect.Type))
+            }
+        };
+        var uses = new MenuItem { Header = "Uses of" };
+        var rule = new Separator();
+        var select = new MenuItem
+        {
+            Header = "Select",
+            ItemsSource = new object[] { all, none, Item("Inverse", () => Select(SvgElementSelect.Inverse)), new Separator(), same, uses }
+        };
+        var menu = new ContextMenu { ItemsSource = new object[] { group, clip, mask, clipWith, maskWith, duplicate, delete, rule, select } };
 
         menu.Opening += (_, e) =>
         {
@@ -199,11 +229,20 @@ public partial class SvgViewerElementTree : UserControl
             maskWith.IsVisible = pair is { } && Offers(pair.Value, "mask");
             duplicate.IsVisible = DuplicateRequested is { };
             delete.IsVisible = DeleteRequested is { };
+            select.IsVisible = rule.IsVisible = SelectRequested is { };
 
             group.IsEnabled = SelectedNode is { };
             clip.IsEnabled = One("clip-path");
             mask.IsEnabled = One("mask");
-            duplicate.IsEnabled = delete.IsEnabled = _selectedAddresses.Count > 0;
+            duplicate.IsEnabled = delete.IsEnabled = same.IsEnabled = _selectedAddresses.Count > 0;
+
+            // A text block for a header, as below: a name's first underscore would be an access key.
+            uses.ItemsSource = (Declared?.Invoke() ?? Enumerable.Empty<string>())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.Ordinal)
+                .Select(name => Item(new TextBlock { Text = name }, () => Select(SvgElementSelect.Uses, name)))
+                .ToArray();
+            uses.IsEnabled = uses.ItemCount > 0;
 
             // A TextBlock, since the ids are what the drawing says and the first underscore of a
             // header string is an access key.
@@ -217,14 +256,18 @@ public partial class SvgViewerElementTree : UserControl
             // by the tree and the canvas, so they work while this menu is closed.
             duplicate.InputGesture = new KeyGesture(Key.D, command);
             delete.InputGesture = new KeyGesture(Key.Delete);
+            all.InputGesture = new KeyGesture(Key.A, command);
+            none.InputGesture = new KeyGesture(Key.A, command | KeyModifiers.Shift);
 
             e.Cancel = _document is null
-                       || !(group.IsVisible || clip.IsVisible || clipWith.IsVisible || maskWith.IsVisible || duplicate.IsVisible || delete.IsVisible);
+                       || !(group.IsVisible || clip.IsVisible || clipWith.IsVisible || maskWith.IsVisible || duplicate.IsVisible || delete.IsVisible || select.IsVisible);
         };
 
         return menu;
 
-        static MenuItem Item(string header, Func<bool> run)
+        bool Select(SvgElementSelect how, string? name = null) => SelectRequested is { } select && select(how, name);
+
+        static MenuItem Item(object header, Func<bool> run)
         {
             var item = new MenuItem { Header = header };
 
@@ -284,6 +327,15 @@ public partial class SvgViewerElementTree : UserControl
 
     private void OnTreeKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.A && SelectRequested is { } select && (e.KeyModifiers & ~KeyModifiers.Shift) == Command())
+        {
+            e.Handled = true;
+
+            select(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? SvgElementSelect.None : SvgElementSelect.All, null);
+
+            return;
+        }
+
         if (_selectedAddresses.Count == 0)
         {
             return;

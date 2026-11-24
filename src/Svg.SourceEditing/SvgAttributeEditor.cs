@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using Svg.Expressions;
@@ -382,7 +383,7 @@ public static class SvgAttributeEditor
 
     private const string Only = "Only a <text>, a <tspan>, a <textPath> or an <e:let> has text of its own to edit.";
 
-    private static readonly XNamespace SvgNamespace = "http://www.w3.org/2000/svg";
+    internal static readonly XNamespace SvgNamespace = "http://www.w3.org/2000/svg";
 
     private static readonly XNamespace ExpressionNamespace = "https://svg.skia/expr/1.0";
 
@@ -508,16 +509,26 @@ public static class SvgAttributeEditor
             return null;
         }
 
+        // The last that says it, as CSS paints it, unless an earlier one is !important and it is not.
+        string? found = null;
+        var important = false;
+
         foreach (var declaration in style.Split(';'))
         {
             var colon = declaration.IndexOf(':');
 
             if (colon > 0 && string.Equals(declaration.Substring(0, colon).Trim(), attributeName, StringComparison.OrdinalIgnoreCase))
             {
-                return declaration.Substring(colon + 1).Trim();
+                var value = declaration.Substring(colon + 1).Trim();
+                var weighs = Regex.IsMatch(value, @"!\s*important$", RegexOptions.IgnoreCase);
+
+                if (weighs || !important)
+                {
+                    (found, important) = (value, weighs);
+                }
             }
         }
 
-        return null;
+        return found;
     }
 }

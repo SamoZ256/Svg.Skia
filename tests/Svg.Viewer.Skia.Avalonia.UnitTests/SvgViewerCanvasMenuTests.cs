@@ -23,14 +23,20 @@ public class SvgViewerCanvasMenuTests
         </svg>
         """;
 
-    private static async Task<(Window Window, SvgViewer Viewer)> Host()
+    private const string Outline = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <path id="line" d="M20 20 L80 20 L80 80" fill="none" stroke="#000000" stroke-width="4" />
+        </svg>
+        """;
+
+    private static async Task<(Window Window, SvgViewer Viewer)> Host(string drawing = Two)
     {
         var viewer = new SvgViewer();
         var window = new Window { Width = 400, Height = 400, Background = Brushes.White, Content = viewer };
 
         window.Show();
 
-        Assert.True(await viewer.LoadTextAsync(Two));
+        Assert.True(await viewer.LoadTextAsync(drawing));
 
         Dispatcher.UIThread.RunJobs();
 
@@ -127,6 +133,45 @@ public class SvgViewerCanvasMenuTests
             Assert.False(Menu(viewer).IsOpen);
             Assert.Empty(viewer.Elements.SelectedAddresses);
         }
+    }
+
+    /// <summary>The menu key during a sweep opens nothing: the release would pick again under the open menu.</summary>
+    [AvaloniaFact]
+    public async Task No_Menu_Opens_While_A_Press_Is_Held()
+    {
+        var (window, viewer) = await Host();
+
+        Click(window, At(window, viewer, 30, 30));
+
+        window.MouseDown(At(window, viewer, 90, 10), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(viewer.Canvas.IsHeld);
+
+        viewer.Canvas.RaiseEvent(new ContextRequestedEventArgs());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(Menu(viewer).IsOpen);
+
+        window.MouseUp(At(window, viewer, 90, 10), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The left click that dismisses the menu is not the second of a double-click, which would take hold of the points.</summary>
+    [AvaloniaFact]
+    public async Task A_Left_Click_After_A_Right_Click_Is_A_Click_Of_Its_Own()
+    {
+        var (window, viewer) = await Host(Outline);
+        var at = At(window, viewer, 50, 20);
+
+        Click(window, at, MouseButton.Right);
+        Assert.True(Menu(viewer).IsOpen);
+        Close(viewer);
+
+        Click(window, at);
+
+        Assert.Equal(1, viewer.Canvas.Clicks);
+        Assert.False(viewer.Drafting.Reshaping);
+        Assert.Equal(new[] { "0" }, viewer.Elements.SelectedAddresses);
     }
 
     /// <summary>The menu key opens it over the middle of the canvas, on what is selected.</summary>
