@@ -608,6 +608,35 @@ public class SkiaCSharpRenderTests
             </svg>
             """);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Sweep_Gradient(bool transformed)
+    {
+        var colors = new[]
+        {
+            new ShimSkiaSharp.SKColorF(0.23f, 0.51f, 0.96f, 1f),
+            new ShimSkiaSharp.SKColorF(0.96f, 0.25f, 0.37f, 1f),
+            new ShimSkiaSharp.SKColorF(0.98f, 0.8f, 0.08f, 1f)
+        };
+        var center = new ShimSkiaSharp.SKPoint(12f, 12f);
+        var positions = new[] { 0f, 0.3f, 1f };
+        var shader = transformed
+            ? ShimSkiaSharp.SKShader.CreateSweepGradient(center, colors, ShimSkiaSharp.SKColorSpace.Srgb, positions, ShimSkiaSharp.SKShaderTileMode.Mirror, 45f, 270f, ShimSkiaSharp.SKMatrix.CreateRotationDegrees(-90f, 12f, 12f))
+            : ShimSkiaSharp.SKShader.CreateSweepGradient(center, colors, ShimSkiaSharp.SKColorSpace.Srgb, positions, ShimSkiaSharp.SKShaderTileMode.Mirror, 45f, 270f);
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24)).DrawPath(Square(24), new ShimSkiaSharp.SKPaint { IsAntialias = true, Shader = shader });
+        var model = recorder.EndRecording();
+        var name = $"Sweep{transformed}";
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        Assert.NotNull(runtime);
+
+        using var generated = Generated(model, name, SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), bake: false);
+        AssertSamePicture(name, runtime!, generated);
+        AssertDrawsDirectlyTheSame(name, model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
+
     [Fact]
     public void Clip_With_A_Transform()
         => AssertRendersTheSame("Clip", """

@@ -314,6 +314,17 @@ public static class AvaloniaModelExtensions
         }
     }
 
+    private static List<AMII.ImmutableGradientStop> ToGradientStops(SKColorF[] colors, float[] positions)
+    {
+        var gradientStops = new List<AMII.ImmutableGradientStop>(colors.Length);
+        for (int i = 0; i < colors.Length; i++)
+        {
+            gradientStops.Add(new AMII.ImmutableGradientStop(positions[i], colors[i].ToColor()));
+        }
+
+        return gradientStops;
+    }
+
     public static AM.IImmutableBrush? ToLinearGradientBrush(this LinearGradientShader linearGradientShader, SKRect bounds)
     {
         if (linearGradientShader.Colors is null || linearGradientShader.ColorPos is null)
@@ -334,17 +345,8 @@ public static class AvaloniaModelExtensions
         var startPoint = new A.RelativePoint(start, A.RelativeUnit.Absolute);
         var endPoint = new A.RelativePoint(end, A.RelativeUnit.Absolute);
 
-        var gradientStops = new List<AMII.ImmutableGradientStop>();
-        for (int i = 0; i < linearGradientShader.Colors.Length; i++)
-        {
-            var color = linearGradientShader.Colors[i].ToColor();
-            var offset = linearGradientShader.ColorPos[i];
-            var gradientStop = new AMII.ImmutableGradientStop(offset, color);
-            gradientStops.Add(gradientStop);
-        }
-
         return new AMII.ImmutableLinearGradientBrush(
-            gradientStops,
+            ToGradientStops(linearGradientShader.Colors, linearGradientShader.ColorPos),
             1,
             transform,
             null,
@@ -374,17 +376,8 @@ public static class AvaloniaModelExtensions
         var centerPoint = new A.RelativePoint(center, A.RelativeUnit.Absolute);
         var radius = radialGradientShader.Radius / bounds.Width;
 
-        var gradientStops = new List<AMII.ImmutableGradientStop>();
-        for (int i = 0; i < radialGradientShader.Colors.Length; i++)
-        {
-            var color = radialGradientShader.Colors[i].ToColor();
-            var offset = radialGradientShader.ColorPos[i];
-            var gradientStop = new AMII.ImmutableGradientStop(offset, color);
-            gradientStops.Add(gradientStop);
-        }
-
         return new AMII.ImmutableRadialGradientBrush(
-            gradientStops,
+            ToGradientStops(radialGradientShader.Colors, radialGradientShader.ColorPos),
             1,
             transform,
             null,
@@ -422,17 +415,8 @@ public static class AvaloniaModelExtensions
         var endRadius = twoPointConicalGradientShader.EndRadius / bounds.Width;
         var radius = 0.5; // endRadius
 
-        var gradientStops = new List<AMII.ImmutableGradientStop>();
-        for (int i = 0; i < twoPointConicalGradientShader.Colors.Length; i++)
-        {
-            var color = twoPointConicalGradientShader.Colors[i].ToColor();
-            var offset = twoPointConicalGradientShader.ColorPos[i];
-            var gradientStop = new AMII.ImmutableGradientStop(offset, color);
-            gradientStops.Add(gradientStop);
-        }
-
         return new AMII.ImmutableRadialGradientBrush(
-            gradientStops,
+            ToGradientStops(twoPointConicalGradientShader.Colors, twoPointConicalGradientShader.ColorPos),
             1,
             transform,
             null,
@@ -440,6 +424,36 @@ public static class AvaloniaModelExtensions
             centerPoint,
             gradientOriginPoint,
             radius);
+    }
+
+    public static AM.IImmutableBrush? ToConicGradientBrush(this SweepGradientShader sweepGradientShader, SKRect bounds)
+    {
+        if (sweepGradientShader.Colors is null || sweepGradientShader.ColorPos is null)
+        {
+            return null;
+        }
+
+        var transform = default(AMII.ImmutableTransform);
+        if (sweepGradientShader.LocalMatrix is { })
+        {
+            transform = new AMII.ImmutableTransform(sweepGradientShader.LocalMatrix.Value.ToMatrix());
+        }
+
+        // The brush always sweeps a whole turn from 0 degrees, so each stop moves to where its angle falls.
+        var start = sweepGradientShader.StartAngle;
+        var sweep = sweepGradientShader.EndAngle - start;
+        var offsets = Array.ConvertAll(sweepGradientShader.ColorPos, pos => Math.Clamp((start + pos * sweep) / 360f, 0f, 1f));
+
+        // Avalonia.Skia 12.1.3 turns the gradient by Angle - 90 about its centre, and applies Transform
+        // about TransformOrigin: 90 and an absolute (0,0) leave Skia's angles and local matrix as they are.
+        return new AMII.ImmutableConicGradientBrush(
+            ToGradientStops(sweepGradientShader.Colors, offsets),
+            1,
+            transform,
+            new A.RelativePoint(0, 0, A.RelativeUnit.Absolute),
+            AM.GradientSpreadMethod.Pad,
+            new A.RelativePoint(sweepGradientShader.Center.ToPoint(), A.RelativeUnit.Absolute),
+            90);
     }
 
     public static AM.IImmutableBrush? ToVisualBrush(this PictureShader pictureShader, SKRect bounds)
@@ -469,6 +483,9 @@ public static class AvaloniaModelExtensions
 
             case TwoPointConicalGradientShader twoPointConicalGradientShader:
                 return ToRadialGradientBrush(twoPointConicalGradientShader, bounds);
+
+            case SweepGradientShader sweepGradientShader:
+                return ToConicGradientBrush(sweepGradientShader, bounds);
 
             case PictureShader pictureShader:
                 return ToVisualBrush(pictureShader, bounds);

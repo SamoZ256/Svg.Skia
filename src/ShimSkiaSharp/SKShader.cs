@@ -30,6 +30,12 @@ public abstract record SKShader : IDeepCloneable<SKShader>
     public static SKShader CreateRadialGradient(SKPoint center, float radius, SKColorF[] colors, SKColorSpace colorSpace, float[]? colorPos, SKShaderTileMode mode, SKMatrix localMatrix)
         => new RadialGradientShader(center, radius, colors, colorSpace, colorPos, mode, localMatrix);
 
+    public static SKShader CreateSweepGradient(SKPoint center, SKColorF[] colors, SKColorSpace colorSpace, float[]? colorPos, SKShaderTileMode mode, float startAngle, float endAngle)
+        => new SweepGradientShader(center, startAngle, endAngle, colors, colorSpace, colorPos, mode, null);
+
+    public static SKShader CreateSweepGradient(SKPoint center, SKColorF[] colors, SKColorSpace colorSpace, float[]? colorPos, SKShaderTileMode mode, float startAngle, float endAngle, SKMatrix localMatrix)
+        => new SweepGradientShader(center, startAngle, endAngle, colors, colorSpace, colorPos, mode, localMatrix);
+
     public static SKShader CreateTwoPointConicalGradient(SKPoint start, float startRadius, SKPoint end, float endRadius, SKColorF[] colors, SKColorSpace colorSpace, float[]? colorPos, SKShaderTileMode mode)
         => new TwoPointConicalGradientShader(start, startRadius, end, endRadius, colors, colorSpace, colorPos, mode, null);
 
@@ -56,6 +62,7 @@ public abstract record SKShader : IDeepCloneable<SKShader>
                 PerlinNoiseTurbulenceShader perlinNoiseTurbulenceShader => new PerlinNoiseTurbulenceShader(perlinNoiseTurbulenceShader.BaseFrequencyX, perlinNoiseTurbulenceShader.BaseFrequencyY, perlinNoiseTurbulenceShader.NumOctaves, perlinNoiseTurbulenceShader.Seed, perlinNoiseTurbulenceShader.TileSize),
                 PictureShader pictureShader => new PictureShader(pictureShader.Src?.DeepClone(context), pictureShader.TmX, pictureShader.TmY, pictureShader.LocalMatrix, pictureShader.Tile),
                 RadialGradientShader radialGradientShader => new RadialGradientShader(radialGradientShader.Center, radialGradientShader.Radius, CloneHelpers.CloneArray(radialGradientShader.Colors, context), radialGradientShader.ColorSpace, CloneHelpers.CloneArray(radialGradientShader.ColorPos, context), radialGradientShader.Mode, radialGradientShader.LocalMatrix),
+                SweepGradientShader sweepGradientShader => new SweepGradientShader(sweepGradientShader.Center, sweepGradientShader.StartAngle, sweepGradientShader.EndAngle, CloneHelpers.CloneArray(sweepGradientShader.Colors, context), sweepGradientShader.ColorSpace, CloneHelpers.CloneArray(sweepGradientShader.ColorPos, context), sweepGradientShader.Mode, sweepGradientShader.LocalMatrix),
                 TwoPointConicalGradientShader twoPointConicalGradientShader => new TwoPointConicalGradientShader(twoPointConicalGradientShader.Start, twoPointConicalGradientShader.StartRadius, twoPointConicalGradientShader.End, twoPointConicalGradientShader.EndRadius, CloneHelpers.CloneArray(twoPointConicalGradientShader.Colors, context), twoPointConicalGradientShader.ColorSpace, CloneHelpers.CloneArray(twoPointConicalGradientShader.ColorPos, context), twoPointConicalGradientShader.Mode, twoPointConicalGradientShader.LocalMatrix),
                 _ => throw new NotSupportedException($"Unsupported {nameof(SKShader)} type: {GetType().Name}.")
             };
@@ -81,5 +88,7 @@ public record PerlinNoiseTurbulenceShader(float BaseFrequencyX, float BaseFreque
 public record PictureShader(SKPicture? Src, SKShaderTileMode TmX, SKShaderTileMode TmY, SKMatrix LocalMatrix, SKRect Tile) : SKShader;
 
 public record RadialGradientShader(SKPoint Center, float Radius, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader;
+
+public record SweepGradientShader(SKPoint Center, float StartAngle, float EndAngle, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader;
 
 public record TwoPointConicalGradientShader(SKPoint Start, float StartRadius, SKPoint End, float EndRadius, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader;

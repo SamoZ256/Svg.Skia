@@ -1598,6 +1598,8 @@ public static class SkiaCSharpModelExtensions
                 $"SKShader.CreateRadialGradient({radial.Center.ToSKPoint()}, {radial.Radius.ToFloatString()}, {c}, {space}, {positions}, {radial.Mode.ToSKShaderTileMode()}{Matrix(radial.LocalMatrix)})"),
             TwoPointConicalGradientShader { Colors: { } colors } conical => (colors, conical.ColorSpace, conical.ColorPos, (c, space, positions) =>
                 $"SKShader.CreateTwoPointConicalGradient({conical.Start.ToSKPoint()}, {conical.StartRadius.ToFloatString()}, {conical.End.ToSKPoint()}, {conical.EndRadius.ToFloatString()}, {c}, {space}, {positions}, {conical.Mode.ToSKShaderTileMode()}{Matrix(conical.LocalMatrix)})"),
+            SweepGradientShader { Colors: { } colors } sweep => (colors, sweep.ColorSpace, sweep.ColorPos, (c, space, positions) =>
+                $"SKShader.CreateSweepGradient({sweep.Center.ToSKPoint()}, {c}, {space}, {positions}, {sweep.Mode.ToSKShaderTileMode()}, {sweep.StartAngle.ToFloatString()}, {sweep.EndAngle.ToFloatString()}{Matrix(sweep.LocalMatrix)})"),
             _ => null
         };
     }
