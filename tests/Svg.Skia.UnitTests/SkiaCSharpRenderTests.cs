@@ -32,7 +32,7 @@ namespace Svg.Skia.UnitTests;
 /// so a difference can only be the emitter's; the <c>expectedMarkup</c> cases compare two different
 /// models.
 /// </remarks>
-public class SkiaCSharpRenderTests
+public partial class SkiaCSharpRenderTests
 {
     private const string Namespace = "Svg.Skia.UnitTests.Rendered";
 
@@ -2713,10 +2713,15 @@ public class SkiaCSharpRenderTests
               <stop offset="0" stop-color="#22c55e" />
               <stop offset="1" stop-color="#7c3aed" />
             </linearGradient>
+            <sweepGradient id="s" gradientUnits="userSpaceOnUse" cx="4" cy="13" startAngle="30" endAngle="300" spreadMethod="reflect" gradientTransform="rotate(-90 4 13)">
+              <stop offset="0" stop-color="{{ tint }}" />
+              <stop offset="1" stop-color="#f97316" />
+            </sweepGradient>
           </defs>
           <path d="M 1 1 L 23 1 L 23 7 L 1 7 Z" fill="url(#l)" />
           <circle cx="12" cy="12" r="5" fill="url(#r)" visibility="{{ shown }}" />
           <circle cx="20" cy="13" r="3" fill="url(#f)" />
+          <circle cx="4" cy="13" r="2" fill="url(#s)" />
           <path d="M 1 17 L 23 17 L 23 23 L 1 23 Z" fill="url(#k)" fill-opacity="{{ fade }}" />
           <path d="M 2 9.5 L 22 9.5" fill="none" stroke="{{ tint }}" stroke-width="1" />
         </svg>
@@ -2780,7 +2785,8 @@ public class SkiaCSharpRenderTests
 
         // The written gradient too: an argument fading its fill fades its stops.
         Assert.Contains("SKShader.CreateTwoPointConicalGradient(", code);
-        Assert.Equal(4, code.Split("[ThreadStatic]\n        private static SKShader s_skGradient".Replace("\n", Environment.NewLine)).Length - 1);
+        Assert.Contains("SKShader.CreateSweepGradient(", code);
+        Assert.Equal(5, code.Split("[ThreadStatic]\n        private static SKShader s_skGradient".Replace("\n", Environment.NewLine)).Length - 1);
         Assert.DoesNotMatch(@"var skPaint\d+ = new SKPaint\(\);", code.Substring(code.IndexOf("public static void Draw(", StringComparison.Ordinal)));
         Assert.Contains(".Shader = null;", code);
     }
