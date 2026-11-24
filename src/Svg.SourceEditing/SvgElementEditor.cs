@@ -592,6 +592,9 @@ public static class SvgElementEditor
         "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "color"
     };
 
+    /// <summary>Whether a value of <paramref name="name"/> written on a group is its children's too.</summary>
+    internal static bool Inherits(string name) => Array.IndexOf(s_lettered, name) >= 0 || Array.IndexOf(s_painted, name) >= 0;
+
     /// <summary>What the first of <paramref name="elements"/> to set <paramref name="name"/> sets it to, its style before its attribute.</summary>
     private static string? Set(IEnumerable<XElement> elements, string name)
         => elements

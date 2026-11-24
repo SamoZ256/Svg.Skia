@@ -186,16 +186,130 @@ public class SvgAttributeEditorDocumentTests
         Assert.Equal(Source, source.ToText());
     }
 
+    /// <summary>The declaration paints, so it is what is written; written under it, the change would paint nothing.</summary>
     [Fact]
-    public void A_Style_Declaration_Wins_Over_The_Attribute_And_Says_So()
+    public void A_Property_The_Style_Sets_Is_Written_In_The_Style()
     {
         var source = Read();
 
-        Assert.Equal(
-            "'fill' is set in this element's style attribute, which wins over the attribute. Change it there instead.",
-            SvgAttributeEditor.SetAttribute(source, "1/0", "fill", "blue"));
+        Assert.Null(SvgAttributeEditor.SetAttribute(source, "1/0", "fill", "blue"));
+        Assert.Equal(Source.Replace("style=\"fill:red\"", "style=\"fill:blue\"", StringComparison.Ordinal), source.ToText());
+    }
 
-        Assert.Equal(Source, source.ToText());
+    private static string Restyled(string style, string name, string? value, out string? refusal)
+    {
+        var source = Read("<svg xmlns=\"http://www.w3.org/2000/svg\"><rect fill=\"red\" style=\"" + style + "\" /></svg>");
+
+        refusal = SvgAttributeEditor.SetAttribute(source, "0", name, value);
+
+        return source.ToText();
+    }
+
+    [Theory]
+    [InlineData("fill: red; fill: green", "fill: red; fill: blue")]
+    [InlineData("fill: green !important; fill: red", "fill: blue !important; fill: red")]
+    [InlineData("  FILL :  green  ;stroke:red", "  FILL :  blue  ;stroke:red")]
+    public void Only_The_Declaration_That_Paints_Is_Rewritten(string style, string written)
+    {
+        Assert.Contains("style=\"" + written + "\"", Restyled(style, "fill", "blue", out var refusal), StringComparison.Ordinal);
+        Assert.Null(refusal);
+    }
+
+    /// <summary>Not at a ';' or ':' inside quotes, a comment or brackets, as CSS splits it.</summary>
+    [Fact]
+    public void A_Style_Is_Split_Where_CSS_Splits_It()
+    {
+        const string style = "fill:url('data:image/svg+xml;a;b');/* old */ FILTER:url(#old) !important;--label:'a;b';stroke:red";
+
+        Assert.Contains(
+            "style=\"fill:url('data:image/svg+xml;a;b');/* old */ FILTER:url(#new) !important;--label:'a;b';stroke:red\"",
+            Restyled(style, "filter", "url(#new)", out var refusal),
+            StringComparison.Ordinal);
+        Assert.Null(refusal);
+    }
+
+    [Fact]
+    public void A_Commented_Out_Declaration_Is_Not_Read()
+    {
+        var text = Restyled("/* fill: green; */ stroke: blue", "fill", "black", out var refusal);
+
+        Assert.Null(refusal);
+        Assert.Contains("fill=\"black\" style=\"/* fill: green; */ stroke: blue\"", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>Every spelling of it and the attribute: one left behind would take over, and read as a new value.</summary>
+    [Fact]
+    public void Removing_A_Styled_Property_Takes_Every_Spelling_Of_It()
+    {
+        Assert.Contains("<rect style=\"stroke: blue\" />", Restyled("stroke: blue; fill: green; fill: red", "fill", null, out var refusal), StringComparison.Ordinal);
+        Assert.Null(refusal);
+
+        Assert.Contains("<rect style=\"stroke: blue\" />", Restyled("fill: green; stroke: blue", "fill", null, out _), StringComparison.Ordinal);
+        Assert.Contains("<rect />", Restyled("fill: green;", "fill", null, out _), StringComparison.Ordinal);
+
+        // A style names what no attribute can be called, which is no reason to throw.
+        Assert.Contains("style=\"fill: green\"", Restyled("fill: green; -inkscape-font-specification: 'Sans'", "-inkscape-font-specification", null, out refusal), StringComparison.Ordinal);
+        Assert.Null(refusal);
+    }
+
+    [Theory]
+    [InlineData("red; stroke: blue")]
+    [InlineData("'red")]
+    [InlineData("red !important")]
+    [InlineData(" ")]
+    [InlineData("red /* x")]
+    public void A_Value_That_Would_Break_Out_Of_Its_Declaration_Is_Refused(string value)
+    {
+        var text = Restyled("fill: green", "fill", value, out var refusal);
+
+        Assert.Equal($"'{value}' cannot be written inside the style declaration that sets 'fill'.", refusal);
+        Assert.Contains("style=\"fill: green\"", text, StringComparison.Ordinal);
+    }
+
+    /// <remarks>What is written for these is attribute grammar, which in a style no browser reads.</remarks>
+    [Theory]
+    [InlineData("transform: rotate(45deg)", "transform", "rotate(30)")]
+    [InlineData("x: 20", "x", "4")]
+    public void Geometry_And_Transform_In_Style_Are_Still_Refused(string style, string name, string value)
+    {
+        var text = Restyled(style, name, value, out var refusal);
+
+        Assert.Equal($"'{name}' is set in this element's style attribute, which wins over the attribute. Change it there instead.", refusal);
+        Assert.Contains("style=\"" + style + "\"", text, StringComparison.Ordinal);
+    }
+
+    private static string? Driven(string svgText, string key, string name)
+        => SvgAttributeEditor.Driven(Read(svgText), key, name);
+
+    [Fact]
+    public void Driven_Is_The_Expression_Written_On_The_Element()
+    {
+        Assert.Equal(
+            "translate({{ dx }}, 0)",
+            Driven("<svg xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"translate({{ dx }}, 0)\" /></svg>", "0", "transform"));
+        Assert.Null(Driven("<svg xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"translate(4, 0)\" /></svg>", "0", "transform"));
+    }
+
+    /// <summary>The style before the attribute, as the cascade paints them, and without its !important.</summary>
+    [Fact]
+    public void Driven_Reads_The_Style_Before_The_Attribute()
+    {
+        Assert.Null(Driven("<svg xmlns=\"http://www.w3.org/2000/svg\"><rect fill=\"{{ t }}\" style=\"fill: red\" /></svg>", "0", "fill"));
+        Assert.Equal("{{ t }}", Driven("<svg xmlns=\"http://www.w3.org/2000/svg\"><rect fill=\"red\" style=\"fill: {{ t }} !important\" /></svg>", "0", "fill"));
+        Assert.Equal("{{ t }}", Driven("<svg xmlns=\"http://www.w3.org/2000/svg\"><rect fill=\"{{ t }}\" style=\"fill:\" /></svg>", "0", "fill"));
+    }
+
+    /// <summary>A property that inherits is read off the nearest group that sets it; one that does not, never.</summary>
+    [Fact]
+    public void Driven_Reads_An_Inherited_Property_Off_A_Group()
+    {
+        const string grouped =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"><g fill=\"{{ t }}\" transform=\"translate({{ dx }}, 0)\"><rect /><rect fill=\"red\" /><rect fill=\"inherit\" /></g></svg>";
+
+        Assert.Equal("{{ t }}", Driven(grouped, "0/0", "fill"));
+        Assert.Null(Driven(grouped, "0/1", "fill"));
+        Assert.Equal("{{ t }}", Driven(grouped, "0/2", "fill"));
+        Assert.Null(Driven(grouped, "0/0", "transform"));
     }
 
     [Fact]
