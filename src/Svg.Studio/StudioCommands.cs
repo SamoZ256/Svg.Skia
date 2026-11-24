@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -69,6 +70,7 @@ public sealed class StudioCommands
     private readonly IReadOnlyList<StudioCommand> _all;
     private readonly Dictionary<string, StudioCommand> _byId = new(StringComparer.Ordinal);
     private readonly List<(StudioCommand Command, NativeMenuItem Item)> _items = new();
+    private readonly List<(StudioCommand Command, Button Button)> _bound = new();
     private readonly HashSet<string> _shown = new(StringComparer.Ordinal);
     private readonly bool _mac;
 
@@ -200,6 +202,46 @@ public sealed class StudioCommands
             {
                 item.Header = live();
             }
+        }
+
+        foreach (var (command, button) in _bound)
+        {
+            Sync(command, button);
+        }
+    }
+
+    /// <summary>A button that runs the command and is kept in step with it as its menu item is: a toggle where the item is checkable.</summary>
+    public Button Bound(string id, object? content = null)
+    {
+        var command = _byId[id];
+        var button = command.IsChecked is { } ? new ToggleButton() : new Button();
+        var shortcut = Shortcut(command);
+
+        button.Content = content ?? command.Label;
+        button.Tag = id;
+        ToolTip.SetTip(button, shortcut.Length > 0 ? $"{command.Label} ({shortcut})" : command.Label);
+
+        // Refreshed even when Run refuses: a toggle has already flipped itself by the time it is clicked.
+        button.Click += async (_, _) =>
+        {
+            await Run(id).ConfigureAwait(true);
+
+            Refresh();
+        };
+
+        _bound.Add((command, button));
+        Sync(command, button);
+
+        return button;
+    }
+
+    private static void Sync(StudioCommand command, Button button)
+    {
+        button.IsEnabled = command.CanExecute();
+
+        if (button is ToggleButton toggle && command.IsChecked is { } on)
+        {
+            toggle.IsChecked = on();
         }
     }
 

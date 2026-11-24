@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Svg.Editor.Core;
 using Xunit;
@@ -40,6 +42,67 @@ public class StudioCommandsTests
     [Fact]
     public void Two_Commands_Of_One_Name_Are_Refused()
         => Assert.Throws<ArgumentException>(() => new StudioCommands(new[] { Command("save"), Command("save") }, mac: false));
+
+    /// <summary>A bar's button is the command: it runs it, and follows its check and whether it can run.</summary>
+    [AvaloniaFact]
+    public void A_Bound_Button_Is_The_Command()
+    {
+        var on = false;
+        var live = true;
+        var ran = 0;
+
+        var commands = new StudioCommands(
+            new[]
+            {
+                new StudioCommand("snap", "Snap", "Test", () =>
+                {
+                    on = !on;
+                    ran++;
+
+                    return Task.CompletedTask;
+                })
+                {
+                    IsChecked = () => on,
+                    CanExecute = () => live,
+                    Key = SvgEditorShortcutKey.K,
+                    Modifiers = Primary
+                },
+                Command("plain")
+            },
+            mac: false);
+
+        var snap = Assert.IsType<ToggleButton>(commands.Bound("snap"));
+        var plain = commands.Bound("plain", "Plain");
+
+        Assert.IsNotType<ToggleButton>(plain);
+        Assert.Equal("Plain", plain.Content);
+        Assert.Equal("Snap (Ctrl+K)", ToolTip.GetTip(snap));
+        Assert.False(snap.IsChecked);
+
+        snap.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, ran);
+        Assert.True(snap.IsChecked);
+
+        // Changed by another route, a menu or a key: the button hears of it from the refresh.
+        on = false;
+        live = false;
+        commands.Refresh();
+
+        Assert.False(snap.IsChecked);
+        Assert.False(snap.IsEnabled);
+
+        // A click that cannot run leaves the button showing the command, not its own flip.
+        live = true;
+        snap.IsChecked = true;
+        live = false;
+        snap.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, ran);
+        Assert.False(snap.IsChecked);
+    }
 
     [AvaloniaFact]
     public void A_Menu_Leaves_Out_What_Has_No_Command_And_Every_Stray_Rule()
