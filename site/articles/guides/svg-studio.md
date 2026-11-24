@@ -390,8 +390,9 @@ or `mask #sweep`. The filter finds it by that.
 row, or onto the **Clip path** or **Mask** box of the element picked, and it clips or masks that
 element; whatever did so before stays in `<defs>`. A shape kept in `<defs>` drops the same way and is
 moved into a clip path made for it, or a mask while `Alt` (`⌥`) is held. The row it would land on is
-outlined green for a clip and violet for a mask, and says which. The tree's menu has **New clip path**
-and **New mask**, which cover the picked element, its stroke and its markers with a rectangular path
+outlined green for a clip and violet for a mask, and says which. The tree's menu, which a right click
+(a two-finger click on a trackpad) on the canvas opens too, has **New clip path** and **New mask**,
+which cover the picked element, its stroke and its markers with a rectangular path
 and pick that path; a new mask's path is white. With two rows picked it has **Clip … with …** and
 **Mask … with …**: a clip path, a mask or a shape in `<defs>` is what clips or masks the other row, and
 of two drawn rows the one painted later is moved into the new clip path or mask, staying where it was

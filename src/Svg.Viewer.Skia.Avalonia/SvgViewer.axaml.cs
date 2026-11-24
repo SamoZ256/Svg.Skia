@@ -14,6 +14,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
@@ -200,6 +201,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _element.Typefaces = () => _document?.Svg.Settings.TypefaceProviders;
 
         _canvas.KeyDown += OnCanvasKeyDown;
+
+        _canvas.ContextMenu = _elementTree.Menu();
+        _canvas.AddHandler(ContextRequestedEvent, OnCanvasContext, RoutingStrategies.Tunnel);
 
         _elementTree.Selected += (_, node) =>
         {
@@ -744,7 +748,11 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// A shape placed by <c>&lt;use&gt;</c> picks the use, which is what put it there and what moves it;
     /// its points, taken hold of, are the definition's.
     /// </remarks>
-    private void PickElement(Point at)
+    /// <param name="context">
+    /// A right click, which is about the selection: it keeps it anywhere but on another element, and
+    /// never takes the page.
+    /// </param>
+    private void PickElement(Point at, bool context = false)
     {
         if (_document is not { } open || !_canvas.TryGetDrawingPoint(at, out var point))
         {
@@ -778,7 +786,36 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             return;
         }
 
-        SelectPage(_canvas.TryGetPlacementAt(at, out _, out _));
+        if (!context)
+        {
+            SelectPage(_canvas.TryGetPlacementAt(at, out _, out _));
+        }
+    }
+
+    /// <summary>Picks what a right click lands on before the element tree's menu opens over it.</summary>
+    /// <remarks>
+    /// Tunnelling, so it runs before the menu's own handler, which opens only what nobody handled. A
+    /// tool owns the canvas while it is out, and a held gesture owns it until it lets go.
+    /// </remarks>
+    private void OnCanvasContext(object? sender, ContextRequestedEventArgs e)
+    {
+        if (_draw.Shape is { } || _draw.Reshaping || _canvas.IsEditing)
+        {
+            e.Handled = true;
+
+            return;
+        }
+
+        // A right press takes no focus, and the menu gives none back: Delete and ⌘D after it are the canvas's.
+        _canvas.Focus();
+
+        if (e.TryGetPosition(_canvas, out var at))
+        {
+            PickElement(at, context: true);
+        }
+
+        // Where the menu key opens it. Not empty: an anchor of no size is clipped to nothing, at the corner.
+        _canvas.ContextMenu!.PlacementRect = new Rect(_canvas.Bounds.Width / 2, _canvas.Bounds.Height / 2, 1, 1);
     }
 
     /// <summary>Whether the drawing's page is what is selected.</summary>

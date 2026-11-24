@@ -11,6 +11,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
@@ -426,6 +427,9 @@ public sealed class GroupPanel : UserControl
         _tree.DuplicateRequested = _ => Duplicate();
         _tree.ClipRequested = ApplyClip;
         _tree.NewClipRequested = NewClip;
+
+        _canvas.ContextMenu = _tree.Menu();
+        _canvas.AddHandler(ContextRequestedEvent, OnCanvasContext, RoutingStrategies.Tunnel);
 
         _element.NewClipRequested = property => _elementWanted is { } row && NewClip(row, property);
         _element.ClipRequested = (content, property) => _elementWanted is { } row && ApplyClip(content, row, property);
@@ -2170,7 +2174,11 @@ public sealed class GroupPanel : UserControl
     /// on, and then — of that drawing alone — which element is under it. Hit testing the wrong
     /// picture would answer confidently about a shape somebody was not pointing at.
     /// </remarks>
-    private void Pick(Point at)
+    /// <param name="context">
+    /// A right click, which is about the selection: it picks in the drawing it lands on, and keeps the
+    /// selection on a frame, on the bare board and on the page of the drawing already being read.
+    /// </param>
+    private void Pick(Point at, bool context = false)
     {
         // A click on the selection's handles or in its box, with nothing else drawn there, keeps it —
         // unless it is the same mask or clip content where another element uses it.
@@ -2184,6 +2192,11 @@ public sealed class GroupPanel : UserControl
         // drawings it holds, so what this takes from them is the little it covers.
         if (_canvas.TryGetDrawingPoint(at, out var board) && Framed(board) is { } framed)
         {
+            if (context)
+            {
+                return;
+            }
+
             Choose(framed.Group, framed.Bounds);
 
             return;
@@ -2191,6 +2204,11 @@ public sealed class GroupPanel : UserControl
 
         if (!_canvas.TryGetPlacementAt(at, out var placement, out var point) || placement is null)
         {
+            if (context)
+            {
+                return;
+            }
+
             // Beside every drawing rather than inside one, which is the board itself: that is a
             // click on nothing, and it puts the tab back to being about the group. Without it there
             // was no way back to what the group declares once a drawing had been picked.
@@ -2210,6 +2228,12 @@ public sealed class GroupPanel : UserControl
 
         if (_canvas.ElementAt(svg, point, out var use) is not { } element)
         {
+            // Another drawing's page is turned to, as a click turns to it, so the menu is about that drawing.
+            if (context && ReferenceEquals(_inspecting?.Placement, placement))
+            {
+                return;
+            }
+
             // On the drawing but on none of its ink, which is the page — a thing in its own right,
             // the way a group's frame is. This used to be a click that did nothing, kept that way so
             // that missing a shape by two pixels did not throw away what was being read; missing it
@@ -2249,6 +2273,26 @@ public sealed class GroupPanel : UserControl
         // Tracked here for it too. The handles are measured from one drawing's scene, so picking the
         // same shape in a second copy has to move them even though the row did not change.
         TrackGizmo();
+    }
+
+    /// <summary>Picks what a right click lands on before the element tree's menu opens over it, as a drawing's tab does.</summary>
+    private void OnCanvasContext(object? sender, ContextRequestedEventArgs e)
+    {
+        if (_draw.Shape is { } || _draw.Reshaping || _canvas.IsEditing)
+        {
+            e.Handled = true;
+
+            return;
+        }
+
+        _canvas.Focus();
+
+        if (e.TryGetPosition(_canvas, out var at))
+        {
+            Pick(at, context: true);
+        }
+
+        _canvas.ContextMenu!.PlacementRect = new Rect(_canvas.Bounds.Width / 2, _canvas.Bounds.Height / 2, 1, 1);
     }
 
     /// <summary>Puts <paramref name="svg"/> in the tree, if it is not the one already there.</summary>

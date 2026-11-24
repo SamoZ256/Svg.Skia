@@ -172,7 +172,11 @@ public partial class SvgViewerElementTree : UserControl
     public Func<string, string, bool>? NewClipRequested { get; set; }
 
     /// <summary>The rows' menu, showing whatever a host has wired and nothing where it wired nothing.</summary>
-    private ContextMenu Menu()
+    /// <remarks>
+    /// Also the canvas's, which a host gives a menu of its own: one per control, since a menu shared by
+    /// two closes and lets go of both when either leaves the window, as the tree does when its pane is hidden.
+    /// </remarks>
+    public ContextMenu Menu()
     {
         // Last inside the drawing itself, which has nothing beside it.
         var group = Item("New group", () => NewGroupRequested is { } write && SelectedNode is { } row && write(row.AddressKey, row.AddressKey.Length == 0 ? SvgElementDrop.Inside : SvgElementDrop.After));
@@ -214,7 +218,8 @@ public partial class SvgViewerElementTree : UserControl
             duplicate.InputGesture = new KeyGesture(Key.D, command);
             delete.InputGesture = new KeyGesture(Key.Delete);
 
-            e.Cancel = !(group.IsVisible || clip.IsVisible || clipWith.IsVisible || maskWith.IsVisible || duplicate.IsVisible || delete.IsVisible);
+            e.Cancel = _document is null
+                       || !(group.IsVisible || clip.IsVisible || clipWith.IsVisible || maskWith.IsVisible || duplicate.IsVisible || delete.IsVisible);
         };
 
         return menu;
