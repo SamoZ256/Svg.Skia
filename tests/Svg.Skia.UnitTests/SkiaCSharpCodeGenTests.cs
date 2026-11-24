@@ -65,7 +65,7 @@ public class SkiaCSharpCodeGenTests
 
         Assert.DoesNotContain("NaNf", code);
         Assert.Contains("SKShader.CreateRadialGradient(", code);
-        Assert.Contains("    null,", code);
+        Assert.Contains(", null, SKShaderTileMode.Clamp, ", code);
     }
 
     [Fact]
