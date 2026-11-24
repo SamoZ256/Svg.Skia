@@ -242,20 +242,278 @@ public class MainWindowMenuTests : IDisposable
         window.Close();
     }
 
-    /// <summary>Every letter the sheet lists for a tool is one the canvas answers.</summary>
-    [AvaloniaFact]
-    public void Each_Tool_Letter_Is_One_The_Canvas_Answers()
+    // ---- command search -----------------------------------------------------------------------
+
+    private static Border Search(MainWindow window) => window.FindControl<Border>("CommandSearch")!;
+
+    private static TextBox Query(MainWindow window) => window.FindControl<TextBox>("CommandQuery")!;
+
+    private static ListBox Results(MainWindow window) => window.FindControl<ListBox>("CommandResults")!;
+
+    private static IReadOnlyList<Svg.Editor.Skia.SvgCommandCatalogEntry> Entries(MainWindow window)
+        => (Results(window).ItemsSource as IEnumerable<Svg.Editor.Skia.SvgCommandCatalogEntry>)?.ToList() ?? new List<Svg.Editor.Skia.SvgCommandCatalogEntry>();
+
+    private static IReadOnlyList<string> Found(MainWindow window) => Entries(window).Select(entry => entry.Id).ToList();
+
+    private static void Type(MainWindow window, string text)
     {
-        var window = new MainWindow();
-        var tools = window.Registry.All.Where(command => command.Id.StartsWith("tool-", StringComparison.Ordinal)).ToList();
+        Query(window).Text = text;
+        Dispatcher.UIThread.RunJobs();
+    }
 
-        Assert.NotEmpty(tools);
+    private static void Press(MainWindow window, PhysicalKey key, RawInputModifiers modifiers = RawInputModifiers.None)
+    {
+        window.KeyPressQwerty(key, modifiers);
+        Dispatcher.UIThread.RunJobs();
+    }
 
-        foreach (var tool in tools)
-        {
-            Assert.Null(tool.Execute);
-            Assert.True(new SvgViewerDraw().Pressed(new KeyEventArgs { Key = StudioCommands.Gesture(tool.Key!.Value, tool.Modifiers, mac: false).Key }), tool.Id);
-        }
+    [AvaloniaFact]
+    public async Task Primary_K_Opens_Search_And_Escape_Gives_The_Keyboard_Back()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+        var canvas = Front(window).Canvas;
+
+        canvas.Focus();
+        Press(window, PhysicalKey.K, Primary);
+
+        Assert.True(Search(window).IsVisible);
+        Assert.True(Query(window).IsFocused);
+
+        // Asked again, it stays open with the keyboard in its box.
+        Press(window, PhysicalKey.K, Primary);
+        Assert.True(Search(window).IsVisible);
+
+        Press(window, PhysicalKey.Escape);
+
+        Assert.False(Search(window).IsVisible);
+        Assert.True(canvas.IsFocused);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Search_Offers_What_Can_Run_Now_And_Not_Itself()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+
+        Assert.True(await window.Registry.Run("commands"));
+        var found = Found(window);
+
+        Assert.Contains("zoomin", found);
+        Assert.Contains("tool-rectangle", found);
+        Assert.DoesNotContain("commands", found);
+        Assert.DoesNotContain("project-cut", found);
+        Assert.DoesNotContain("close-project", found);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Down_And_Enter_Run_The_Second_Match_Once_Search_Has_Closed()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+        var canvas = Front(window).Canvas;
+        var scale = canvas.Scale;
+
+        Assert.True(await window.Registry.Run("commands"));
+        Type(window, "zoom");
+        Assert.Equal(new[] { "zoomin", "zoomout" }, Found(window).Take(2));
+
+        Press(window, PhysicalKey.ArrowDown);
+        Press(window, PhysicalKey.Enter);
+
+        Assert.False(Search(window).IsVisible);
+        Assert.True(canvas.Scale < scale);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Tool_From_Search_Is_Armed()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+
+        Assert.True(await window.Registry.Run("commands"));
+        Type(window, "rectangle");
+        Press(window, PhysicalKey.Enter);
+
+        Assert.Single(window.GetVisualDescendants().OfType<ToggleButton>().Where(button => button.IsChecked == true && Equals(button.Tag, "rect")));
+
+        window.Close();
+    }
+
+    /// <remarks>
+    /// The order is the point: run while the search box still had the keyboard, Undo took back the
+    /// box's typing and left the drawing as it was.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Undo_From_Search_Takes_Back_The_Drawings_Edit()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+        var viewer = Front(window);
+        var was = viewer.Source;
+
+        Assert.True(viewer.SetSource(was.Replace("#00ff00", "#0000ff", StringComparison.Ordinal)));
+        Dispatcher.UIThread.RunJobs();
+
+        viewer.Canvas.Focus();
+        Press(window, PhysicalKey.K, Primary);
+        Type(window, "undo");
+        Press(window, PhysicalKey.Enter);
+
+        Assert.Equal(was, viewer.Source);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Search_Closes_When_The_Keyboard_Goes_Elsewhere()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+
+        Assert.True(await window.Registry.Run("commands"));
+        Assert.True(Search(window).IsVisible);
+
+        Front(window).Canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(Search(window).IsVisible);
+
+        window.Close();
+    }
+
+    /// <remarks>Search is gone by the second press, which lands on the canvas that was under it.</remarks>
+    [AvaloniaFact]
+    public async Task A_Double_Click_On_A_Row_Stops_At_The_Row()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+        var viewer = Front(window);
+        var was = viewer.Source;
+
+        Assert.True(await window.Registry.Run("commands"));
+        Type(window, "text");
+        Assert.Equal("tool-type", Found(window)[0]);
+
+        window.UpdateLayout();
+        var row = Assert.IsType<ListBoxItem>(Results(window).ContainerFromIndex(0));
+
+        Gestures.Press(window, row, new Point(4, 4));
+        Gestures.Release(window, row, new Point(4, 4));
+
+        Assert.False(Search(window).IsVisible);
+
+        var canvas = viewer.Canvas;
+        var middle = new Point(canvas.Bounds.Width / 2, canvas.Bounds.Height / 2);
+
+        Gestures.Press(window, canvas, middle, clicks: 2);
+        Gestures.Release(window, canvas, middle);
+
+        Assert.Equal(was, viewer.Source);
+
+        window.Close();
+    }
+
+    /// <remarks>The window leaves a box on Enter, so a modified one handled nowhere left the keyboard nowhere.</remarks>
+    [AvaloniaFact]
+    public async Task Shift_Enter_Runs_The_Match_As_Enter_Does()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+        var canvas = Front(window).Canvas;
+        var scale = canvas.Scale;
+
+        canvas.Focus();
+        Press(window, PhysicalKey.K, Primary);
+        Type(window, "zoom out");
+        Press(window, PhysicalKey.Enter, RawInputModifiers.Shift);
+
+        Assert.False(Search(window).IsVisible);
+        Assert.True(canvas.Scale < scale);
+        Assert.True(canvas.IsFocused);
+
+        window.Close();
+    }
+
+    /// <remarks>Its own menu takes the keyboard into a popup, and gives it back to the box.</remarks>
+    [AvaloniaFact]
+    public async Task Search_Stays_Open_Over_The_Boxs_Own_Menu()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+
+        Assert.True(await window.Registry.Run("commands"));
+
+        var menu = Assert.IsAssignableFrom<FlyoutBase>(Query(window).ContextFlyout);
+
+        menu.ShowAt(Query(window));
+        Dispatcher.UIThread.RunJobs();
+        menu.Hide();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Search(window).IsVisible);
+
+        window.Close();
+    }
+
+    /// <remarks>An undo is labelled by whatever made it, longer than a search entry may be.</remarks>
+    [AvaloniaFact]
+    public async Task Search_Opens_Over_An_Undo_With_A_Long_Label()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        Assert.True(await window.RemoveAsync(window.Workspace!.Document.Root.Children[0], new string('x', 300)));
+
+        Assert.True(await window.Registry.Run("commands"));
+        Assert.Contains("undo", Found(window));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Is_Found_By_Its_Name_Alone()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        Assert.True(await window.Registry.Run("commands"));
+        Type(window, "de");
+
+        Assert.DoesNotContain("home", Entries(window).Select(entry => entry.Label));
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Command_That_Is_On_Is_Marked_So()
+    {
+        var window = await Host(Write("one.svg", Drawing));
+        var on = window.Registry.All.First(command => command.Execute is { } && command.CanExecute() && command.IsChecked?.Invoke() == true);
+
+        Assert.True(await window.Registry.Run("commands"));
+        Type(window, on.Label);
+        Assert.Equal(on.Id, Found(window)[0]);
+
+        window.UpdateLayout();
+        var row = Assert.IsType<ListBoxItem>(Results(window).ContainerFromIndex(0));
+
+        Assert.Contains(row.GetVisualDescendants().OfType<TextBlock>(), block => block.Text == "✓");
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_Drawing_Found_In_Search_Opens_In_Its_Tab()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var home = window.Workspace!.Document.Root.Children[0];
+
+        Assert.True(await window.Registry.Run("commands"));
+        Type(window, "home");
+        Press(window, PhysicalKey.Enter);
+
+        var tabs = window.GetVisualDescendants().OfType<TabControl>().First(control => control.Name == "Tabs");
+
+        Assert.Same(home, (tabs.SelectedItem as TabItem)?.Tag);
+
+        // And the project tree is on its row, as it is for a tab picked any other way.
+        Assert.Same(home, (window.FindControl<TreeView>("ProjectTree")!.SelectedItem as TreeViewItem)?.Tag);
 
         window.Close();
     }

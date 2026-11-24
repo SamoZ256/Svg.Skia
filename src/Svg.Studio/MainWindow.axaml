@@ -256,6 +256,21 @@
                      TextWrapping="Wrap" FontSize="11" Opacity="0.5" Margin="0,22,0,0" />
         </StackPanel>
       </Border>
+
+      <!--
+        Command search. In the window's own tree rather than a popup window, so the window's key
+        handler and focus see its box as any other.
+      -->
+      <Border x:Name="CommandSearch" ZIndex="2" IsVisible="False" Width="520" Margin="0,40,0,0"
+              HorizontalAlignment="Center" VerticalAlignment="Top" Padding="6" CornerRadius="8"
+              Background="{DynamicResource StudioWindowBrush}" BorderBrush="#30808080" BorderThickness="1"
+              BoxShadow="0 8 24 0 #40000000">
+        <DockPanel>
+          <TextBox x:Name="CommandQuery" DockPanel.Dock="Top" FontSize="13"
+                   PlaceholderText="Search commands and drawings" />
+          <ListBox x:Name="CommandResults" Background="Transparent" MaxHeight="360" Margin="0,6,0,0" />
+        </DockPanel>
+      </Border>
     </Panel>
   </DockPanel>
 

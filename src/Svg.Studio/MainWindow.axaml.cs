@@ -13,6 +13,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -22,6 +23,7 @@ using Avalonia.VisualTree;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Editor.Core;
+using Svg.Editor.Skia;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
 using Svg.PaintCode;
@@ -92,6 +94,31 @@ public partial class MainWindow : Window
 
     /// <summary>The keyboard shortcuts window while one is open; see <see cref="_settings"/>.</summary>
     private Window? _shortcuts;
+
+    /// <summary>Command search: the overlay, its box and its list.</summary>
+    private readonly Border _commandSearch;
+
+    private readonly TextBox _commandQuery;
+
+    private readonly ListBox _commandResults;
+
+    /// <summary>What search finds in while it is open; built as it opens rather than kept.</summary>
+    private SvgCommandSearchIndex? _commandIndex;
+
+    /// <summary>The project rows search offers, by the id each is given in it.</summary>
+    private readonly Dictionary<string, ProjectNode> _jumps = new(StringComparer.Ordinal);
+
+    /// <summary>Commands run from search, latest first, which an empty search lists first.</summary>
+    private readonly List<string> _recentCommands = new();
+
+    /// <summary>What had the keyboard when search opened, which it gets back when search closes.</summary>
+    private IInputElement? _returnTo;
+
+    /// <summary>The commands search offers that are on, which it marks as the menu does.</summary>
+    private readonly HashSet<string> _checked = new(StringComparer.Ordinal);
+
+    /// <summary>A row of search ran on a click, so the clicks that carry on from it are not the canvas's.</summary>
+    private bool _rowTapped;
 
     /// <summary>The window's commands, its menus, and the keys it answers for them.</summary>
     private readonly StudioCommands _registry;
@@ -221,6 +248,58 @@ public partial class MainWindow : Window
         _welcome = this.FindControl<Border>("Welcome")!;
         _welcomeRecent = this.FindControl<StackPanel>("WelcomeRecent")!;
         _welcomeRecentHeading = this.FindControl<TextBlock>("WelcomeRecentHeading")!;
+
+        _commandSearch = this.FindControl<Border>("CommandSearch")!;
+        _commandQuery = this.FindControl<TextBox>("CommandQuery")!;
+        _commandResults = this.FindControl<ListBox>("CommandResults")!;
+        _commandQuery.MaxLength = SvgCommandSearchIndex.MaximumQueryLength;
+        _commandQuery.TextChanged += (_, _) => Find();
+        // Asked with no item as well, while a container waits for one.
+        _commandResults.ItemTemplate = new FuncDataTemplate<SvgCommandCatalogEntry?>((entry, _) => entry is { } shown ? Row(shown) : new TextBlock());
+
+        // Tunnelling: the box takes the arrows and Enter itself.
+        _commandSearch.AddHandler(KeyDownEvent, OnCommandSearchKeyDown, RoutingStrategies.Tunnel);
+
+        _commandResults.Tapped += async (_, e) =>
+        {
+            if (e.Source is Visual tapped && tapped.FindAncestorOfType<ListBoxItem>(includeSelf: true) is { })
+            {
+                _rowTapped = true;
+                await RunChosenAsync();
+            }
+        };
+
+        // A double-click on a row: the overlay is gone by its second press, which lands on whatever
+        // was under it, the canvas with a tool just armed among them. ClickCount counts by time and
+        // place rather than by target.
+        AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if (_rowTapped && e.ClickCount > 1)
+            {
+                e.Handled = true;
+
+                return;
+            }
+
+            _rowTapped = false;
+        }, RoutingStrategies.Tunnel);
+
+        // The keyboard taken elsewhere closes it, and is left where it was taken. Asked once it has
+        // moved: a menu opened from the box, as right-clicking it does, takes the keyboard into a
+        // popup of its own and gives it back.
+        _commandSearch.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == IsKeyboardFocusWithinProperty && e.NewValue is false)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!_commandSearch.IsKeyboardFocusWithin && !(Focused() is ILogical focused && _commandSearch.IsLogicalAncestorOf(focused)))
+                    {
+                        HideCommands(restore: false);
+                    }
+                });
+            }
+        };
 
         // Every add and every close, without a call at each of the places that do one.
         _tabs.Items.CollectionChanged += (_, _) => ShowWelcome();
@@ -3503,10 +3582,19 @@ public partial class MainWindow : Window
         yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio" });
         yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
-        yield return ("Help", new[] { "help", "user-guide", "mcp-connection", rule, "about" });
+        yield return ("Help", new[] { "help", "commands", "user-guide", "mcp-connection", rule, "about" });
     }
 
     private static string Panel(SvgViewerRegion region) => "panel-" + region.Header.ToLowerInvariant();
+
+    /// <summary>A tool's id, upstream's where the tool is upstream's under another name.</summary>
+    private static string Tool(string name) => name switch
+    {
+        "Points" => "tool-direct",
+        "Text" => "tool-type",
+        "Polygon" => "tool-polygon-path",
+        _ => "tool-" + name.ToLowerInvariant()
+    };
 
     /// <summary>
     /// Whether the Window menu turns this panel on and off. Not the project tree or Changes, which
@@ -3604,19 +3692,16 @@ public partial class MainWindow : Window
             IsChecked = () => Selected()?.LocksAspectRatio ?? Board()?.LocksAspectRatio ?? false
         };
 
-        // The palette's letters, which the canvas answers; listed and not run.
-        foreach (var (id, label, key) in new[]
-                 {
-                     ("tool-select", "Select", SvgEditorShortcutKey.V),
-                     ("tool-direct", "Points", SvgEditorShortcutKey.A),
-                     ("tool-rectangle", "Rectangle", SvgEditorShortcutKey.R),
-                     ("tool-ellipse", "Ellipse", SvgEditorShortcutKey.O),
-                     ("tool-line", "Line", SvgEditorShortcutKey.L),
-                     ("tool-type", "Text", SvgEditorShortcutKey.T),
-                     ("tool-pen", "Pen", SvgEditorShortcutKey.P)
-                 })
+        // The palette's own tools and letters. The canvas answers the letters; these are run from
+        // search, and never mid-drag, which the strip cannot be clicked during either.
+        foreach (var tool in SvgViewerDraw.Tools)
         {
-            yield return new(id, label, "Tools", null) { Scope = canvas, Key = key };
+            yield return new(Tool(tool.Name), tool.Name, "Tools", Done(() => FrontDraw()?.Arm(tool.Tool)))
+            {
+                Scope = canvas,
+                Platform = tool.Key == Key.None ? null : new[] { new KeyGesture(tool.Key) },
+                CanExecute = () => FrontCanvas() is { IsEditing: false }
+            };
         }
 
         foreach (var region in _dock.Regions.Where(Toggled))
@@ -3638,6 +3723,13 @@ public partial class MainWindow : Window
         yield return new("close-project", "Close", "Project", () => CloseProjectAsync()) { CanExecute = () => _workspace is { } };
 
         yield return new("help", "Keyboard Shortcuts", "Help", Done(ShowShortcuts)) { Key = SvgEditorShortcutKey.F1 };
+
+        // Not over a dialog: the application menu stays live over one on macOS, and the window
+        // under it could not take the keyboard into the box.
+        yield return new("commands", "Search Commands…", "Help", Done(ShowCommands))
+        {
+            Key = SvgEditorShortcutKey.K, Modifiers = primary, CanExecute = () => Asking is null
+        };
         yield return new("user-guide", "User Guide", "Help", () => Launcher.LaunchUriAsync(UserGuide));
         yield return new("mcp-connection", "MCP Connection…", "Help", () => ShowSettingsAsync("Accounts"));
 
@@ -3656,6 +3748,8 @@ public partial class MainWindow : Window
     }
 
     private SvgViewerCanvas? FrontCanvas() => Selected()?.Canvas ?? Board()?.Canvas;
+
+    private SvgViewerDraw? FrontDraw() => Selected()?.Drafting ?? Board()?.Drafting;
 
     private bool HasCanvas() => FrontCanvas() is { };
 
@@ -3744,6 +3838,215 @@ public partial class MainWindow : Window
 
         _shortcuts = window;
         window.Show(this);
+    }
+
+    /// <summary>Opens command search, or gives its box the keyboard back.</summary>
+    private void ShowCommands() => ShowCommands(waited: false);
+
+    private void ShowCommands(bool waited)
+    {
+        // From a menu the window draws, whose item has the keyboard until the menu closes, just
+        // after this, and gives it back to what had it.
+        if (!waited && Focused() is Visual focused && focused.FindAncestorOfType<MenuItem>(includeSelf: true) is { })
+        {
+            Dispatcher.UIThread.Post(() => ShowCommands(waited: true));
+
+            return;
+        }
+
+        if (!_commandSearch.IsVisible)
+        {
+            _returnTo = Focused();
+            _commandIndex = new SvgCommandSearchIndex(Searchable());
+            Find();
+            _commandSearch.IsVisible = true;
+        }
+
+        _commandQuery.Focus();
+        _commandQuery.SelectAll();
+    }
+
+    /// <summary>What search offers: the commands that can run now, then the project's drawings and groups.</summary>
+    /// <remarks>
+    /// A list rather than a lazy sequence, since the rows are numbered into <see cref="_jumps"/> on
+    /// the way: a row's name need not be unique, and its group is what tells two of them apart.
+    /// </remarks>
+    private List<SvgCommandCatalogEntry> Searchable()
+    {
+        _jumps.Clear();
+        _checked.Clear();
+
+        var entries = new List<SvgCommandCatalogEntry>();
+
+        foreach (var command in _registry.All.Where(command => command.Execute is { } && command.Id != "commands" && command.CanExecute()))
+        {
+            // Fitted: an undo is labelled by whatever made it, a summary from Claude Code included.
+            entries.Add(new SvgCommandCatalogEntry(command.Id, Fit(command.Header?.Invoke() ?? command.Label, 256), command.Category, _registry.Shortcut(command)));
+
+            if (command.IsChecked?.Invoke() == true)
+            {
+                _checked.Add(command.Id);
+            }
+        }
+
+        foreach (var node in _projectTree.Items.OfType<TreeViewItem>().SelectMany(Rows).Select(row => row.Tag).OfType<ProjectNode>())
+        {
+            if (entries.Count == SvgCommandSearchIndex.MaximumEntries)
+            {
+                break;
+            }
+
+            if (node.Parent is not { } parent)
+            {
+                continue;
+            }
+
+            // No letter or digit in it: the index falls back on an id a query does not otherwise match,
+            // and a number of rows would answer to "2" or "de".
+            var id = string.Concat(_jumps.Count.ToString(CultureInfo.InvariantCulture).Select(digit => "!#$%&*+=?@"[digit - '0']));
+
+            _jumps[id] = node;
+            entries.Add(new SvgCommandCatalogEntry(id, Fit(ProjectWorkspace.Label(node), 256), Fit(ProjectWorkspace.Label(parent), 128)));
+        }
+
+        return entries;
+
+        static string Fit(string text, int most) => text.Length <= most ? text : text[..most];
+    }
+
+    private void Find()
+    {
+        _commandResults.ItemsSource = _commandIndex?.Search(_commandQuery.Text, recentIds: _recentCommands);
+
+        Choose(0);
+    }
+
+    private void Choose(int index)
+    {
+        if (_commandResults.ItemCount == 0)
+        {
+            return;
+        }
+
+        _commandResults.SelectedIndex = Math.Clamp(index, 0, _commandResults.ItemCount - 1);
+        _commandResults.ScrollIntoView(_commandResults.SelectedIndex);
+    }
+
+    private Control Row(SvgCommandCatalogEntry entry)
+    {
+        var check = new TextBlock { Text = _checked.Contains(entry.Id) ? "✓" : string.Empty, Width = 16 };
+        var shortcut = new TextBlock { Text = entry.Shortcut, Opacity = 0.6, Margin = new Thickness(12, 0, 0, 0) };
+
+        // Capped, so a long group name leaves its drawing's name room to be read.
+        var category = new TextBlock
+        {
+            Text = entry.Category, Opacity = 0.5, Margin = new Thickness(12, 0, 0, 0), MaxWidth = 160, TextTrimming = TextTrimming.CharacterEllipsis
+        };
+
+        DockPanel.SetDock(check, Dock.Left);
+        DockPanel.SetDock(shortcut, Dock.Right);
+        DockPanel.SetDock(category, Dock.Right);
+
+        return new DockPanel
+        {
+            Children = { check, shortcut, category, new TextBlock { Text = entry.Label, TextTrimming = TextTrimming.CharacterEllipsis } }
+        };
+    }
+
+    private async void OnCommandSearchKeyDown(object? sender, KeyEventArgs e)
+    {
+        // Before anything is awaited, with any modifier, and with nothing to run as well: the window
+        // leaves a box on Enter, which would close search without giving the keyboard back.
+        if (e.Key is Key.Enter or Key.Return)
+        {
+            e.Handled = true;
+            await RunChosenAsync();
+
+            return;
+        }
+
+        if (e.KeyModifiers != KeyModifiers.None)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.Escape:
+                e.Handled = true;
+                HideCommands(restore: true);
+                break;
+
+            // Handled either way, or the list, once it has the keyboard, moves a second time.
+            case Key.Down or Key.Up:
+                e.Handled = true;
+                Choose(_commandResults.SelectedIndex + (e.Key == Key.Down ? 1 : -1));
+                break;
+        }
+    }
+
+    /// <summary>Runs what is chosen, once search has closed and given the keyboard back.</summary>
+    /// <remarks>
+    /// Closed first because Undo, Duplicate and Delete act on what has the keyboard, so run from
+    /// search they act where their key would have.
+    /// </remarks>
+    private async Task RunChosenAsync()
+    {
+        if (_commandResults.SelectedItem is not SvgCommandCatalogEntry chosen)
+        {
+            return;
+        }
+
+        var node = _jumps.GetValueOrDefault(chosen.Id);
+
+        HideCommands(restore: true);
+
+        if (node is { })
+        {
+            // Not a row taken out of the project while search was open.
+            if (_workspace?.Document.Root is { } root && node.DescendsFrom(root))
+            {
+                await ShowAsync(node);
+
+                // A new drawing's tab is selected before it is told its row, too late for the tree.
+                Reveal(node);
+            }
+
+            return;
+        }
+
+        _recentCommands.Remove(chosen.Id);
+        _recentCommands.Insert(0, chosen.Id);
+
+        if (_recentCommands.Count > 16)
+        {
+            _recentCommands.RemoveAt(16);
+        }
+
+        await _registry.Run(chosen.Id);
+    }
+
+    private void HideCommands(bool restore)
+    {
+        if (!_commandSearch.IsVisible)
+        {
+            return;
+        }
+
+        // First, so the keyboard leaving below finds it closed already.
+        _commandSearch.IsVisible = false;
+        _commandIndex = null;
+        _commandQuery.Text = string.Empty;
+        _jumps.Clear();
+        _checked.Clear();
+
+        // What had it, or the drawing in front where that has gone, as a tab closed meanwhile has.
+        if (restore && (_returnTo is null || FocusManager?.Focus(_returnTo) != true) && FrontCanvas()?.Focus() != true)
+        {
+            FocusManager?.Focus(null);
+        }
+
+        _returnTo = null;
     }
 
     private static string About()

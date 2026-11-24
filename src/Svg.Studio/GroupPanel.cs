@@ -665,6 +665,9 @@ public sealed class GroupPanel : UserControl
     /// <summary>The board's canvas, as <see cref="SvgViewer.Canvas"/> is a drawing's.</summary>
     public SvgViewerCanvas Canvas => _canvas;
 
+    /// <summary>The board's drawing tools, as <see cref="SvgViewer.Drafting"/> are a drawing's.</summary>
+    public SvgViewerDraw Drafting => _draw;
+
     /// <summary>Whether a handle keeps the proportions, as the toolbar's Lock ratio says; see <see cref="SvgViewer.LocksAspectRatio"/>.</summary>
     public bool LocksAspectRatio
     {

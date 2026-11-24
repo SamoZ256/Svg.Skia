@@ -460,6 +460,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     public SvgViewerCanvas Canvas => _canvas;
 
+    /// <summary>The drawing tools its strip arms, for a host that arms one another way.</summary>
+    public SvgViewerDraw Drafting => _draw;
+
     public bool ShowToolBar
     {
         get => _toolBar.IsVisible;
