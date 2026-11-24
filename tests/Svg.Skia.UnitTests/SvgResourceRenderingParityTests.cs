@@ -668,6 +668,60 @@ public class SvgResourceRenderingParityTests
         }
     }
 
+    /// <remarks>
+    /// Not through WebRequest: a FileWebRequest reads on the thread pool and waits up to 100 seconds
+    /// for it, which a busy pool on CI used up. A request for this folder fails here, so an image
+    /// read that way would come back empty.
+    /// </remarks>
+    [Fact]
+    public void A_Nested_Svg_Image_File_Is_Read_Without_A_Web_Request()
+    {
+        var previousResolveExternalImages = SvgDocument.ResolveExternalImages;
+        var tempDirectory = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            SvgDocument.ResolveExternalImages = ExternalType.Local | ExternalType.Remote;
+
+            // The longest registered prefix wins, so this takes over for this folder alone.
+#pragma warning disable 618, SYSLIB0014
+            Assert.True(System.Net.WebRequest.RegisterPrefix(new Uri(tempDirectory.FullName + Path.DirectorySeparatorChar).AbsoluteUri, new Refusing()));
+#pragma warning restore 618, SYSLIB0014
+
+            File.WriteAllText(Path.Combine(tempDirectory.FullName, "child.svg"), """
+                <svg xmlns="http://www.w3.org/2000/svg">
+                  <rect width="100%" height="100%" fill="#00ff00" />
+                </svg>
+                """);
+
+            var sourcePath = Path.Combine(tempDirectory.FullName, "source.svg");
+            File.WriteAllText(sourcePath, """
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                  <image href="child.svg" width="20" height="20" />
+                </svg>
+                """);
+
+            using var svg = new SKSvg();
+            svg.Load(sourcePath);
+
+            Assert.NotNull(svg.Picture);
+            using var bitmap = ToBitmap(svg, svg.Picture!);
+            AssertMostlyGreen(bitmap.GetPixel(10, 10), "Expected the nested SVG image file to be read directly.");
+        }
+        finally
+        {
+            SvgDocument.ResolveExternalImages = previousResolveExternalImages;
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+#pragma warning disable 618, SYSLIB0014
+    private sealed class Refusing : System.Net.IWebRequestCreate
+    {
+        public System.Net.WebRequest Create(Uri uri) => throw new System.Net.WebException("Read through a web request.");
+    }
+#pragma warning restore 618, SYSLIB0014
+
     [Fact]
     public void RetainedSceneGraph_FeImageExternalSvgCycleProducesTransparentNestedInput()
     {
