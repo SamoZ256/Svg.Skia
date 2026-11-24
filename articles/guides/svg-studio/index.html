@@ -383,6 +383,24 @@ project.</p>
 <p>The copy is keyed by the project's own folder, so a project that has never been saved has nothing to
 look one up under again and is not covered until you name it. Switch the copies off in
 <strong>Settings</strong> — the application menu on macOS, <code>File → Settings…</code> elsewhere.</p>
+<h2 id="selecting">Selecting</h2>
+<p><strong>Select</strong> in the menu bar picks by what the file says. <strong>All</strong> (⌘A, Ctrl+A elsewhere) picks
+everything drawn — not <code>&lt;defs&gt;</code>, the declarations, or what a clip path or mask holds — and
+<strong>Deselect</strong> (⇧⌘A) lets go. <strong>Inverse</strong> picks what is drawn and not picked, keeping a group whole
+unless something in it was picked. <strong>Same Fill</strong>, <strong>Same Stroke</strong>, <strong>Same Stroke Width</strong> and <strong>Same
+Opacity</strong> pick every element whose value is written the same as the first picked one's: on itself,
+or for all but opacity on a group around it, its <code>style</code> before its attribute. The text is
+compared, so <code>matches</code> and not the colour it comes to, and <code>#2A7DE1</code> matches
+<code>#2a7de1</code> but not <code>red</code>. Select reads attributes and <code>style=&quot;&quot;</code>, not a <code>&lt;style&gt;</code> sheet; where a
+drawing has one and the value is not written, it says so rather than guessing. Picking a shape
+leaves groups out; picking a group takes groups too. <strong>Same Type</strong> picks every element of its kind.
+⌘A in a box selects its text, and with <strong>Points</strong> out it picks every point of the shape.</p>
+<p>A right click on the canvas (a two-finger click on a trackpad) opens the element tree's menu. A
+shape not already picked is picked first, and anywhere else the selection stays, so <strong>Same</strong>
+compares with the first of what is picked. Its <strong>Select</strong> has all of the above and <strong>Uses of</strong>,
+which lists the names the drawing declares and picks every element that reads the one chosen.
+Nothing opens while a drawing tool or <strong>Points</strong> is out. A group's tab does the same in the
+drawing clicked.</p>
 <h2 id="the-attributes-tab">The Attributes tab</h2>
 <p>It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
 own tab or on a group's — under names a person would use, filed in sections by what they do:
@@ -492,8 +510,9 @@ or <code>mask #sweep</code>. The filter finds it by that.</p>
 row, or onto the <strong>Clip path</strong> or <strong>Mask</strong> box of the element picked, and it clips or masks that
 element; whatever did so before stays in <code>&lt;defs&gt;</code>. A shape kept in <code>&lt;defs&gt;</code> drops the same way and is
 moved into a clip path made for it, or a mask while <code>Alt</code> (<code>⌥</code>) is held. The row it would land on is
-outlined green for a clip and violet for a mask, and says which. The tree's menu has <strong>New clip path</strong>
-and <strong>New mask</strong>, which cover the picked element, its stroke and its markers with a rectangular path
+outlined green for a clip and violet for a mask, and says which. The tree's menu, which a right click
+(a two-finger click on a trackpad) on the canvas opens too, has <strong>New clip path</strong> and <strong>New mask</strong>,
+which cover the picked element, its stroke and its markers with a rectangular path
 and pick that path; a new mask's path is white. With two rows picked it has <strong>Clip … with …</strong> and
 <strong>Mask … with …</strong>: a clip path, a mask or a shape in <code>&lt;defs&gt;</code> is what clips or masks the other row, and
 of two drawn rows the one painted later is moved into the new clip path or mask, staying where it was
@@ -508,8 +527,8 @@ click on a <code>&lt;use&gt;</code> reshapes the shape it draws, which changes i
 <p>Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project, its drawings and each node's own and inherited settings, lists every problem in them, reads
 the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
-reads and changes a group's declarations, declares or renames one parameter or let with every use of
-it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
+selects them by key or as the Select menu does, reads and changes a group's declarations, declares
+or renames one parameter or let with every use of it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
 Before a commit, <code>get_changes</code> tells it what has changed since the last one, as the Changes panel
 would, counting what the project holds unsaved but not edits still held in a tab; <code>git_history</code> lists
 the project's commits, and <code>get_drawing</code> and <code>render</code> take any of them as a revision to show a
