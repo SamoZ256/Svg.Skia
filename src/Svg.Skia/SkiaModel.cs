@@ -989,6 +989,16 @@ public partial class SkiaModel
                         colorPos,
                         ToSKShaderTileMode(twoPointConicalGradientShader.Mode));
                 }
+            case SweepGradientShader { Colors: { } colors } sweep:
+                {
+                    var center = ToSKPoint(sweep.Center);
+                    var colorSpace = sweep.ColorSpace == SKColorSpace.Srgb ? Settings.Srgb : Settings.SrgbLinear;
+                    var colorPos = GetGradientColorPositions(sweep.ColorPos);
+                    var mode = ToSKShaderTileMode(sweep.Mode);
+                    return sweep.LocalMatrix is { } localMatrix
+                        ? SkiaSharp.SKShader.CreateSweepGradient(center, ToSKColors(colors), colorSpace, colorPos, mode, sweep.StartAngle, sweep.EndAngle, ToSKMatrix(localMatrix))
+                        : SkiaSharp.SKShader.CreateSweepGradient(center, ToSKColors(colors), colorSpace, colorPos, mode, sweep.StartAngle, sweep.EndAngle);
+                }
             case PictureShader pictureShader:
                 {
                     if (pictureShader.Src is null)

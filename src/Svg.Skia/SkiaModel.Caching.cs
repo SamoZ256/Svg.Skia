@@ -1044,6 +1044,16 @@ public partial class SkiaModel
                     AddValues(ref hash, radialGradientShader.Colors);
                     AddValues(ref hash, radialGradientShader.ColorPos);
                     break;
+                case SweepGradientShader sweepGradientShader:
+                    hash.Add(sweepGradientShader.Center);
+                    hash.Add(sweepGradientShader.StartAngle);
+                    hash.Add(sweepGradientShader.EndAngle);
+                    hash.Add(sweepGradientShader.ColorSpace);
+                    hash.Add(sweepGradientShader.Mode);
+                    hash.Add(sweepGradientShader.LocalMatrix);
+                    AddValues(ref hash, sweepGradientShader.Colors);
+                    AddValues(ref hash, sweepGradientShader.ColorPos);
+                    break;
                 case TwoPointConicalGradientShader twoPointConicalGradientShader:
                     hash.Add(twoPointConicalGradientShader.Start);
                     hash.Add(twoPointConicalGradientShader.StartRadius);

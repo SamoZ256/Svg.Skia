@@ -32,7 +32,7 @@ namespace Svg.Skia.UnitTests;
 /// so a difference can only be the emitter's; the <c>expectedMarkup</c> cases compare two different
 /// models.
 /// </remarks>
-public class SkiaCSharpRenderTests
+public partial class SkiaCSharpRenderTests
 {
     private const string Namespace = "Svg.Skia.UnitTests.Rendered";
 
@@ -233,12 +233,17 @@ public class SkiaCSharpRenderTests
             style: new SvgCodeStyle { Body = body });
 
     private static SKPicture Transformed(SKRect cull, Action<SKCanvas> draw)
+        => Recorded(cull, canvas =>
+        {
+            canvas.Translate(6, 10);
+            canvas.Scale(1.5f);
+            draw(canvas);
+        });
+
+    private static SKPicture Recorded(SKRect cull, Action<SKCanvas> draw)
     {
         using var recorder = new SKPictureRecorder();
-        var canvas = recorder.BeginRecording(cull);
-        canvas.Translate(6, 10);
-        canvas.Scale(1.5f);
-        draw(canvas);
+        draw(recorder.BeginRecording(cull));
 
         return recorder.EndRecording();
     }
@@ -333,13 +338,20 @@ public class SkiaCSharpRenderTests
 
     private static void AssertSamePicture(string name, SKPicture runtime, SKPicture generated, double threshold = Threshold)
     {
+        var error = Difference(runtime, generated);
+
+        Assert.True(error <= threshold, $"{name}: Error = {error}");
+    }
+
+    private static double Difference(SKPicture runtime, SKPicture generated)
+    {
         var directory = Directory.CreateTempSubdirectory().FullName;
         try
         {
-            var expected = Draw(runtime, Path.Combine(directory, $"{name}-runtime.png"));
-            var actual = Draw(generated, Path.Combine(directory, $"{name}-generated.png"));
+            using var expected = Image.Load<Rgba32>(Draw(runtime, Path.Combine(directory, "runtime.png")));
+            using var actual = Image.Load<Rgba32>(Draw(generated, Path.Combine(directory, "generated.png")));
 
-            ImageHelper.CompareImages(name, actual, expected, threshold);
+            return ImageHelper.CompareImages(actual, expected);
         }
         finally
         {
@@ -389,19 +401,7 @@ public class SkiaCSharpRenderTests
         // The same argument twice is the same picture, so the difference below is the argument's.
         AssertSamePicture("DrivenText", one, again);
 
-        var directory = Directory.CreateTempSubdirectory().FullName;
-
-        try
-        {
-            using var drawn = Image.Load<Rgba32>(Draw(one, Path.Combine(directory, "one.png")));
-            using var different = Image.Load<Rgba32>(Draw(other, Path.Combine(directory, "other.png")));
-
-            Assert.True(ImageHelper.CompareImages(different, drawn) > 0d, "The argument did not reach the drawing.");
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        Assert.True(Difference(one, other) > 0d, "The argument did not reach the drawing.");
     }
 
     /// <summary>A box the drawing reserves for its host is a constant beside the drawing, never in it.</summary>
@@ -607,6 +607,35 @@ public class SkiaCSharpRenderTests
               <circle cx="12" cy="12" r="8" fill="url(#r)" />
             </svg>
             """);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Sweep_Gradient(bool transformed)
+    {
+        var colors = new[]
+        {
+            new ShimSkiaSharp.SKColorF(0.23f, 0.51f, 0.96f, 1f),
+            new ShimSkiaSharp.SKColorF(0.96f, 0.25f, 0.37f, 1f),
+            new ShimSkiaSharp.SKColorF(0.98f, 0.8f, 0.08f, 1f)
+        };
+        var center = new ShimSkiaSharp.SKPoint(12f, 12f);
+        var positions = new[] { 0f, 0.3f, 1f };
+        var shader = transformed
+            ? ShimSkiaSharp.SKShader.CreateSweepGradient(center, colors, ShimSkiaSharp.SKColorSpace.Srgb, positions, ShimSkiaSharp.SKShaderTileMode.Mirror, 45f, 270f, ShimSkiaSharp.SKMatrix.CreateRotationDegrees(-90f, 12f, 12f))
+            : ShimSkiaSharp.SKShader.CreateSweepGradient(center, colors, ShimSkiaSharp.SKColorSpace.Srgb, positions, ShimSkiaSharp.SKShaderTileMode.Mirror, 45f, 270f);
+        var recorder = new ShimSkiaSharp.SKPictureRecorder();
+        recorder.BeginRecording(ShimSkiaSharp.SKRect.Create(0, 0, 24, 24)).DrawPath(Square(24), new ShimSkiaSharp.SKPaint { IsAntialias = true, Shader = shader });
+        var model = recorder.EndRecording();
+        var name = $"Sweep{transformed}";
+
+        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
+        Assert.NotNull(runtime);
+
+        using var generated = Generated(model, name, SkiaSharpTarget.V4, SvgExpressionDeclarations.Empty, Array.Empty<object?>(), bake: false);
+        AssertSamePicture(name, runtime!, generated);
+        AssertDrawsDirectlyTheSame(name, model, runtime!, SvgExpressionDeclarations.Empty, Array.Empty<object?>());
+    }
 
     [Fact]
     public void Clip_With_A_Transform()
@@ -1273,14 +1302,20 @@ public class SkiaCSharpRenderTests
     {
         var model = Model(svgMarkup);
         var declarations = SvgExpressionDeclarations.Parse(svgMarkup);
-        var evaluated = SvgSceneExpressionEvaluator.Evaluate(model, declarations, Bind(declarations, arguments));
 
-        using var runtime = new SkiaModel(new SKSvgSettings()).ToSKPicture(evaluated);
-        Assert.NotNull(runtime);
+        using var runtime = Bound(model, declarations, arguments);
 
         using var exact = Generated(model, name, skiaSharp, declarations, arguments, bake: false);
-        AssertSamePicture(name, runtime!, exact);
-        AssertDrawsDirectlyTheSame(name, model, runtime!, declarations, arguments, skiaSharp);
+        AssertSamePicture(name, runtime, exact);
+        AssertDrawsDirectlyTheSame(name, model, runtime, declarations, arguments, skiaSharp);
+    }
+
+    private static SKPicture Bound(ShimPicture model, SvgExpressionDeclarations declarations, object?[] arguments)
+    {
+        var picture = new SkiaModel(new SKSvgSettings()).ToSKPicture(SvgSceneExpressionEvaluator.Evaluate(model, declarations, Bind(declarations, arguments)));
+        Assert.NotNull(picture);
+
+        return picture!;
     }
 
     [Theory]
@@ -2684,10 +2719,15 @@ public class SkiaCSharpRenderTests
               <stop offset="0" stop-color="#22c55e" />
               <stop offset="1" stop-color="#7c3aed" />
             </linearGradient>
+            <sweepGradient id="s" gradientUnits="userSpaceOnUse" cx="4" cy="13" startAngle="30" endAngle="300" spreadMethod="reflect" gradientTransform="rotate(-90 4 13)">
+              <stop offset="0" stop-color="{{ tint }}" />
+              <stop offset="1" stop-color="#f97316" />
+            </sweepGradient>
           </defs>
           <path d="M 1 1 L 23 1 L 23 7 L 1 7 Z" fill="url(#l)" />
           <circle cx="12" cy="12" r="5" fill="url(#r)" visibility="{{ shown }}" />
           <circle cx="20" cy="13" r="3" fill="url(#f)" />
+          <circle cx="4" cy="13" r="2" fill="url(#s)" />
           <path d="M 1 17 L 23 17 L 23 23 L 1 23 Z" fill="url(#k)" fill-opacity="{{ fade }}" />
           <path d="M 2 9.5 L 22 9.5" fill="none" stroke="{{ tint }}" stroke-width="1" />
         </svg>
@@ -2751,7 +2791,8 @@ public class SkiaCSharpRenderTests
 
         // The written gradient too: an argument fading its fill fades its stops.
         Assert.Contains("SKShader.CreateTwoPointConicalGradient(", code);
-        Assert.Equal(4, code.Split("[ThreadStatic]\n        private static SKShader s_skGradient".Replace("\n", Environment.NewLine)).Length - 1);
+        Assert.Contains("SKShader.CreateSweepGradient(", code);
+        Assert.Equal(5, code.Split("[ThreadStatic]\n        private static SKShader s_skGradient".Replace("\n", Environment.NewLine)).Length - 1);
         Assert.DoesNotMatch(@"var skPaint\d+ = new SKPaint\(\);", code.Substring(code.IndexOf("public static void Draw(", StringComparison.Ordinal)));
         Assert.Contains(".Shader = null;", code);
     }

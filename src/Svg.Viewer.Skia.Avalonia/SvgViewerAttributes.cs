@@ -72,8 +72,8 @@ internal static class SvgViewerAttributes
     private const string Drawn = Painted + " image foreignObject";
     private const string Moved = Shapes + " " + Texts + " g use image a switch foreignObject";
     private const string Lines = "path line polyline polygon";
-    private const string Gradients = "linearGradient radialGradient";
-    private const string Paints = "none|currentColor|#linearGradient|#radialGradient|#pattern";
+    private const string Gradients = "linearGradient radialGradient sweepGradient";
+    private const string Paints = "none|currentColor|#linearGradient|#radialGradient|#sweepGradient|#pattern";
     private const string Units = "objectBoundingBox|userSpaceOnUse";
     private const string Inputs = "SourceGraphic|SourceAlpha|BackgroundImage|BackgroundAlpha|FillPaint|StrokePaint";
 
@@ -103,8 +103,8 @@ internal static class SvgViewerAttributes
             ("y", "Y", Number, "", "rect image use svg foreignObject pattern text tspan"),
             ("width", "Width", Number, "", "rect image use svg foreignObject pattern"),
             ("height", "Height", Number, "", "rect image use svg foreignObject pattern"),
-            ("cx", "Centre X", Number, "", "circle ellipse radialGradient"),
-            ("cy", "Centre Y", Number, "", "circle ellipse radialGradient"),
+            ("cx", "Centre X", Number, "", "circle ellipse radialGradient sweepGradient"),
+            ("cy", "Centre Y", Number, "", "circle ellipse radialGradient sweepGradient"),
             ("r", "Radius", Number, "", "circle radialGradient"),
             ("rx", "Radius X", Number, "", "rect ellipse"),
             ("ry", "Radius Y", Number, "", "rect ellipse"),
@@ -115,6 +115,8 @@ internal static class SvgViewerAttributes
             ("fx", "Focus X", Number, "", "radialGradient"),
             ("fy", "Focus Y", Number, "", "radialGradient"),
             ("fr", "Focus radius", Number, "", "radialGradient"),
+            ("startAngle", "Start angle", Number, "", "sweepGradient"),
+            ("endAngle", "End angle", Number, "", "sweepGradient"),
             ("points", "Points", Plain, "", "polyline polygon"),
             ("d", "Path data", Plain, "", "path"),
             ("dx", "Shift X", Number, "", "text tspan"),
@@ -132,7 +134,7 @@ internal static class SvgViewerAttributes
         }),
         (SvgViewerAttributeGroup.Link, new[]
         {
-            ("href", "Link", Plain, "", "use image textPath linearGradient radialGradient pattern a"),
+            ("href", "Link", Plain, "", "use image textPath linearGradient radialGradient sweepGradient pattern a"),
             ("target", "Opens in", Plain, "_self|_blank|_parent|_top", "a"),
         }),
         (SvgViewerAttributeGroup.Text, new[]
