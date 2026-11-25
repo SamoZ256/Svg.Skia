@@ -28,6 +28,9 @@ public sealed class HistoryPanel : UserControl
     /// </remarks>
     private (SvgViewer? Drawing, object? DrawingAt, ProjectWorkspace? Project, object? ProjectAt) _listed;
 
+    /// <summary>Set while a click is taking steps back, each of which the window tells this of.</summary>
+    private bool _stepping;
+
     public HistoryPanel()
     {
         Content = new ScrollViewer { Content = _rows, Padding = new Thickness(10, 4, 10, 10) };
@@ -46,7 +49,7 @@ public sealed class HistoryPanel : UserControl
     {
         var now = Now();
 
-        if (now == _listed && _rows.Children.Count > 0)
+        if (_stepping || (now == _listed && _rows.Children.Count > 0))
         {
             return;
         }
@@ -116,9 +119,18 @@ public sealed class HistoryPanel : UserControl
         {
             var taken = 0;
 
-            while (taken < steps && (drawing?.Undo() == true || project?.Undo() == true))
+            _stepping = true;
+
+            try
             {
-                taken++;
+                while (taken < steps && (drawing?.Undo() == true || project?.Undo() == true))
+                {
+                    taken++;
+                }
+            }
+            finally
+            {
+                _stepping = false;
             }
         }
 

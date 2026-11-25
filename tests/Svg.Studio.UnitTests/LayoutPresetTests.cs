@@ -114,6 +114,23 @@ public class LayoutPresetTests : IDisposable
         return window;
     }
 
+    /// <summary>The picker naming a saved arrangement does not put the layout's own sizes over it.</summary>
+    [AvaloniaFact]
+    public async Task Naming_A_Layout_Leaves_Its_Sizes_Alone()
+    {
+        var resized = StudioSettings.DefaultLayout.Replace("/312px", "/400px", StringComparison.Ordinal);
+
+        StudioSettings.Layout = resized;
+
+        var window = await Host("one.svg", Drawing);
+
+        Assert.Equal("Drawing", window.GetVisualDescendants().OfType<ComboBox>().Single(box => box.Name == "Layouts").SelectedItem);
+        Assert.Equal(resized, StudioSettings.Layout);
+        Assert.Contains("/400px", window.Layout, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
     /// <summary>A project opens on its tree, in the Drawing layout still, from a line saved while there was none.</summary>
     /// <remarks>
     /// Such a line has History alone in the tree's run and on top of it; the tree and Changes go back in

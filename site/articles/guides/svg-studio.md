@@ -147,7 +147,7 @@ They come up in the **Drawing** layout: down the left the tree, with Changes and
 over the variables and the properties; Streamline under the drawing; down the right the attributes
 over the element tree and the assistant. The variables and the attributes are apart on purpose — a
 variable is dragged onto an attribute, and behind a tab each would hide the other. **Board** puts
-Streamline beside the tree and gives a group's board the window's whole height; **Review** puts
+Streamline under the tree and gives a group's board the window's whole height; **Review** puts
 Changes and History wide on the left. Pick one in the control bar's picker, at its right end, or in
 the **Window** menu. The picker names the layout you are in, and says *Custom* once the panels are
 arranged as none of them.
@@ -160,7 +160,8 @@ header and drop it on another header to sit behind it, or on the edge of a panel
 Drop it against the foot of the drawing and it sits under the drawing; drop it against the **edge of
 the window** and it runs under everything, taking nothing from the strip beside it. Where it would
 land is drawn while you carry it. A tab's own menu, on a right-click, moves it left or right along its
-run or into a run of its own below it, and closes it; the arrow keys walk a run's tabs, and a run too
+run or into a run of its own below it, and closes it where the **Window** menu can bring it back;
+clicking a tab leaves the keyboard with the drawing, and once a tab has it the arrow keys walk the run's tabs, and a run too
 narrow for its tabs offers the rest under the **»** at its end. The arrangement is remembered, so it
 is there again next time, and **Window → Reset Layout** puts it back for when it has gone somewhere
 you would rather it had not. The

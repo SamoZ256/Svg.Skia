@@ -1282,7 +1282,8 @@ public partial class MainWindow : Window
             _panels[id] = new Border();
         }
 
-        // The tree and Changes follow the project, and the Window menu brings back only what can close.
+        // The tree and Changes follow the project: taken off by hand, one came back beside the wrong
+        // panel. The Window menu offers what a tab can close.
         return new[]
             {
                 new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost),
@@ -3653,7 +3654,7 @@ public partial class MainWindow : Window
         yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", rule, "resize" });
         yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
         yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "reset-parameters" });
-        yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" })
+        yield return ("Window", _dock.Regions.Where(region => region.Closable).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" })
             .Concat(new[] { rule }).Concat(StudioSettings.Layouts.Select(layout => LayoutCommand(layout.Name))).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
         yield return ("Help", new[] { "help", "commands", "user-guide", "mcp-connection", rule, "about" });
@@ -3672,13 +3673,6 @@ public partial class MainWindow : Window
         "Polygon" => "tool-polygon-path",
         _ => "tool-" + name.ToLowerInvariant()
     };
-
-    /// <summary>
-    /// Whether the Window menu turns this panel on and off: what its tab can close. Not the project
-    /// tree or Changes, which follow the project: taken off by hand, one came back beside the wrong
-    /// panel when it did.
-    /// </summary>
-    private static bool Toggled(SvgViewerRegion region) => region.Closable;
 
     /// <summary>Everything the window can be asked to do, with its key and when it is live.</summary>
     private IEnumerable<StudioCommand> Commanded()
@@ -3844,7 +3838,7 @@ public partial class MainWindow : Window
             };
         }
 
-        foreach (var region in _dock.Regions.Where(Toggled))
+        foreach (var region in _dock.Regions.Where(region => region.Closable))
         {
             yield return new(Panel(region), region.Header, "Window", Done(() => Toggle(region.Id))) { IsChecked = () => _dock.Shows(region.Id) };
         }

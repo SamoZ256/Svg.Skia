@@ -348,22 +348,16 @@ public static class StudioSettings
         set => Write(McpPortKey, value.ToString(CultureInfo.InvariantCulture));
     }
 
-    /// <summary>What a window nobody has arranged comes up in: the Drawing layout.</summary>
+    /// <summary>What a window nobody has arranged comes up in: the Drawing layout, UnoDraw's shell on Studio's panels.</summary>
     /// <remarks>
-    /// UnoDraw's shell on Studio's panels. Down the left the project tree, with Changes and History
-    /// behind it, over the variables and the properties; under the drawing Streamline; down the right
-    /// the picked element's attributes over the element tree and the assistant. Each line names
-    /// every panel, the ones still to come too, which take no room until something supplies them,
-    /// so the dock never has to find a panel a place of its own.
-    ///
-    /// Studio's rather than the viewer's, because the tree is Studio's panel and nothing in
-    /// <see cref="SvgViewerDock.Default"/> knows where one goes.
+    /// Every layout names the panels still to come too, which take no room until something supplies
+    /// them, so the dock never has to find a panel a place of its own.
     /// </remarks>
     public const string DefaultLayout =
         "row(col(tree+changes+history/1.4/tree/open,variables+project/1/variables/open)/280px,col(*/1.6,streamline/1/streamline/open)/1,"
         + "col(element+transform+align/1.5/element/open,elements+resources+brushes+assistant/1/elements/open)/312px)";
 
-    /// <summary>For a group's board: Streamline beside the tree, and the board the whole height of the window.</summary>
+    /// <summary>For a group's board: Streamline under the tree, and the board the whole height of the window.</summary>
     public const string BoardLayout =
         "row(col(tree+changes+history/1.4/tree/open,streamline/1/streamline/open)/280px,*/1,"
         + "col(variables+project/1/variables/open,element+elements+transform+align+resources+brushes+assistant/1.5/element/open)/312px)";

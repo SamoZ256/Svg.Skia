@@ -3883,6 +3883,12 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Pair));
         var panel = await Group(window, 0);
 
+        // From the default, whatever arrangement another test left in the settings this class shares.
+        Assert.True(await window.Registry.Run("reset-layout"));
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
+        Dispatcher.UIThread.RunJobs();
+
         var variables = Around(panel).GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
 
         // In front of its run, and apart from the attributes — which is what lets a variable be

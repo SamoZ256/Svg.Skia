@@ -698,6 +698,9 @@ public class SvgViewerDockTests
         Assert.Equal("element", dock.Selected("element"));
         Assert.Equal(1, moved);
 
+        // And brought into view, the strip scrolled along to it.
+        Assert.True(Tab(window, "Element").FindAncestorOfType<ScrollViewer>()!.Offset.X > 0d);
+
         dock.Layout = "row(*/1,project+elements+variables+element/800px/project/open)";
         Lay(window);
 
