@@ -278,6 +278,28 @@ public class SvgAttributeEditorDocumentTests
         Assert.Contains("style=\"" + style + "\"", text, StringComparison.Ordinal);
     }
 
+    /// <summary>What IsGeometry names is what a declaration in a style is refused for.</summary>
+    [Theory]
+    [InlineData("transform", true)]
+    [InlineData("x", true)]
+    [InlineData("d", true)]
+    [InlineData("fill", false)]
+    [InlineData("stroke-width", false)]
+    public void Geometry_Is_What_A_Style_Declaration_Cannot_Be_Written_Into(string name, bool geometry)
+    {
+        Assert.Equal(geometry, SvgAttributeEditor.IsGeometry(name));
+
+        var refused = Restyled(name + ": 1", name, "2", out var refusal);
+
+        Assert.Equal(geometry, refusal is { });
+        Assert.Contains(geometry ? "style=\"" + name + ": 1\"" : "style=\"" + name + ": 2\"", refused, StringComparison.Ordinal);
+    }
+
+    /// <summary>A prefixed name is never a property a style or a group sets, and asking for one is no reason to throw.</summary>
+    [Fact]
+    public void Driven_Is_Nothing_For_A_Prefixed_Name()
+        => Assert.Null(Driven("<svg xmlns=\"http://www.w3.org/2000/svg\"><g><use /></g></svg>", "0/0", "xlink:href"));
+
     private static string? Driven(string svgText, string key, string name)
         => SvgAttributeEditor.Driven(Read(svgText), key, name);
 

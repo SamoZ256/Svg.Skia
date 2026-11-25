@@ -794,6 +794,16 @@ public static class SvgService
 
     private static object? GetImageFromWeb(Uri uri, SvgElement? svgOwnerElement, ISvgAssetLoader assetLoader)
     {
+        // A file is read where it is, as fonts are. FileWebRequest reads it on the thread pool and
+        // blocks up to its 100-second timeout for the read to start, which a pool busy with parallel
+        // loads used up on Windows CI: the image came back empty after exactly 1 m 40 s.
+        if (uri.IsFile)
+        {
+            using var file = System.IO.File.OpenRead(uri.LocalPath);
+
+            return GetImageFromStream(file, uri, string.Empty, svgOwnerElement, assetLoader);
+        }
+
 #pragma warning disable 618, SYSLIB0014
         var request = WebRequest.Create(uri);
 #pragma warning restore 618, SYSLIB0014
@@ -806,12 +816,17 @@ public static class SvgService
             return default;
         }
 
+        return GetImageFromStream(stream, uri, response.ContentType, svgOwnerElement, assetLoader);
+    }
+
+    private static object? GetImageFromStream(System.IO.Stream stream, Uri uri, string contentType, SvgElement? svgOwnerElement, ISvgAssetLoader assetLoader)
+    {
         if (stream.CanSeek)
         {
             stream.Position = 0;
         }
 
-        var isSvgMimeType = response.ContentType.StartsWith(MimeTypeSvg, StringComparison.OrdinalIgnoreCase);
+        var isSvgMimeType = contentType.StartsWith(MimeTypeSvg, StringComparison.OrdinalIgnoreCase);
         var isSvg = uri.LocalPath.EndsWith(".svg", StringComparison.OrdinalIgnoreCase);
         var isSvgz = uri.LocalPath.EndsWith(".svgz", StringComparison.OrdinalIgnoreCase);
 

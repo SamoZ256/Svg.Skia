@@ -319,7 +319,9 @@ drawing clicked.
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
 own tab or on a group's — under names a person would use, filed in sections by what they do:
 **Geometry**, **Fill**, **Stroke**, **Text** and so on. Hover a label for the attribute's name as the
-file writes it. A section folds away and stays folded from one pick to the next.
+file writes it. A section folds away and stays folded from one pick to the next. The heading names the
+element's tag and its id; **Find an attribute** under it lists only the rows whose name holds what is
+typed, and finds the attributes the element does not usually list as well.
 
 Every attribute the element writes is listed, and beside them the ones an element of its kind usually
 has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, not a stop's stroke
@@ -334,10 +336,13 @@ Typing into one of the empty rows adds it.
 Some rows have a control beside the box, which writes into it. A colour has a swatch that opens a
 picker; an opacity or a stop's offset has a slider; an attribute SVG spells a handful of values for —
 a line cap, a text's alignment, a fill's `none` or a gradient the drawing holds, a font the project's
-fonts hold — has a **▾** listing them; and **↑**/**↓** step a number in its box, by ten with Shift and a tenth with Alt. The picker
-writes once when it closes and the slider once when it is let go, so either is one step to undo. On
-a row an expression drives, the swatch and the slider show what the expression comes to and are
-locked; picking from the **▾**, like typing a value, lets the expression go.
+fonts hold — has a **▾** listing them; and **↑**/**↓** step a number in its box, by ten with Shift
+and a tenth with Alt, and an opacity by a tenth. The picker writes once when it closes and the slider
+once when it is let go, so either is one step to undo. On a row an expression drives, the swatch and
+the slider show what the expression comes to and are locked; picking from the **▾**, like typing a
+value, lets the expression go. A box an expression decides is outlined in the expression colour, and so
+is an empty one a group's expression paints, which reads `{%{{{ tint }}}%} inherited`: giving the element
+a value of its own there is still a pick or a keystroke away.
 
 **Or drag the variable onto the row.** **Variables** and **Attributes** have a run each rather than
 sharing one, so both are on screen at once: take any variable by its name, of either kind — not the
@@ -350,9 +355,15 @@ adds the attribute already bound.
 
 Only an expression is judged: what it comes to is read out beside it, an expression of the wrong type
 is caught in the box, and one written on an attribute the parser lifts nothing out of is refused
-rather than written as braces nobody reads. A value the element's `style` attribute sets reads on its
-row as `red in style`, and the row takes nothing: the declaration wins over the attribute, so it is
-changed under **Inline style** instead.
+rather than written as braces nobody reads. A value the element's `style` attribute sets is shown and
+edited in that declaration, which is what paints, and its `!important` is kept; emptying the box takes
+it out of the style. Geometry and `transform` set in a style are read-only, as `rotate(45deg) in style`:
+what is written for them is attribute grammar, which no browser reads in a style.
+
+What is typed is written when the box is left or Enter is pressed, and before Save, a command, another
+tab or closing the window acts on the drawing. **Escape** puts back what the box was drawn with, and
+⌘Z while typing takes back the typing. If the drawing changes under a box being typed in — an undo
+the assistant makes, or a reload — the value is not written, and the panel says so.
 
 ## Code that calls it the way PaintCode's did
 

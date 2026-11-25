@@ -216,6 +216,9 @@ public partial class MainWindow : Window
         _tabs = this.FindControl<TabControl>("Tabs")!;
         _tabs.SelectionChanged += (_, _) =>
         {
+            // While the tab being left still holds its panel.
+            Typing()?.CommitPending();
+
             UpdateTitle();
             UpdateMenu();
             Refill();
@@ -336,7 +339,7 @@ public partial class MainWindow : Window
         };
 
         // Once the dock is there, since the Window menu has an item for each of its panels.
-        _registry = new StudioCommands(Commanded(), OperatingSystem.IsMacOS());
+        _registry = new StudioCommands(Commanded(), OperatingSystem.IsMacOS()) { CommitPending = () => Typing()?.CommitPending() };
 
         _bars = new StudioBars(_registry, () => (_tabs.SelectedItem as TabItem)?.Content as Control);
         _controlBar = this.FindControl<Border>("ControlBar")!;
@@ -3511,6 +3514,9 @@ public partial class MainWindow : Window
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
 
+    /// <summary>The Attributes panel whose box has the keyboard, or null.</summary>
+    private SvgViewerElementPanel? Typing() => (Focused() as Visual)?.FindAncestorOfType<SvgViewerElementPanel>(true);
+
     /// <summary>Whether the project tree has the keyboard: its rows answer Delete, Copy and the like themselves.</summary>
     private bool InProjectTree() => Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused);
 
@@ -3700,6 +3706,7 @@ public partial class MainWindow : Window
             Key = SvgEditorShortcutKey.Z,
             Modifiers = primary,
             Platform = hotkeys?.Undo,
+            KeepsTyping = true,
             CanExecute = () => Selected()?.CanUndo == true || _workspace?.CanUndo == true,
             Header = () => Taking("Undo", Selected()?.UndoLabel ?? _workspace?.UndoLabel)
         };
@@ -3709,6 +3716,7 @@ public partial class MainWindow : Window
             Key = SvgEditorShortcutKey.Z,
             Modifiers = primary | shift,
             Platform = hotkeys?.Redo,
+            KeepsTyping = true,
             CanExecute = () => Selected()?.CanRedo == true || _workspace?.CanRedo == true,
             Header = () => Taking("Redo", Selected()?.RedoLabel ?? _workspace?.RedoLabel)
         };
@@ -3717,13 +3725,14 @@ public partial class MainWindow : Window
         // the click, and with nothing picked either does nothing, which is honest.
         yield return new("duplicate", "Duplicate", "Edit", Done(() => Duplicate()))
         {
+            KeepsTyping = true,
             Scope = picked,
             Key = SvgEditorShortcutKey.D,
             Modifiers = primary,
             ShownOnMac = true,
             CanExecute = Picks
         };
-        yield return new("delete", "Delete", "Edit", DeleteChosenAsync) { Scope = picked, Key = SvgEditorShortcutKey.Delete, CanExecute = Picks };
+        yield return new("delete", "Delete", "Edit", DeleteChosenAsync) { KeepsTyping = true, Scope = picked, Key = SvgEditorShortcutKey.Delete, CanExecute = Picks };
         yield return new("resize", "Resize…", "Edit", () => Selected() is { } viewer ? viewer.ResizeAsync() : Task.CompletedTask)
         {
             CanExecute = () => Selected() is { Document: { } }
@@ -3733,6 +3742,7 @@ public partial class MainWindow : Window
         yield return new("selectall", "All", "Select", Done(SelectAll))
         {
             Scope = picked,
+            KeepsTyping = true,
             Key = SvgEditorShortcutKey.A,
             Modifiers = primary,
             ShownOnMac = true,
@@ -4639,6 +4649,9 @@ public partial class MainWindow : Window
             return;
         }
 
+        // So a value still being typed counts as unsaved, and is asked about.
+        Typing()?.CommitPending();
+
         var unsaved = Unsaved();
         var project = Unwritten;
 
@@ -4736,7 +4749,8 @@ public partial class MainWindow : Window
     /// nothing to lose — so the two questions stop being the same one here.
     /// </remarks>
     private bool Savable()
-        => Marked()
+        => Typing() is { IsPending: true }
+           || Marked()
            || _workspace is { Document.Path: null }
            || _tabs.SelectedItem is TabItem { Tag: not ProjectNode, Content: SvgViewer { Document: { Path: null } } };
 

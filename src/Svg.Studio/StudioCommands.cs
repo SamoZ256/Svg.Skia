@@ -48,6 +48,12 @@ public sealed record StudioCommand(string Id, string Label, string Category, Fun
     /// fires over every text box, so this is only for a command that routes by focus itself.
     /// </summary>
     public bool ShownOnMac { get; init; }
+
+    /// <summary>
+    /// Answered by the box being typed in, or left to it, which keeps what is typed: undo and redo
+    /// take back the typing itself, and Duplicate and Delete do nothing while a box has the keyboard.
+    /// </summary>
+    public bool KeepsTyping { get; init; }
 }
 
 /// <summary>
@@ -73,6 +79,9 @@ public sealed class StudioCommands
     private readonly List<(StudioCommand Command, Button Button)> _bound = new();
     private readonly HashSet<string> _shown = new(StringComparer.Ordinal);
     private readonly bool _mac;
+
+    /// <summary>Writes what is being typed into the drawing, before a command acts on it.</summary>
+    public Action? CommitPending { get; init; }
 
     public StudioCommands(IEnumerable<StudioCommand> commands, bool mac)
     {
@@ -248,7 +257,18 @@ public sealed class StudioCommands
     /// <returns>Whether the command was there to run and could.</returns>
     public async Task<bool> Run(string id)
     {
-        if (!_byId.TryGetValue(id, out var command) || command.Execute is not { } execute || !command.CanExecute())
+        if (!_byId.TryGetValue(id, out var command) || command.Execute is not { } execute)
+        {
+            return false;
+        }
+
+        // Before it is asked whether it can run: Save is only live once what is typed is in the drawing.
+        if (!command.KeepsTyping)
+        {
+            CommitPending?.Invoke();
+        }
+
+        if (!command.CanExecute())
         {
             return false;
         }
