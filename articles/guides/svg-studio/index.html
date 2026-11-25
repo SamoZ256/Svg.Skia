@@ -262,23 +262,33 @@ other pane scrolls it, faster the nearer the edge, so a row out of sight can sti
 held at either end of a strip with more tabs than fit scrolls the strip the same way. Adding
 an <code>.svg</code> file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
 clipboard. Adding, removing and moving edit the project; nothing reaches the folder until you save it.</p>
-<p>Five panels sit round the tabs: the <strong>Project</strong> tree, the <strong>Properties</strong> of whatever is in front, the
-<strong>Variables</strong> it declares, the <strong>Attributes</strong> of the element picked in it, and the <strong>Elements</strong> those
-come from. They
-belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
-holds still while you move between drawings, and the tree that names them stays beside all of them.</p>
-<p>They come up as a strip either side of the drawing, both the same width so neither reads as the
-important one: the tree over the variables it declares on the left, and on the right the settings and
-the elements sharing a run over the picked element's attributes. The tree gets the deeper share of
-its column, being the list you scroll where the variables are a handful of rows. The variables and
-the element are apart on purpose — a variable is dragged onto an attribute, and behind a tab each
-would hide the other.</p>
-<p><strong>Arrange them as you like.</strong> The chevron on a header folds that panel away. Take a panel by its
+<p>Panels sit round the tabs: the <strong>Project</strong> tree, <strong>Changes</strong> and <strong>History</strong>; the <strong>Variables</strong> a
+drawing declares and the <strong>Properties</strong> of whatever is in front; the <strong>Attributes</strong> of the element
+picked in it, the <strong>Elements</strong> those come from, and the <strong>Assistant</strong>; and <strong>Streamline</strong>. They belong
+to the window rather than to a tab, and show whatever tab is in front — so the arrangement holds still
+while you move between drawings, and the tree that names them stays beside all of them.</p>
+<p>They come up in the <strong>Drawing</strong> layout: down the left the tree, with Changes and History behind it,
+over the variables and the properties; Streamline folded under the drawing, which its tab opens; down
+the right the attributes over the element tree and the assistant. The variables and the attributes are apart on purpose — a
+variable is dragged onto an attribute, and behind a tab each would hide the other. <strong>Board</strong> puts
+Streamline under the tree and gives a group's board the window's whole height; <strong>Review</strong> puts
+Changes and History wide on the left. Pick one in the control bar's picker, at its right end, or in
+the <strong>Window</strong> menu. The picker names the layout you are in, and says <em>Custom</em> once the panels are
+arranged as none of them.</p>
+<p><strong>History</strong> lists what <strong>Edit → Undo</strong> would take back, in the order it would: the drawing in front
+first, then the project. Clicking a row takes back that step and everything above it.</p>
+<p><strong>Arrange them as you like.</strong> The chevron on a header folds that panel away, and a click on a folded
+run's tab opens it again. Drag the gap between two panels, which lights up under the pointer, to
+resize them. Take a panel by its
 header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
 Drop it against the foot of the drawing and it sits under the drawing; drop it against the <strong>edge of
 the window</strong> and it runs under everything, taking nothing from the strip beside it. Where it would
-land is drawn while you carry it. The arrangement is remembered, so it is there again next time, and
-<strong>Window → Reset Layout</strong> puts it back for when it has gone somewhere you would rather it had not. The
+land is drawn while you carry it. A tab's own menu, on a right-click, moves it left or right along its
+run or into a run of its own below it, and closes it where the <strong>Window</strong> menu can bring it back;
+clicking a tab leaves the keyboard with the drawing, and once a tab has it the arrow keys walk the run's tabs, and a run too
+narrow for its tabs offers the rest under the <strong>»</strong> at its end. The arrangement is remembered, so it
+is there again next time, and <strong>Window → Reset Layout</strong> puts it back for when it has gone somewhere
+you would rather it had not. The
 <strong>Window</strong> menu also takes a panel off or puts it back for this session — all but the project tree and
 <strong>Changes</strong>, which come and go with the project — and moves between tabs
 (⌃⇥ and ⌃⇧⇥); <strong>Help → Keyboard Shortcuts</strong> lists every key Studio answers to, and <strong>Help → Search
