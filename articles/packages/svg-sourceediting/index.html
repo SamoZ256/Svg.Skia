@@ -181,11 +181,11 @@ document,</li>
 </tr>
 <tr>
 <td><code>SvgAttributeEditor</code></td>
-<td><code>SetAttribute</code> on any element, named by its address, and <code>Attributes</code> to read what one is written with; <code>Content</code> and <code>SetContent</code> for the text between a <code>&lt;text&gt;</code>, <code>&lt;tspan&gt;</code> or <code>&lt;textPath&gt;</code>'s tags; <code>Driven</code> for the expression a value is written with, on the element or a group around it; <code>IsGeometry</code> for the properties a style declaration is not written into</td>
+<td><code>SetAttribute</code> on any element, named by its address, and <code>Attributes</code> to read what one is written with; <code>Content</code> and <code>SetContent</code> for the text between a <code>&lt;text&gt;</code>, <code>&lt;tspan&gt;</code> or <code>&lt;textPath&gt;</code>'s tags; <code>Driven</code> for the expression a value is written with, on the element or a group around it; <code>IsGeometry</code> for the properties a style declaration is not written into; <code>SwapPaints</code> to exchange fill and stroke, and their opacities, as written</td>
 </tr>
 <tr>
 <td><code>SvgSourceEdits</code></td>
-<td>What one gesture writes, as steps for one commit: every element they name is found before anything is written</td>
+<td>What one gesture writes, as steps for one commit — <code>SetAttributes</code>, <code>Insert</code>, <code>Move</code>, <code>Remove</code>, <code>SetContent</code> and <code>Retag</code>: every element they name is found before anything is written, and <code>Apply</code> gives back where what it wrote landed</td>
 </tr>
 <tr>
 <td><code>SvgSourceDocument</code></td>
@@ -197,7 +197,7 @@ document,</li>
 </tr>
 <tr>
 <td><code>SvgElementEditor</code></td>
-<td><code>Move</code> an element to where a drop puts it, <code>Insert</code> a new one there, <code>Remove</code> and <code>Duplicate</code> several; each that places one says the key it lands at</td>
+<td><code>Move</code> an element to where a drop puts it, <code>Insert</code> a new one there, <code>Remove</code> and <code>Duplicate</code> several; each that places one says the key it lands at. <code>Rename</code> gives one another id and points what referred to the old one at it</td>
 </tr>
 </tbody>
 </table>
@@ -234,7 +234,9 @@ contract is that what it reads, it writes back exactly.</p>
 three attributes and is one thing to take back — and a step is reversed by reading the drawing's own
 text back. <code>SvgSourceEdits</code> is such a gesture written down: its <code>Apply</code> finds every element its steps
 name first, so a key the host cannot place, or the file no longer has, is refused before anything is
-written, and is meant to run inside a commit, which puts back a step refused after an earlier one.</p>
+written, and is meant to run inside a commit, which puts back a step refused after an earlier one.
+Its keys name the drawing as it was before the plan: a removal does not shift what a later step means,
+and a step naming what an earlier one took out is refused.</p>
 <p>Reversing by snapshot is usually the wrong answer, and it is the right one here for two reasons.
 <code>ToText</code> is byte-faithful, so the text is a lossless record of the tree rather than an approximation
 of it: the annotations that carry the author's bytes are rebuilt from the author's bytes, which is

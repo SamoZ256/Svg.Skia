@@ -409,6 +409,15 @@ compares with the first of what is picked. Its <strong>Select</strong> has all o
 which lists the names the drawing declares and picks every element that reads the one chosen.
 Nothing opens while a drawing tool or <strong>Points</strong> is out. A group's tab does the same in the
 drawing clicked.</p>
+<p><strong>Swap Fill and Stroke</strong> (⇧X on the canvas or in the element tree, in the <strong>Edit</strong> menu and in the
+rows' menu) exchanges what everything picked fills and strokes with, and their opacities, as one
+step to undo. The text moves, so <code>{{ tint }}</code> goes with its paint, and each value stays where its
+element writes that property: a value in <code>style</code> stays in the style, its <code>!important</code> kept. An
+unwritten fill swaps as the black it paints and an unwritten stroke as none, so a plain shape turns
+into its outline. What an element only inherits from a group is written on it where it would now
+paint otherwise, and where that shadows a group's expression the canvas says so. A <code>&lt;stop&gt;</code> has
+nothing to swap, a shape in a <code>&lt;clipPath&gt;</code> paints nothing, and a paint a <code>&lt;style&gt;</code> sheet may set, or
+a <code>&lt;use&gt;</code> gives what a <code>&lt;symbol&gt;</code> holds, is not guessed at; each is refused before anything is written.</p>
 <h2 id="the-view-menu">The View menu</h2>
 <p><strong>Rulers</strong> (⌘R, Ctrl+R elsewhere) runs a ruler along the top and the left of the canvas. They count
 the drawing's own units, its <code>viewBox</code>, not the size it is drawn at: a <code>viewBox=&quot;0 0 24 24&quot;</code> drawn
@@ -471,6 +480,10 @@ rather than written as braces nobody reads. A value the element's <code>style</c
 edited in that declaration, which is what paints, and its <code>!important</code> is kept; emptying the box takes
 it out of the style. Geometry and <code>transform</code> set in a style are read-only, as <code>rotate(45deg) in style</code>:
 what is written for them is attribute grammar, which no browser reads in a style.</p>
+<p>The <strong>ID</strong> row renames the element, and what in the drawing points at it follows: <code>url(#…)</code> in any
+attribute or style, an <code>href</code>, an animation timed <code>id.click</code>, and <code>#id</code> in a <code>&lt;style&gt;</code> sheet's
+selectors, never its colours. An id another element has, or one that is not a name — <code>1a</code>, one with a
+space — is refused, and so is taking away an id something points at.</p>
 <p>What is typed is written when the box is left or Enter is pressed, and before Save, a command, another
 tab or closing the window acts on the drawing. <strong>Escape</strong> puts back what the box was drawn with, and
 ⌘Z while typing takes back the typing. If the drawing changes under a box being typed in — an undo
@@ -567,7 +580,8 @@ click on a <code>&lt;use&gt;</code> reshapes the shape it draws, which changes i
 <h2 id="connecting-claude-code">Connecting Claude Code</h2>
 <p>Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project, its drawings and each node's own and inherited settings, lists every problem in them, reads
-the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
+the C# a drawing is built into, sets attributes and text, renames an element's id with what points at
+it, swaps fill and stroke, adds, removes, moves and copies elements,
 selects them by key or as the Select menu does, reads and changes a group's declarations, declares
 or renames one parameter or let with every use of it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
 Before a commit, <code>get_changes</code> tells it what has changed since the last one, as the Changes panel
