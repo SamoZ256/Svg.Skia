@@ -1364,6 +1364,12 @@ public partial class MainWindow : Window
 
         _dock.Show(ProjectTreePanel, show);
 
+        // A project opens on its tree, whatever its run held while there was none.
+        if (show)
+        {
+            _dock.Select(ProjectTreePanel);
+        }
+
         // Here rather than at the two ends of a project's life: this is where both of them already
         // land, and by now the workspace has been set or cleared.
         ShowWelcome();

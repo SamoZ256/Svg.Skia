@@ -706,6 +706,41 @@ public class SvgViewerDockTests
         window.Close();
     }
 
+    /// <summary>A run whose front panel goes shows its first real one, not a panel nothing supplies yet.</summary>
+    [AvaloniaFact]
+    public void A_Run_Never_Shows_A_Panel_Nothing_Supplies()
+    {
+        // Every region named, so settling puts none of them into the run.
+        var (window, dock, panels) = Host("row(*/1,col(elements+resources+brushes+variables/1/elements/open,project+element/1/project/open)/340px)");
+
+        dock.Show("elements", false);
+        Lay(window);
+
+        Assert.Contains("selected", Tab(window, "Variables").Classes);
+        Assert.True(panels[1].IsEffectivelyVisible);
+
+        window.Close();
+    }
+
+    /// <summary>A panel put back goes where the default has it among its run, not at the end of it.</summary>
+    [AvaloniaFact]
+    public void A_Panel_Put_Back_Takes_Its_Place_In_The_Run()
+    {
+        var (window, dock, _) = Host(Three);
+
+        dock.Fallback = Three;
+        dock.Show("project", false);
+        dock.Show("elements", false);
+
+        dock.Show("project", true);
+        dock.Show("elements", true);
+
+        Assert.Contains("col(project+elements+variables/", dock.Layout, StringComparison.Ordinal);
+        Assert.True(dock.Matches(Three));
+
+        window.Close();
+    }
+
     // ---- whether an arrangement is the one a line describes --------------------------------------
 
     [AvaloniaFact]

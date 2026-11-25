@@ -537,7 +537,12 @@ public sealed class SvgViewerDock
                            && wanted.Ids.Any(other => leaf.Ids.Contains(other, StringComparer.Ordinal)))
                is { } beside)
         {
-            beside.Ids.Add(id);
+            // In the default's order among what is there, rather than last: a tree put back behind
+            // History reads as a layout nobody chose.
+            var after = wanted.Ids.SkipWhile(other => !string.Equals(other, id, StringComparison.Ordinal)).Skip(1).ToHashSet(StringComparer.Ordinal);
+            var at = beside.Ids.FindIndex(after.Contains);
+
+            beside.Ids.Insert(at < 0 ? beside.Ids.Count : at, id);
 
             if (front)
             {
@@ -1009,10 +1014,11 @@ public sealed class SvgViewerDock
         {
             var body = new Panel();
 
+            var front = Front(leaf);
+
             foreach (var id in leaf.Ids)
             {
-                if (_regions.FirstOrDefault(region => string.Equals(region.Id, id, StringComparison.Ordinal))
-                    is not { } region)
+                if (Region(id) is not { } region)
                 {
                     continue;
                 }
@@ -1020,7 +1026,7 @@ public sealed class SvgViewerDock
                 var host = new Border
                 {
                     Child = region.Content,
-                    IsVisible = string.Equals(leaf.Selected, id, StringComparison.Ordinal),
+                    IsVisible = string.Equals(front, id, StringComparison.Ordinal),
                     Tag = id
                 };
 
@@ -1105,7 +1111,7 @@ public sealed class SvgViewerDock
                 ContextMenu = Menu(leaf, id, shown)
             };
 
-            if (string.Equals(leaf.Selected, id, StringComparison.Ordinal))
+            if (string.Equals(Front(leaf), id, StringComparison.Ordinal))
             {
                 tab.Classes.Add("selected");
             }
@@ -1152,7 +1158,7 @@ public sealed class SvgViewerDock
                 return;
             }
 
-            var at = shown.IndexOf(leaf.Selected ?? shown[0]);
+            var at = shown.IndexOf(Front(leaf) ?? shown[0]);
             var next = e.Key switch
             {
                 Key.Home => 0,
@@ -1184,6 +1190,11 @@ public sealed class SvgViewerDock
         return null;
     }
 
+    /// <summary>The panel a run shows: the one on top, or its first real one where what is on top is a panel nothing supplies.</summary>
+    /// <remarks>Here rather than in <see cref="Take"/>, which a dock with no regions runs too, to work out a line.</remarks>
+    private string? Front(Leaf leaf)
+        => leaf.Selected is { } chosen && Known(chosen) ? chosen : leaf.Ids.FirstOrDefault(Known);
+
     private SvgViewerRegion? Region(string id)
         => _regions.FirstOrDefault(region => string.Equals(region.Id, id, StringComparison.Ordinal));
 
@@ -1199,7 +1210,7 @@ public sealed class SvgViewerDock
 
         tab?.BringIntoView();
 
-        if (string.Equals(leaf.Selected, id, StringComparison.Ordinal))
+        if (string.Equals(Front(leaf), id, StringComparison.Ordinal))
         {
             return;
         }

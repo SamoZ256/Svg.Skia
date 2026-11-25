@@ -88,6 +88,56 @@ public class LayoutPresetTests : IDisposable
     private static Point Middle(Window window, Visual visual)
         => visual.TranslatePoint(new Point(visual.Bounds.Width / 2d, visual.Bounds.Height / 2d), window)!.Value;
 
+    private async Task<MainWindow> Host(string name, string text)
+    {
+        var path = Path.Combine(_directory, name);
+
+        if (name.EndsWith(".svgstudio", StringComparison.Ordinal))
+        {
+            TestPackage.Write(path, text);
+        }
+        else
+        {
+            File.WriteAllText(path, text);
+        }
+
+        var window = new MainWindow { Announce = (_, _) => Task.CompletedTask };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        await window.OpenAsync(new[] { path });
+        window.Measure(new Size(1200, 700));
+        window.Arrange(new Rect(0, 0, 1200, 700));
+        Dispatcher.UIThread.RunJobs();
+
+        return window;
+    }
+
+    /// <summary>A project opens on its tree, in the Drawing layout still, from a line saved while there was none.</summary>
+    /// <remarks>
+    /// Such a line has History alone in the tree's run and on top of it; the tree and Changes go back in
+    /// front of it, in their places.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Project_Opens_On_Its_Tree_In_The_Layout_It_Was()
+    {
+        StudioSettings.Layout = StudioSettings.DefaultLayout.Replace("tree+changes+history/1.4/tree/open", "history/1.4/history/open", StringComparison.Ordinal);
+
+        var window = await Host("icons.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <drawing name="home" class="Home">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" /></svg>
+              </drawing>
+            </studio>
+            """);
+
+        Assert.StartsWith("row(col(tree+changes+history/1.4/tree/open,", window.Layout, StringComparison.Ordinal);
+        Assert.True(window.Registry["layout-drawing"].IsChecked!());
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task The_Picker_Names_The_Layout_In_Use()
     {
