@@ -33,6 +33,8 @@ namespace Svg.Studio.UnitTests;
 /// Opening an svgc project: the tree beside the tabs, and a drawing shown at the size the project
 /// builds it at rather than the one it was written with.
 /// </summary>
+/// <remarks>In the settings collection, on a settings file of its own, because two of these turn smart guides off.</remarks>
+[Collection("settings")]
 public class MainWindowProjectTests : IDisposable
 {
     /// <summary>The drawing in the selected tab, which is what an edit is made to.</summary>
@@ -81,7 +83,18 @@ public class MainWindowProjectTests : IDisposable
         return path;
     }
 
-    public void Dispose() => Scratch.Delete(_directory);
+    private readonly string _settings = StudioSettings.Store;
+
+    // Beside the folder rather than in it: some of these assert the folder is left empty.
+    public MainWindowProjectTests() => StudioSettings.Store = _directory + ".settings";
+
+    public void Dispose()
+    {
+        StudioSettings.Store = _settings;
+
+        File.Delete(_directory + ".settings");
+        Scratch.Delete(_directory);
+    }
 
     /// <summary>A window with <paramref name="path"/> opened through the route a drop also ends in.</summary>
     private static async Task<MainWindow> Host(string path, string? layout = null)
@@ -549,25 +562,32 @@ public class MainWindowProjectTests : IDisposable
 
         Assert.True(fitted > 0d);
 
-        Press(panel, "+");
+        Press(window, "+");
         Assert.True(canvas.Scale > fitted);
 
-        Press(panel, "−");
+        Press(window, "−");
         Assert.Equal(fitted, canvas.Scale, 6);
 
         // One drawing unit per pixel, whatever the pane is; and back to the fit.
-        Press(panel, "1:1");
+        var zoom = window.GetVisualDescendants().OfType<TextBox>().Single(box => box.Name == "Zoom");
+
+        zoom.Text = "100";
+        zoom.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal(1d, canvas.Scale, 6);
 
-        Press(panel, "Fit");
+        Press(window, "Fit");
         Assert.Equal(fitted, canvas.Scale, 6);
 
     }
 
-    /// <summary>Presses one of the canvas's own buttons.</summary>
-    private static void Press(GroupPanel panel, string content)
+    /// <summary>Presses one of the status bar's buttons, which are about the board in front.</summary>
+    private static void Press(MainWindow window, string content)
     {
-        panel.GetVisualDescendants()
+        window.GetVisualDescendants()
+            .OfType<Border>()
+            .Single(bar => bar.Name == "StatusBar")
+            .GetVisualDescendants()
             .OfType<Button>()
             .First(button => Equals(button.Content, content))
             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -1138,6 +1158,9 @@ public class MainWindowProjectTests : IDisposable
     [AvaloniaFact]
     public async Task A_Shape_Drawn_On_The_Board_Lands_In_The_Drawing_Under_It_In_Its_Own_Units()
     {
+        // Where the corners land in the drawing's units, not which line they snap to.
+        StudioSettings.SmartGuides = false;
+
         var window = await Host(Write("icons.svgstudio", Board()));
         var panel = Panel(window, "Project");
         var canvas = Canvas(panel);
@@ -1178,7 +1201,9 @@ public class MainWindowProjectTests : IDisposable
         var area = Area(Shown(panel, home));
 
         Arm(window, panel, PhysicalKey.O);
-        Drag(window, canvas, Edge(canvas, area), Over(canvas, area.Left + 8f, area.Top + area.Height / 4f + 6f));
+
+        // Half a unit in: still on the line's grip, and on the drawing however the window's layout rounds.
+        Drag(window, canvas, Edge(canvas, area, 0.5f), Over(canvas, area.Left + 8f, area.Top + area.Height / 4f + 6f));
 
         Assert.Equal(place, (home.X, home.Y));
         Assert.Contains("<ellipse", home.Text, StringComparison.Ordinal);
@@ -1260,6 +1285,8 @@ public class MainWindowProjectTests : IDisposable
     [AvaloniaFact]
     public async Task A_Shape_Drawn_Into_A_Drawing_Open_In_A_Tab_Goes_Into_That_Tabs_Buffer()
     {
+        StudioSettings.SmartGuides = false;
+
         var window = await Host(Write("icons.svgstudio", Board()));
         var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
 
@@ -5223,6 +5250,61 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    private static TextBox Row(SvgViewerElementPanel element, string name)
+        => element.GetVisualDescendants().OfType<TextBox>().Single(box => Equals(box.Tag, name));
+
+    /// <summary>Save while a value is being typed saves the value: it is written before Save is asked whether there is anything to save.</summary>
+    [AvaloniaFact]
+    public async Task Saving_Writes_The_Attribute_Being_Typed()
+    {
+        var path = Own(Unbound, Declaring);
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+        Dispatcher.UIThread.RunJobs();
+
+        var opacity = Row(Assert.IsType<SvgViewerElementPanel>(Element(panel)), "opacity");
+
+        opacity.Focus();
+        opacity.Text = "0.5";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(window.Registry["save"].CanExecute());
+        Assert.True(await window.Registry.Run("save"));
+
+        Assert.Contains("opacity=\"0.5\"", TestPackage.Read(path), StringComparison.Ordinal);
+        Assert.True(opacity.IsFocused);
+    }
+
+    /// <summary>An undo under a box being typed in on a board: the box is not written over the undone drawing, and the redo survives.</summary>
+    [AvaloniaFact]
+    public async Task The_Board_Does_Not_Write_A_Box_Its_Drawing_Was_Undone_Under()
+    {
+        var window = await Host(Own(Unbound, Declaring));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
+
+        Assert.True(element.Set("opacity", "0.5"));
+        Dispatcher.UIThread.RunJobs();
+
+        var width = Row(element, "width");
+
+        width.Focus();
+        width.Text = "30";
+        Assert.True(window.Workspace!.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        width.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("width=\"30\"", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
+        Assert.True(window.Workspace.CanRedo);
+    }
+
     /// <summary>A write on a board leaves the pane where it was scrolled to.</summary>
     [AvaloniaFact]
     public async Task The_Attributes_Pane_Keeps_Its_Place_Through_A_Write_On_A_Board()
@@ -5234,7 +5316,9 @@ public class MainWindowProjectTests : IDisposable
         Pick(window, panel, 0);
 
         var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
-        var scroll = element.GetVisualDescendants().OfType<ScrollViewer>().First();
+
+        // The rows', not the one inside the Find box above them.
+        var scroll = element.GetVisualDescendants().OfType<ScrollViewer>().First(viewer => viewer.FindAncestorOfType<TextBox>() is null);
 
         scroll.Offset = new Vector(0, 120);
         Dispatcher.UIThread.RunJobs();

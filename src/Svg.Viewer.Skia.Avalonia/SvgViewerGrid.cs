@@ -2,6 +2,9 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
+using SkiaSharp;
+using Svg.Editor.Skia;
 
 namespace Svg.Viewer.Skia.Avalonia;
 
@@ -103,8 +106,19 @@ public readonly record struct SvgViewerGrid(float Step, float Turn)
     /// </remarks>
     public float Pull { get; init; }
 
+    /// <summary>Upright guide lines, which pull x, held relative to <see cref="OriginX"/> so <see cref="From"/> moves them too.</summary>
+    public SvgEditorGuideIndex? Uprights { get; init; }
+
+    /// <summary>Level guide lines, which pull y, relative to <see cref="OriginY"/>.</summary>
+    public SvgEditorGuideIndex? Levels { get; init; }
+
+    /// <summary>How near a guide line is near enough, in the grid's own units.</summary>
+    /// <remarks>Apart from <see cref="Pull"/>, which a fine step caps at half a step: a guide has no step.</remarks>
+    public float Reach { get; init; }
+
     /// <summary>Whether anything is being snapped at all.</summary>
-    public bool IsOn => Step > 0f;
+    /// <remarks>Lines count, so the gestures that return early on a grid that is off let a guide through.</remarks>
+    public bool IsOn => Step > 0f || Uprights is { Guides.Count: > 0 } || Levels is { Guides.Count: > 0 };
 
     /// <summary>
     /// The same grid, for something working in the space of a drawing placed at
@@ -144,15 +158,50 @@ public readonly record struct SvgViewerGrid(float Step, float Turn)
     /// Rounding everything is what stops a drag following the pointer: one step is tens of pixels at
     /// a high zoom, so the shape stands still for half the gesture and then leaps a whole step, which
     /// reads as a drag that does nothing. Near a line it lands on the line; between two, it is where
-    /// it was put.
+    /// it was put. Near a grid line and a guide line both, the nearer wins, the guide on a tie.
     /// </remarks>
-    public float PullX(float value) => Pulled(Snap(value, OriginX), value);
+    public float PullX(float value) => Pulled(value, OriginX, Uprights, upright: true);
 
     /// <inheritdoc cref="PullX"/>
-    public float PullY(float value) => Pulled(Snap(value, OriginY), value);
+    public float PullY(float value) => Pulled(value, OriginY, Levels, upright: false);
 
-    private float Pulled(float landed, float value)
-        => Pull > 0f && MathF.Abs(landed - value) > Pull ? value : landed;
+    private float Pulled(float value, float origin, SvgEditorGuideIndex? lines, bool upright)
+    {
+        var snapped = Snap(value, origin);
+        float? grid = Step > 0f && (Pull <= 0f || MathF.Abs(snapped - value) <= Pull) ? snapped : null;
+
+        return Guide(value, origin, lines, upright) is { } guide && (grid is not { } line || MathF.Abs(guide - value) <= MathF.Abs(line - value))
+            ? guide
+            : grid ?? value;
+    }
+
+    private float? Guide(float value, float origin, SvgEditorGuideIndex? lines, bool upright)
+    {
+        if (lines is null || float.IsNaN(value) || float.IsInfinity(value))
+        {
+            return null;
+        }
+
+        var from = value - origin;
+        var at = lines.Snap(upright ? new SKPoint(from, 0f) : new SKPoint(0f, from), Reach, out var line, out _);
+
+        return line is null ? null : (upright ? at.X : at.Y) + origin;
+    }
+
+    /// <summary>The lines at these positions, as an index a pull asks.</summary>
+    public static SvgEditorGuideIndex Lines(IEnumerable<float> positions, bool upright)
+    {
+        var lines = new List<SvgEditorGuide>();
+
+        foreach (var position in positions)
+        {
+            lines.Add(upright
+                ? new SvgEditorGuide(string.Empty, new SKPoint(position, 0f), new SKPoint(0f, 1f))
+                : new SvgEditorGuide(string.Empty, new SKPoint(0f, position), new SKPoint(1f, 0f)));
+        }
+
+        return new SvgEditorGuideIndex(lines);
+    }
 
     /// <summary>The nearest angle, in degrees.</summary>
     public float Turns(float degrees)

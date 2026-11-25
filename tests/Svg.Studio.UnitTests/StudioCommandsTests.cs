@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Svg.Editor.Core;
 using Xunit;
@@ -37,9 +39,104 @@ public class StudioCommandsTests
     public void Settings_Is_The_Gesture_The_Application_Menu_Declares()
         => Assert.Equal(KeyGesture.Parse("Cmd+,"), StudioCommands.Gesture(SvgEditorShortcutKey.Comma, Primary, mac: true));
 
-    [Fact]
+    // Headless, as every test that makes a StudioCommands is: its Open Recent item is an Avalonia
+    // object, and one made on a pool thread between two headless tests takes the UI dispatcher from
+    // the next one's setup, which then fails as a cleanup failure of whatever test it was.
+    [AvaloniaFact]
     public void Two_Commands_Of_One_Name_Are_Refused()
         => Assert.Throws<ArgumentException>(() => new StudioCommands(new[] { Command("save"), Command("save") }, mac: false));
+
+    /// <summary>A bar's button is the command: it runs it, and follows its check and whether it can run.</summary>
+    [AvaloniaFact]
+    public void A_Bound_Button_Is_The_Command()
+    {
+        var on = false;
+        var live = true;
+        var ran = 0;
+
+        var commands = new StudioCommands(
+            new[]
+            {
+                new StudioCommand("snap", "Snap", "Test", () =>
+                {
+                    on = !on;
+                    ran++;
+
+                    return Task.CompletedTask;
+                })
+                {
+                    IsChecked = () => on,
+                    CanExecute = () => live,
+                    Key = SvgEditorShortcutKey.K,
+                    Modifiers = Primary
+                },
+                Command("plain")
+            },
+            mac: false);
+
+        var snap = Assert.IsType<ToggleButton>(commands.Bound("snap"));
+        var plain = commands.Bound("plain", "Plain");
+
+        Assert.IsNotType<ToggleButton>(plain);
+        Assert.Equal("Plain", plain.Content);
+        Assert.Equal("Snap (Ctrl+K)", ToolTip.GetTip(snap));
+        Assert.False(snap.IsChecked);
+
+        snap.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, ran);
+        Assert.True(snap.IsChecked);
+
+        // Changed by another route, a menu or a key: the button hears of it from the refresh.
+        on = false;
+        live = false;
+        commands.Refresh();
+
+        Assert.False(snap.IsChecked);
+        Assert.False(snap.IsEnabled);
+
+        // A click that cannot run leaves the button showing the command, not its own flip.
+        live = true;
+        snap.IsChecked = true;
+        live = false;
+        snap.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, ran);
+        Assert.False(snap.IsChecked);
+    }
+
+    /// <summary>Save, among others, is only live once what is being typed is in the drawing.</summary>
+    [AvaloniaFact]
+    public async Task A_Command_Commits_What_Is_Typed_Before_It_Is_Asked_Whether_It_Can_Run()
+    {
+        var committed = 0;
+        var save = Command("save") with { CanExecute = () => committed > 0 };
+        var commands = new StudioCommands(new[] { save }, mac: false) { CommitPending = () => committed++ };
+
+        Assert.True(await commands.Run("save"));
+        Assert.Equal(1, committed);
+    }
+
+    /// <summary>Undo and redo take back the typing itself, and Select All selects it: none of them writes it first.</summary>
+    [AvaloniaFact]
+    public async Task Undo_Redo_And_Select_All_Leave_The_Typed_Box_Alone()
+    {
+        var committed = 0;
+        var commands = new StudioCommands(new[] { Command("undo") with { KeepsTyping = true } }, mac: false) { CommitPending = () => committed++ };
+
+        Assert.True(await commands.Run("undo"));
+        Assert.Equal(0, committed);
+
+        var window = new MainWindow();
+
+        // Duplicate and Delete do nothing while a box has the keyboard, so neither writes what is typed first.
+        Assert.All(new[] { "undo", "redo", "selectall", "duplicate", "delete" }, id => Assert.True(window.Registry[id].KeepsTyping, id));
+        Assert.False(window.Registry["save"].KeepsTyping);
+
+        window.Close();
+    }
 
     [AvaloniaFact]
     public void A_Menu_Leaves_Out_What_Has_No_Command_And_Every_Stray_Rule()
@@ -87,7 +184,7 @@ public class StudioCommandsTests
         Assert.Equal(new KeyGesture(Key.OemPlus, KeyModifiers.Control), Item(mac: false, "zoomin").Gesture);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public async Task A_Key_Another_Control_Answers_Is_Listed_And_Not_Run()
     {
         var listed = new StudioCommand("tool-rectangle", "Rectangle", "Tools", null) { Scope = SvgEditorShortcutScope.Canvas, Key = SvgEditorShortcutKey.R };
@@ -139,7 +236,7 @@ public class StudioCommandsTests
     }
 
     /// <remarks>The text is the gesture the menu shows, not the one the declaration falls back on.</remarks>
-    [Fact]
+    [AvaloniaFact]
     public void A_Platform_Gesture_Is_Spelled_As_The_Catalog_Spells_One()
     {
         var redo = Command("redo") with
