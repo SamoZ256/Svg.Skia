@@ -84,6 +84,9 @@ public partial class MainWindow : Window
     /// <summary>The open project's place in git, on the arrangement while a saved project is open and git is installed.</summary>
     private readonly ChangesPanel _changes = new();
 
+    /// <summary>What Undo would take back, beside Changes.</summary>
+    private readonly HistoryPanel _history = new();
+
     /// <summary>The chat that answers from the docs and works the window through <see cref="AssistantTools"/>.</summary>
     private readonly AssistantPanel _assistant;
 
@@ -197,6 +200,8 @@ public partial class MainWindow : Window
         _changes.Unsaved = () => Unwritten is { } || Unsaved().Count > 0;
         _changes.Reopen = path => OpenProjectAsync(path);
         _changes.Document = () => _workspace?.Document;
+        _history.Drawing = Selected;
+        _history.Project = () => _workspace;
         _changes.Open = ShowAsync;
         _changes.Compared += (_, _) =>
         {
@@ -524,6 +529,9 @@ public partial class MainWindow : Window
         };
 
         viewer.SourceModifiedChanged += (_, _) => Mark(item);
+
+        // The Undo item's label, and History, are about every step the drawing takes.
+        viewer.SourceChanged += (_, _) => UpdateMenu();
 
         viewer.OpenRequested += (_, request) =>
         {
@@ -1234,6 +1242,8 @@ public partial class MainWindow : Window
     /// <summary>What the arrangement calls the changes panel.</summary>
     private const string ChangesPanelId = "changes";
 
+    private const string HistoryPanelId = "history";
+
     private const string AssistantPanelId = "assistant";
 
     /// <summary>
@@ -1281,6 +1291,7 @@ public partial class MainWindow : Window
             }
             .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id]) { Closable = true }))
             .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline) { Closable = true })
+            .Append(new SvgViewerRegion(HistoryPanelId, "History", _history) { Closable = true })
             .ToList();
     }
 
@@ -3613,6 +3624,7 @@ public partial class MainWindow : Window
     {
         _registry.Refresh();
         _bars.Show();
+        _history.Refresh();
     }
 
     /// <summary>"Undo", or "Undo remove Large" where the history knows what it was.</summary>
@@ -4496,6 +4508,9 @@ public partial class MainWindow : Window
 
     /// <summary>The open project's repository panel, which is the way in to its commands without a click.</summary>
     public ChangesPanel Changes => _changes;
+
+    /// <summary>The panel listing what Undo would take back, for a test to drive.</summary>
+    public HistoryPanel History => _history;
 
     /// <summary>
     /// How the window asks whether a copy of unsaved work may be thrown away.
