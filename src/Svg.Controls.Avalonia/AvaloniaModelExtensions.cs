@@ -428,7 +428,7 @@ public static class AvaloniaModelExtensions
 
     public static AM.IImmutableBrush? ToConicGradientBrush(this SweepGradientShader sweepGradientShader, SKRect bounds)
     {
-        if (sweepGradientShader.Colors is null || sweepGradientShader.ColorPos is null)
+        if (sweepGradientShader.Colors is not { } colors || sweepGradientShader.ColorPos is not { Length: > 0 })
         {
             return null;
         }
@@ -440,20 +440,58 @@ public static class AvaloniaModelExtensions
         }
 
         // The brush always sweeps a whole turn from 0 degrees, so each stop moves to where its angle falls.
+        // It would pin a stop that falls outside the turn to its end, where Skia never reaches that stop,
+        // so the stops are cut at 0 and 1 with the colour Skia draws there.
         var start = sweepGradientShader.StartAngle;
         var sweep = sweepGradientShader.EndAngle - start;
-        var offsets = Array.ConvertAll(sweepGradientShader.ColorPos, pos => Math.Clamp((start + pos * sweep) / 360f, 0f, 1f));
+        var offsets = Array.ConvertAll(sweepGradientShader.ColorPos, pos => (start + pos * sweep) / 360f);
+        var stops = new List<AMII.ImmutableGradientStop>(offsets.Length + 2);
+        if (offsets[0] < 0f)
+        {
+            stops.Add(StopAt(0f));
+        }
+
+        for (var i = 0; i < offsets.Length; i++)
+        {
+            if (offsets[i] is >= 0f and <= 1f)
+            {
+                stops.Add(new AMII.ImmutableGradientStop(offsets[i], colors[i].ToColor()));
+            }
+        }
+
+        if (offsets[offsets.Length - 1] > 1f)
+        {
+            stops.Add(StopAt(1f));
+        }
 
         // Avalonia.Skia 12.1.3 turns the gradient by Angle - 90 about its centre, and applies Transform
         // about TransformOrigin: 90 and an absolute (0,0) leave Skia's angles and local matrix as they are.
         return new AMII.ImmutableConicGradientBrush(
-            ToGradientStops(sweepGradientShader.Colors, offsets),
+            stops,
             1,
             transform,
             new A.RelativePoint(0, 0, A.RelativeUnit.Absolute),
             AM.GradientSpreadMethod.Pad,
             new A.RelativePoint(sweepGradientShader.Center.ToPoint(), A.RelativeUnit.Absolute),
             90);
+
+        AMII.ImmutableGradientStop StopAt(float offset)
+        {
+            var next = Array.FindIndex(offsets, u => u > offset);
+            if (next <= 0)
+            {
+                return new AMII.ImmutableGradientStop(offset, colors[next < 0 ? colors.Length - 1 : 0].ToColor());
+            }
+
+            // Skia blends unpremultiplied channels in a straight line between the two stops.
+            var (a, b) = (colors[next - 1], colors[next]);
+            var t = (offset - offsets[next - 1]) / (offsets[next] - offsets[next - 1]);
+            return new AMII.ImmutableGradientStop(offset, new SKColorF(
+                a.Red + (b.Red - a.Red) * t,
+                a.Green + (b.Green - a.Green) * t,
+                a.Blue + (b.Blue - a.Blue) * t,
+                a.Alpha + (b.Alpha - a.Alpha) * t).ToColor());
+        }
     }
 
     public static AM.IImmutableBrush? ToVisualBrush(this PictureShader pictureShader, SKRect bounds)
