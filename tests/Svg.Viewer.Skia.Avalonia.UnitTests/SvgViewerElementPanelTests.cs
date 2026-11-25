@@ -1758,22 +1758,517 @@ public class SvgViewerElementPanelTests
     // ---- what a row shows -----------------------------------------------------------------------
 
     /// <summary>A paint set in style says so on its row, rather than reading as not set.</summary>
+    /// <summary>A paint a style sets is edited in its declaration, which is what paints.</summary>
     [AvaloniaFact]
-    public void A_Paint_Set_In_Style_Says_So_And_Offers_Nothing_It_Would_Refuse()
+    public void A_Paint_Set_In_Style_Is_Edited_In_Its_Declaration()
     {
         var held = new Held("""<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill: red" /></svg>""");
         var window = held.Show("0");
         var fill = Box(window, "fill");
 
-        Assert.True(fill.IsReadOnly);
-        Assert.Equal("red in style", fill.Watermark);
-        Assert.DoesNotContain(
-            window.GetVisualDescendants().OfType<Button>(),
-            button => Equals(button.Tag, "fill") && (button.Classes.Contains("swatch") || button.Classes.Contains("choices")));
+        Assert.False(fill.IsReadOnly);
+        Assert.Equal("red", fill.Text);
+        Assert.NotNull(Control(window, "swatch", "fill"));
 
-        // Stroke is not in the style, and keeps its swatch.
-        Assert.False(Box(window, "stroke").IsReadOnly);
-        Assert.NotNull(Control(window, "swatch", "stroke"));
+        Type(fill, "blue");
+
+        Assert.Contains("<rect style=\"fill: blue\" />", held.Text, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void An_Important_Declaration_Keeps_Its_Importance()
+    {
+        var held = new Held("""<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill: red !important" /></svg>""");
+        var window = held.Show("0");
+        var fill = Box(window, "fill");
+
+        Assert.Equal("red", fill.Text);
+
+        Type(fill, "blue");
+
+        Assert.Contains("style=\"fill: blue !important\"", held.Text, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Emptying_A_Styled_Row_Takes_The_Property_Out_Of_The_Style()
+    {
+        var held = new Held("""<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill: red; stroke: blue" /></svg>""");
+        var window = held.Show("0");
+
+        Type(Box(window, "fill"), string.Empty);
+
+        Assert.Contains("<rect style=\"stroke: blue\" />", held.Text, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    /// <summary>What is written for a transform is attribute grammar, which no browser reads in a style.</summary>
+    [AvaloniaFact]
+    public void A_Transform_Set_In_Style_Stays_Read_Only()
+    {
+        var held = new Held("""<svg xmlns="http://www.w3.org/2000/svg"><rect style="transform: rotate(45deg)" /></svg>""");
+        var window = held.Show("0");
+        var transform = Box(window, "transform");
+
+        Assert.True(transform.IsReadOnly);
+        Assert.Equal("rotate(45deg) in style", transform.Watermark);
+
+        window.Close();
+    }
+
+    /// <summary>A shape with no fill of its own that a group's expression paints reads as driven, and can still be given one.</summary>
+    [AvaloniaFact]
+    public void A_Paint_A_Group_Drives_Reads_As_Driven_On_The_Shape()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0">
+              <defs><e:code><e:param name="tint" type="color" default="#ff0000" /></e:code></defs>
+              <g fill="{{ tint }}"><rect width="4" height="4" /></g>
+            </svg>
+            """);
+        var window = held.Show("1/0");
+        var fill = (SvgExpressionField)Box(window, "fill");
+        var chip = Assert.IsType<SvgPaintChip>(Control(window, "swatch", "fill"));
+
+        Assert.Equal("{{ tint }} inherited", fill.Watermark);
+        Assert.True(fill.IsDriven);
+        Assert.Equal(SvgPaintChipState.Driven, chip.State);
+        Assert.True(chip.IsEnabled);
+        Assert.Equal(Color.FromRgb(0xff, 0, 0), chip.DrivenColor);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Value_An_Expression_Writes_Is_Marked_Driven()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var fill = (SvgExpressionField)Box(window, "fill");
+
+        Assert.False(fill.IsDriven);
+
+        fill.Text = "{{ tint }}";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(fill.IsDriven);
+        Assert.Contains(":driven", fill.Classes);
+
+        window.Close();
+    }
+
+    // ---- what is typed, and the drawing moving under it ---------------------------------------
+
+    /// <summary>Types into a box as somebody would, and presses Enter.</summary>
+    private static void Type(TextBox box, string text)
+    {
+        box.Focus();
+        box.Text = text;
+        Press(box, Key.Enter);
+    }
+
+    private static void Press(TextBox box, Key key)
+    {
+        box.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = key });
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The panel over a real history, so a write is an undo step and an undo moves the drawing under a box.</summary>
+    private sealed class Worked
+    {
+        public Worked(string text = Drawing)
+        {
+            Workspace = SvgSourceWorkspace.Open(text, out _)!;
+
+            Panel = new SvgViewerElementPanel(
+                () => Workspace.Text,
+                () => Workspace.Text,
+                (label, edit) =>
+                {
+                    var refusal = Workspace.Commit(label, edit);
+
+                    if (refusal is null)
+                    {
+                        Panel!.Refresh();
+                    }
+
+                    return refusal;
+                },
+                () => ExprEvaluator.Create(SvgExpressionDeclarations.Parse(Workspace.Text, out _)))
+            {
+                UndoStep = () => Workspace.UndoStep,
+                Holds = step => Workspace.Holds(step)
+            };
+        }
+
+        public SvgSourceWorkspace Workspace { get; private set; }
+
+        public SvgViewerElementPanel Panel { get; }
+
+        /// <summary>Opens another text in the panel's place, as a reload does: a new history.</summary>
+        public void Reload(string text)
+        {
+            Workspace = SvgSourceWorkspace.Open(text, out _)!;
+            Panel.Refresh();
+        }
+
+        public Window Show(string address)
+        {
+            var window = new Window { Width = 400, Height = 600, Background = Brushes.White, Content = Panel };
+
+            window.Show();
+            Panel.Show(address);
+            Dispatcher.UIThread.RunJobs();
+
+            return window;
+        }
+    }
+
+    [AvaloniaFact]
+    public void Escape_Puts_Back_What_The_Box_Was_Drawn_With()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var fill = Box(window, "fill");
+
+        fill.Focus();
+        fill.Text = "blue";
+        Press(fill, Key.Escape);
+
+        Assert.Equal("#00ff00", fill.Text);
+
+        Press(fill, Key.Enter);
+
+        Assert.Equal(0, held.Writes);
+
+        window.Close();
+    }
+
+    /// <summary>The drawing changed under a box being typed in: written, it would land on a state the box never showed.</summary>
+    [AvaloniaFact]
+    public void A_Box_Typed_While_The_Drawing_Changed_Under_It_Is_Not_Written()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var width = Box(window, "width");
+
+        width.Focus();
+        width.Text = "30";
+        held.Undo("#00ff00", "#0000ff");
+        Press(width, Key.Enter);
+
+        Assert.Equal(0, held.Writes);
+        Assert.Contains("width=\"24\"", held.Text, StringComparison.Ordinal);
+        Assert.Contains("changed while 'width' was being typed", held.Panel.Fault, StringComparison.Ordinal);
+        Assert.Equal("#0000ff", Box(window, "fill").Text);
+
+        window.Close();
+    }
+
+    /// <summary>Not written over the undone state, and what was undone can still be redone.</summary>
+    [AvaloniaFact]
+    public void A_Box_Typed_Before_An_Undo_Is_Not_Written_And_The_Redo_Survives()
+    {
+        var worked = new Worked();
+        var window = worked.Show("1/0");
+
+        Assert.True(worked.Panel.Set("opacity", "0.5"));
+        Dispatcher.UIThread.RunJobs();
+
+        var width = Box(window, "width");
+
+        width.Focus();
+        width.Text = "30";
+        Assert.True(worked.Workspace.Undo());
+        worked.Panel.Refresh();
+        Press(width, Key.Enter);
+
+        Assert.DoesNotContain("width=\"30\"", worked.Workspace.Text, StringComparison.Ordinal);
+        Assert.True(worked.Workspace.CanRedo);
+
+        window.Close();
+    }
+
+    /// <summary>An edit built on the state the rows were drawn from is no reason to refuse what is typed.</summary>
+    [AvaloniaFact]
+    public void A_Box_Typed_While_Another_Edit_Lands_Is_Still_Written()
+    {
+        var worked = new Worked();
+        var window = worked.Show("1/0");
+
+        Assert.True(worked.Panel.Set("opacity", "0.5"));
+        Dispatcher.UIThread.RunJobs();
+
+        var width = Box(window, "width");
+
+        width.Focus();
+        width.Text = "30";
+        Assert.Null(worked.Workspace.Commit("stroke", source => SvgAttributeEditor.SetAttribute(source, "1/0", "stroke", "blue")));
+        Press(width, Key.Enter);
+
+        Assert.Contains("width=\"30\"", worked.Workspace.Text, StringComparison.Ordinal);
+        Assert.Contains("stroke=\"blue\"", worked.Workspace.Text, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    /// <summary>A reload can put another element at the same address, which the typed value was never meant for.</summary>
+    [AvaloniaFact]
+    public void A_Box_Typed_Over_A_Reloaded_Drawing_Does_Not_Write_Into_Another_Element()
+    {
+        var worked = new Worked();
+        var window = worked.Show("1/0");
+
+        Assert.True(worked.Panel.Set("opacity", "0.5"));
+        Dispatcher.UIThread.RunJobs();
+
+        var opacity = Box(window, "opacity");
+
+        opacity.Focus();
+        opacity.Text = "0.25";
+        worked.Reload("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs><e:code><e:param name="tint" type="color" default="#ff0000" /></e:code></defs>
+              <g id="wrap"><circle r="4" /></g>
+            </svg>
+            """);
+        Press(opacity, Key.Enter);
+
+        Assert.Contains("<circle r=\"4\" />", worked.Workspace.Text, StringComparison.Ordinal);
+        Assert.NotNull(worked.Panel.Fault);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Refresh_Leaves_The_Box_Being_Typed_In_Alone()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var width = Box(window, "width");
+
+        width.Focus();
+        width.Text = "30";
+        held.Panel.Refresh();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(width, Box(window, "width"));
+        Assert.Equal("30", width.Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Committing_What_Is_Typed_Writes_It_And_Keeps_The_Keyboard()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var width = Box(window, "width");
+
+        width.Focus();
+        width.Text = "30";
+
+        Assert.True(held.Panel.IsPending);
+        Assert.True(held.Panel.CommitPending());
+
+        Assert.Contains("width=\"30\"", held.Text, StringComparison.Ordinal);
+        Assert.False(held.Panel.IsPending);
+        Assert.True(width.IsFocused);
+
+        window.Close();
+    }
+
+    /// <summary>Picking another element while typing writes what was typed into the element it was typed for.</summary>
+    [AvaloniaFact]
+    public void Picking_Another_Element_Writes_What_Was_Typed_Into_Its_Own()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var width = Box(window, "width");
+
+        width.Focus();
+        width.Text = "30";
+        held.Panel.Show("1");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("<rect x=\"0\" y=\"0\" width=\"30\"", held.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("<g id=\"wrap\" width", held.Text, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
+    // ---- the heading -------------------------------------------------------------------------
+
+    [AvaloniaFact]
+    public void The_Heading_Names_The_Tag_And_The_Id()
+    {
+        var held = new Held();
+        var window = held.Show("1");
+
+        TextBlock Badge() => window.GetVisualDescendants().OfType<Border>().Single(border => border.Classes.Contains("badge")).GetVisualDescendants().OfType<TextBlock>().Single();
+        TextBlock Title() => window.GetVisualDescendants().OfType<TextBlock>().First(block => block.FontWeight == FontWeight.SemiBold && block.Text is { Length: > 0 } && block.FindAncestorOfType<Expander>() is null);
+
+        Assert.Equal("g", Badge().Text);
+        Assert.Equal("#wrap", Title().Text);
+
+        held.Panel.Show("1/0");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("rect", Badge().Text);
+        Assert.Equal("Rectangle", Title().Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Finding_An_Attribute_Shows_Only_The_Rows_That_Match()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var all = held.Panel.Attributes.ToList();
+
+        held.Panel.Filter = "stroke";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEmpty(held.Panel.Attributes);
+        Assert.All(held.Panel.Attributes, name => Assert.Contains("stroke", name, StringComparison.Ordinal));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Expander>(), section => section.IsVisible && Equals(section.Tag, "Fill"));
+
+        held.Panel.Filter = string.Empty;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(all, held.Panel.Attributes);
+
+        window.Close();
+    }
+
+    /// <summary>A search finds what the element does not usually list, without turning Show all on.</summary>
+    [AvaloniaFact]
+    public void Finding_Reaches_An_Attribute_The_Element_Does_Not_Usually_List()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        Assert.DoesNotContain("stroke-miterlimit", held.Panel.Attributes);
+
+        held.Panel.Filter = "miter";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("stroke-miterlimit", held.Panel.Attributes);
+        Assert.False(held.Panel.ShowsAll);
+
+        held.Panel.Filter = string.Empty;
+        window.Close();
+    }
+
+    /// <summary>A folded section opens to show what a search finds, and is folded again once the search is gone.</summary>
+    [AvaloniaFact]
+    public void A_Folded_Section_Opens_For_A_Match_And_Stays_Folded_After()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        Expander Stroke() => window.GetVisualDescendants().OfType<Expander>().Single(section => Equals(section.Tag, "Stroke"));
+
+        // Remembered once Collapsed is raised, which is on a later pass.
+        Stroke().IsExpanded = false;
+        Dispatcher.UIThread.RunJobs();
+
+        try
+        {
+            held.Panel.Filter = "stroke";
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(Stroke().IsExpanded);
+
+            held.Panel.Filter = string.Empty;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(Stroke().IsExpanded);
+        }
+        finally
+        {
+            Stroke().IsExpanded = true;
+            window.Close();
+        }
+    }
+
+    /// <summary>The rows a search finds are still the only ones shown after the drawing changes and the rows are drawn again.</summary>
+    [AvaloniaFact]
+    public void The_Search_Survives_The_Rows_Being_Drawn_Again()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        // Settled first: the Find box echoes the filter back on a later pass, which would filter the rows again by itself.
+        held.Panel.Filter = "fill";
+        Dispatcher.UIThread.RunJobs();
+
+        held.Undo("#00ff00", "#0000ff");
+        Dispatcher.UIThread.RunJobs();
+
+        // What is on screen, rather than what the filter would say.
+        Assert.All(
+            window.GetVisualDescendants().OfType<SvgExpressionField>().Where(box => box.IsEffectivelyVisible),
+            box => Assert.Contains("fill", (string)box.Tag!, StringComparison.Ordinal));
+
+        held.Panel.Filter = string.Empty;
+        window.Close();
+    }
+
+    /// <summary>With Show all on, a search is still one: a folded section opens for it, and folds again after.</summary>
+    [AvaloniaFact]
+    public void A_Folded_Section_Opens_For_A_Match_With_Show_All_On_Too()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+
+        Expander Stroke() => window.GetVisualDescendants().OfType<Expander>().Single(section => Equals(section.Tag, "Stroke"));
+
+        held.Panel.ShowsAll = true;
+        Dispatcher.UIThread.RunJobs();
+        Stroke().IsExpanded = false;
+        Dispatcher.UIThread.RunJobs();
+
+        try
+        {
+            held.Panel.Filter = "miter";
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(Stroke().IsExpanded);
+
+            held.Panel.Filter = string.Empty;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(Stroke().IsExpanded);
+        }
+        finally
+        {
+            Stroke().IsExpanded = true;
+            Dispatcher.UIThread.RunJobs();
+            held.Panel.ShowsAll = false;
+            window.Close();
+        }
+    }
+
+    /// <summary>A space after the value is nothing to write and leaves nothing pending, so Save does not stay live for it.</summary>
+    [AvaloniaFact]
+    public void A_Space_After_The_Value_Leaves_Nothing_Pending()
+    {
+        var held = new Held();
+        var window = held.Show("1/0");
+        var width = Box(window, "width");
+
+        width.Focus();
+        width.Text = "24 ";
+        held.Panel.CommitPending();
+
+        Assert.False(held.Panel.IsPending);
+        Assert.Equal(0, held.Writes);
 
         window.Close();
     }

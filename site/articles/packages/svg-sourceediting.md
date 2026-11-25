@@ -31,7 +31,7 @@ dotnet add package SamoZ256.Svg.SourceEditing --prerelease
 | --- | --- |
 | `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's replacement rules — the half of a recipe that is not declarations |
-| `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with; `Content` and `SetContent` for the text between a `<text>`, `<tspan>` or `<textPath>`'s tags; `Driven` for the expression a value is written with, on the element or a group around it |
+| `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with; `Content` and `SetContent` for the text between a `<text>`, `<tspan>` or `<textPath>`'s tags; `Driven` for the expression a value is written with, on the element or a group around it; `IsGeometry` for the properties a style declaration is not written into |
 | `SvgSourceEdits` | What one gesture writes, as steps for one commit: every element they name is found before anything is written |
 | `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` — or one element of it by `TextOf` |
 | `SvgSourceWorkspace` | That drawing and its history: `Commit`, `Undo`, `Redo`, `IsModified`, `MarkSaved`, and `UndoStep`, `RedoStep`, `Holds` and `Undone` for a caller to know its own steps again |
