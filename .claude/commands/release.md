@@ -20,9 +20,10 @@ command says more than the skill, this command wins:
    nuget.org already lists the version, rather than picking around it.
 3. **Tag** `origin/master` itself, annotated, and push only that tag.
 4. **Approve** the run's pending `nuget` deployment through the API, with the comment
-   `Approved by /release`, once the run is `waiting` there and **Build, Test, Pack and Pack MAUI
-   have all succeeded**. The publish job needs only the build and the two packs, so it can be
-   waiting while Test is still running: wait for Test too. If anything failed, approve nothing and
+   `Approved by /release`, once the run is `waiting` there and **Build, both Tests, Studio UI, Pack
+   and Pack MAUI have all succeeded**. The publish job needs only the build and the two packs, so it
+   can be waiting while the tests are still running: wait for them too. Studio UI flakes: re-run it
+   once with `gh run rerun <id> --repo SamoZ256/Svg.Skia --failed` before treating it as a failure. If anything failed, approve nothing and
    follow the skill's failure cases.
 5. **Check** that the release holds every package, that the publish job pushed each one, and that
    nuget.org lists the version, allowing for indexing.

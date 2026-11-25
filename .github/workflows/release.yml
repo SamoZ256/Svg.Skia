@@ -74,10 +74,16 @@ jobs:
       - name: Build
         run: dotnet build Svg.Skia.slnx -c Release --no-restore
 
+  # The only Windows run of the suite: a branch once failed 32 tests there that passed locally (git
+  # writes read-only files and ships core.autocrlf=true on Windows).
   test:
-    name: Test Release
-    runs-on: ubuntu-latest
+    name: Test Release (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -102,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: release-test-results
+          name: release-test-results-${{ matrix.os }}
           path: artifacts/test/**/*.trx
           if-no-files-found: error
           retention-days: 7
@@ -111,10 +117,15 @@ jobs:
         uses: dorny/test-reporter@3eeb9fc888e82e8be2fb356bbeec2750231672bc # v1, 2026-10-31
         if: always()
         with:
-          name: Release Test Results
+          name: Release Test Results (${{ matrix.os }})
           path: artifacts/test/**/*.trx
           reporter: dotnet-trx
           fail-on-empty: false
+
+  studio-ui:
+    name: Studio UI
+    needs: build
+    uses: ./.github/workflows/studio-ui.yml
 
   pack:
     name: Pack Release

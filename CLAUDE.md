@@ -96,5 +96,5 @@ A clean checkout builds clean and the suite is fully green — anything failing 
 or something that drifted, so investigate rather than assume it was already broken. Judge warnings
 by a build of master, not a count: most are SkiaSharp 4 `CS0618` or NuGet advisories. W3C text rows use
 per-fixture thresholds calibrated against a particular native Skia: a hairline failure after a
-SkiaSharp bump usually wants a threshold nudge and almost never a re-captured baseline. Only
-`Svg.Studio.UiTests` cover `App.axaml`; they take the real pointer, so run only in `studio-ui.yml`.
+SkiaSharp bump usually wants a threshold nudge and almost never a re-captured baseline. Windows and
+`Svg.Studio.UiTests` (all that covers `App.axaml`) run only in `release.yml`; pull requests get Linux.
