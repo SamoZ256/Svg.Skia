@@ -236,6 +236,7 @@ var clone = source.Clone();
 <li>wireframe rendering,</li>
 <li>reload support that maps directly to the <code>Svg.Skia</code> runtime object.</li>
 </ul>
+<p>Paint goes through Avalonia brushes as well, and a sweep gradient becomes a conic brush, which has no start or end angle and no spread method: <code>repeat</code> and <code>reflect</code> draw as <code>pad</code>, which Skia draws too only where <code>startAngle</code> is at most 0 and <code>endAngle</code> at least 360. As on the linear and radial brushes, <code>color-interpolation=&quot;linearRGB&quot;</code> stops come out darker than Skia draws them, because a brush carries no colour space. The linear and radial brushes also turn a gradient's matrix about the shape's top-left rather than the origin, so an <code>objectBoundingBox</code> gradient on a shape away from (0,0) is drawn displaced.</p>
 <h2 id="brushes-and-resources">Brushes and resources</h2>
 <p>The same <code>SvgResource</code> pattern is available here:</p>
 <pre><code class="language-xml">&lt;Border Background=&quot;{SvgResource /Assets/__tiger.svg}&quot; /&gt;

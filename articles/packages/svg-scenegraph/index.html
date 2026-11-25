@@ -189,7 +189,7 @@
 <ul>
 <li>consumes SVG input plus asset-loading services</li>
 <li>builds a retained tree of scene nodes with bounds and transforms</li>
-<li>resolves text, resources, paint servers, masks, clips, and filters</li>
+<li>resolves text, resources, paint servers (the repository's own <a href="/Svg.Skia/articles/packages/svg-custom#sweep-gradients"><code>&lt;sweepGradient&gt;</code></a> among them), masks, clips, and filters</li>
 <li>produces model output that <code>Svg.Skia</code> can convert to real SkiaSharp objects</li>
 </ul>
 <p>It is also the layer used for retained animation and native-composition analysis, where the runtime needs more structure than a flattened final picture.</p>

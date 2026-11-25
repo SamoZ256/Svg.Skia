@@ -203,7 +203,8 @@ if (document is not null)
 <li>repository-local SVG 1.1 animation object-model types,</li>
 <li>typed <code>pointer-events</code> support used by the shared hit-test and interaction layers,</li>
 <li><code>SvgElementNames.NameOf</code> and <code>SvgElementAddress</code>, which answer the two questions the vendored
-<code>SvgElement</code> cannot: what an element is called, and which element it is.</li>
+<code>SvgElement</code> cannot: what an element is called, and which element it is,</li>
+<li><code>&lt;sweepGradient&gt;</code>, a gradient that turns around a centre.</li>
 </ul>
 <p>The rendering behavior still lives above this package, not inside it.</p>
 <h3 id="naming-and-addressing-an-element">Naming and addressing an element</h3>
@@ -217,6 +218,77 @@ a host reloading a drawing from edited text gets a new <code>SvgDocument</code> 
 a reference taken a moment ago names nothing. <code>SvgSceneNode.ElementAddressKey</code> spells the same path,
 and so does <code>SvgSourceElements</code> in <code>Svg.Highlighting</code>, which is what lets a scene node, a row of text
 and an element all be talked about as the same thing.</p>
+<h3 id="sweep-gradients">Sweep gradients</h3>
+<p><code>&lt;sweepGradient&gt;</code> is Skia's sweep gradient: the colour turns around a centre instead of running
+along a line or out from a point. No SVG specification has it, so it is read as an element of the
+SVG namespace and <code>SvgSweepGradientServer</code> types it.</p>
+<pre><code class="language-xml">&lt;sweepGradient id=&quot;hue&quot; gradientUnits=&quot;userSpaceOnUse&quot; cx=&quot;15&quot; cy=&quot;15&quot;
+               gradientTransform=&quot;rotate(-90 15 15)&quot;&gt;
+  &lt;stop offset=&quot;0&quot; stop-color=&quot;#FF2323&quot; /&gt;
+  &lt;stop offset=&quot;0.5&quot; stop-color=&quot;#23FFFF&quot; /&gt;
+  &lt;stop offset=&quot;1&quot; stop-color=&quot;#FF2323&quot; /&gt;
+&lt;/sweepGradient&gt;
+&lt;circle cx=&quot;15&quot; cy=&quot;15&quot; r=&quot;13&quot; fill=&quot;url(#hue) #FF2323&quot; /&gt;
+</code></pre>
+<table class="table">
+<thead>
+<tr>
+<th>Attribute</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cx</code>, <code>cy</code></td>
+<td><code>50%</code></td>
+<td>The centre, a length resolved as <code>radialGradient</code>'s is.</td>
+</tr>
+<tr>
+<td><code>startAngle</code>, <code>endAngle</code></td>
+<td><code>0</code>, <code>360</code></td>
+<td>Where offsets 0 and 1 sit, in degrees written without a unit.</td>
+</tr>
+<tr>
+<td><code>spreadMethod</code></td>
+<td><code>pad</code></td>
+<td>What lies outside <code>startAngle</code>..<code>endAngle</code>. <a href="/Svg.Skia/articles/packages/svg-controls-avalonia">Avalonia's brush</a> draws every spread as <code>pad</code>.</td>
+</tr>
+<tr>
+<td><code>gradientUnits</code>, <code>gradientTransform</code>, <code>href</code></td>
+<td>as on any gradient</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Stops, and expressions on <code>stop-color</code> and <code>stop-opacity</code>, work as on any gradient. Through <code>href</code>
+the stops, units, transform and spread come from any gradient; <code>cx</code>, <code>cy</code> and the angles come only
+from another <code>sweepGradient</code>, as a <code>radialGradient</code> takes its centre only from a <code>radialGradient</code>.</p>
+<p><strong>Angles are Skia's.</strong> 0° points along the gradient space's +x axis, which is 3 o'clock with no
+transform, and angles grow clockwise on screen. Nothing wraps: a direction is measured in [0°, 360°),
+so under the default <code>pad</code>, <code>startAngle=&quot;-90&quot;</code> leaves the first stops unused rather than turning the
+gradient. Turn it with <code>gradientTransform</code>. CSS's <code>conic-gradient(from A at X Y, …)</code> starts at 12 o'clock, so it is written
+<code>cx=&quot;X&quot; cy=&quot;Y&quot; gradientTransform=&quot;rotate(A−90 X Y)&quot;</code>.</p>
+<p><strong>Bounding-box units.</strong> Under the default <code>objectBoundingBox</code> the angles are measured in the box's
+unit square, so a box that is not square skews them, as it turns a <code>radialGradient</code> into an ellipse.
+Write <code>userSpaceOnUse</code> where the angles have to be true.</p>
+<p><strong>Refused values.</strong> A <code>startAngle</code> greater than <code>endAngle</code>, or any value that is not finite, paints
+the fallback, because Skia builds no gradient from it. <code>startAngle=&quot;90deg&quot;</code> is not read at all: the
+default stands, and <code>Svg.Highlighting</code> marks the value.</p>
+<p><strong>In a browser.</strong> Browsers do not know the element, and <code>url(#id)</code> that names it paints nothing.
+Write a fallback colour after it, as in <code>fill=&quot;url(#hue) #FF2323&quot;</code>, and a browser paints that.</p>
+<p><strong>Against TapHome's hand-drawn ones.</strong> <code>SkiaCSharpRenderTests.ButtonHelper</code> draws the four sweep
+drawings in TapHome's <code>ButtonHelper.cs</code> with their own SkiaSharp calls and compares each with the SVG
+that replaces it, at 256 px. The hue wheel measures 0.0008 RMS at most and the hue colour picker
+0.0001, held to 0.0011 and 0.001. The thermostat ring measures 0.0003 enabled and 0.0010 at most
+disabled, held to 0.001 and 0.0016, the second because Ubuntu's x64 raster rounds its 0.2 opacity
+differently and measured 0.0011. The thermostat dial measures 0.0009, 0.0047, 0.0036 and 0.0053 at
+levels 0, 0.25, 0.5 and 1, held to 0.0012, 0.0061, 0.0047 and 0.007: Skia strokes ButtonHelper's arc,
+which starts at 120°, up to a fifth of a pixel off the whole ring that the SVG clips. Those are Apple
+Silicon's numbers, and each bound leaves up to a third more for the raster pipelines of CI's x64
+machines. Every bound is exceeded by the same drawing a little off, such as the hue turned 2° or the
+arc 3° short. Compiled against SkiaSharp 3.119, the generated code measures within 0.00013 of these,
+inside every bound, and draws without allocating.</p>
 <h2 id="animation-dom-coverage">Animation DOM coverage</h2>
 <p><code>Svg.Custom</code> now includes the repository's SVG 1.1 animation object-model overlay in the <code>Svg</code> namespace.</p>
 <p>That surface includes:</p>
