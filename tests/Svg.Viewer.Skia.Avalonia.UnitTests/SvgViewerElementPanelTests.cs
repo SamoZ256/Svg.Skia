@@ -399,6 +399,42 @@ public class SvgViewerElementPanelTests
         Assert.Contains("double braces", held.Panel.Fault);
     }
 
+    /// <summary>A gradient's lists are written in braces, each as the list it gives.</summary>
+    [AvaloniaFact]
+    public void A_Gradients_Lists_Are_Written_In_Braces_As_The_Lists_They_Are()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="colors" type="color[]" default="[#f00, #00f]" />
+                  <e:param name="positions" type="number[]" default="[0, 1]" />
+                </e:code>
+                <linearGradient id="g" e:stop-colors="{{ colors }}">
+                  <stop offset="0" stop-color="#f00" /><stop offset="1" stop-color="#00f" />
+                </linearGradient>
+              </defs>
+              <rect width="24" height="24" fill="url(#g)" />
+            </svg>
+            """);
+
+        held.Show("0/1");
+
+        Assert.True(held.Panel.Set("e:stop-colors", "{{ [colors[1], colors[0]] }}"));
+        Assert.True(held.Panel.Set("e:stop-offsets", "{{ positions }}"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains("e:stop-colors=\"{{ [colors[1], colors[0]] }}\" e:stop-offsets=\"{{ positions }}\"", held.Text);
+
+        var was = held.Text;
+
+        Assert.False(held.Panel.Set("e:stop-colors", "{{ positions }}"));
+        Assert.Contains("colour", held.Panel.Fault);
+        Assert.False(held.Panel.Set("e:stop-offsets", "{{ colors }}"));
+        Assert.False(held.Panel.Set("e:stop-colors", "[#f00, #00f]"));
+        Assert.Contains("double braces", held.Panel.Fault);
+        Assert.Equal(was, held.Text);
+    }
+
     [AvaloniaFact]
     public void An_Expression_Of_The_Wrong_Type_Is_Refused()
     {

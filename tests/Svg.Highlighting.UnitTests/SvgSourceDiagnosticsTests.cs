@@ -565,6 +565,30 @@ public class SvgSourceDiagnosticsTests
         Assert.Equal(source.IndexOf("len('ab')", StringComparison.Ordinal), one.Start);
     }
 
+    [Fact]
+    public void A_Gradients_Lists_Are_Checked_As_The_Lists_They_Are()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+              <defs>
+                <e:code>
+                  <e:param name="colors" type="color[]" default="[#fff, #000]" />
+                  <e:param name="positions" type="number[]" default="[0, 1]" />
+                </e:code>
+                <linearGradient id="right" e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}" />
+                <linearGradient id="wrong" e:stop-colors="{{ positions }}" e:stop-offsets="{{ colors }}" />
+              </defs>
+            </svg>
+            """;
+        var wrong = source.IndexOf("id=\"wrong\"", StringComparison.Ordinal);
+        var found = SvgSourceDiagnostics.Analyse(source).ToArray();
+
+        Assert.Equal(2, found.Length);
+        Assert.All(found, one => Assert.True(one.Start > wrong));
+        Assert.Equal("positions", Slice(source, found[0]));
+        Assert.Equal("colors", Slice(source, found[1]));
+    }
+
     private static string Slice(string source, SvgSourceDiagnostic diagnostic)
         => source.Substring(diagnostic.Start, diagnostic.Length);
 }

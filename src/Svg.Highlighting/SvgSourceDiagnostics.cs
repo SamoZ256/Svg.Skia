@@ -132,7 +132,7 @@ public static class SvgSourceDiagnostics
                 // checks them: alone, [] is no list in particular and a whole literal is a number.
                 var typed = site.Kind == SvgSourceSiteKind.Placeholder
                             && site.Attribute is { } attribute
-                            && SvgExpressionAttributes.TypeFor(attribute) is { } expected
+                            && (SvgExpressionAttributes.TypeFor(attribute) ?? SvgExpressionAttributes.ListTypeFor(attribute)) is { } expected
                     ? scope.CheckAs(text, expected, ExprFunctions.DescribeUse(expected))
                     : Declared(site, declarations, lets) is { } list
                         ? scope.CheckAs(text, list.Type, list.What)

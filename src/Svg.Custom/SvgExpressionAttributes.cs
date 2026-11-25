@@ -301,6 +301,28 @@ public static class SvgExpressionAttributes
     public const string StopOffsets = "stop-offsets";
 
     /// <summary>
+    /// What an expression in <see cref="StopColors"/> or <see cref="StopOffsets"/> has to come to, given
+    /// the name as written, prefix and all; null for any other.
+    /// </summary>
+    /// <remarks>
+    /// Kept out of the placeholder table, which lifts what it holds: nothing stands in for a list, since
+    /// the gradient's own stops already do.
+    /// </remarks>
+    public static ExprType? ListTypeFor(string qualifiedName)
+    {
+        var colon = qualifiedName.IndexOf(':');
+
+        return colon <= 0
+            ? null
+            : qualifiedName.Substring(colon + 1) switch
+            {
+                StopColors => ExprType.ColorList,
+                StopOffsets => ExprType.NumberList,
+                _ => null
+            };
+    }
+
+    /// <summary>
     /// Why <paramref name="name"/> cannot be a box of the class called <paramref name="className"/>,
     /// or null when it can.
     /// </summary>

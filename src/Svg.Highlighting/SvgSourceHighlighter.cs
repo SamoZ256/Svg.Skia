@@ -506,7 +506,9 @@ public static class SvgSourceHighlighter
     }
 
     private static string? Typed(string? attribute, string? element)
-        => attribute is { } && SvgExpressionAttributes.IsSupported(attribute, element) ? attribute : null;
+        => attribute is { } && (SvgExpressionAttributes.IsSupported(attribute, element) || SvgExpressionAttributes.ListTypeFor(attribute) is { })
+            ? attribute
+            : null;
 
     /// <summary>Adds a span of value text, lifting any <c>{{ … }}</c> out of it.</summary>
     private static void Placeholders(
