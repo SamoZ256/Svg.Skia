@@ -839,6 +839,39 @@ public class ProjectDocumentTests : IDisposable
         Assert.Contains("48f, 48f", generated);
     }
 
+    /// <summary>A group's lists reach the generated signature as the lists a host passes.</summary>
+    [Fact]
+    public void A_Project_Whose_Group_Declares_Lists_Exports_Them_As_Parameters()
+    {
+        var folder = TestPackage.Write(Path.Combine(_directory, "graded.svgstudio"), """
+            <studio namespace="Demo.Icons">
+              <group name="Graded">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="positions" type="number[]" default="[0, 1]" />
+                  <e:param name="colors" type="color[]" default="[#ff0000, #0000ff]" />
+                </e:code>
+                <drawing name="Bar">
+                  <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+                    <defs>
+                      <linearGradient id="g" e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+                        <stop offset="0" stop-color="#ff0000" />
+                      </linearGradient>
+                    </defs>
+                    <rect width="24" height="24" fill="url(#g)" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+            """);
+        var target = Path.Combine(_directory, "Graded.g.cs");
+
+        Assert.Equal(new[] { target }, ProjectDocument.Load(folder).Export(target, SvgTextLayout.Baked));
+
+        var generated = File.ReadAllText(target);
+
+        Assert.Contains("public static void Draw(SKCanvas skCanvas, IReadOnlyList<float> positions = null, IReadOnlyList<SKColor> colors = null)", generated);
+    }
+
     /// <summary>
     /// A project whose root and whose group each declare, and a drawing that uses both.
     /// </summary>

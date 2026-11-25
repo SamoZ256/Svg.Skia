@@ -54,9 +54,7 @@ public sealed class ExprChecker
             try
             {
                 // Into the table the checker is holding, so each let is in scope for the next.
-                symbols[let.Name] = let.DeclaredType is { } declared
-                    ? checker.CheckAs(let.Expression, declared, $"The let '{let.Name}'").Type
-                    : checker.Check(let.Expression).Type;
+                symbols[let.Name] = checker.CheckLet(let.Name, let.Expression, let.DeclaredType).Type;
             }
             catch (ExprException)
             {
@@ -87,6 +85,11 @@ public sealed class ExprChecker
     }
 
     public TypedExpr Check(string text) => Check(text, expected: null);
+
+    /// <summary>Checks a let's body, held to the type the let declares where it declares one.</summary>
+    /// <remarks>Checked alone, <c>[]</c> has no type and a whole literal is a number whatever the let says.</remarks>
+    public TypedExpr CheckLet(string name, string expression, ExprType? declared)
+        => declared is { } type ? CheckAs(expression, type, $"The let '{name}'") : Check(expression);
 
     private TypedExpr Check(string text, ExprType? expected)
     {

@@ -43,7 +43,7 @@ public static class SvgViewerParameterFactory
             throw new ArgumentNullException(nameof(declaration));
         }
 
-        var seed = Seed(declaration);
+        var seed = Seed(declaration, out _);
 
         return declaration.Type switch
         {
@@ -54,6 +54,14 @@ public static class SvgViewerParameterFactory
             ExprType.String => new SvgViewerStringParameter(
                 declaration,
                 seed?.Type == ExprType.String ? seed.Value.AsString : string.Empty),
+
+            // Empty where nothing seeds one, which is the list nobody has to have invented.
+            ExprType.NumberList => new SvgViewerNumberListParameter(
+                declaration,
+                seed?.Type == ExprType.NumberList ? seed.Value.AsNumberList : Array.Empty<float>()),
+            ExprType.ColorList => new SvgViewerColorListParameter(
+                declaration,
+                seed?.Type == ExprType.ColorList ? seed.Value.AsColorList.Select(colour => ToColor(colour)) : Array.Empty<Color>()),
             _ => throw Unknown(declaration.Type)
         };
     }
@@ -198,10 +206,13 @@ public static class SvgViewerParameterFactory
     /// <summary>The declared default, evaluated as the binder will evaluate it.</summary>
     /// <remarks>
     /// A default is an expression — <c>tau / 4</c>, <c>hsl(200, 60%, 50%)</c> — and resolving it the
-    /// same way is what makes this the value an unsupplied parameter renders with.
+    /// same way is what makes this the value an unsupplied parameter renders with. The form asks
+    /// too, for <paramref name="refused"/>: what it would seed a row with is what it may declare.
     /// </remarks>
-    private static ExprValue? Seed(SvgExpressionParameter declaration)
+    internal static ExprValue? Seed(SvgExpressionParameter declaration, out string? refused)
     {
+        refused = null;
+
         if (declaration.DefaultExpression is null)
         {
             return null;
@@ -221,6 +232,8 @@ public static class SvgViewerParameterFactory
         {
             // clamp throws ArgumentException rather than the language's own, and this runs while a
             // document is opening: a drawing that renders must not fail to open.
+            refused = failure.Message;
+
             return null;
         }
     }

@@ -26,6 +26,8 @@
         <ComboBoxItem>color</ComboBoxItem>
         <ComboBoxItem>boolean</ComboBoxItem>
         <ComboBoxItem>string</ComboBoxItem>
+        <ComboBoxItem>number list</ComboBoxItem>
+        <ComboBoxItem>color list</ComboBoxItem>
       </ComboBox>
     </Grid>
 

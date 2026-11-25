@@ -756,10 +756,7 @@ public static class SvgDeclarationEditor
         {
             try
             {
-                // As ExprChecker.For reads it, so a typed let's [] is the list it was declared as.
-                symbols[let.Name] = let.DeclaredType is { } declared
-                    ? checker.CheckAs(let.Expression, declared, $"The let '{let.Name}'").Type
-                    : checker.Check(let.Expression).Type;
+                symbols[let.Name] = checker.CheckLet(let.Name, let.Expression, let.DeclaredType).Type;
             }
             catch (ExprException failure)
             {
