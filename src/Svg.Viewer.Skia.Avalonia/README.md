@@ -144,6 +144,12 @@ No extra theme setup is needed. `ColorPicker` keeps its control theme in its own
 than in `FluentTheme`, so `SvgViewerDeclarationPanel` includes it itself — a host that forgets would
 otherwise get a colour row templated with nothing, present in the tree and invisible on screen.
 
+The Attributes panel's box and swatch are public for a host's own chrome: `SvgExpressionField` and
+`SvgPaintChip`. Give the field the `SvgExpressionBox` theme, from `SvgExpressionBox.axaml`, for the
+expression colours and its `:driven` outline, which is `SvgViewerDrivenBrush`. Before a command of the
+host's acts on the drawing, call `CommitPending()` on the `SvgViewerElementPanel` that has the
+keyboard, so what is typed there is written first.
+
 ## Two things worth knowing
 
 **It does not use the `Avalonia.Svg.Skia.Svg` control.** That control sizes itself to the drawing it

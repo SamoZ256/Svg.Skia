@@ -437,6 +437,10 @@ public sealed class GroupPanel : UserControl
         _element.ClipRequested = (content, property) => _elementWanted is { } row && ApplyClip(content, row, property);
         _element.Typefaces = () => _elementOf?.Document.Svg.Settings.TypefaceProviders;
 
+        // Of the drawing's own tab where it has one, which is where its edits go, and the project's otherwise.
+        _element.UndoStep = () => _elementOf?.Target is SvgViewer tab ? tab.UndoStep : Workspace.UndoStep;
+        _element.Holds = step => _elementOf?.Target is SvgViewer tab ? tab.Holds(step) : Workspace.Holds(step);
+
         _canvas.ViewChanged += (_, _) =>
         {
             ShowGizmo();

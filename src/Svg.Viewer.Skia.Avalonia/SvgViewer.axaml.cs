@@ -201,6 +201,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _element.NewClipRequested = property => _elementTree.SelectedAddresses is [var row, ..] && NewClip(row, property);
         _element.ClipRequested = (content, property) => _elementTree.SelectedAddresses is [var row, ..] && ApplyClip(content, row, property);
         _element.Typefaces = () => _document?.Svg.Settings.TypefaceProviders;
+        _element.UndoStep = () => UndoStep;
+        _element.Holds = Holds;
 
         _canvas.KeyDown += OnCanvasKeyDown;
 

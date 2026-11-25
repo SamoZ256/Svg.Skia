@@ -530,6 +530,12 @@ public static class SvgAttributeEditor
             throw new ArgumentNullException(nameof(source));
         }
 
+        // A prefixed name, xlink:href or the extension's own, is never a property a style or a group sets.
+        if (!IsUnprefixed(name))
+        {
+            return null;
+        }
+
         for (var at = Resolve(source.Document, addressKey); at is { }; at = at.Parent)
         {
             var value = (string?)at.Attribute("style") is { } style && Winner(style, name) is { } declaration
@@ -546,6 +552,12 @@ public static class SvgAttributeEditor
 
         return null;
     }
+
+    /// <summary>Whether <paramref name="name"/> can be the name of an attribute with no prefix.</summary>
+    private static bool IsUnprefixed(string name) => name.Length > 0 && XmlConvert.IsStartNCNameChar(name[0]) && name.All(XmlConvert.IsNCNameChar);
+
+    /// <summary>Whether <paramref name="name"/> is geometry or a transform: set in a style, it is not written there.</summary>
+    public static bool IsGeometry(string name) => s_geometry.Contains(name.Trim());
 
     // SVG 2 makes some of these CSS properties, but what is written for them is attribute grammar
     // (unitless lengths, rotate(a cx cy), bare path data), which in style="" no browser reads.
@@ -706,7 +718,7 @@ public static class SvgAttributeEditor
             element.SetAttributeValue("style", style.Trim(' ', ';', '\t', '\r', '\n').Length == 0 ? null : style.TrimStart());
 
             // A style can name what no attribute can, such as -inkscape-font-specification or a --custom property.
-            if (XmlConvert.IsStartNCNameChar(name[0]) && name.All(XmlConvert.IsNCNameChar))
+            if (IsUnprefixed(name))
             {
                 element.SetAttributeValue(name, null);
             }
