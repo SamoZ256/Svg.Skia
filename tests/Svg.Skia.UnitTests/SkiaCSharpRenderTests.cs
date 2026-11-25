@@ -226,11 +226,12 @@ public partial class SkiaCSharpRenderTests
         }
     }
 
-    private static string Code(ShimPicture model, string name, SvgBody body, SvgExpressionDeclarations? declarations = null)
+    private static string Code(ShimPicture model, string name, SvgBody body, SvgExpressionDeclarations? declarations = null, SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4, bool bake = true)
         => SkiaCSharpCodeGen.GenerateFile(
             new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations ?? SvgExpressionDeclarations.Empty) },
             SvgHelperScope.PerClass,
-            style: new SvgCodeStyle { Body = body });
+            skiaSharp: skiaSharp,
+            style: new SvgCodeStyle { Body = body, Bake = bake });
 
     private static SKPicture Transformed(SKRect cull, Action<SKCanvas> draw)
         => Recorded(cull, canvas =>

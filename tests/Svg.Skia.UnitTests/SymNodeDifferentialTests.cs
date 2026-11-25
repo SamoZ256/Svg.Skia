@@ -290,6 +290,40 @@ public class SymNodeDifferentialTests
             default,
             fold: true);
 
+    [Theory]
+    [InlineData("[#102030, tint]")]
+    [InlineData("[tint, #102030c0]")]
+    [InlineData("[]")]
+    public void The_Last_Colour_Of_A_List_Agrees(string colors)
+        // What a radial gradient of no radius draws from its list, transparent from an empty one.
+        => AssertSameColor(
+            SymNode.ToLinearRgb(SymNode.ScaleAlpha(SymNode.Last(SymNode.Source(colors)), SymNode.Source("fade"))),
+            new SKColor(0x3F, 0xB5, 0xB5, 0xC0),
+            fade: 0.4f);
+
+    [Theory]
+    [InlineData("[#102030, #3fb5b5c0]")]
+    [InlineData("[]")]
+    public void The_Last_Colour_Of_A_Constant_List_Folds_To_What_Both_Compute(string colors)
+        => AssertSameColor(SymNode.ScaleAlpha(SymNode.Last(SymNode.Source(colors)), SymNode.Literal(0.5)), default, fold: true);
+
+    [Theory]
+    [InlineData("[#102030, tint, #405060]", "[0, 1]")]
+    [InlineData("[#102030, tint]", "[0, 0.5, 1]")]
+    [InlineData("[tint, #102030]", "[]")]
+    public void The_Last_Stop_Two_Lists_Make_Agrees(string colors, string offsets)
+        // As many as the shorter list holds, so tint each time there are any.
+        => AssertSameColor(
+            SymNode.ScaleAlpha(SymNode.Last(SymNode.Source(colors), SymNode.Source(offsets)), SymNode.Source("fade")),
+            new SKColor(0x3F, 0xB5, 0xB5, 0xC0),
+            fade: 0.4f);
+
+    [Theory]
+    [InlineData("[#102030, #3fb5b5c0, #405060]", "[0, 1]")]
+    [InlineData("[#102030]", "[]")]
+    public void The_Last_Stop_Two_Constant_Lists_Make_Folds_To_What_Both_Compute(string colors, string offsets)
+        => AssertSameColor(SymNode.Last(SymNode.Source(colors), SymNode.Source(offsets)), default, fold: true);
+
     [Fact]
     public void Folding_A_Constant_Colour_Leaves_No_Helper_Behind()
     {
@@ -301,10 +335,23 @@ public class SymNodeDifferentialTests
                 "new SKColor(63, 181, 181, 96)",
                 SymCSharpEmitter.Emit(SymNode.ScaleAlpha(SymNode.Source("#3fb5b5c0"), SymNode.Literal(0.5))));
 
+            Assert.Equal(
+                "new SKColor(63, 181, 181, 192)",
+                SymCSharpEmitter.Emit(SymNode.Last(SymNode.Source("[#102030, #3fb5b5c0]"))));
+            Assert.Equal(
+                "new SKColor(63, 181, 181, 192)",
+                SymCSharpEmitter.Emit(SymNode.Last(SymNode.Source("[#102030, #3fb5b5c0, #405060]"), SymNode.Source("[0, 1]"))));
+
             // Anything bound keeps the helper.
             Assert.StartsWith(
                 "SvgScaleAlpha(",
                 SymCSharpEmitter.Emit(SymNode.ScaleAlpha(SymNode.Source("tint"), SymNode.Literal(0.5))));
+            Assert.StartsWith(
+                "SvgLast(",
+                SymCSharpEmitter.Emit(SymNode.Last(SymNode.Source("[#102030, tint]"))));
+            Assert.StartsWith(
+                "SvgLast(",
+                SymCSharpEmitter.Emit(SymNode.Last(SymNode.Source("[#102030, #3fb5b5c0]"), SymNode.Source("[0, 1 + fade]"))));
         }
     }
 }

@@ -713,13 +713,19 @@ public static class SkiaCSharpCodeGen
         // Each path helper builds what exists in one SkiaSharp alone, and text the drawing draws can
         // name the other's: it would not compile.
         var other = ExprHelpers.OnlyIn(skiaSharp3: skiaSharp != SkiaSharpTarget.V3);
+        var required = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var helper in ExprHelpers.All)
+        // Then the text of what that selected, since a helper can call another, until nothing new is.
+        for (var text = body; text.Length > 0;)
         {
-            if (!other.Contains(helper.Key) && body.IndexOf(helper.Key + "(", StringComparison.Ordinal) >= 0)
-            {
-                yield return helper.Key;
-            }
+            var named = ExprHelpers.All
+                .Where(helper => !other.Contains(helper.Key) && !required.Contains(helper.Key) && text.IndexOf(helper.Key + "(", StringComparison.Ordinal) >= 0)
+                .ToList();
+
+            required.UnionWith(named.Select(helper => helper.Key));
+            text = string.Join("\n", named.SelectMany(helper => helper.Value));
         }
+
+        return ExprHelpers.All.Select(helper => helper.Key).Where(required.Contains);
     }
 }

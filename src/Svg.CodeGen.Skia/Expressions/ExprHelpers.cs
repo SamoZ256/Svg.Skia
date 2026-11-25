@@ -8,9 +8,8 @@ using ShimSkiaSharp;
 
 namespace Svg.CodeGen.Skia.Expressions;
 
-// Helper methods the generated class may need. Each one is self-contained and never calls
-// another: emission is decided by scanning the generated body for the marker, so a helper that
-// depended on a second helper could select itself without selecting its dependency.
+// Helper methods the generated class may need, each selected where the generated text names it.
+// One may call another: what a helper names is scanned for in turn.
 internal static class ExprHelpers
 {
     public const string ScaleAlpha = "SvgScaleAlpha";
@@ -35,6 +34,9 @@ internal static class ExprHelpers
     public const string Num = "SvgNum";
     public const string ListOf = "SvgList";
     public const string At = "SvgAt";
+    public const string Last = "SvgLast";
+    public const string Stop = "SvgStop";
+    public const string Stops = "SvgStops";
     public const string Tangent = "SvgTangent";
     public const string Dash = "SvgDash";
     public const string Paint = "SvgPaint";
@@ -300,6 +302,79 @@ internal static class ExprHelpers
         {
             $"private static T {At}<T>(IReadOnlyList<T> list, int index)",
             "    => list.Count == 0 ? default! : list[index < 0 ? 0 : index >= list.Count ? list.Count - 1 : index];"
+        }),
+
+        // The last of as many colours as both lists hold, as SvgStops counts them; transparent for none.
+        new(Last, new[]
+        {
+            $"private static SKColor {Last}(IReadOnlyList<SKColor> colors, IReadOnlyList<float> offsets)",
+            "{",
+            "    var count = offsets == null ? colors.Count : Math.Min(colors.Count, offsets.Count);",
+            "    return count == 0 ? default : colors[count - 1];",
+            "}"
+        }),
+
+        // One colour of a gradient's list as its stop: faded by the paint's opacity, then made linear,
+        // in the order a written stop's colour is.
+        new(Stop, new[]
+        {
+            $"private static SKColor {Stop}(IReadOnlyList<SKColor> colors, int index, float alpha, bool linear)",
+            "{",
+            $"    var faded = {ScaleAlpha}(colors[index], alpha);",
+            $"    return linear ? {ToLinearRgb}(faded) : faded;",
+            "}"
+        }),
+
+        // A gradient's lists as the stops Skia takes, written over what a site kept from its last draw,
+        // and whether anything differs from it: arrays are allocated only when the count changes.
+        // SvgSceneExpressionEvaluator.Listed binds the same, through ClampStopOffset and
+        // AdjustStopColorPos, whose arithmetic this repeats, and SkiaCSharpRenderTests diffs the two at
+        // a zero threshold.
+        new(Stops, new[]
+        {
+            $"private static bool {Stops}(IReadOnlyList<SKColor> colors, IReadOnlyList<float> offsets, float alpha, bool linear, ref SKColorF[] held, ref float[] positions)",
+            "{",
+            "    var count = offsets == null ? colors.Count : Math.Min(colors.Count, offsets.Count);",
+            "    var changed = held == null || held.Length != count;",
+            "    if (changed)",
+            "    {",
+            "        held = new SKColorF[count];",
+            "    }",
+            "",
+            "    if (offsets != null && (positions == null || positions.Length != count))",
+            "    {",
+            "        positions = new float[count];",
+            "        changed = true;",
+            "    }",
+            "",
+            "    var reached = float.MinValue;",
+            "    for (var i = 0; i < count; i++)",
+            "    {",
+            $"        var color = {ToColorF}({Stop}(colors, i, alpha, linear));",
+            "        changed |= held[i] != color;",
+            "        held[i] = color;",
+            "        if (offsets == null)",
+            "        {",
+            "            continue;",
+            "        }",
+            "",
+            "        var offset = offsets[i];",
+            "        offset = float.IsNaN(offset) || float.IsNegativeInfinity(offset) ? 0f : float.IsPositiveInfinity(offset) ? 1f : Math.Min(Math.Max(offset, 0f), 1f);",
+            "        if (offset > reached)",
+            "        {",
+            "            reached = offset;",
+            "        }",
+            "        else if (offset < reached)",
+            "        {",
+            "            offset = reached;",
+            "        }",
+            "",
+            "        changed |= positions[i] != offset;",
+            "        positions[i] = offset;",
+            "    }",
+            "",
+            "    return changed;",
+            "}"
         }),
 
         // Character for character what ShimSkiaSharp.SymMatrix.Tangent computes, including the
