@@ -146,6 +146,32 @@ public class SvgPaintServerRenderingTests
         Assert.Equal(new SKPoint(12f, 8f), shader.Center);
     }
 
+    [Fact]
+    public void RetainedScene_SweepGradientTakesItsCentreAndAnglesThroughHrefFromASweep()
+    {
+        const string svgMarkup = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="16">
+              <defs>
+                <sweepGradient id="base" gradientUnits="userSpaceOnUse" cx="3" cy="5" startAngle="30" endAngle="200">
+                  <stop offset="0" stop-color="red" />
+                  <stop offset="1" stop-color="blue" />
+                </sweepGradient>
+                <sweepGradient id="paint" href="#base" endAngle="300" />
+              </defs>
+              <rect id="target" width="24" height="16" fill="url(#paint)" />
+            </svg>
+            """;
+
+        using var svg = new SKSvg();
+        svg.FromSvg(svgMarkup);
+
+        var shader = GetFillShader<SweepGradientShader>(svg, "target");
+
+        Assert.Equal(new SKPoint(3f, 5f), shader.Center);
+        Assert.Equal(30f, shader.StartAngle);
+        Assert.Equal(300f, shader.EndAngle);
+    }
+
     [Theory]
     [InlineData("startAngle=\"270\" endAngle=\"90\"")]
     [InlineData("endAngle=\"NaN\"")]

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using SkiaSharp;
 using Svg.CodeGen.Skia;
 using Xunit;
@@ -7,6 +8,16 @@ namespace Svg.Skia.UnitTests;
 
 public partial class SkiaCSharpRenderTests
 {
+    // Two blank pictures agree as well as two sweeps do, so each row first finds a sweep in the model it compares.
+    private static ShimSkiaSharp.SweepGradientShader[] Sweeps(string svgMarkup)
+        => SkiaCSharpCodeGenTests.EnumerateShaders(Model(svgMarkup)).OfType<ShimSkiaSharp.SweepGradientShader>().ToArray();
+
+    private static string WithSweep(string svgMarkup)
+    {
+        Assert.NotEmpty(Sweeps(svgMarkup));
+        return svgMarkup;
+    }
+
     private const string SweepFill = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
           <defs>
@@ -28,7 +39,7 @@ public partial class SkiaCSharpRenderTests
     [InlineData(SkiaSharpTarget.V3)]
     [InlineData(SkiaSharpTarget.V4)]
     public void A_Sweep_Gradient_Fills_A_Shape(SkiaSharpTarget skiaSharp)
-        => AssertRendersTheSame($"SweepFill_{skiaSharp}", SweepFill, skiaSharp);
+        => AssertRendersTheSame($"SweepFill_{skiaSharp}", WithSweep(SweepFill), skiaSharp);
 
     [Fact]
     public void A_Written_Sweep_Gradient_Is_A_Static()
@@ -43,7 +54,7 @@ public partial class SkiaCSharpRenderTests
 
     [Fact]
     public void A_Sweep_Gradient_Strokes_An_Arc()
-        => AssertRendersTheSame("SweepStroke", """
+        => AssertRendersTheSame("SweepStroke", WithSweep("""
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <defs>
                 <sweepGradient id="s" gradientUnits="userSpaceOnUse" cx="12" cy="12">
@@ -54,7 +65,7 @@ public partial class SkiaCSharpRenderTests
               </defs>
               <path d="M 4 16 A 9 9 0 1 1 20 16" fill="none" stroke="url(#s)" stroke-width="3" stroke-linecap="round" />
             </svg>
-            """);
+            """));
 
     // The last row is degenerate and goes to Skia as written, which draws the first colour up to 90
     // degrees and the last beyond.
@@ -64,7 +75,8 @@ public partial class SkiaCSharpRenderTests
     [InlineData(45f, 270f, "repeat")]
     [InlineData(90f, 90f, "pad")]
     public void A_Sweep_Gradient_Covers_Only_Its_Angles(float start, float end, string spread)
-        => AssertRendersTheSame(Named("SweepAngles", start, end) + "_" + spread, $"""
+    {
+        var svgMarkup = $"""
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <defs>
                 <sweepGradient id="s" gradientUnits="userSpaceOnUse" cx="12" cy="12" startAngle="{Written(start)}" endAngle="{Written(end)}" spreadMethod="{spread}">
@@ -75,11 +87,16 @@ public partial class SkiaCSharpRenderTests
               </defs>
               <rect x="0" y="0" width="24" height="24" fill="url(#s)" />
             </svg>
-            """);
+            """;
+
+        var sweep = Assert.Single(Sweeps(svgMarkup));
+        Assert.Equal((start, end), (sweep.StartAngle, sweep.EndAngle));
+        AssertRendersTheSame(Named("SweepAngles", start, end) + "_" + spread, svgMarkup);
+    }
 
     [Fact]
     public void A_Sweep_Gradient_Turns_With_Its_Gradient_Transform()
-        => AssertRendersTheSame("SweepTurned", """
+        => AssertRendersTheSame("SweepTurned", WithSweep("""
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <defs>
                 <sweepGradient id="s" gradientUnits="userSpaceOnUse" cx="12" cy="12" gradientTransform="rotate(-90 12 12)">
@@ -90,13 +107,13 @@ public partial class SkiaCSharpRenderTests
               </defs>
               <rect x="0" y="0" width="24" height="24" fill="url(#s)" />
             </svg>
-            """);
+            """));
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void A_Sweep_Gradient_In_Bounding_Box_Units(bool turned)
-        => AssertRendersTheSame(turned ? "SweepBoxTurned" : "SweepBox", $"""
+        => AssertRendersTheSame(turned ? "SweepBoxTurned" : "SweepBox", WithSweep($"""
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
               <defs>
                 <sweepGradient id="s"{(turned ? " gradientTransform=\"rotate(30 .5 .5)\"" : "")}>
@@ -108,7 +125,7 @@ public partial class SkiaCSharpRenderTests
               <rect x="2" y="2" width="20" height="8" fill="url(#s)" />
               <ellipse cx="12" cy="17" rx="8" ry="4" fill="none" stroke="url(#s)" stroke-width="2" />
             </svg>
-            """);
+            """));
 
     private static string DrivenSweep(string parameter, string stop) => $"""
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
@@ -128,7 +145,7 @@ public partial class SkiaCSharpRenderTests
     public void A_Sweep_Gradient_Stop_Takes_An_Expression()
         => AssertExpressionsRenderTheSame(
             "ExprSweepStop",
-            DrivenSweep("""<e:param name="tint" type="color" default="#1e40af" />""", """<stop offset="0.5" stop-color="{{ tint }}" />"""),
+            WithSweep(DrivenSweep("""<e:param name="tint" type="color" default="#1e40af" />""", """<stop offset="0.5" stop-color="{{ tint }}" />""")),
             arguments: new object?[] { new SKColor(0xdc, 0x26, 0x26) },
             expectedMarkup: DrivenSweep("", """<stop offset="0.5" stop-color="#dc2626" />"""));
 
@@ -136,7 +153,7 @@ public partial class SkiaCSharpRenderTests
     public void A_Sweep_Gradient_Stop_Opacity_Takes_An_Expression()
         => AssertExpressionsRenderTheSame(
             "ExprSweepStopOpacity",
-            DrivenSweep("""<e:param name="fade" type="number" default="1" />""", """<stop offset="0.5" stop-color="#1e40af" stop-opacity="{{ fade }}" />"""),
+            WithSweep(DrivenSweep("""<e:param name="fade" type="number" default="1" />""", """<stop offset="0.5" stop-color="#1e40af" stop-opacity="{{ fade }}" />""")),
             arguments: new object?[] { 0.4f },
             expectedMarkup: DrivenSweep("", """<stop offset="0.5" stop-color="#1e40af" stop-opacity="0.4" />"""));
 
@@ -158,5 +175,5 @@ public partial class SkiaCSharpRenderTests
     [InlineData(0.3f)]
     [InlineData(1f)]
     public void SkiaSharp3_Builds_A_Driven_Sweep_Gradient_As_SkiaSharp4_Does(float level)
-        => AssertBindsTheSame(Named("LevelSweepV3", level), LevelSweep, new object?[] { level }, SkiaSharpTarget.V3);
+        => AssertBindsTheSame(Named("LevelSweepV3", level), WithSweep(LevelSweep), new object?[] { level }, SkiaSharpTarget.V3);
 }

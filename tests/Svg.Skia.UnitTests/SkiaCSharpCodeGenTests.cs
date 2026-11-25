@@ -633,7 +633,7 @@ public class SkiaCSharpCodeGenTests
         return new DrawPathCanvasCommand(path, new SKPaint { IsAntialias = true });
     }
 
-    private static IEnumerable<SKShader> EnumerateShaders(SKPicture? picture)
+    internal static IEnumerable<SKShader> EnumerateShaders(SKPicture? picture)
     {
         if (picture?.Commands is null)
         {
