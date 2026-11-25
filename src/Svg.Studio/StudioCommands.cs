@@ -353,6 +353,7 @@ public sealed class StudioCommands
         >= SvgEditorShortcutKey.F1 and <= SvgEditorShortcutKey.F12 => Key.F1 + (key - SvgEditorShortcutKey.F1),
         SvgEditorShortcutKey.Tab => Key.Tab,
         SvgEditorShortcutKey.Comma => Key.OemComma,
+        SvgEditorShortcutKey.Semicolon => Key.OemSemicolon,
         SvgEditorShortcutKey.Equals => Key.OemPlus,
         SvgEditorShortcutKey.Minus => Key.OemMinus,
         SvgEditorShortcutKey.Delete => Key.Delete,

@@ -45,6 +45,8 @@ public sealed class GroupPanel : UserControl
     // offer has to be able to say which half it means.
     private readonly StackPanel _properties = new() { Name = "Properties", Spacing = 8, Margin = new Thickness(10) };
     private readonly SvgViewerCanvas _canvas = new();
+    private readonly SvgViewerRulers _rulers = new();
+    private readonly SvgViewerGuides _guides = new();
     private readonly TextBlock _heading = new() { FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 10, 10, 0) };
 
     private readonly TextBlock _zoom = new()
@@ -405,10 +407,23 @@ public sealed class GroupPanel : UserControl
         // the middle button, the wheel and two fingers of its own.
         _canvas.IsMarqueeEnabled = true;
 
-        _canvas.EditBegun += (_, at) => BeginEdit(at);
+        _canvas.EditBegun += (_, at) =>
+        {
+            Guide(at);
+            BeginEdit(at);
+        };
         _canvas.EditMoved += (_, at) => DragEdit(at);
-        _canvas.EditEnded += (_, at) => EndEdit(at);
-        _canvas.EditCancelled += (_, _) => CancelEdit();
+        _canvas.EditEnded += (_, at) =>
+        {
+            EndEdit(at);
+            Unguide();
+        };
+        _canvas.EditCancelled += (_, _) =>
+        {
+            CancelEdit();
+            Unguide();
+        };
+        _canvas.GuidesChanged += (_, _) => Reread();
         _canvas.KeyDown += OnCanvasKeyDown;
 
         // The band from the last point to the pointer, between presses: the canvas leaves an idle
@@ -545,7 +560,11 @@ public sealed class GroupPanel : UserControl
 
         DockPanel.SetDock(strip, Dock.Left);
         drawing.Children.Add(strip);
-        drawing.Children.Add(_canvas);
+
+        // Counting the drawing being read, and the board's own units while none is.
+        _rulers.Child = _canvas;
+        _rulers.Ruled = () => _inspecting?.Placement;
+        drawing.Children.Add(_rulers);
 
         centre.Children.Add(drawing);
 
@@ -896,9 +915,13 @@ public sealed class GroupPanel : UserControl
         }
 
         // Magnetic at this zoom, the board's canvas being the one that knows it.
-        var grid = StudioSettings.SnapToGrid
-            ? StudioSettings.Grid.Pulling(_canvas.Scale)
-            : SvgViewerGrid.None;
+        _rulers.ShowsRulers = StudioSettings.Rulers;
+        _canvas.ShowsGuides = StudioSettings.Guides;
+        _guides.IsOn = StudioSettings.SmartGuides;
+
+        var grid = _guides.Over(
+            StudioSettings.SnapToGrid ? StudioSettings.Grid.Pulling(_canvas.Scale) : SvgViewerGrid.None,
+            _canvas);
 
         // All three, because all three write a place: the canvas carries a drawing about, the gizmo
         // moves what is inside one, and the page is the drawing's own edges.
@@ -2659,6 +2682,31 @@ public sealed class GroupPanel : UserControl
         return null;
     }
 
+    /// <summary>What a gesture starting here may land on, every drawing on the board included: everything but what it moves.</summary>
+    /// <remarks>As on a drawing's tab, the box goes over only for a carry, which the gizmo pulls by its corner.</remarks>
+    private void Guide(Point at)
+    {
+        var carry = _draw.Shape is null && !_draw.Reshaping && !_page
+            && Arranged(at) is { } arranged
+            && !_gizmo.Hits(arranged, (float)_canvas.Scale, handlesOnly: true);
+
+        _guides.Begin(
+            _canvas.Placements,
+            _draw.Shape is { } ? Array.Empty<SvgElement>() : _gizmo.Elements,
+            carry ? _canvas.Gizmo : null,
+            _page ? _inspecting?.Placement : null);
+
+        Reread();
+    }
+
+    private void Unguide()
+    {
+        _guides.End();
+        _canvas.Aligned = null;
+
+        Reread();
+    }
+
     private void BeginEdit(Point at)
     {
         _drawing = _draw.Shape is { };
@@ -2750,6 +2798,7 @@ public sealed class GroupPanel : UserControl
         _gizmo.Drag(arranged);
 
         ShowGizmo();
+        _canvas.Aligned = _guides.Aligned(_canvas.Gizmo, _canvas.Scale);
         Retrace();
         _canvas.Publish();
     }
