@@ -27,6 +27,8 @@ dotnet add package SamoZ256.Svg.Viewer.Skia.Avalonia --prerelease
 | `SvgViewerCanvas` | The drawing surface alone, owning scale and offset |
 | `SvgViewerDeclarationPanel` | One control per declared parameter, and one row per declared let |
 | `SvgViewerElementPanel` | The attributes of the picked element, each editable as the file writes it |
+| `SvgExpressionField` | A box for a value that may be an expression: Escape puts back what the file says, ↑/↓ step a number, and it is outlined as driven |
+| `SvgPaintChip` | A paint shown as a swatch that opens a colour picker: solid, none, a reference, mixed, or driven, and raising one `Picked` as the picker closes |
 | `SvgViewerDock` | The body: the middle, and the panels arranged round it as a tree of splits |
 | `SvgViewerRegion` | One panel the dock arranges — an id a written layout names it by, a header, and the control |
 | `SvgViewerVariableDrag` | What a variable dragged from one of those onto another carries |
@@ -71,6 +73,7 @@ await Viewer.LoadAsync("badge.svg");
 | `FileDialogService` | Custom storage or picker integration |
 | `Canvas` | Direct access to the surface for zoom and pan; `Grabs` says whether a press is on the line round a rectangle rather than inside it, which is how a host lets a drawing be carried without taking the presses that belong to the shapes in it; `Show` lays out several drawings at once — with `SvgViewerFrame`s drawn under them where a host wants to say that some belong together — and `Rearrange` lays the same set out again without re-fitting, so a host that moves one of them keeps the view on the rest. `TryGetPlacementAt` says which drawing a click fell on, and `Grip` with `Moved` lets a press take hold of something and carry it |
 | `DocumentOpened` / `ErrorRaised` / `ParameterValueChanged` | Syncing host titles and status |
+| `SvgViewerElementPanel.IsPending` / `CommitPending` | Writing what is being typed in the Attributes panel before your own command acts on the drawing: ask the panel that has the keyboard. Its `UndoStep` and `Holds` say where its edits go, so a box typed while the drawing moved underneath is refused rather than written over the move |
 | `SvgViewerSourceColorizer` / `SourceResourceKey` | Colouring a source view of your own the way this one is coloured |
 
 ## Ranges come from the document

@@ -94,6 +94,11 @@
       <Setter Property="Background" Value="{DynamicResource TextControlBackgroundPointerOver}" />
     </Style>
 
+    <!-- Before focus, which still wins while the box is being typed in. -->
+    <Style Selector="^:driven">
+      <Setter Property="BorderBrush" Value="{DynamicResource SvgViewerDrivenBrush}" />
+    </Style>
+
     <Style Selector="^:focus">
       <Setter Property="BorderBrush" Value="{DynamicResource TextControlBorderBrushFocused}" />
       <Setter Property="Background" Value="{DynamicResource TextControlBackgroundFocused}" />

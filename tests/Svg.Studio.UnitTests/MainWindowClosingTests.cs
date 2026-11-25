@@ -96,6 +96,33 @@ public class MainWindowClosingTests
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>A value still being typed is unsaved work too, and is asked about.</summary>
+    [AvaloniaFact]
+    public async Task Closing_While_An_Attribute_Is_Typed_Asks_About_It()
+    {
+        var (window, asked) = await Host(answer: false);
+        var viewer = window.GetVisualDescendants().OfType<SvgViewer>().First();
+
+        Assert.True(viewer.Elements.TrySelect("0"));
+        Dispatcher.UIThread.RunJobs();
+
+        var fill = window.GetVisualDescendants().OfType<SvgViewerElementPanel>().First()
+            .GetVisualDescendants().OfType<TextBox>().Single(box => Equals(box.Tag, "fill"));
+
+        fill.Focus();
+        fill.Text = "#0000ff";
+
+        window.Close();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(asked, m => m.Contains(".svg has changes that have not been saved", StringComparison.Ordinal));
+        Assert.True(window.IsVisible);
+
+        window.ConfirmDiscard = _ => Task.FromResult(true);
+        window.Close();
+        Dispatcher.UIThread.RunJobs();
+    }
+
     [AvaloniaFact]
     public async Task Closing_A_Window_With_Unsaved_Work_Goes_Through_On_A_Yes()
     {

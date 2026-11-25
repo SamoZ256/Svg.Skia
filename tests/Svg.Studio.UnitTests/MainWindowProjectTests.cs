@@ -5223,6 +5223,61 @@ public class MainWindowProjectTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    private static TextBox Row(SvgViewerElementPanel element, string name)
+        => element.GetVisualDescendants().OfType<TextBox>().Single(box => Equals(box.Tag, name));
+
+    /// <summary>Save while a value is being typed saves the value: it is written before Save is asked whether there is anything to save.</summary>
+    [AvaloniaFact]
+    public async Task Saving_Writes_The_Attribute_Being_Typed()
+    {
+        var path = Own(Unbound, Declaring);
+        var window = await Host(path);
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+        Dispatcher.UIThread.RunJobs();
+
+        var opacity = Row(Assert.IsType<SvgViewerElementPanel>(Element(panel)), "opacity");
+
+        opacity.Focus();
+        opacity.Text = "0.5";
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(window.Registry["save"].CanExecute());
+        Assert.True(await window.Registry.Run("save"));
+
+        Assert.Contains("opacity=\"0.5\"", TestPackage.Read(path), StringComparison.Ordinal);
+        Assert.True(opacity.IsFocused);
+    }
+
+    /// <summary>An undo under a box being typed in on a board: the box is not written over the undone drawing, and the redo survives.</summary>
+    [AvaloniaFact]
+    public async Task The_Board_Does_Not_Write_A_Box_Its_Drawing_Was_Undone_Under()
+    {
+        var window = await Host(Own(Unbound, Declaring));
+        var panel = await Group(window, 0);
+
+        Pick(window, panel, 0);
+
+        var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
+
+        Assert.True(element.Set("opacity", "0.5"));
+        Dispatcher.UIThread.RunJobs();
+
+        var width = Row(element, "width");
+
+        width.Focus();
+        width.Text = "30";
+        Assert.True(window.Workspace!.Undo());
+        Dispatcher.UIThread.RunJobs();
+
+        width.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("width=\"30\"", TestPackage.Dump(window.Workspace!.Document), StringComparison.Ordinal);
+        Assert.True(window.Workspace.CanRedo);
+    }
+
     /// <summary>A write on a board leaves the pane where it was scrolled to.</summary>
     [AvaloniaFact]
     public async Task The_Attributes_Pane_Keeps_Its_Place_Through_A_Write_On_A_Board()
@@ -5234,7 +5289,9 @@ public class MainWindowProjectTests : IDisposable
         Pick(window, panel, 0);
 
         var element = Assert.IsType<SvgViewerElementPanel>(Element(panel));
-        var scroll = element.GetVisualDescendants().OfType<ScrollViewer>().First();
+
+        // The rows', not the one inside the Find box above them.
+        var scroll = element.GetVisualDescendants().OfType<ScrollViewer>().First(viewer => viewer.FindAncestorOfType<TextBox>() is null);
 
         scroll.Offset = new Vector(0, 120);
         Dispatcher.UIThread.RunJobs();

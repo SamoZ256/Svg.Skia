@@ -44,6 +44,37 @@ public class StudioCommandsTests
     public void Two_Commands_Of_One_Name_Are_Refused()
         => Assert.Throws<ArgumentException>(() => new StudioCommands(new[] { Command("save"), Command("save") }, mac: false));
 
+    /// <summary>Save, among others, is only live once what is being typed is in the drawing.</summary>
+    [AvaloniaFact]
+    public async Task A_Command_Commits_What_Is_Typed_Before_It_Is_Asked_Whether_It_Can_Run()
+    {
+        var committed = 0;
+        var save = Command("save") with { CanExecute = () => committed > 0 };
+        var commands = new StudioCommands(new[] { save }, mac: false) { CommitPending = () => committed++ };
+
+        Assert.True(await commands.Run("save"));
+        Assert.Equal(1, committed);
+    }
+
+    /// <summary>Undo and redo take back the typing itself, and Select All selects it: none of them writes it first.</summary>
+    [AvaloniaFact]
+    public async Task Undo_Redo_And_Select_All_Leave_The_Typed_Box_Alone()
+    {
+        var committed = 0;
+        var commands = new StudioCommands(new[] { Command("undo") with { KeepsTyping = true } }, mac: false) { CommitPending = () => committed++ };
+
+        Assert.True(await commands.Run("undo"));
+        Assert.Equal(0, committed);
+
+        var window = new MainWindow();
+
+        // Duplicate and Delete do nothing while a box has the keyboard, so neither writes what is typed first.
+        Assert.All(new[] { "undo", "redo", "selectall", "duplicate", "delete" }, id => Assert.True(window.Registry[id].KeepsTyping, id));
+        Assert.False(window.Registry["save"].KeepsTyping);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void A_Menu_Leaves_Out_What_Has_No_Command_And_Every_Stray_Rule()
     {

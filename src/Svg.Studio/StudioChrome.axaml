@@ -25,9 +25,13 @@
                the chrome rather than laid on top of it. Light is the same relation the other way,
                which is the one Fluent already had right. -->
           <SolidColorBrush x:Key="StudioWindowBrush" Color="#252528" />
+          <!-- The viewer's SvgViewerDrivenBrush, for Studio's own chrome: the Attributes panel's
+               merged dictionary shadows an app-level key, so the two are kept equal by a test. -->
+          <SolidColorBrush x:Key="StudioDrivenBrush" Color="#C586C0" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <SolidColorBrush x:Key="StudioWindowBrush" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="StudioDrivenBrush" Color="#A626A4" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>

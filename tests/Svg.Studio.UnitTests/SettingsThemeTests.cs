@@ -116,4 +116,24 @@ public class SettingsThemeTests : IDisposable
 
         settings.Close();
     }
+
+    /// <summary>
+    /// The viewer's driven colour and Studio's are one colour: the Attributes panel reads its own
+    /// key, which Studio's chrome cannot reach, and Studio's own surfaces read the other.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Dark")]
+    [InlineData("Light")]
+    public void The_Driven_Role_Is_One_Colour_In_The_Viewer_And_The_Chrome(string variant)
+    {
+        var theme = variant == "Dark" ? ThemeVariant.Dark : ThemeVariant.Light;
+        var viewer = new Avalonia.Markup.Xaml.Styling.ResourceInclude(new Uri("avares://Svg.Viewer.Skia.Avalonia/"))
+        {
+            Source = new Uri("avares://Svg.Viewer.Skia.Avalonia/SvgViewerSourceBrushes.axaml")
+        };
+
+        Assert.True(viewer.TryGetResource("SvgViewerDrivenBrush", theme, out var driven));
+        Assert.True(Application.Current!.TryGetResource("StudioDrivenBrush", theme, out var chrome));
+        Assert.Equal(Assert.IsAssignableFrom<ISolidColorBrush>(driven).Color, Assert.IsAssignableFrom<ISolidColorBrush>(chrome).Color);
+    }
 }
