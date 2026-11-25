@@ -84,6 +84,9 @@ public partial class MainWindow : Window
     /// <summary>The open project's place in git, on the arrangement while a saved project is open and git is installed.</summary>
     private readonly ChangesPanel _changes = new();
 
+    /// <summary>What Undo would take back, beside Changes.</summary>
+    private readonly HistoryPanel _history = new();
+
     /// <summary>The chat that answers from the docs and works the window through <see cref="AssistantTools"/>.</summary>
     private readonly AssistantPanel _assistant;
 
@@ -197,6 +200,8 @@ public partial class MainWindow : Window
         _changes.Unsaved = () => Unwritten is { } || Unsaved().Count > 0;
         _changes.Reopen = path => OpenProjectAsync(path);
         _changes.Document = () => _workspace?.Document;
+        _history.Drawing = Selected;
+        _history.Project = () => _workspace;
         _changes.Open = ShowAsync;
         _changes.Compared += (_, _) =>
         {
@@ -524,6 +529,9 @@ public partial class MainWindow : Window
         };
 
         viewer.SourceModifiedChanged += (_, _) => Mark(item);
+
+        // The Undo item's label, and History, are about every step the drawing takes.
+        viewer.SourceChanged += (_, _) => UpdateMenu();
 
         viewer.OpenRequested += (_, request) =>
         {
@@ -1234,6 +1242,8 @@ public partial class MainWindow : Window
     /// <summary>What the arrangement calls the changes panel.</summary>
     private const string ChangesPanelId = "changes";
 
+    private const string HistoryPanelId = "history";
+
     private const string AssistantPanelId = "assistant";
 
     /// <summary>
@@ -1272,14 +1282,17 @@ public partial class MainWindow : Window
             _panels[id] = new Border();
         }
 
+        // The tree and Changes follow the project: taken off by hand, one came back beside the wrong
+        // panel. The Window menu offers what a tab can close.
         return new[]
             {
                 new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost),
                 new SvgViewerRegion(ChangesPanelId, "Changes", _changes),
-                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant)
+                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant) { Closable = true }
             }
-            .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
-            .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline))
+            .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id]) { Closable = true }))
+            .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline) { Closable = true })
+            .Append(new SvgViewerRegion(HistoryPanelId, "History", _history) { Closable = true })
             .ToList();
     }
 
@@ -1351,6 +1364,12 @@ public partial class MainWindow : Window
         }
 
         _dock.Show(ProjectTreePanel, show);
+
+        // A project opens on its tree, whatever its run held while there was none.
+        if (show)
+        {
+            _dock.Select(ProjectTreePanel);
+        }
 
         // Here rather than at the two ends of a project's life: this is where both of them already
         // land, and by now the workspace has been set or cleared.
@@ -3625,6 +3644,7 @@ public partial class MainWindow : Window
     {
         _registry.Refresh();
         _bars.Show();
+        _history.Refresh();
     }
 
     /// <summary>"Undo", or "Undo remove Large" where the history knows what it was.</summary>
@@ -3647,12 +3667,16 @@ public partial class MainWindow : Window
         yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", "swappaints", rule, "resize" });
         yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
         yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "workspace-rulers", "guides", "smartguides", rule, "reset-parameters" });
-        yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
+        yield return ("Window", _dock.Regions.Where(region => region.Closable).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" })
+            .Concat(new[] { rule }).Concat(StudioSettings.Layouts.Select(layout => LayoutCommand(layout.Name))).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
         yield return ("Help", new[] { "help", "commands", "user-guide", "mcp-connection", rule, "about" });
     }
 
     private static string Panel(SvgViewerRegion region) => "panel-" + region.Header.ToLowerInvariant();
+
+    /// <summary>A layout's command, which the control bar's picker runs as well.</summary>
+    internal static string LayoutCommand(string name) => "layout-" + name.ToLowerInvariant();
 
     /// <summary>A tool's id, upstream's where the tool is upstream's under another name.</summary>
     private static string Tool(string name) => name switch
@@ -3662,12 +3686,6 @@ public partial class MainWindow : Window
         "Polygon" => "tool-polygon-path",
         _ => "tool-" + name.ToLowerInvariant()
     };
-
-    /// <summary>
-    /// Whether the Window menu turns this panel on and off. Not the project tree or Changes, which
-    /// follow the project: taken off by hand, one came back beside the wrong panel when it did.
-    /// </summary>
-    private static bool Toggled(SvgViewerRegion region) => region.Id is not (ProjectTreePanel or ChangesPanelId);
 
     /// <summary>Everything the window can be asked to do, with its key and when it is live.</summary>
     private IEnumerable<StudioCommand> Commanded()
@@ -3847,7 +3865,7 @@ public partial class MainWindow : Window
             };
         }
 
-        foreach (var region in _dock.Regions.Where(Toggled))
+        foreach (var region in _dock.Regions.Where(region => region.Closable))
         {
             yield return new(Panel(region), region.Header, "Window", Done(() => Toggle(region.Id))) { IsChecked = () => _dock.Shows(region.Id) };
         }
@@ -3865,6 +3883,11 @@ public partial class MainWindow : Window
             CanExecute = () => _tabs.ItemCount > 1
         };
         yield return new("reset-layout", "Reset Layout", "Window", Done(ResetLayout));
+
+        foreach (var (name, line) in StudioSettings.Layouts)
+        {
+            yield return new(LayoutCommand(name), name + " Layout", "Window", Done(() => Arrange(line))) { IsChecked = () => _dock.Matches(line) };
+        }
 
         yield return new("new-project", "New", "Project", () => NewProjectAsync());
         yield return new("close-project", "Close", "Project", () => CloseProjectAsync()) { CanExecute = () => _workspace is { } };
@@ -3944,17 +3967,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ResetLayout()
+    private void ResetLayout() => Arrange(StudioSettings.DefaultLayout);
+
+    /// <summary>Puts the panels as <paramref name="line"/> says, keeping off the ones the project keeps off.</summary>
+    private void Arrange(string line)
     {
         // Written rather than cleared, so the line on file is the arrangement rather than a gap
         // meaning "whatever the default happens to be next time".
-        StudioSettings.Layout = StudioSettings.DefaultLayout;
-        _dock.Layout = StudioSettings.DefaultLayout;
+        StudioSettings.Layout = line;
+        _dock.Layout = line;
 
         // Changes before the tree, as when the window opens: a panel goes back exactly where it was
         // only while the rest of the line is what it was when it went.
         _dock.Show(ChangesPanelId, _workspace is { } && _changes.Tracking);
         _dock.Show(ProjectTreePanel, _workspace is { });
+
+        UpdateMenu();
     }
 
     /// <summary>The shortcuts, in a window of their own beside the editor rather than over it.</summary>
@@ -4507,6 +4535,9 @@ public partial class MainWindow : Window
 
     /// <summary>The open project's repository panel, which is the way in to its commands without a click.</summary>
     public ChangesPanel Changes => _changes;
+
+    /// <summary>The panel listing what Undo would take back, for a test to drive.</summary>
+    public HistoryPanel History => _history;
 
     /// <summary>
     /// How the window asks whether a copy of unsaved work may be thrown away.

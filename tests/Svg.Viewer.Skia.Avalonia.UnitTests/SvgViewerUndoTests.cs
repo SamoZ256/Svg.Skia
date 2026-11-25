@@ -70,6 +70,25 @@ public class SvgViewerUndoTests
         Assert.Contains("typed", viewer.Source);
     }
 
+    /// <summary>Every step the drawing's history takes is told, for a host that lists it.</summary>
+    [AvaloniaFact]
+    public async Task A_Host_Hears_Of_Every_Edit_Undo_And_Redo()
+    {
+        var (_, viewer) = await Host();
+        var told = 0;
+
+        viewer.SourceChanged += (_, _) => told++;
+
+        Assert.True(viewer.SetSource(viewer.Source + "<!-- typed -->"));
+        Assert.Equal(1, told);
+
+        Assert.True(viewer.Undo());
+        Assert.Equal(2, told);
+
+        Assert.True(viewer.Redo());
+        Assert.Equal(3, told);
+    }
+
     [AvaloniaFact]
     public async Task Redo_Answers_To_Both_Of_Its_Gestures()
     {

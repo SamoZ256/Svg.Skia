@@ -3921,25 +3921,32 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Pair));
         var panel = await Group(window, 0);
 
+        // From the default, whatever arrangement another test left in the settings this class shares.
+        Assert.True(await window.Registry.Run("reset-layout"));
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
+        Dispatcher.UIThread.RunJobs();
+
         var variables = Around(panel).GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
 
-        // Its own run, so nothing can be in front of it — which is what lets a variable be dragged
-        // onto an attribute here as well.
+        // In front of its run, and apart from the attributes — which is what lets a variable be
+        // dragged onto an attribute here as well.
         Assert.True(variables.IsEffectivelyVisible);
 
-        // The board's settings share a run with the element tree, and the default reads them first.
+        // The board's settings share that run, behind the variables: not shown, nor yet laid out.
+        Assert.DoesNotContain(
+            window.GetVisualDescendants().OfType<StackPanel>(),
+            found => found.Name == "Properties" && found.IsEffectivelyVisible);
+
+        // Their header brings them out, and takes the variables off show with it. Off show rather
+        // than away: a panel already built stays in the tree behind the one on top, so what it says
+        // can still be asked for.
+        Open(window, window, "Properties");
+
         Assert.True(
             window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties")
                 .IsEffectivelyVisible);
-
-        // The other header brings its own panel out, and takes the settings off show with it. Off
-        // show rather than away: a panel already built stays in the tree behind the one on top, so
-        // what it says can still be asked for.
-        Open(window, window, "Elements");
-
-        Assert.False(
-            window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties")
-                .IsEffectivelyVisible);
+        Assert.False(variables.IsEffectivelyVisible);
     }
 
     [AvaloniaFact]

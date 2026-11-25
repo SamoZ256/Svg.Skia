@@ -137,25 +137,36 @@ held at either end of a strip with more tabs than fit scrolls the strip the same
 an `.svg` file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
 clipboard. Adding, removing and moving edit the project; nothing reaches the folder until you save it.
 
-Five panels sit round the tabs: the **Project** tree, the **Properties** of whatever is in front, the
-**Variables** it declares, the **Attributes** of the element picked in it, and the **Elements** those
-come from. They
-belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
-holds still while you move between drawings, and the tree that names them stays beside all of them.
+Panels sit round the tabs: the **Project** tree, **Changes** and **History**; the **Variables** a
+drawing declares and the **Properties** of whatever is in front; the **Attributes** of the element
+picked in it, the **Elements** those come from, and the **Assistant**; and **Streamline**. They belong
+to the window rather than to a tab, and show whatever tab is in front — so the arrangement holds still
+while you move between drawings, and the tree that names them stays beside all of them.
 
-They come up as a strip either side of the drawing, both the same width so neither reads as the
-important one: the tree over the variables it declares on the left, and on the right the settings and
-the elements sharing a run over the picked element's attributes. The tree gets the deeper share of
-its column, being the list you scroll where the variables are a handful of rows. The variables and
-the element are apart on purpose — a variable is dragged onto an attribute, and behind a tab each
-would hide the other.
+They come up in the **Drawing** layout: down the left the tree, with Changes and History behind it,
+over the variables and the properties; Streamline folded under the drawing, which its tab opens; down
+the right the attributes over the element tree and the assistant. The variables and the attributes are apart on purpose — a
+variable is dragged onto an attribute, and behind a tab each would hide the other. **Board** puts
+Streamline under the tree and gives a group's board the window's whole height; **Review** puts
+Changes and History wide on the left. Pick one in the control bar's picker, at its right end, or in
+the **Window** menu. The picker names the layout you are in, and says *Custom* once the panels are
+arranged as none of them.
 
-**Arrange them as you like.** The chevron on a header folds that panel away. Take a panel by its
+**History** lists what **Edit → Undo** would take back, in the order it would: the drawing in front
+first, then the project. Clicking a row takes back that step and everything above it.
+
+**Arrange them as you like.** The chevron on a header folds that panel away, and a click on a folded
+run's tab opens it again. Drag the gap between two panels, which lights up under the pointer, to
+resize them. Take a panel by its
 header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
 Drop it against the foot of the drawing and it sits under the drawing; drop it against the **edge of
 the window** and it runs under everything, taking nothing from the strip beside it. Where it would
-land is drawn while you carry it. The arrangement is remembered, so it is there again next time, and
-**Window → Reset Layout** puts it back for when it has gone somewhere you would rather it had not. The
+land is drawn while you carry it. A tab's own menu, on a right-click, moves it left or right along its
+run or into a run of its own below it, and closes it where the **Window** menu can bring it back;
+clicking a tab leaves the keyboard with the drawing, and once a tab has it the arrow keys walk the run's tabs, and a run too
+narrow for its tabs offers the rest under the **»** at its end. The arrangement is remembered, so it
+is there again next time, and **Window → Reset Layout** puts it back for when it has gone somewhere
+you would rather it had not. The
 **Window** menu also takes a panel off or puts it back for this session — all but the project tree and
 **Changes**, which come and go with the project — and moves between tabs
 (⌃⇥ and ⌃⇧⇥); **Help → Keyboard Shortcuts** lists every key Studio answers to, and **Help → Search

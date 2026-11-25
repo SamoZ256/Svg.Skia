@@ -10,6 +10,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
@@ -350,6 +351,29 @@ public sealed class SvgViewerDock
         Rebuild();
     }
 
+    /// <summary>Whether this is arranged as <paramref name="line"/> says, leaving aside sizes, folds and which panel is on top.</summary>
+    /// <remarks>
+    /// Panels the arrangement has no place for — taken off, or kept off by the host — are taken out of
+    /// the line first, so a layout still reads as itself while a project's tree is off it.
+    /// </remarks>
+    public bool Matches(string line)
+    {
+        if (Parsed(line) is not { } tree)
+        {
+            return false;
+        }
+
+        var placed = Walk(_tree).OfType<Leaf>().SelectMany(leaf => leaf.Ids).ToHashSet(StringComparer.Ordinal);
+        var other = new SvgViewerDock(tree);
+
+        foreach (var id in Walk(tree).OfType<Leaf>().SelectMany(leaf => leaf.Ids).Where(id => !placed.Contains(id)).ToList())
+        {
+            other.Take(id);
+        }
+
+        return string.Equals(Written(other._tree, root: true, bare: true), Written(_tree, root: true, bare: true), StringComparison.Ordinal);
+    }
+
     // ---- the tree ------------------------------------------------------------------------------
 
     /// <summary>How big a node is among its neighbours: a share of them, or an extent it keeps.</summary>
@@ -513,7 +537,12 @@ public sealed class SvgViewerDock
                            && wanted.Ids.Any(other => leaf.Ids.Contains(other, StringComparer.Ordinal)))
                is { } beside)
         {
-            beside.Ids.Add(id);
+            // In the default's order among what is there, rather than last: a tree put back behind
+            // History reads as a layout nobody chose.
+            var after = wanted.Ids.SkipWhile(other => !string.Equals(other, id, StringComparison.Ordinal)).Skip(1).ToHashSet(StringComparer.Ordinal);
+            var at = beside.Ids.FindIndex(after.Contains);
+
+            beside.Ids.Insert(at < 0 ? beside.Ids.Count : at, id);
 
             if (front)
             {
@@ -649,11 +678,13 @@ public sealed class SvgViewerDock
     private static bool Same(SvgViewerRegion one, SvgViewerRegion other)
         => string.Equals(one.Id, other.Id, StringComparison.Ordinal)
            && string.Equals(one.Header, other.Header, StringComparison.Ordinal)
-           && ReferenceEquals(one.Content, other.Content);
+           && ReferenceEquals(one.Content, other.Content)
+           && one.Closable == other.Closable;
 
     // ---- reading and writing the line ----------------------------------------------------------
 
-    private static string Written(Node node, bool root = false)
+    /// <param name="bare">Only the shape: no sizes, and no word on which panel is on top or whether it is folded.</param>
+    private static string Written(Node node, bool root = false, bool bare = false)
     {
         var line = new StringBuilder();
 
@@ -665,9 +696,14 @@ public sealed class SvgViewerDock
 
             case Split split:
                 line.Append(split.Across ? "row(" : "col(")
-                    .Append(string.Join(",", split.Children.Select(child => Written(child))))
+                    .Append(string.Join(",", split.Children.Select(child => Written(child, bare: bare))))
                     .Append(')');
                 break;
+        }
+
+        if (bare)
+        {
+            return line.ToString();
         }
 
         // The root's own size is a share of nothing.
@@ -978,10 +1014,11 @@ public sealed class SvgViewerDock
         {
             var body = new Panel();
 
+            var front = Front(leaf);
+
             foreach (var id in leaf.Ids)
             {
-                if (_regions.FirstOrDefault(region => string.Equals(region.Id, id, StringComparison.Ordinal))
-                    is not { } region)
+                if (Region(id) is not { } region)
                 {
                     continue;
                 }
@@ -989,7 +1026,7 @@ public sealed class SvgViewerDock
                 var host = new Border
                 {
                     Child = region.Content,
-                    IsVisible = string.Equals(leaf.Selected, id, StringComparison.Ordinal),
+                    IsVisible = string.Equals(front, id, StringComparison.Ordinal),
                     Tag = id
                 };
 
@@ -1009,7 +1046,29 @@ public sealed class SvgViewerDock
 
     private Control Header(Leaf leaf)
     {
-        var bar = new StackPanel { Orientation = Orientation.Horizontal };
+        var shown = leaf.Ids.Where(Known).ToList();
+        var tabs = new StackPanel { Orientation = Orientation.Horizontal };
+
+        // Clipped rather than run past the edge, with what does not fit offered at the end.
+        var strip = new ScrollViewer
+        {
+            Content = tabs,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+
+        var rest = new MenuFlyout();
+        var more = new Button
+        {
+            Classes = { "more" },
+            Content = "»",
+            IsVisible = false,
+            Focusable = false,
+            Flyout = rest,
+            [ToolTip.TipProperty] = "Every panel of this run"
+        };
+
+        strip.ScrollChanged += (_, _) => more.IsVisible = strip.Extent.Width > strip.Viewport.Width + 0.5d;
 
         var chevron = new Border
         {
@@ -1035,73 +1094,192 @@ public sealed class SvgViewerDock
             Moved();
         };
 
-        bar.Children.Add(chevron);
+        DockPanel.SetDock(chevron, Dock.Left);
+        DockPanel.SetDock(more, Dock.Right);
 
-        foreach (var id in leaf.Ids)
+        var bar = new DockPanel { Children = { chevron, more, strip } };
+
+        foreach (var id in shown)
         {
-            if (_regions.FirstOrDefault(region => string.Equals(region.Id, id, StringComparison.Ordinal))
-                is not { } region)
-            {
-                continue;
-            }
-
+            var region = Region(id)!;
             var tab = new Border
             {
                 Classes = { "pane" },
-                Background = Brushes.Transparent,
+                Focusable = true,
                 Child = new TextBlock { Text = region.Header, VerticalAlignment = VerticalAlignment.Center },
-                Tag = id
+                Tag = id,
+                ContextMenu = Menu(leaf, id, shown)
             };
 
-            if (string.Equals(leaf.Selected, id, StringComparison.Ordinal))
+            if (string.Equals(Front(leaf), id, StringComparison.Ordinal))
             {
                 tab.Classes.Add("selected");
             }
 
             var chosen = id;
 
-            tab.PointerPressed += (_, e) =>
+            tabs.Children.Add(tab);
+
+            var item = new MenuItem { Header = region.Header };
+
+            item.Click += (_, _) => Choose(leaf, chosen, tabs);
+            rest.Items.Add(item);
+        }
+
+        // On the way down, so a tab is never handed the press to be focused by: a click leaves the
+        // keyboard where it was, with the drawing's tool letters, and only the keyboard reaches a tab.
+        bar.AddHandler(InputElement.PointerPressedEvent, (_, e) =>
+        {
+            if (Pressed(e.Source as Visual) is not { Tag: string chosen })
             {
-                e.Handled = true;
+                return;
+            }
 
-                if (!e.GetCurrentPoint(_shell).Properties.IsLeftButtonPressed)
-                {
-                    return;
-                }
+            e.Handled = true;
 
-                // Taken hold of either way: a press that goes nowhere is the panel being chosen, and
-                // one that travels is it being carried somewhere else.
-                _carried = chosen;
-                _pressedAt = e.GetPosition(_shell);
-                _dragging = false;
+            if (!e.GetCurrentPoint(_shell).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
 
-                if (string.Equals(leaf.Selected, chosen, StringComparison.Ordinal))
-                {
-                    return;
-                }
+            // Taken hold of either way: a press that goes nowhere is the panel being chosen, and one
+            // that travels is it being carried somewhere else.
+            _carried = chosen;
+            _pressedAt = e.GetPosition(_shell);
+            _dragging = false;
 
-                leaf.Selected = chosen;
+            Choose(leaf, chosen, tabs);
+        }, RoutingStrategies.Tunnel);
 
-                // In place rather than rebuilt: a rebuild moves the middle, and a tab strip that is
-                // moved comes back on its first tab, so switching panes flashed the project's tab
-                // before the one in front came back.
-                foreach (var other in bar.Children.OfType<Border>().Where(other => other.Classes.Contains("pane")))
-                {
-                    other.Classes.Set("selected", Equals(other.Tag, chosen));
-                }
+        bar.KeyDown += (_, e) =>
+        {
+            if (shown.Count == 0 || e.Key is not (Key.Left or Key.Right or Key.Home or Key.End))
+            {
+                return;
+            }
 
-                foreach (var host in _filled.Where(host => host.Tag is string held && leaf.Ids.Contains(held)))
-                {
-                    host.IsVisible = Equals(host.Tag, chosen);
-                }
+            var at = shown.IndexOf(Front(leaf) ?? shown[0]);
+            var next = e.Key switch
+            {
+                Key.Home => 0,
+                Key.End => shown.Count - 1,
+                Key.Left => (at - 1 + shown.Count) % shown.Count,
+                _ => (at + 1) % shown.Count
+            };
 
+            Choose(leaf, shown[next], tabs);
+            tabs.Children[next].Focus(NavigationMethod.Directional);
+
+            e.Handled = true;
+        };
+
+        return new Border { Classes = { "slot" }, Background = Brushes.Transparent, Child = bar };
+    }
+
+    /// <summary>The tab a press landed in, where it landed in one.</summary>
+    private static Border? Pressed(Visual? at)
+    {
+        for (; at is not null; at = at.GetVisualParent())
+        {
+            if (at is Border tab && tab.Classes.Contains("pane"))
+            {
+                return tab;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The panel a run shows: the one on top, or its first real one where what is on top is a panel nothing supplies.</summary>
+    /// <remarks>Here rather than in <see cref="Take"/>, which a dock with no regions runs too, to work out a line.</remarks>
+    private string? Front(Leaf leaf)
+        => leaf.Selected is { } chosen && Known(chosen) ? chosen : leaf.Ids.FirstOrDefault(Known);
+
+    private SvgViewerRegion? Region(string id)
+        => _regions.FirstOrDefault(region => string.Equals(region.Id, id, StringComparison.Ordinal));
+
+    /// <summary>Puts a panel on top of its run, and its tab in view.</summary>
+    /// <remarks>
+    /// In place rather than rebuilt: a rebuild moves the middle, and a tab strip that is moved comes
+    /// back on its first tab, so switching panes flashed the project's tab before the one in front
+    /// came back.
+    /// </remarks>
+    private void Choose(Leaf leaf, string id, Panel tabs)
+    {
+        var tab = tabs.Children.OfType<Border>().FirstOrDefault(other => Equals(other.Tag, id));
+
+        tab?.BringIntoView();
+
+        if (string.Equals(Front(leaf), id, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        leaf.Selected = id;
+
+        foreach (var other in tabs.Children.OfType<Border>())
+        {
+            other.Classes.Set("selected", Equals(other.Tag, id));
+        }
+
+        foreach (var host in _filled.Where(host => host.Tag is string held && leaf.Ids.Contains(held)))
+        {
+            host.IsVisible = Equals(host.Tag, id);
+        }
+
+        Moved();
+    }
+
+    /// <summary>A tab's own menu: along its run, under it, or off the arrangement where the host can bring it back.</summary>
+    private ContextMenu Menu(Leaf leaf, string id, List<string> shown)
+    {
+        var at = shown.IndexOf(id);
+        var menu = new ContextMenu();
+
+        menu.Items.Add(Item("Move Left", at > 0, () => Swap(leaf, id, shown[at - 1])));
+        menu.Items.Add(Item("Move Right", at < shown.Count - 1, () => Swap(leaf, id, shown[at + 1])));
+        menu.Items.Add(Item("Move Below", shown.Count > 1, () =>
+        {
+            Take(id);
+            Beside(leaf, Made(id), across: false, before: false);
+        }));
+
+        // Not written into the line, as a host turning a panel off is not: Settle would put it back
+        // beside its default neighbours next time, rather than where it was.
+        if (Region(id) is { Closable: true })
+        {
+            var close = new MenuItem { Header = "Close" };
+
+            close.Click += (_, _) => Show(id, false);
+
+            menu.Items.Add(new Separator());
+            menu.Items.Add(close);
+        }
+
+        return menu;
+
+        MenuItem Item(string header, bool enabled, Action move)
+        {
+            var item = new MenuItem { Header = header, IsEnabled = enabled };
+
+            item.Click += (_, _) =>
+            {
+                move();
+
+                Rebuild();
                 Moved();
             };
 
-            bar.Children.Add(tab);
+            return item;
         }
+    }
 
-        return new Border { Classes = { "slot" }, Background = Brushes.Transparent, Child = bar };
+    private static void Swap(Leaf leaf, string one, string other)
+    {
+        var first = leaf.Ids.IndexOf(one);
+        var second = leaf.Ids.IndexOf(other);
+
+        (leaf.Ids[first], leaf.Ids[second]) = (leaf.Ids[second], leaf.Ids[first]);
     }
 
     /// <summary>Takes the sizes back off the grid once a hand has finished dragging a splitter.</summary>
@@ -1371,6 +1549,17 @@ public sealed class SvgViewerDock
 
         Let();
 
+        // A click on a folded run's tab opens the run: the chevron is a small thing to have to find.
+        if (!dragged && carried is { } clicked && Holding(clicked) is { Folded: true } folded)
+        {
+            folded.Folded = false;
+
+            Rebuild();
+            Moved();
+
+            return;
+        }
+
         if (!dragged || carried is null || landing is not { } where)
         {
             return;
@@ -1462,5 +1651,5 @@ public sealed class SvgViewerDock
     }
 
     private static GridSplitter Splitter(GridResizeDirection direction)
-        => new() { ResizeDirection = direction, Background = Brushes.Transparent };
+        => new() { ResizeDirection = direction, Classes = { "gap" } };
 }

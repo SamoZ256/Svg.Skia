@@ -63,7 +63,7 @@ public class ChangesPanelTests : IDisposable
 
         var window = await Host();
 
-        Assert.Contains("tree+changes/1.4/tree/open", window.Layout, StringComparison.Ordinal);
+        Assert.Contains("tree+changes+history/1.4/tree/open", window.Layout, StringComparison.Ordinal);
         Assert.Null(window.Changes.Git);
 
         await window.CloseProjectAsync();
