@@ -13,8 +13,8 @@ namespace Svg.Skia.UnitTests;
 /// with the SkiaSharp calls it makes at its native frame and compared with the SVG that replaces it.
 /// </summary>
 /// <remarks>
-/// Each row's bound is what it measured, rounded up to the next thousandth, and the same drawing a
-/// little off has to exceed it. <c>SKPathBuilder</c> stands in for <c>SKPath.AddArc</c>, which
+/// Each row's bound is at least what it measured on Apple Silicon and up to 1.3 times it, room for
+/// the other raster pipelines CI's x64 machines run, and the same drawing a little off has to exceed it. <c>SKPathBuilder</c> stands in for <c>SKPath.AddArc</c>, which
 /// SkiaSharp 4 marks obsolete.
 /// </remarks>
 public partial class SkiaCSharpRenderTests
@@ -164,7 +164,7 @@ public partial class SkiaCSharpRenderTests
         """;
 
     [Theory]
-    [InlineData(false, 0.001)]
+    [InlineData(false, 0.0011)]
     [InlineData(true, 0.001)]
     public void A_Hue_Wheel_Draws_What_ButtonHelper_Draws(bool picker, double threshold)
     {
@@ -189,19 +189,20 @@ public partial class SkiaCSharpRenderTests
             WithGradientTransform(HueColourPicker, "rotate(2 15 15)"), arguments);
     }
 
-    // A white ring has no hue to turn, and a disabled one turned 2 degrees measures 0.0008, under its
-    // bound: those two are told apart from a ring 0.02 narrower and from an opacity of 0.21.
+    // A disabled ring turned 2 degrees measures under its bound, so it is told apart from an opacity of
+    // 0.21; an enabled white one, with no hue to turn, from a ring 0.02 narrower.
     [Theory]
     [InlineData(true, false, 0.001)]
     [InlineData(true, true, 0.001)]
     [InlineData(false, false, 0.001)]
+    [InlineData(false, true, 0.0013)]
     public void A_Thermostat_Ring_Draws_What_ButtonHelper_Draws(bool enabled, bool light, double threshold)
     {
         var arguments = new object?[] { enabled, light };
         var off = (enabled, light) switch
         {
-            (_, true) => ThermostatRing.Replace("#FFFFFF\" stroke-width=\"1.2\"", "#FFFFFF\" stroke-width=\"1.18\""),
             (false, _) => ThermostatRing.Replace(": 0.2<", ": 0.21<"),
+            (_, true) => ThermostatRing.Replace("#FFFFFF\" stroke-width=\"1.2\"", "#FFFFFF\" stroke-width=\"1.18\""),
             _ => WithGradientTransform(ThermostatRing, "rotate(2 15 15)")
         };
 
@@ -213,16 +214,17 @@ public partial class SkiaCSharpRenderTests
 
     // The bounds are wide because ButtonHelper's arc starts at 120 degrees and the ring here is a whole
     // circle, which Skia strokes up to a fifth of a pixel apart even drawing both itself; the clip
-    // adds nothing. The arc a degree short is the level a 306th nearer 3/306.
+    // adds nothing. An arc a degree short is the level a 306th nearer 3/306; at level 0 three would
+    // leave no arc at all.
     [Theory]
-    [InlineData(0f, 0.001)]
-    [InlineData(0.25f, 0.005)]
-    [InlineData(0.5f, 0.004)]
-    [InlineData(1f, 0.006)]
-    public void A_Thermostat_Dial_Draws_What_ButtonHelper_Draws(float level, double threshold)
+    [InlineData(0f, 1, 0.0012)]
+    [InlineData(0.25f, 3, 0.0061)]
+    [InlineData(0.5f, 3, 0.0047)]
+    [InlineData(1f, 3, 0.007)]
+    public void A_Thermostat_Dial_Draws_What_ButtonHelper_Draws(float level, int degreesShort, double threshold)
         => AssertDrawsAsButtonHelper(
             Named("ThermostatDial", level), ThermostatDial, new object?[] { level }, 180, canvas => DrawDetailthermostatlevelangle(canvas, level), threshold,
-            ThermostatDial, new object?[] { level - MathF.Sign(306 * level - 3) / 306f });
+            ThermostatDial, new object?[] { level - degreesShort * MathF.Sign(306 * level - 3) / 306f });
 
     [Fact]
     public void A_Hue_Wheel_Turned_By_Its_Gradient_Transform_Draws_As_The_Turned_Group()

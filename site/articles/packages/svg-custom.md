@@ -111,8 +111,8 @@ from another `sweepGradient`, as a `radialGradient` takes its centre only from a
 
 **Angles are Skia's.** 0° points along the gradient space's +x axis, which is 3 o'clock with no
 transform, and angles grow clockwise on screen. Nothing wraps: a direction is measured in [0°, 360°),
-so `startAngle="-90"` leaves the first stops unused rather than turning the gradient. Turn it with
-`gradientTransform`. CSS's `conic-gradient(from A at X Y, …)` starts at 12 o'clock, so it is written
+so under the default `pad`, `startAngle="-90"` leaves the first stops unused rather than turning the
+gradient. Turn it with `gradientTransform`. CSS's `conic-gradient(from A at X Y, …)` starts at 12 o'clock, so it is written
 `cx="X" cy="Y" gradientTransform="rotate(A−90 X Y)"`.
 
 **Bounding-box units.** Under the default `objectBoundingBox` the angles are measured in the box's
@@ -128,12 +128,15 @@ Write a fallback colour after it, as in `fill="url(#hue) #FF2323"`, and a browse
 
 **Against TapHome's hand-drawn ones.** `SkiaCSharpRenderTests.ButtonHelper` draws the four sweep
 drawings in TapHome's `ButtonHelper.cs` with their own SkiaSharp calls and compares each with the SVG
-that replaces it, at 256 px. The hue wheel measures 0.0008 RMS at most, the hue colour picker 0.0001
-and the thermostat ring 0.0006, each held to 0.001. The thermostat dial measures 0.0009, 0.0047,
-0.0036 and 0.0053 at levels 0, 0.25, 0.5 and 1, held to 0.001, 0.005, 0.004 and 0.006: Skia strokes
-ButtonHelper's arc, which starts at 120°, up to a fifth of a pixel off the whole ring that the SVG
-clips. Every bound is exceeded by the same drawing a little off, such as the hue turned 2° or the
-arc 1° short.
+that replaces it, at 256 px. The hue wheel measures 0.0008 RMS at most and the hue colour picker
+0.0001, held to 0.0011 and 0.001; the thermostat ring measures 0.0010 at most, held to 0.0013. The
+thermostat dial measures 0.0009, 0.0047, 0.0036 and 0.0053 at levels 0, 0.25, 0.5 and 1, held to
+0.0012, 0.0061, 0.0047 and 0.007: Skia strokes ButtonHelper's arc, which starts at 120°, up to a fifth
+of a pixel off the whole ring that the SVG clips. Those are Apple Silicon's numbers, and each bound
+leaves up to a third more for the raster pipelines of CI's x64 machines. Every bound is exceeded by the
+same drawing a little off, such as the hue turned 2° or the arc 3° short. Compiled against SkiaSharp
+3.119, the generated code measures within 0.00013 of these, inside every bound, and draws without
+allocating.
 
 ## Animation DOM coverage
 

@@ -349,6 +349,8 @@ public static class AvaloniaModelExtensions
             ToGradientStops(linearGradientShader.Colors, linearGradientShader.ColorPos),
             1,
             transform,
+            // Avalonia reads no origin as the shape's top-left, which misplaces a bounding-box gradient
+            // on a shape away from (0,0), here and in both radial brushes; the conic brush passes (0,0).
             null,
             spreadMethod,
             startPoint,
