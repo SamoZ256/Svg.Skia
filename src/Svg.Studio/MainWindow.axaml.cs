@@ -1272,14 +1272,15 @@ public partial class MainWindow : Window
             _panels[id] = new Border();
         }
 
+        // The tree and Changes follow the project, and the Window menu brings back only what can close.
         return new[]
             {
                 new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost),
                 new SvgViewerRegion(ChangesPanelId, "Changes", _changes),
-                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant)
+                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant) { Closable = true }
             }
-            .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
-            .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline))
+            .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id]) { Closable = true }))
+            .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline) { Closable = true })
             .ToList();
     }
 
@@ -3651,10 +3652,11 @@ public partial class MainWindow : Window
     };
 
     /// <summary>
-    /// Whether the Window menu turns this panel on and off. Not the project tree or Changes, which
-    /// follow the project: taken off by hand, one came back beside the wrong panel when it did.
+    /// Whether the Window menu turns this panel on and off: what its tab can close. Not the project
+    /// tree or Changes, which follow the project: taken off by hand, one came back beside the wrong
+    /// panel when it did.
     /// </summary>
-    private static bool Toggled(SvgViewerRegion region) => region.Id is not (ProjectTreePanel or ChangesPanelId);
+    private static bool Toggled(SvgViewerRegion region) => region.Closable;
 
     /// <summary>Everything the window can be asked to do, with its key and when it is live.</summary>
     private IEnumerable<StudioCommand> Commanded()

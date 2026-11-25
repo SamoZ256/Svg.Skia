@@ -649,7 +649,8 @@ public sealed class SvgViewerDock
     private static bool Same(SvgViewerRegion one, SvgViewerRegion other)
         => string.Equals(one.Id, other.Id, StringComparison.Ordinal)
            && string.Equals(one.Header, other.Header, StringComparison.Ordinal)
-           && ReferenceEquals(one.Content, other.Content);
+           && ReferenceEquals(one.Content, other.Content)
+           && one.Closable == other.Closable;
 
     // ---- reading and writing the line ----------------------------------------------------------
 
@@ -1009,7 +1010,28 @@ public sealed class SvgViewerDock
 
     private Control Header(Leaf leaf)
     {
-        var bar = new StackPanel { Orientation = Orientation.Horizontal };
+        var shown = leaf.Ids.Where(Known).ToList();
+        var tabs = new StackPanel { Orientation = Orientation.Horizontal };
+
+        // Clipped rather than run past the edge, with what does not fit offered at the end.
+        var strip = new ScrollViewer
+        {
+            Content = tabs,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+
+        var rest = new MenuFlyout();
+        var more = new Button
+        {
+            Classes = { "more" },
+            Content = "»",
+            IsVisible = false,
+            Flyout = rest,
+            [ToolTip.TipProperty] = "Every panel of this run"
+        };
+
+        strip.ScrollChanged += (_, _) => more.IsVisible = strip.Extent.Width > strip.Viewport.Width + 0.5d;
 
         var chevron = new Border
         {
@@ -1035,22 +1057,22 @@ public sealed class SvgViewerDock
             Moved();
         };
 
-        bar.Children.Add(chevron);
+        DockPanel.SetDock(chevron, Dock.Left);
+        DockPanel.SetDock(more, Dock.Right);
 
-        foreach (var id in leaf.Ids)
+        var bar = new DockPanel { Children = { chevron, more, strip } };
+
+        foreach (var id in shown)
         {
-            if (_regions.FirstOrDefault(region => string.Equals(region.Id, id, StringComparison.Ordinal))
-                is not { } region)
-            {
-                continue;
-            }
-
+            var region = Region(id)!;
             var tab = new Border
             {
                 Classes = { "pane" },
                 Background = Brushes.Transparent,
+                Focusable = true,
                 Child = new TextBlock { Text = region.Header, VerticalAlignment = VerticalAlignment.Center },
-                Tag = id
+                Tag = id,
+                ContextMenu = Menu(leaf, id, shown)
             };
 
             if (string.Equals(leaf.Selected, id, StringComparison.Ordinal))
@@ -1075,33 +1097,128 @@ public sealed class SvgViewerDock
                 _pressedAt = e.GetPosition(_shell);
                 _dragging = false;
 
-                if (string.Equals(leaf.Selected, chosen, StringComparison.Ordinal))
-                {
-                    return;
-                }
+                Choose(leaf, chosen, tabs);
+            };
 
-                leaf.Selected = chosen;
+            tabs.Children.Add(tab);
 
-                // In place rather than rebuilt: a rebuild moves the middle, and a tab strip that is
-                // moved comes back on its first tab, so switching panes flashed the project's tab
-                // before the one in front came back.
-                foreach (var other in bar.Children.OfType<Border>().Where(other => other.Classes.Contains("pane")))
-                {
-                    other.Classes.Set("selected", Equals(other.Tag, chosen));
-                }
+            var item = new MenuItem { Header = region.Header };
 
-                foreach (var host in _filled.Where(host => host.Tag is string held && leaf.Ids.Contains(held)))
-                {
-                    host.IsVisible = Equals(host.Tag, chosen);
-                }
+            item.Click += (_, _) => Choose(leaf, chosen, tabs);
+            rest.Items.Add(item);
+        }
 
+        // Across the run, as a tab strip is read: the ends wrap round, Home and End go to them.
+        bar.KeyDown += (_, e) =>
+        {
+            if (shown.Count == 0 || e.Key is not (Key.Left or Key.Right or Key.Home or Key.End))
+            {
+                return;
+            }
+
+            var at = shown.IndexOf(leaf.Selected ?? shown[0]);
+            var next = e.Key switch
+            {
+                Key.Home => 0,
+                Key.End => shown.Count - 1,
+                Key.Left => (at - 1 + shown.Count) % shown.Count,
+                _ => (at + 1) % shown.Count
+            };
+
+            Choose(leaf, shown[next], tabs);
+            tabs.Children[next].Focus(NavigationMethod.Directional);
+
+            e.Handled = true;
+        };
+
+        return new Border { Classes = { "slot" }, Background = Brushes.Transparent, Child = bar };
+    }
+
+    private SvgViewerRegion? Region(string id)
+        => _regions.FirstOrDefault(region => string.Equals(region.Id, id, StringComparison.Ordinal));
+
+    /// <summary>Puts a panel on top of its run, and its tab in view.</summary>
+    /// <remarks>
+    /// In place rather than rebuilt: a rebuild moves the middle, and a tab strip that is moved comes
+    /// back on its first tab, so switching panes flashed the project's tab before the one in front
+    /// came back.
+    /// </remarks>
+    private void Choose(Leaf leaf, string id, Panel tabs)
+    {
+        var tab = tabs.Children.OfType<Border>().FirstOrDefault(other => Equals(other.Tag, id));
+
+        tab?.BringIntoView();
+
+        if (string.Equals(leaf.Selected, id, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        leaf.Selected = id;
+
+        foreach (var other in tabs.Children.OfType<Border>())
+        {
+            other.Classes.Set("selected", Equals(other.Tag, id));
+        }
+
+        foreach (var host in _filled.Where(host => host.Tag is string held && leaf.Ids.Contains(held)))
+        {
+            host.IsVisible = Equals(host.Tag, id);
+        }
+
+        Moved();
+    }
+
+    /// <summary>A tab's own menu: along its run, under it, or off the arrangement where the host can bring it back.</summary>
+    private ContextMenu Menu(Leaf leaf, string id, List<string> shown)
+    {
+        var at = shown.IndexOf(id);
+        var menu = new ContextMenu();
+
+        menu.Items.Add(Item("Move Left", at > 0, () => Swap(leaf, id, shown[at - 1])));
+        menu.Items.Add(Item("Move Right", at < shown.Count - 1, () => Swap(leaf, id, shown[at + 1])));
+        menu.Items.Add(Item("Move Below", shown.Count > 1, () =>
+        {
+            Take(id);
+            Beside(leaf, Made(id), across: false, before: false);
+        }));
+
+        // Not written into the line, as a host turning a panel off is not: Settle would put it back
+        // beside its default neighbours next time, rather than where it was.
+        if (Region(id) is { Closable: true })
+        {
+            var close = new MenuItem { Header = "Close" };
+
+            close.Click += (_, _) => Show(id, false);
+
+            menu.Items.Add(new Separator());
+            menu.Items.Add(close);
+        }
+
+        return menu;
+
+        MenuItem Item(string header, bool enabled, Action move)
+        {
+            var item = new MenuItem { Header = header, IsEnabled = enabled };
+
+            item.Click += (_, _) =>
+            {
+                move();
+
+                Rebuild();
                 Moved();
             };
 
-            bar.Children.Add(tab);
+            return item;
         }
+    }
 
-        return new Border { Classes = { "slot" }, Background = Brushes.Transparent, Child = bar };
+    private static void Swap(Leaf leaf, string one, string other)
+    {
+        var first = leaf.Ids.IndexOf(one);
+        var second = leaf.Ids.IndexOf(other);
+
+        (leaf.Ids[first], leaf.Ids[second]) = (leaf.Ids[second], leaf.Ids[first]);
     }
 
     /// <summary>Takes the sizes back off the grid once a hand has finished dragging a splitter.</summary>

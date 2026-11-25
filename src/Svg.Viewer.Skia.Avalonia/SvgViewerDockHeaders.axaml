@@ -42,6 +42,26 @@
     <Setter Property="Opacity" Value="1" />
   </Style>
 
+  <!-- Reached by the arrow keys, so it has to show where the keyboard is. -->
+  <Style Selector="Border.pane:focus-visible">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="Background" Value="#18808080" />
+  </Style>
+
+  <!-- The rest of a run too narrow for its tabs: quiet like the chevron, since it is the same kind of thing. -->
+  <Style Selector="Button.more">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="6,0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="Opacity" Value="0.6" />
+  </Style>
+
+  <Style Selector="Button.more:pointerover">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
   <Style Selector="Border.chevron">
     <Setter Property="Opacity" Value="0.45" />
     <Setter Property="Cursor" Value="Hand" />
