@@ -129,14 +129,15 @@ Write a fallback colour after it, as in `fill="url(#hue) #FF2323"`, and a browse
 **Against TapHome's hand-drawn ones.** `SkiaCSharpRenderTests.ButtonHelper` draws the four sweep
 drawings in TapHome's `ButtonHelper.cs` with their own SkiaSharp calls and compares each with the SVG
 that replaces it, at 256 px. The hue wheel measures 0.0008 RMS at most and the hue colour picker
-0.0001, held to 0.0011 and 0.001; the thermostat ring measures 0.0010 at most, held to 0.0013. The
-thermostat dial measures 0.0009, 0.0047, 0.0036 and 0.0053 at levels 0, 0.25, 0.5 and 1, held to
-0.0012, 0.0061, 0.0047 and 0.007: Skia strokes ButtonHelper's arc, which starts at 120°, up to a fifth
-of a pixel off the whole ring that the SVG clips. Those are Apple Silicon's numbers, and each bound
-leaves up to a third more for the raster pipelines of CI's x64 machines. Every bound is exceeded by the
-same drawing a little off, such as the hue turned 2° or the arc 3° short. Compiled against SkiaSharp
-3.119, the generated code measures within 0.00013 of these, inside every bound, and draws without
-allocating.
+0.0001, held to 0.0011 and 0.001. The thermostat ring measures 0.0003 enabled and 0.0010 at most
+disabled, held to 0.001 and 0.0016, the second because Ubuntu's x64 raster rounds its 0.2 opacity
+differently and measured 0.0011. The thermostat dial measures 0.0009, 0.0047, 0.0036 and 0.0053 at
+levels 0, 0.25, 0.5 and 1, held to 0.0012, 0.0061, 0.0047 and 0.007: Skia strokes ButtonHelper's arc,
+which starts at 120°, up to a fifth of a pixel off the whole ring that the SVG clips. Those are Apple
+Silicon's numbers, and each bound leaves up to a third more for the raster pipelines of CI's x64
+machines. Every bound is exceeded by the same drawing a little off, such as the hue turned 2° or the
+arc 3° short. Compiled against SkiaSharp 3.119, the generated code measures within 0.00013 of these,
+inside every bound, and draws without allocating.
 
 ## Animation DOM coverage
 
