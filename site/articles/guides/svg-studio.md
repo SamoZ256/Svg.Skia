@@ -86,7 +86,7 @@ well (`fontsFolder="../fonts"`, relative to the project's folder), whose fonts c
 
 The tabs, the board, `File → Export…`, the assistant's code and a build through Svg.Studio.Projects
 all measure with those files, so every machine writes the same C#. A text whose family, weight or
-style they do not hold is said on its tab's status line and among the export's warnings — even where
+style they do not hold is said on the status bar and among the export's warnings — even where
 the machine has that font installed, since another machine would measure it with a font of its own.
 A project with no fonts measures with the machine's, and says only of a family the machine lacks. A
 font's **▾** in **Attributes** offers the families the project's fonts hold.
@@ -162,6 +162,15 @@ land is drawn while you carry it. The arrangement is remembered, so it is there 
 Commands…** (⌘K, Ctrl+K elsewhere) finds a command, a tool, or a drawing or group of the project by
 name, and runs or opens it.
 
+Two bars run across the window and are about whichever tab is in front. The **control bar**, under
+the menus, names what is picked — `rect #a`, *3 objects*, *Page* — and holds **Reset parameters**,
+**Lock ratio**, **Snap**, **Invisible** and **Captions**, with **Search** at its right end. The
+**status bar** at the foot zooms (**−**, a percentage to type, **+**, **Fit**), says the drawing's
+name, how many parameters it has and the tool in hand with how it is used, reads the pointer in the
+drawing's own units, and carries the note about anything wrong with the drawing. **Snap** lands what
+is dragged on the grid, and **Grid** draws the grid's lines; each works without the other. The same
+switches are in **View**.
+
 ## A group's tab: several icons at once
 
 A group's tab is a canvas of **every drawing under it**, built the way the project builds them.
@@ -196,7 +205,7 @@ and one with a group between them that names no place of its own.
 A drag writes the project as it is made, and like every other arrangement edit it is one step on the
 project's history, *move …* in the Edit menu, so ⌘Z takes it back.
 
-**Captions** writes each drawing's name inside its own top corner, where a group's name sits in its
+**Captions**, on the control bar and in **View**, writes each drawing's name inside its own top corner, where a group's name sits in its
 frame, and a board comes up with them. The name is shrunk until it fits the drawing — across it and
 down it — so it takes no room at all: a board that names what is on it is laid out and fitted exactly
 like one that does not, and switching them off moves nothing. That is also why the name is only the
@@ -337,7 +346,9 @@ of guide on; all three are remembered.
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
 own tab or on a group's — under names a person would use, filed in sections by what they do:
 **Geometry**, **Fill**, **Stroke**, **Text** and so on. Hover a label for the attribute's name as the
-file writes it. A section folds away and stays folded from one pick to the next.
+file writes it. A section folds away and stays folded from one pick to the next. The heading names the
+element's tag and its id; **Find an attribute** under it lists only the rows whose name holds what is
+typed, and finds the attributes the element does not usually list as well.
 
 Every attribute the element writes is listed, and beside them the ones an element of its kind usually
 has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, not a stop's stroke
@@ -352,10 +363,13 @@ Typing into one of the empty rows adds it.
 Some rows have a control beside the box, which writes into it. A colour has a swatch that opens a
 picker; an opacity or a stop's offset has a slider; an attribute SVG spells a handful of values for —
 a line cap, a text's alignment, a fill's `none` or a gradient the drawing holds, a font the project's
-fonts hold — has a **▾** listing them; and **↑**/**↓** step a number in its box, by ten with Shift and a tenth with Alt. The picker
-writes once when it closes and the slider once when it is let go, so either is one step to undo. On
-a row an expression drives, the swatch and the slider show what the expression comes to and are
-locked; picking from the **▾**, like typing a value, lets the expression go.
+fonts hold — has a **▾** listing them; and **↑**/**↓** step a number in its box, by ten with Shift
+and a tenth with Alt, and an opacity by a tenth. The picker writes once when it closes and the slider
+once when it is let go, so either is one step to undo. On a row an expression drives, the swatch and
+the slider show what the expression comes to and are locked; picking from the **▾**, like typing a
+value, lets the expression go. A box an expression decides is outlined in the expression colour, and so
+is an empty one a group's expression paints, which reads `{%{{{ tint }}}%} inherited`: giving the element
+a value of its own there is still a pick or a keystroke away.
 
 **Or drag the variable onto the row.** **Variables** and **Attributes** have a run each rather than
 sharing one, so both are on screen at once: take any variable by its name, of either kind — not the
@@ -368,9 +382,15 @@ adds the attribute already bound.
 
 Only an expression is judged: what it comes to is read out beside it, an expression of the wrong type
 is caught in the box, and one written on an attribute the parser lifts nothing out of is refused
-rather than written as braces nobody reads. A value the element's `style` attribute sets reads on its
-row as `red in style`, and the row takes nothing: the declaration wins over the attribute, so it is
-changed under **Inline style** instead.
+rather than written as braces nobody reads. A value the element's `style` attribute sets is shown and
+edited in that declaration, which is what paints, and its `!important` is kept; emptying the box takes
+it out of the style. Geometry and `transform` set in a style are read-only, as `rotate(45deg) in style`:
+what is written for them is attribute grammar, which no browser reads in a style.
+
+What is typed is written when the box is left or Enter is pressed, and before Save, a command, another
+tab or closing the window acts on the drawing. **Escape** puts back what the box was drawn with, and
+⌘Z while typing takes back the typing. If the drawing changes under a box being typed in — an undo
+the assistant makes, or a reload — the value is not written, and the panel says so.
 
 ## Code that calls it the way PaintCode's did
 
@@ -394,8 +414,8 @@ for every shape named `Embed<X>`.
 A box paints nothing, so the canvas draws it for you: a dashed cyan line with the constant written
 inside, such as `LevelRect 2, 6, 28, 24`. The numbers are the ones the class will get, as left,
 top, right, bottom. A box that a variable moves reads `LevelRect (driven)` instead, because the
-class has only the defaults. **Invisible** on the toolbar, on a drawing's tab and on a group's
-board, shows or hides them, along with the rest of what a drawing has but does not paint (see
+class has only the defaults. **Invisible**, on the control bar and in **View**, shows or hides
+them on a drawing's tab and a group's board alike, along with the rest of what a drawing has but does not paint (see
 [invisible elements](#invisible-elements)).
 
 Click a box's dashed line to pick it. Ink inside a box is still picked by clicking it, and empty
@@ -449,7 +469,7 @@ drawn and keeping the paint and font its groups gave it. A mask made from a shap
 where it covers it. A board offers all of this, though its rows cannot otherwise be dragged.
 
 The paths a clip or a mask is made of are reshaped where they apply: double-click one on the canvas,
-or pick it in the tree and choose **Points** (`⌖`) on the toolbar, and its points are held on the
+or pick it in the tree and choose **Points** (`⌖`) on the tool strip, and its points are held on the
 element it clips. That reaches a shape in `<defs>` drawn only through a `<use>` as well, and a double
 click on a `<use>` reshapes the shape it draws, which changes it everywhere it is used.
 

@@ -9,7 +9,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -48,23 +47,6 @@ public sealed class GroupPanel : UserControl
     private readonly SvgViewerRulers _rulers = new();
     private readonly SvgViewerGuides _guides = new();
     private readonly TextBlock _heading = new() { FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 10, 10, 0) };
-
-    private readonly TextBlock _zoom = new()
-    {
-        Width = 64,
-        VerticalAlignment = VerticalAlignment.Center,
-        TextAlignment = TextAlignment.Center,
-        FontFamily = new FontFamily("Menlo, Consolas, monospace"),
-        Text = "100%"
-    };
-
-    private readonly TextBlock _notice = new()
-    {
-        IsVisible = false,
-        Margin = new Thickness(10, 0, 10, 6),
-        TextWrapping = TextWrapping.Wrap,
-        Opacity = 0.65
-    };
 
     /// <summary>What each drawing of the group was last built into, in the group's own order.</summary>
     /// <remarks>
@@ -210,13 +192,6 @@ public sealed class GroupPanel : UserControl
     /// <summary>Dragging a drawing's own edges to change the size it is.</summary>
     private readonly SvgViewerPage _paging = new();
 
-    /// <summary>The board's own snap toggle, which follows the setting rather than holding it.</summary>
-    private ToggleButton? _snapping;
-
-    /// <summary>The board's own captions toggle, which follows the setting the same way.</summary>
-    private ToggleButton? _captions;
-    private ToggleButton? _invisible;
-
     /// <summary>Whether the board in front of us was laid out with names on its drawings.</summary>
     private bool _named = StudioSettings.DrawingCaptions;
 
@@ -246,9 +221,6 @@ public sealed class GroupPanel : UserControl
 
     /// <summary>The shape being drawn into the inspected drawing, where a tool is armed.</summary>
     private readonly SvgViewerDraw _draw = new();
-
-    /// <summary>The toolbar's Lock ratio, kept in step when the lock is set from elsewhere.</summary>
-    private ToggleButton? _ratio;
 
     /// <summary>Where the shape in the making goes: the row it is written beside, and which side.</summary>
     private (string Target, SvgElementDrop Where) _into;
@@ -452,6 +424,10 @@ public sealed class GroupPanel : UserControl
         _element.ClipRequested = (content, property) => _elementWanted is { } row && ApplyClip(content, row, property);
         _element.Typefaces = () => _elementOf?.Document.Svg.Settings.TypefaceProviders;
 
+        // Of the drawing's own tab where it has one, which is where its edits go, and the project's otherwise.
+        _element.UndoStep = () => _elementOf?.Target is SvgViewer tab ? tab.UndoStep : Workspace.UndoStep;
+        _element.Holds = step => _elementOf?.Target is SvgViewer tab ? tab.Holds(step) : Workspace.Holds(step);
+
         _canvas.ViewChanged += (_, _) =>
         {
             ShowGizmo();
@@ -543,16 +519,9 @@ public sealed class GroupPanel : UserControl
     private Control Built()
     {
         var centre = new DockPanel();
-        var tools = Tools();
 
         centre.Children.Add(_heading);
         DockPanel.SetDock(_heading, Dock.Top);
-
-        centre.Children.Add(tools);
-        DockPanel.SetDock(tools, Dock.Top);
-
-        centre.Children.Add(_notice);
-        DockPanel.SetDock(_notice, Dock.Top);
 
         // The drawing tools stand beside the canvas, as the viewer has them beside its drawing.
         var drawing = new DockPanel();
@@ -594,8 +563,7 @@ public sealed class GroupPanel : UserControl
             Layout = StudioSettings.Layout
         };
 
-        // The same route the toolbar's toggles take: what one board was arranged into is written
-        // down, and the window hands it to every other tab.
+        // What one board was arranged into is written down, and the window hands it to every other tab.
         _dock.LayoutChanged += (_, _) =>
         {
             StudioSettings.Layout = _dock.Layout;
@@ -693,20 +661,15 @@ public sealed class GroupPanel : UserControl
     /// <summary>The board's drawing tools, as <see cref="SvgViewer.Drafting"/> are a drawing's.</summary>
     public SvgViewerDraw Drafting => _draw;
 
-    /// <summary>Whether a handle keeps the proportions, as the toolbar's Lock ratio says; see <see cref="SvgViewer.LocksAspectRatio"/>.</summary>
+    /// <summary>Whether a handle keeps the proportions; see <see cref="SvgViewer.LocksAspectRatio"/>.</summary>
     public bool LocksAspectRatio
     {
         get => _gizmo.LocksAspect;
-        set
-        {
-            _gizmo.LocksAspect = value;
-
-            if (_ratio is { } ratio)
-            {
-                ratio.IsChecked = value;
-            }
-        }
+        set => _gizmo.LocksAspect = value;
     }
+
+    /// <summary>How many parameters the board's Variables panel lists, as a drawing's status counts its own.</summary>
+    public int ParameterCount => _parameters.Parameters?.Count ?? 0;
 
     /// <summary>Puts what was typed here into the project, which somebody else then saves.</summary>
     public void Commit()
@@ -890,13 +853,8 @@ public sealed class GroupPanel : UserControl
     /// <summary>Lets go of the drawings this tab built. The tab is finished with after it.</summary>
     public void Close() => Release();
 
-    /// <summary>Somebody pressed one of this board's own toggles, and it wrote a setting.</summary>
-    /// <remarks>
-    /// The toggle writes the setting itself; this is for the window to tell every other tab, which
-    /// is what makes a toolbar, the settings window and every other board one switch rather than
-    /// several. One event for all of them because what a listener does about it is the same — ask
-    /// the settings again — and which toggle it was is not something anybody has needed.
-    /// </remarks>
+    /// <summary>Somebody rearranged this board's own panels, and it wrote the layout setting.</summary>
+    /// <remarks>For the window to tell every other tab, which is what makes the arrangement one rather than one per tab.</remarks>
     public event EventHandler? SettingChanged;
 
     /// <summary>Draws and drags at whatever the settings now say.</summary>
@@ -914,11 +872,11 @@ public sealed class GroupPanel : UserControl
             _dock.Layout = StudioSettings.Layout;
         }
 
-        // Magnetic at this zoom, the board's canvas being the one that knows it.
         _rulers.ShowsRulers = StudioSettings.Rulers;
         _canvas.ShowsGuides = StudioSettings.Guides;
         _guides.IsOn = StudioSettings.SmartGuides;
 
+        // Magnetic at this zoom, the board's canvas being the one that knows it.
         var grid = _guides.Over(
             StudioSettings.SnapToGrid ? StudioSettings.Grid.Pulling(_canvas.Scale) : SvgViewerGrid.None,
             _canvas);
@@ -929,23 +887,8 @@ public sealed class GroupPanel : UserControl
         _gizmo.Grid = grid;
         _paging.Grid = grid;
         _points.Grid = grid;
-
-        if (_snapping is { })
-        {
-            _snapping.IsChecked = StudioSettings.SnapToGrid;
-        }
-
+        _canvas.GridLines = StudioSettings.ShowGrid ? StudioSettings.Grid : SvgViewerGrid.None;
         _canvas.ShowsInvisible = StudioSettings.ShowInvisible;
-
-        if (_invisible is { })
-        {
-            _invisible.IsChecked = StudioSettings.ShowInvisible;
-        }
-
-        if (_captions is { })
-        {
-            _captions.IsChecked = StudioSettings.DrawingCaptions;
-        }
 
         // The one that is not a render flag: a name is written into the placement when the board is
         // laid out, so this has to be laid out again. Only when it changed, or a theme picked in the
@@ -3809,15 +3752,21 @@ public sealed class GroupPanel : UserControl
         }
     }
 
-    /// <summary>The line above the canvas, or null where there is none.</summary>
-    /// <remarks>For a host or a test to read what the board last had to say about a gesture.</remarks>
-    public string? Notice => _notice.IsVisible ? _notice.Text : null;
+    /// <summary>What the board last had to say about a gesture, or null; the window's status bar says it.</summary>
+    public string? Notice { get; private set; }
 
-    /// <summary>Puts a line above the canvas, or takes it away.</summary>
+    /// <summary>Raised when <see cref="Notice"/> changes.</summary>
+    public event EventHandler? NoticeChanged;
+
     private void Says(string? said)
     {
-        _notice.Text = said ?? string.Empty;
-        _notice.IsVisible = said is { Length: > 0 };
+        said = said is { Length: > 0 } ? said : null;
+
+        if (!string.Equals(Notice, said, StringComparison.Ordinal))
+        {
+            Notice = said;
+            NoticeChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>What could not be read, in one line however many of them there were.</summary>
@@ -3833,121 +3782,6 @@ public sealed class GroupPanel : UserControl
         var first = $"{faults[0].Drawing.Name} could not be read: {faults[0].Fault}";
 
         return faults.Count == 1 ? first : $"{first} And {faults.Count - 1} more could not be read.";
-    }
-
-    /// <summary>The canvas's own controls, which are the viewer's in the order the viewer has them.</summary>
-    private Control Tools()
-    {
-        var bar = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            Margin = new Thickness(10, 8, 10, 6)
-        };
-
-        _canvas.ViewChanged += (_, _) =>
-            _zoom.Text = (_canvas.Scale * 100d).ToString("0", CultureInfo.CurrentCulture) + "%";
-
-        var ratio = _ratio = new ToggleButton
-        {
-            Content = "Lock ratio",
-            IsChecked = _gizmo.LocksAspect,
-            [ToolTip.TipProperty] = "Keep the element's proportions while a handle is dragged"
-        };
-
-        ratio.IsCheckedChanged += (_, _) => _gizmo.LocksAspect = ratio.IsChecked == true;
-
-        var snap = new ToggleButton
-        {
-            Content = "Snap",
-            IsChecked = StudioSettings.SnapToGrid,
-            [ToolTip.TipProperty] = "Land what is dragged on the grid rather than where the pointer stopped"
-        };
-
-        // Straight into the setting, unlike the lock beside it: where a gesture lands is remembered
-        // between sessions, and a board that asked only itself would disagree with the next tab.
-        snap.IsCheckedChanged += (_, _) =>
-        {
-            if (StudioSettings.SnapToGrid == (snap.IsChecked == true))
-            {
-                return;
-            }
-
-            StudioSettings.SnapToGrid = snap.IsChecked == true;
-
-            Reread();
-
-            SettingChanged?.Invoke(this, EventArgs.Empty);
-        };
-
-        _snapping = snap;
-
-        bar.Children.Add(Tool("Fit", "Fit to window", () => _canvas.Fit()));
-        bar.Children.Add(Tool("1:1", "Actual size", () => _canvas.ActualSize()));
-        bar.Children.Add(Tool("−", "Zoom out, or scroll down", () => _canvas.ZoomOut()));
-        bar.Children.Add(_zoom);
-        bar.Children.Add(Tool("+", "Zoom in, or scroll up", () => _canvas.ZoomIn()));
-        var captions = new ToggleButton
-        {
-            Content = "Captions",
-            IsChecked = StudioSettings.DrawingCaptions,
-            [ToolTip.TipProperty] = "Write each drawing's name inside its own top corner"
-        };
-
-        captions.IsCheckedChanged += (_, _) =>
-        {
-            if (StudioSettings.DrawingCaptions == (captions.IsChecked == true))
-            {
-                return;
-            }
-
-            StudioSettings.DrawingCaptions = captions.IsChecked == true;
-
-            Reread();
-
-            SettingChanged?.Invoke(this, EventArgs.Empty);
-        };
-
-        _captions = captions;
-
-        var invisible = new ToggleButton
-        {
-            Content = "Invisible",
-            IsChecked = StudioSettings.ShowInvisible,
-            [ToolTip.TipProperty] = "Outline what each drawing has but does not paint: boxes, mask and clip content, unpainted and hidden elements"
-        };
-
-        invisible.IsCheckedChanged += (_, _) =>
-        {
-            if (StudioSettings.ShowInvisible == (invisible.IsChecked == true))
-            {
-                return;
-            }
-
-            StudioSettings.ShowInvisible = invisible.IsChecked == true;
-
-            Reread();
-
-            SettingChanged?.Invoke(this, EventArgs.Empty);
-        };
-
-        _invisible = invisible;
-
-        bar.Children.Add(ratio);
-        bar.Children.Add(snap);
-        bar.Children.Add(captions);
-        bar.Children.Add(invisible);
-
-        return bar;
-    }
-
-    private static Button Tool(string content, string tip, Action click)
-    {
-        var button = new Button { Content = content, [ToolTip.TipProperty] = tip };
-
-        button.Click += (_, _) => click();
-
-        return button;
     }
 
     /// <summary>Where this tab's own assets are, for an icon a row is drawn with.</summary>

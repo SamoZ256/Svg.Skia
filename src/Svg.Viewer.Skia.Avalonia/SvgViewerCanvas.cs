@@ -1044,7 +1044,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private SvgViewerGrid _grid = SvgViewerGrid.None;
 
-    /// <summary>The lines a carry lands on, and the ones drawn under the drawings.</summary>
+    /// <summary>The lines a carry lands on, and the ones drawn under the drawings unless <see cref="GridLines"/> says otherwise.</summary>
     /// <remarks>
     /// The canvas snaps only what it carries itself. Everything else a gesture writes is the host's
     /// — the gizmos and the page hold their own copy of this, since what they are snapping is the
@@ -1061,6 +1061,26 @@ public class SvgViewerCanvas : SKCanvasControl
             }
 
             _grid = value;
+
+            Publish();
+        }
+    }
+
+    private SvgViewerGrid? _lines;
+
+    /// <summary>The lines drawn under the drawings, where they are not <see cref="Grid"/>'s.</summary>
+    /// <remarks>Null draws whatever snaps. A host that shows a grid nothing lands on sets this.</remarks>
+    public SvgViewerGrid? GridLines
+    {
+        get => _lines;
+        set
+        {
+            if (_lines == value)
+            {
+                return;
+            }
+
+            _lines = value;
 
             Publish();
         }
@@ -1437,7 +1457,7 @@ public class SvgViewerCanvas : SKCanvasControl
             _moving is { } && _moved ? null : _gizmo,
             _gizmoTurns,
             _captionSize,
-            _grid,
+            _lines ?? _grid,
 
             // Only once it has travelled, as the carried rectangle is: a press inside the slack has
             // no rectangle yet, and a zero-sized one would flash a dot under every click.
