@@ -63,6 +63,15 @@
     <Setter Property="Opacity" Value="1" />
   </Style>
 
+  <!-- The gap between two panels, which is dragged to resize them: nothing until the pointer is on it. -->
+  <Style Selector="GridSplitter.gap">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+
+  <Style Selector="GridSplitter.gap:pointerover, GridSplitter.gap:pressed">
+    <Setter Property="Background" Value="{DynamicResource TabItemHeaderSelectedPipeFill}" />
+  </Style>
+
   <Style Selector="Border.chevron">
     <Setter Property="Opacity" Value="0.45" />
     <Setter Property="Cursor" Value="Hand" />

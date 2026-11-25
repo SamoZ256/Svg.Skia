@@ -351,10 +351,11 @@ public static class StudioSettings
     /// <summary>What a window nobody has arranged comes up in: the Drawing layout, UnoDraw's shell on Studio's panels.</summary>
     /// <remarks>
     /// Every layout names the panels still to come too, which take no room until something supplies
-    /// them, so the dock never has to find a panel a place of its own.
+    /// them, so the dock never has to find a panel a place of its own. Streamline is folded under the
+    /// drawing, which otherwise gets a fifth of a 1180×760 window; its tab opens it.
     /// </remarks>
     public const string DefaultLayout =
-        "row(col(tree+changes+history/1.4/tree/open,variables+project/1/variables/open)/280px,col(*/1.6,streamline/1/streamline/open)/1,"
+        "row(col(tree+changes+history/1.4/tree/open,variables+project/1/variables/open)/280px,col(*/1.6,streamline/1/streamline/folded)/1,"
         + "col(element+transform+align/1.5/element/open,elements+resources+brushes+assistant/1/elements/open)/312px)";
 
     /// <summary>For a group's board: Streamline under the tree, and the board the whole height of the window.</summary>

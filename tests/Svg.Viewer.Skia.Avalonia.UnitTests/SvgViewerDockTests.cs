@@ -709,6 +709,47 @@ public class SvgViewerDockTests
         window.Close();
     }
 
+    /// <summary>A click on a folded run's tab opens the run, and is remembered like the chevron's.</summary>
+    [AvaloniaFact]
+    public void A_Click_On_A_Folded_Runs_Tab_Opens_It()
+    {
+        var (window, dock, panels) = Host("row(*/1,col(project+elements/1/project/folded,variables/1/variables/open)/340px)");
+        var moved = 0;
+
+        dock.LayoutChanged += (_, _) => moved++;
+
+        Assert.True(dock.Folded("project"));
+
+        var at = Middle(window, Tab(window, "Project"));
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Lay(window);
+
+        Assert.False(dock.Folded("project"));
+        Assert.True(panels[0].IsEffectivelyVisible);
+        Assert.Equal(1, moved);
+
+        window.Close();
+    }
+
+    /// <summary>The gap between two panels shows itself under the pointer, so it can be found to drag.</summary>
+    [AvaloniaFact]
+    public void The_Gap_Lights_Up_Under_The_Pointer()
+    {
+        var (window, _, _) = Host(Three);
+        var gap = window.GetVisualDescendants().OfType<GridSplitter>().First(splitter => splitter.Classes.Contains("gap"));
+
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(gap.Background).Color);
+
+        window.MouseMove(Middle(window, gap));
+        Lay(window);
+
+        Assert.NotEqual(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(gap.Background).Color);
+
+        window.Close();
+    }
+
     /// <summary>A run whose front panel goes shows its first real one, not a panel nothing supplies yet.</summary>
     [AvaloniaFact]
     public void A_Run_Never_Shows_A_Panel_Nothing_Supplies()

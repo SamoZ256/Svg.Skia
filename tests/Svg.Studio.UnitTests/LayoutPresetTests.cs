@@ -114,6 +114,26 @@ public class LayoutPresetTests : IDisposable
         return window;
     }
 
+    /// <summary>In the window Studio opens at, the Drawing layout leaves most of the height to the drawing.</summary>
+    /// <remarks>Streamline open under it took a third, and left the drawing a fifth of the window.</remarks>
+    [AvaloniaFact]
+    public async Task The_Drawing_Has_Most_Of_The_Window()
+    {
+        var window = await Host("one.svg", Drawing);
+
+        window.Width = 1180;
+        window.Height = 760;
+        window.Measure(new Size(1180, 760));
+        window.Arrange(new Rect(0, 0, 1180, 760));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = ((SvgViewer)((TabItem)window.FindControl<TabControl>("Tabs")!.SelectedItem!).Content!).Canvas;
+
+        Assert.True(canvas.Bounds.Height > 0.7d * 760d, $"the drawing is {canvas.Bounds.Height} of 760 high");
+
+        window.Close();
+    }
+
     /// <summary>The picker naming a saved arrangement does not put the layout's own sizes over it.</summary>
     [AvaloniaFact]
     public async Task Naming_A_Layout_Leaves_Its_Sizes_Alone()

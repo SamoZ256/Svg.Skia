@@ -1549,6 +1549,17 @@ public sealed class SvgViewerDock
 
         Let();
 
+        // A click on a folded run's tab opens the run: the chevron is a small thing to have to find.
+        if (!dragged && carried is { } clicked && Holding(clicked) is { Folded: true } folded)
+        {
+            folded.Folded = false;
+
+            Rebuild();
+            Moved();
+
+            return;
+        }
+
         if (!dragged || carried is null || landing is not { } where)
         {
             return;
@@ -1640,5 +1651,5 @@ public sealed class SvgViewerDock
     }
 
     private static GridSplitter Splitter(GridResizeDirection direction)
-        => new() { ResizeDirection = direction, Background = Brushes.Transparent };
+        => new() { ResizeDirection = direction, Classes = { "gap" } };
 }

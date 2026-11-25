@@ -144,8 +144,8 @@ to the window rather than to a tab, and show whatever tab is in front — so the
 while you move between drawings, and the tree that names them stays beside all of them.
 
 They come up in the **Drawing** layout: down the left the tree, with Changes and History behind it,
-over the variables and the properties; Streamline under the drawing; down the right the attributes
-over the element tree and the assistant. The variables and the attributes are apart on purpose — a
+over the variables and the properties; Streamline folded under the drawing, which its tab opens; down
+the right the attributes over the element tree and the assistant. The variables and the attributes are apart on purpose — a
 variable is dragged onto an attribute, and behind a tab each would hide the other. **Board** puts
 Streamline under the tree and gives a group's board the window's whole height; **Review** puts
 Changes and History wide on the left. Pick one in the control bar's picker, at its right end, or in
@@ -155,7 +155,9 @@ arranged as none of them.
 **History** lists what **Edit → Undo** would take back, in the order it would: the drawing in front
 first, then the project. Clicking a row takes back that step and everything above it.
 
-**Arrange them as you like.** The chevron on a header folds that panel away. Take a panel by its
+**Arrange them as you like.** The chevron on a header folds that panel away, and a click on a folded
+run's tab opens it again. Drag the gap between two panels, which lights up under the pointer, to
+resize them. Take a panel by its
 header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
 Drop it against the foot of the drawing and it sits under the drawing; drop it against the **edge of
 the window** and it runs under everything, taking nothing from the strip beside it. Where it would
