@@ -37,7 +37,10 @@ public class StudioCommandsTests
     public void Settings_Is_The_Gesture_The_Application_Menu_Declares()
         => Assert.Equal(KeyGesture.Parse("Cmd+,"), StudioCommands.Gesture(SvgEditorShortcutKey.Comma, Primary, mac: true));
 
-    [Fact]
+    // Headless, as every test that makes a StudioCommands is: its Open Recent item is an Avalonia
+    // object, and one made on a pool thread between two headless tests takes the UI dispatcher from
+    // the next one's setup, which then fails as a cleanup failure of whatever test it was.
+    [AvaloniaFact]
     public void Two_Commands_Of_One_Name_Are_Refused()
         => Assert.Throws<ArgumentException>(() => new StudioCommands(new[] { Command("save"), Command("save") }, mac: false));
 
@@ -118,7 +121,7 @@ public class StudioCommandsTests
         Assert.Equal(new KeyGesture(Key.OemPlus, KeyModifiers.Control), Item(mac: false, "zoomin").Gesture);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public async Task A_Key_Another_Control_Answers_Is_Listed_And_Not_Run()
     {
         var listed = new StudioCommand("tool-rectangle", "Rectangle", "Tools", null) { Scope = SvgEditorShortcutScope.Canvas, Key = SvgEditorShortcutKey.R };
@@ -170,7 +173,7 @@ public class StudioCommandsTests
     }
 
     /// <remarks>The text is the gesture the menu shows, not the one the declaration falls back on.</remarks>
-    [Fact]
+    [AvaloniaFact]
     public void A_Platform_Gesture_Is_Spelled_As_The_Catalog_Spells_One()
     {
         var redo = Command("redo") with
