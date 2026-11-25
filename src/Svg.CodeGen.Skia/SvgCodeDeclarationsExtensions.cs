@@ -22,6 +22,12 @@ public static class SvgCodeDeclarationsExtensions
     /// </summary>
     public static (ExprCompiler Compiler, IReadOnlyList<(string Name, ExprType Type, string Code)> Lets) Resolve(
         this SvgExpressionDeclarations declarations)
+        => Resolve(declarations, null);
+
+    /// <param name="members">The class being emitted, which keeps what the code's list literals need.</param>
+    internal static (ExprCompiler Compiler, IReadOnlyList<(string Name, ExprType Type, string Code)> Lets) Resolve(
+        this SvgExpressionDeclarations declarations,
+        SkiaCSharpCodeGenCounter? members)
     {
         if (declarations is null)
         {
@@ -40,7 +46,7 @@ public static class SvgCodeDeclarationsExtensions
             names[fallback.Parameter] = fallback.Local;
         }
 
-        var compiler = new ExprCompiler(symbols, names, fold: true);
+        var compiler = new ExprCompiler(symbols, names, fold: true, members);
 
         // Held by reference, so adding here is what puts each let in scope for the ones after it.
         foreach (var let in declarations.Lets)
@@ -117,22 +123,29 @@ public static class SvgCodeDeclarationsExtensions
     /// <see langword="null"/> and coalesced into a local. Computed here because <c>Resolve</c>
     /// rewrites references to those names and the generator declares them, and the two disagreeing
     /// would emit a body naming a local that does not exist.
+    ///
+    /// Every list is here, default or not and in either kind of signature: a caller can pass null
+    /// for one whatever the signature says, and the local is where null becomes the default, or an
+    /// empty list where there is none.
     /// </remarks>
     public static IReadOnlyList<(string Parameter, string Local, string DefaultCode, ExprType Type)> ComputedDefaults(
         this SvgExpressionDeclarations declarations)
+        => ComputedDefaults(declarations, null);
+
+    /// <param name="members">The class the defaults are written into, which keeps what a list in one needs.</param>
+    internal static IReadOnlyList<(string Parameter, string Local, string DefaultCode, ExprType Type)> ComputedDefaults(
+        this SvgExpressionDeclarations declarations,
+        SkiaCSharpCodeGenCounter? members)
     {
         if (declarations is null)
         {
             throw new ArgumentNullException(nameof(declarations));
         }
 
-        // No default reaches the signature, so every parameter arrives as a value and there is
+        // Where no default reaches the signature every other parameter arrives as a value, and has
         // nothing to fall back to. Answered here so that Resolve, which asks this to know what the
         // body should name, cannot disagree with the signature about it.
-        if (!declarations.EmitsDefaultArguments())
-        {
-            return Array.Empty<(string, string, string, ExprType)>();
-        }
+        var withDefaults = declarations.EmitsDefaultArguments();
 
         var fallbacks = new List<(string, string, string, ExprType)>();
         var taken = new HashSet<string>(StringComparer.Ordinal);
@@ -149,7 +162,9 @@ public static class SvgCodeDeclarationsExtensions
 
         foreach (var parameter in declarations.Parameters)
         {
-            if (!NeedsLocal(parameter.Type) || parameter.DefaultExpression is null)
+            var list = parameter.Type is ExprType.NumberList or ExprType.ColorList;
+
+            if (!list && (!withDefaults || !NeedsLocal(parameter.Type) || parameter.DefaultExpression is null))
             {
                 continue;
             }
@@ -161,7 +176,7 @@ public static class SvgCodeDeclarationsExtensions
                 local += "_";
             }
 
-            fallbacks.Add((parameter.Name, local, parameter.DefaultCode()!, parameter.Type));
+            fallbacks.Add((parameter.Name, local, parameter.DefaultCode(members) ?? ExprCSharpBackend.EmptyList(parameter.Type), parameter.Type));
         }
 
         return fallbacks;
@@ -185,7 +200,10 @@ public static class SvgCodeDeclarationsExtensions
     /// Compiles a parameter default, or returns null when the author declared none — in which
     /// case the generated parameter is required rather than carrying an invented value.
     /// </summary>
-    public static string? DefaultCode(this SvgExpressionParameter parameter)
+    public static string? DefaultCode(this SvgExpressionParameter parameter) => DefaultCode(parameter, null);
+
+    /// <param name="members">The class the default is written into, which keeps what a list in it needs.</param>
+    internal static string? DefaultCode(this SvgExpressionParameter parameter, SkiaCSharpCodeGenCounter? members)
     {
         if (parameter is null)
         {
@@ -199,7 +217,7 @@ public static class SvgCodeDeclarationsExtensions
 
         // Defaults may not reference other parameters: argument defaults are compile-time constants
         // in C#, and an ordering dependency between them would be invisible here.
-        var compiler = new ExprCompiler(new Dictionary<string, ExprType>(StringComparer.Ordinal), null, fold: true);
+        var compiler = new ExprCompiler(new Dictionary<string, ExprType>(StringComparer.Ordinal), null, fold: true, members);
 
         return compiler.CompileTo(
             parameter.DefaultExpression,

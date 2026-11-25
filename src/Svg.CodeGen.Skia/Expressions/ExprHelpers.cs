@@ -33,6 +33,8 @@ internal static class ExprHelpers
     public const string IMod = "SvgIMod";
     public const string Int = "SvgInt";
     public const string Num = "SvgNum";
+    public const string ListOf = "SvgList";
+    public const string At = "SvgAt";
     public const string Tangent = "SvgTangent";
     public const string Dash = "SvgDash";
     public const string Paint = "SvgPaint";
@@ -54,7 +56,8 @@ internal static class ExprHelpers
     public static IEnumerable<string> Members(string[] helper)
         => helper.Select(line => s_member.Match(line)).Where(match => match.Success).Select(match => match.Groups[1].Value);
 
-    private static readonly Regex s_member = new(@"^private static [^\s(]+ (\w+)\s*[(;]", RegexOptions.CultureInvariant);
+    // `<` as well, or a generic helper's name is never seen and a drawing could be named after it.
+    private static readonly Regex s_member = new(@"^private static [^\s(]+ (\w+)\s*[<(;]", RegexOptions.CultureInvariant);
 
     // Ordered so generated output is stable.
     public static IReadOnlyList<KeyValuePair<string, string[]>> All { get; } = new List<KeyValuePair<string, string[]>>
@@ -276,6 +279,27 @@ internal static class ExprHelpers
         new(Num, new[]
         {
             $"private static float {Num}(int value) => value;"
+        }),
+
+        // A list literal that reads an argument, filled into the array its site keeps per thread.
+        // The elements arrive on the stack, so once the array exists a draw allocates nothing, and
+        // a params array would allocate on every one.
+        new(ListOf, new[]
+        {
+            $"private static IReadOnlyList<T> {ListOf}<T>(ref T[] list, Span<T> elements)",
+            "{",
+            "    var filled = list ??= new T[elements.Length];",
+            "    elements.CopyTo(filled);",
+            "    return filled;",
+            "}"
+        }),
+
+        // Any index answers, because a drawing has to draw whatever it is handed: clamped into the
+        // list, and zero or transparent from an empty one. ExprValue.At answers the same.
+        new(At, new[]
+        {
+            $"private static T {At}<T>(IReadOnlyList<T> list, int index)",
+            "    => list.Count == 0 ? default! : list[index < 0 ? 0 : index >= list.Count ? list.Count - 1 : index];"
         }),
 
         // Character for character what ShimSkiaSharp.SymMatrix.Tangent computes, including the

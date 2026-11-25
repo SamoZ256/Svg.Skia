@@ -68,6 +68,9 @@ public class SymNodeDifferentialTests
 
         var source = new StringBuilder();
         source.AppendLine("using System;");
+
+        // The list helpers below read IReadOnlyList, as a generated file holding them does.
+        source.AppendLine("using System.Collections.Generic;");
         source.AppendLine("using SkiaSharp;");
         source.AppendLine();
         source.AppendLine($"namespace {Namespace};");

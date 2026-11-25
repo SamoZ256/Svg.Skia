@@ -66,6 +66,29 @@ public class SkiaCSharpSingleFileTests
     }
 
     [Fact]
+    public void Drawings_Reading_Lists_Share_The_List_Helpers_And_One_Using()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="colors" type="color[]" /><e:param name="t" type="number" default="0" /></e:code></defs>
+              <path d="M 0 0 H 10 V 10 Z" fill="{{ [colors[0], #fff][int(t)] }}" />
+            </svg>
+            """;
+
+        var code = SkiaCSharpCodeGen.GenerateFile(new[] { Drawing("Icons", "Home", svg), Drawing("Icons", "Search", svg) });
+
+        Assert.Equal(1, Count(code, "using System.Collections.Generic;"));
+        Assert.True(
+            code.IndexOf("using System.Collections.Generic;", StringComparison.Ordinal) < code.IndexOf("file static class", StringComparison.Ordinal),
+            "The helper class reads IReadOnlyList too, so the using sits above it.");
+        Assert.Equal(1, Count(code, "internal static IReadOnlyList<T> SvgList<T>(ref T[] list, Span<T> elements)"));
+        Assert.Equal(1, Count(code, "internal static T SvgAt<T>(IReadOnlyList<T> list, int index)"));
+
+        // Each class keeps its own array: the helper is shared, what it fills is not.
+        Assert.Equal(2, Count(code, "private static SKColor[] s_skList0;"));
+    }
+
+    [Fact]
     public void Helpers_Sit_Outside_Every_Namespace_And_Are_Imported_Statically()
     {
         var code = SkiaCSharpCodeGen.GenerateFile(new[] { Tinted("Icons", "Home") });

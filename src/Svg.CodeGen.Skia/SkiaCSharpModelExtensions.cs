@@ -2640,7 +2640,7 @@ public static class SkiaCSharpModelExtensions
         }
 
         statics.AppendLine($"{StaticIndent}s_{name} = {name};");
-        counter.StaticFields.Add((type, name));
+        counter.StaticFields.Add((type, name, null));
         counter.StaticTexts.Add(key, name);
         counter.Borrowed[name] = $"s_{name}";
         sb.AppendLine($"{indent}var {name} = s_{name};");
