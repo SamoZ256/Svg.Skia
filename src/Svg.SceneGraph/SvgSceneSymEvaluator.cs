@@ -45,6 +45,12 @@ internal static class SvgSceneSymEvaluator
             case SymUnary { Op: SymOp.ToLinearRgb } unary:
                 return ExprColor.ToLinearRgb(Evaluate(unary.Operand, ExprType.Color, evaluator));
 
+            case SymUnary { Op: SymOp.Last } unary:
+                return Last(unary.Operand, null, evaluator);
+
+            case SymBinary { Op: SymOp.Last } binary:
+                return Last(binary.Left, binary.Right, evaluator);
+
             case SymBinary { Op: SymOp.ScaleAlpha } binary:
                 // The one node whose operands differ in type, which is what the threading is for.
                 return ExprColor.ScaleAlpha(
@@ -180,6 +186,14 @@ internal static class SvgSceneSymEvaluator
         }
 
         return result;
+    }
+
+    private static ExprValue Last(SymNode colors, SymNode? offsets, ExprEvaluator evaluator)
+    {
+        var list = Evaluate(colors, ExprType.ColorList, evaluator).AsColorList;
+        var count = offsets is null ? list.Count : Math.Min(list.Count, Evaluate(offsets, ExprType.NumberList, evaluator).AsNumberList.Count);
+
+        return count == 0 ? ExprValue.Color(0, 0, 0, 0) : list[count - 1];
     }
 
     private static float Arithmetic(SymOp op, float left, float right)

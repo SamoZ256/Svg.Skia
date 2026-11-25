@@ -33,4 +33,31 @@ public class AvaloniaModelExtensionsTests
         Assert.Same(positions, shader.ColorPos);
         Assert.Equal(new[] { 0f, 0.5f, 1f }, positions);
     }
+
+    private static readonly SKColorF[] s_threeColours = { new(1f, 0f, 0f, 1f), new(0f, 1f, 0f, 1f), new(0f, 0f, 1f, 1f) };
+
+    // No positions is Skia's even spacing, which bound lists without offsets leave.
+    [Fact]
+    public void ToBrush_Spaces_The_Stops_Of_A_Gradient_Without_Positions_Evenly()
+    {
+        var bounds = SKRect.Create(0f, 0f, 24f, 24f);
+        var brushes = new[]
+        {
+            new LinearGradientShader(new SKPoint(0, 0), new SKPoint(24, 0), s_threeColours, SKColorSpace.Srgb, null, SKShaderTileMode.Clamp, null).ToBrush(bounds),
+            new RadialGradientShader(new SKPoint(12, 12), 12f, s_threeColours, SKColorSpace.Srgb, null, SKShaderTileMode.Clamp, null).ToBrush(bounds),
+            new TwoPointConicalGradientShader(new SKPoint(10, 10), 0f, new SKPoint(12, 12), 12f, s_threeColours, SKColorSpace.Srgb, null, SKShaderTileMode.Clamp, null).ToBrush(bounds)
+        };
+
+        Assert.All(brushes, brush => Assert.Equal(new[] { 0d, 0.5d, 1d }, Assert.IsAssignableFrom<IGradientBrush>(brush).GradientStops.Select(stop => stop.Offset)));
+    }
+
+    [Fact]
+    public void ToBrush_Spaces_The_Stops_Of_A_Sweep_Without_Positions_Evenly_Across_Its_Angles()
+    {
+        var shader = new SweepGradientShader(new SKPoint(12f, 10f), 90f, 270f, s_threeColours, SKColorSpace.Srgb, null, SKShaderTileMode.Clamp, null);
+
+        var brush = Assert.IsType<ImmutableConicGradientBrush>(shader.ToBrush(SKRect.Create(0f, 0f, 24f, 24f)));
+
+        Assert.Equal(new[] { 0.25, 0.5, 0.75 }, brush.GradientStops.Select(stop => stop.Offset));
+    }
 }

@@ -290,6 +290,17 @@ public static class SvgExpressionAttributes
     public const string Argument = "arg-";
 
     /// <summary>
+    /// The attribute giving a gradient its colours as a list, <c>e:stop-colors="{{ colors }}"</c>, which
+    /// replaces its <c>&lt;stop&gt;</c> children once bound; they are what draws until then.
+    /// </summary>
+    public const string StopColors = "stop-colors";
+
+    /// <summary>
+    /// The offsets of <see cref="StopColors"/>, a number list; without it the colours are spaced evenly.
+    /// </summary>
+    public const string StopOffsets = "stop-offsets";
+
+    /// <summary>
     /// Why <paramref name="name"/> cannot be a box of the class called <paramref name="className"/>,
     /// or null when it can.
     /// </summary>

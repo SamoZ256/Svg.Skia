@@ -314,12 +314,30 @@ public static class AvaloniaModelExtensions
         }
     }
 
-    private static List<AMII.ImmutableGradientStop> ToGradientStops(SKColorF[] colors, float[] positions)
+    // None spaces the colours evenly, as Skia does.
+    private static float[] ToGradientPositions(SKColorF[] colors, float[]? positions)
     {
+        if (positions is { })
+        {
+            return positions;
+        }
+
+        var even = new float[colors.Length];
+        for (var i = 1; i < even.Length; i++)
+        {
+            even[i] = i / (float)(even.Length - 1);
+        }
+
+        return even;
+    }
+
+    private static List<AMII.ImmutableGradientStop> ToGradientStops(SKColorF[] colors, float[]? positions)
+    {
+        var offsets = ToGradientPositions(colors, positions);
         var gradientStops = new List<AMII.ImmutableGradientStop>(colors.Length);
         for (int i = 0; i < colors.Length; i++)
         {
-            gradientStops.Add(new AMII.ImmutableGradientStop(positions[i], colors[i].ToColor()));
+            gradientStops.Add(new AMII.ImmutableGradientStop(offsets[i], colors[i].ToColor()));
         }
 
         return gradientStops;
@@ -327,7 +345,7 @@ public static class AvaloniaModelExtensions
 
     public static AM.IImmutableBrush? ToLinearGradientBrush(this LinearGradientShader linearGradientShader, SKRect bounds)
     {
-        if (linearGradientShader.Colors is null || linearGradientShader.ColorPos is null)
+        if (linearGradientShader.Colors is null)
         {
             return null;
         }
@@ -359,7 +377,7 @@ public static class AvaloniaModelExtensions
 
     public static AM.IImmutableBrush? ToRadialGradientBrush(this RadialGradientShader radialGradientShader, SKRect bounds)
     {
-        if (radialGradientShader.Colors is null || radialGradientShader.ColorPos is null)
+        if (radialGradientShader.Colors is null)
         {
             return null;
         }
@@ -391,7 +409,7 @@ public static class AvaloniaModelExtensions
 
     public static AM.IImmutableBrush? ToRadialGradientBrush(this TwoPointConicalGradientShader twoPointConicalGradientShader, SKRect bounds)
     {
-        if (twoPointConicalGradientShader.Colors is null || twoPointConicalGradientShader.ColorPos is null)
+        if (twoPointConicalGradientShader.Colors is null)
         {
             return null;
         }
@@ -430,7 +448,7 @@ public static class AvaloniaModelExtensions
 
     public static AM.IImmutableBrush? ToConicGradientBrush(this SweepGradientShader sweepGradientShader, SKRect bounds)
     {
-        if (sweepGradientShader.Colors is not { } colors || sweepGradientShader.ColorPos is not { Length: > 0 })
+        if (sweepGradientShader.Colors is not { } colors || ToGradientPositions(colors, sweepGradientShader.ColorPos) is not { Length: > 0 } positions)
         {
             return null;
         }
@@ -446,7 +464,7 @@ public static class AvaloniaModelExtensions
         // so the stops are cut at 0 and 1 with the colour Skia draws there.
         var start = sweepGradientShader.StartAngle;
         var sweep = sweepGradientShader.EndAngle - start;
-        var offsets = Array.ConvertAll(sweepGradientShader.ColorPos, pos => (start + pos * sweep) / 360f);
+        var offsets = Array.ConvertAll(positions, pos => (start + pos * sweep) / 360f);
         var stops = new List<AMII.ImmutableGradientStop>(offsets.Length + 2);
         if (offsets[0] < 0f)
         {

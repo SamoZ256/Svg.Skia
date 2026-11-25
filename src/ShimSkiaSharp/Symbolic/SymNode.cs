@@ -67,6 +67,9 @@ public abstract record SymNode : IDeepCloneable<SymNode>
         => IsLiteral(factor, 1) ? color : new SymBinary(SymOp.ScaleAlpha, color, factor);
 
     public static SymNode ToLinearRgb(SymNode color) => new SymUnary(SymOp.ToLinearRgb, color);
+
+    public static SymNode Last(SymNode colors, SymNode? offsets = null)
+        => offsets is null ? new SymUnary(SymOp.Last, colors) : new SymBinary(SymOp.Last, colors, offsets);
 }
 
 // Author-supplied expression source, carried through the pipeline uninterpreted. Parsing and

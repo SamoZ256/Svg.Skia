@@ -299,6 +299,35 @@ expression is scaled by a literal opacity, and where both are expressions the al
 whatever the number one yields. `color-interpolation="linearRGB"` converts the result, exactly as it
 would a literal.
 
+### A gradient's stops as lists
+
+A gradient can take all of its stops from lists the host passes, rather than one `stop-color` at a
+time: `e:stop-colors` gives it a `color[]`, and `e:stop-offsets` a `number[]`, on a
+`<linearGradient>`, a `<radialGradient>` or a `<sweepGradient>`. Each is found along `href` as the
+gradient's other attributes are, but no further than the first gradient with `<stop>`s of its own:
+the lists replace those stops, and a gradient's own stops are never replaced by lists it inherits.
+
+{%%{
+```xml
+<e:param name="colors" type="color[]" default="[#f7de77, #ffffff, #ace3e3]" />
+<e:param name="positions" type="number[]" default="[0, 0.42, 1]" />
+
+<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="2" x2="0" y2="28"
+                e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+  <stop offset="0" stop-color="#f7de77" />
+  <stop offset="0.42" stop-color="#ffffff" />
+  <stop offset="1" stop-color="#ace3e3" />
+</linearGradient>
+```
+}%%}
+
+The `<stop>`s are what a browser and an unbound document draw, and the lists replace them once bound.
+There are as many stops as the shorter list holds, or as there are colours where no offsets are
+given, which spaces them evenly. Each offset is ruled on as a written one is, clamped to 0 to 1 and
+raised to the one before it, and each colour is scaled by the element's `fill-opacity` or
+`stroke-opacity` and converted by `color-interpolation`, as a written stop's is. One stop paints its
+colour, none paints nothing, and a radial gradient of no radius paints the last stop.
+
 ### Driving a clip
 
 A clip is recorded as geometry, kept beside the expressions that drive it, so a level indicator says
