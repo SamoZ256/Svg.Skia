@@ -1101,7 +1101,7 @@ public static class SvgElementEditor
     public static bool Keeps(string localName)
         => localName is
             "defs" or "clipPath" or "mask" or "marker" or "pattern" or "symbol" or
-            "linearGradient" or "radialGradient" or "filter";
+            "linearGradient" or "radialGradient" or "sweepGradient" or "filter";
 
     /// <summary>Whether an element named <paramref name="localName"/> is drawn with <paramref name="property"/>, <c>clip-path</c> or <c>mask</c>.</summary>
     /// <remarks>The renderer clips an <c>&lt;svg&gt;</c> and an <c>&lt;a&gt;</c> but masks neither.</remarks>
@@ -1140,7 +1140,7 @@ public static class SvgElementEditor
         var any = Describes(name);
         var takes = into switch
         {
-            "linearGradient" or "radialGradient" => any || name is "stop",
+            "linearGradient" or "radialGradient" or "sweepGradient" => any || name is "stop",
             "filter" => any || name.StartsWith("fe", StringComparison.Ordinal),
             "clipPath" => any || Clips(name),
             "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "path" or "image" or "use" or "stop" or "set" or "mpath" => any,

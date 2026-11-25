@@ -185,7 +185,7 @@ stays smooth.
 | --- | --- | --- |
 | `fill` | color | Fill colour. An element filled with `url(#gradient)` is parameterised through its `stop-color`s instead. |
 | `stroke` | color | Stroke colour. |
-| `stop-color` | color | Gradient stop colour. |
+| `stop-color` | color | Gradient stop colour, on a [`<sweepGradient>`](svg-custom#sweep-gradients) as on any other. |
 | `flood-color` | color | `<feFlood>`'s colour. `flood-opacity` scales it, as a literal or an expression of its own. |
 | `lighting-color` | color | `<feDiffuseLighting>`'s and `<feSpecularLighting>`'s light colour. |
 | `opacity` | number | Group opacity. |

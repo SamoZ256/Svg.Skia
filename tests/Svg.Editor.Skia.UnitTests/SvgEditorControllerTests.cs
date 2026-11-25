@@ -118,6 +118,24 @@ public class SvgEditorControllerTests
     }
 
     [Fact]
+    public void ClipboardCarriesASweepGradientWrittenOutsideDefs()
+    {
+        using var source = new SvgEditorController();
+        source.LoadSvg("""
+            <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+              <sweepGradient id="hue"><stop offset="0" stop-color="red"/><stop offset="1" stop-color="blue"/></sweepGradient>
+              <rect id="shape" width="30" height="40" fill="url(#hue)"/>
+            </svg>
+            """);
+        source.Select(source.Document!.GetElementById<SvgRectangle>("shape"));
+        var clipboard = source.CopySelection();
+        using var destination = new SvgEditorController();
+        destination.NewDocument(200, 200);
+        destination.Paste(clipboard, 0, 0);
+        Assert.NotNull(destination.Document!.GetElementById<SvgSweepGradientServer>("hue-copy"));
+    }
+
+    [Fact]
     public void ClipboardCarriesPaintResourcesAcrossDocuments()
     {
         using var source = new SvgEditorController();

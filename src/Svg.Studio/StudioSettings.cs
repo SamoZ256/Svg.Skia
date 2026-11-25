@@ -60,6 +60,14 @@ public static class StudioSettings
 
     private const string SnapToGridKey = "snapToGrid";
 
+    private const string ShowGridKey = "showGrid";
+
+    private const string RulersKey = "rulers";
+
+    private const string GuidesKey = "guides";
+
+    private const string SmartGuidesKey = "smartGuides";
+
     private const string GridSizeKey = "gridSize";
 
     private const string RotationStepKey = "rotationStep";
@@ -259,6 +267,35 @@ public static class StudioSettings
     {
         get => string.Equals(Read(SnapToGridKey), "on", StringComparison.Ordinal);
         set => Write(SnapToGridKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether the grid's lines are drawn, which is apart from whether anything lands on them.</summary>
+    /// <remarks>Off unless the file says otherwise, as <see cref="SnapToGrid"/> is.</remarks>
+    public static bool ShowGrid
+    {
+        get => string.Equals(Read(ShowGridKey), "on", StringComparison.Ordinal);
+        set => Write(ShowGridKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether every canvas has rulers along its top and left.</summary>
+    public static bool Rulers
+    {
+        get => string.Equals(Read(RulersKey), "on", StringComparison.Ordinal);
+        set => Write(RulersKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether the guides dragged out of the rulers are shown, and landed on.</summary>
+    public static bool Guides
+    {
+        get => !string.Equals(Read(GuidesKey), "off", StringComparison.Ordinal);
+        set => Write(GuidesKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether a drag lands on the other shapes' edges and centres.</summary>
+    public static bool SmartGuides
+    {
+        get => !string.Equals(Read(SmartGuidesKey), "off", StringComparison.Ordinal);
+        set => Write(SmartGuidesKey, value ? "on" : "off");
     }
 
     /// <summary>How far apart the grid lines are, in the space the drawings are arranged in.</summary>

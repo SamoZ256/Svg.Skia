@@ -452,6 +452,7 @@ public class SvgElementEditorDocumentTests
               <linearGradient id="g" />
               <filter id="f" />
               <clipPath id="c" />
+              <sweepGradient id="s" />
             </svg>
             """);
 
@@ -459,10 +460,12 @@ public class SvgElementEditorDocumentTests
         Assert.Null(SvgElementEditor.Insert(source, "0/0", SvgElementDrop.After, new XElement("stop"), out var next));
         Assert.Null(SvgElementEditor.Insert(source, "1", SvgElementDrop.Inside, new XElement("feGaussianBlur"), out var blur));
         Assert.Null(SvgElementEditor.Insert(source, "2", SvgElementDrop.Inside, new XElement("circle"), out var clip));
-        Assert.Equal(new[] { "0/0", "0/1", "1/0", "2/0" }, new[] { stop, next, blur, clip });
+        Assert.Null(SvgElementEditor.Insert(source, "3", SvgElementDrop.Inside, new XElement("stop"), out var turn));
+        Assert.Equal(new[] { "0/0", "0/1", "1/0", "2/0", "3/0" }, new[] { stop, next, blur, clip, turn });
 
         Assert.Equal("A <clipPath> cannot hold a <g>.", SvgElementEditor.Insert(source, "2", SvgElementDrop.Inside, new XElement("g"), out _));
         Assert.Equal("A <linearGradient> cannot hold a <rect>.", SvgElementEditor.Insert(source, "0/0", SvgElementDrop.After, new XElement("rect"), out _));
+        Assert.Equal("A <sweepGradient> cannot hold a <rect>.", SvgElementEditor.Insert(source, "3/0", SvgElementDrop.After, new XElement("rect"), out _));
     }
 
     [Fact]

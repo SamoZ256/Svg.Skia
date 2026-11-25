@@ -454,6 +454,9 @@ public static class SvgSceneExpressionEvaluator
                 case TwoPointConicalGradientShader gradient when TryRewriteStops(gradient.Colors, out var colors):
                     return gradient with { Colors = colors };
 
+                case SweepGradientShader gradient when TryRewriteStops(gradient.Colors, out var colors):
+                    return gradient with { Colors = colors };
+
                 // A pattern paints through a nested picture, which can hold expressions of its own.
                 case PictureShader pictureShader when pictureShader.Src is { } src:
                     {

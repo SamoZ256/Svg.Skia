@@ -124,6 +124,11 @@ public partial class MainWindow : Window
     /// <summary>The window's commands, its menus, and the keys it answers for them.</summary>
     private readonly StudioCommands _registry;
 
+    /// <summary>The control bar and the status bar, which are about the tab in front.</summary>
+    private readonly StudioBars _bars;
+    private readonly Border _controlBar;
+    private readonly Border _statusBar;
+
     /// <summary>The window's commands, for the application menu and a test to drive.</summary>
     public StudioCommands Registry => _registry;
 
@@ -336,6 +341,12 @@ public partial class MainWindow : Window
         // Once the dock is there, since the Window menu has an item for each of its panels.
         _registry = new StudioCommands(Commanded(), OperatingSystem.IsMacOS()) { CommitPending = () => Typing()?.CommitPending() };
 
+        _bars = new StudioBars(_registry, () => (_tabs.SelectedItem as TabItem)?.Content as Control);
+        _controlBar = this.FindControl<Border>("ControlBar")!;
+        _statusBar = this.FindControl<Border>("StatusBar")!;
+        _controlBar.Child = _bars.Top;
+        _statusBar.Child = _bars.Bottom;
+
         // The window's own commands rather than a second pair beside them: the picker Open shows
         // with nothing open is the one this button wants, and New is what the Project menu picks.
         this.FindControl<Button>("WelcomeOpen")!.Click += async (_, _) => await _registry.Run("open");
@@ -449,25 +460,17 @@ public partial class MainWindow : Window
     {
         // The window arranges them, not the tab: one set of panels round a strip of tabs rather
         // than a set inside each of them.
-        var viewer = new SvgViewer { FileDialogService = new StudioFileDialogService(), ArrangesPanels = false };
+        // Its toolbar and status bar are the window's control bar and status bar.
+        var viewer = new SvgViewer
+        {
+            FileDialogService = new StudioFileDialogService(),
+            ArrangesPanels = false,
+            ShowToolBar = false,
+            ShowStatusBar = false
+        };
 
         Regrid(viewer);
-
-        // The toolbar's toggle is the settings window's checkbox by another route, so what one tab
-        // was told goes to the rest of them and is there again next time.
-        viewer.SnapChanged += (_, _) =>
-        {
-            StudioSettings.SnapToGrid = viewer.SnapsToGrid;
-
-            Reread();
-        };
-
-        viewer.InvisibleChanged += (_, _) =>
-        {
-            StudioSettings.ShowInvisible = viewer.ShowsInvisible;
-
-            Reread();
-        };
+        _bars.Watch(viewer);
 
         // A tab is added and selected before it has been given the project's pane, so what it has to
         // show is asked for again when it changes rather than only when the tab comes forward.
@@ -526,7 +529,7 @@ public partial class MainWindow : Window
         {
             request.Handled = true;
 
-            // Handed back rather than discarded, so whoever asked — the toolbar, a drop, a test —
+            // Handed back rather than discarded, so whoever asked — a drop, a test —
             // waits for the drawings instead of for the request being taken.
             request.Completion = OpenAsync(viewer, request.Paths);
         };
@@ -1329,7 +1332,12 @@ public partial class MainWindow : Window
     /// tab has been closed, and a window showing those is not one that wants greeting.
     /// </remarks>
     private void ShowWelcome()
-        => _welcome.IsVisible = _tabs.Items.Count == 0 && _workspace is null;
+    {
+        _welcome.IsVisible = _tabs.Items.Count == 0 && _workspace is null;
+
+        // The bars are about the editor the welcome stands in for.
+        _controlBar.IsVisible = _statusBar.IsVisible = !_welcome.IsVisible;
+    }
 
     private void ShowProjectPane(bool show)
     {
@@ -2660,6 +2668,7 @@ public partial class MainWindow : Window
             };
 
             board.SettingChanged += (_, _) => Reread();
+            _bars.Watch(board);
 
             board.DescribedChanged += (_, _) =>
             {
@@ -3279,7 +3288,7 @@ public partial class MainWindow : Window
     /// <summary>Puts what was just opened at the front of File → Open Recent.</summary>
     /// <remarks>
     /// Called where the file was actually read rather than where it was asked for, so a drop, the
-    /// command line, the picker and the viewer's own toolbar all reach it, and a path that failed
+    /// command line and the picker all reach it, and a path that failed
     /// to open reaches none of them.
     /// </remarks>
     private void Remember(string path)
@@ -3431,7 +3440,7 @@ public partial class MainWindow : Window
             }
         }
 
-        // Snap and Invisible are toggles in View as well as on each tab's toolbar.
+        // Snap and Invisible are toggles in View as well as on the control bar.
         UpdateMenu();
     }
 
@@ -3458,6 +3467,10 @@ public partial class MainWindow : Window
         viewer.Grid = grid;
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
         viewer.ShowsInvisible = StudioSettings.ShowInvisible;
+        viewer.Canvas.GridLines = StudioSettings.ShowGrid ? grid : SvgViewerGrid.None;
+        viewer.Rulers.ShowsRulers = StudioSettings.Rulers;
+        viewer.Canvas.ShowsGuides = StudioSettings.Guides;
+        viewer.SnapsToSmartGuides = StudioSettings.SmartGuides;
     }
 
     /// <summary>
@@ -3608,7 +3621,11 @@ public partial class MainWindow : Window
     internal bool OnBoard(ProjectNode node) => Board() is { } board && node.DescendsFrom(board.Node);
 
     /// <summary>Offers only what the selected tab can do, with Undo and Redo naming what they would reach.</summary>
-    private void UpdateMenu() => _registry.Refresh();
+    private void UpdateMenu()
+    {
+        _registry.Refresh();
+        _bars.Show();
+    }
 
     /// <summary>"Undo", or "Undo remove Large" where the history knows what it was.</summary>
     /// <remarks>
@@ -3629,7 +3646,7 @@ public partial class MainWindow : Window
         yield return ("File", new[] { "open", StudioCommands.RecentSlot, "close", rule, "save", "saveas", rule, "export", rule, "preferences" });
         yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", "swappaints", rule, "resize" });
         yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
-        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio" });
+        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "workspace-rulers", "guides", "smartguides", rule, "reset-parameters" });
         yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
         yield return ("Help", new[] { "help", "commands", "user-guide", "mcp-connection", rule, "about" });
@@ -3785,7 +3802,7 @@ public partial class MainWindow : Window
         yield return new("zoomin", "Zoom In", "View", Done(() => FrontCanvas()?.ZoomIn())) { Scope = document, Key = SvgEditorShortcutKey.Equals, Modifiers = primary, CanExecute = HasCanvas };
         yield return new("zoomout", "Zoom Out", "View", Done(() => FrontCanvas()?.ZoomOut())) { Scope = document, Key = SvgEditorShortcutKey.Minus, Modifiers = primary, CanExecute = HasCanvas };
 
-        // The route each tab's toolbar toggle takes, so every tab and the next session agree.
+        // The route the control bar's toggles take, so every tab and the next session agree.
         yield return new("snapgrid", "Snap to Grid", "View", Done(() => Setting(() => StudioSettings.SnapToGrid = !StudioSettings.SnapToGrid)))
         {
             IsChecked = () => StudioSettings.SnapToGrid
@@ -3799,6 +3816,24 @@ public partial class MainWindow : Window
             CanExecute = () => Selected() is { } || Board() is { },
             IsChecked = () => Selected()?.LocksAspectRatio ?? Board()?.LocksAspectRatio ?? false
         };
+        yield return new("show-grid", "Show Grid", "View", Done(() => Setting(() => StudioSettings.ShowGrid = !StudioSettings.ShowGrid)))
+        {
+            IsChecked = () => StudioSettings.ShowGrid
+        };
+        yield return new("captions", "Drawing Captions", "View", Done(() => Setting(() => StudioSettings.DrawingCaptions = !StudioSettings.DrawingCaptions)))
+        {
+            CanExecute = () => Board() is { },
+            IsChecked = () => StudioSettings.DrawingCaptions
+        };
+        yield return new("reset-parameters", "Reset Parameters", "View", Done(() => Selected()?.ResetParameters()))
+        {
+            CanExecute = () => Selected() is { Document: { } }
+        };
+
+        foreach (var command in Viewing(Done))
+        {
+            yield return command;
+        }
 
         // The palette's own tools and letters. The canvas answers the letters; these are run from
         // search, and never mid-drag, which the strip cannot be clicked during either.
@@ -5125,7 +5160,7 @@ public partial class MainWindow : Window
     /// <summary>The picker, widened to the projects this window can also open.</summary>
     /// <remarks>
     /// The viewer's own offers drawings, which is all it can open. Given to every viewer so File →
-    /// Open, a drop and the toolbar all reach the same set of files through the request the window
+    /// Open and a drop reach the same set of files through the request the window
     /// already handles.
     /// </remarks>
     private sealed class StudioFileDialogService : ISvgViewerFileDialogService

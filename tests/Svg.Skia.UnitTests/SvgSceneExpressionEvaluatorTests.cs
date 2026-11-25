@@ -226,6 +226,30 @@ public class SvgSceneExpressionEvaluatorTests
     }
 
     [Fact]
+    public void A_Sweep_Gradient_Stop_Expression_Is_Resolved()
+    {
+        const string markup = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+              <defs>
+                <e:code><e:param name="tint" type="color" /></e:code>
+                <sweepGradient id="g" gradientUnits="userSpaceOnUse" cx="12" cy="12">
+                  <stop offset="0%" stop-color="{{ tint }}" />
+                  <stop offset="100%" stop-color="#1e40af" />
+                </sweepGradient>
+              </defs>
+              <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+            </svg>
+            """;
+
+        var evaluated = BuildAndEvaluate(markup, ("tint", ExprValue.Color(255, 0, 0, 255)));
+        var gradient = Assert.IsType<SweepGradientShader>(SinglePaint(evaluated).Shader);
+
+        Assert.Equal(1f, gradient.Colors![0].Red);
+        Assert.Equal(0f, gradient.Colors[0].Green);
+        Assert.Null(gradient.Colors[0].Expression);
+    }
+
+    [Fact]
     public void A_Fill_Opacity_Expression_Scales_The_Colour_It_Was_Written_Beside()
     {
         var markup = Wrap(

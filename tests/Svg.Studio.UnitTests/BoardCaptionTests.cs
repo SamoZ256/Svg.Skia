@@ -9,6 +9,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SkiaSharp;
@@ -123,11 +124,20 @@ public class BoardCaptionTests : IDisposable
 
     private static IReadOnlyList<SvgViewerPlacement> Drawn(GroupPanel panel) => Canvas(panel).Placements;
 
-    /// <summary>The board's own captions toggle.</summary>
-    private static ToggleButton Toggle(GroupPanel panel)
-        => panel.GetVisualDescendants()
+    /// <summary>The control bar's captions toggle.</summary>
+    private static ToggleButton Toggle(MainWindow window)
+        => window.GetVisualDescendants()
+            .OfType<Border>()
+            .Single(bar => bar.Name == "ControlBar")
+            .GetVisualDescendants()
             .OfType<ToggleButton>()
             .Single(button => Equals(button.Content, "Captions"));
+
+    private static void Click(ToggleButton toggle)
+    {
+        toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+    }
 
     /// <summary>Where a placement sits in the arrangement, as a rectangle.</summary>
     private static SKRect Area(SvgViewerPlacement placement)
@@ -156,7 +166,7 @@ public class BoardCaptionTests : IDisposable
             new[] { "badge", "home" },
             Drawn(Board(window)).Select(placed => placed.Label).ToArray());
 
-        Assert.True(Toggle(Board(window)).IsChecked);
+        Assert.True(Toggle(window).IsChecked);
 
         window.Close();
     }
@@ -175,15 +185,13 @@ public class BoardCaptionTests : IDisposable
 
         var scale = Canvas(panel).Scale;
 
-        Toggle(panel).IsChecked = false;
-        Dispatcher.UIThread.RunJobs();
+        Click(Toggle(window));
 
         Assert.False(StudioSettings.DrawingCaptions);
         Assert.All(Drawn(panel), placed => Assert.Null(placed.Label));
         Assert.Equal(scale, Canvas(panel).Scale);
 
-        Toggle(panel).IsChecked = true;
-        Dispatcher.UIThread.RunJobs();
+        Click(Toggle(window));
 
         Assert.Equal(
             new[] { "badge", "home" },
@@ -208,8 +216,7 @@ public class BoardCaptionTests : IDisposable
 
         var named = Drawn(panel).Select(Area).ToList();
 
-        Toggle(panel).IsChecked = false;
-        Dispatcher.UIThread.RunJobs();
+        Click(Toggle(window));
 
         var bare = Drawn(panel).Select(Area).ToList();
 
@@ -224,7 +231,7 @@ public class BoardCaptionTests : IDisposable
         window.Close();
     }
 
-    /// <summary>The settings box, the board's toggle and every other tab are one switch.</summary>
+    /// <summary>The settings box, the control bar's toggle and every other tab are one switch.</summary>
     [AvaloniaFact]
     public async Task The_Settings_Box_Is_The_Same_Switch()
     {
@@ -252,7 +259,7 @@ public class BoardCaptionTests : IDisposable
         await window.ShowSettingsAsync();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.False(Toggle(panel).IsChecked);
+        Assert.False(Toggle(window).IsChecked);
         Assert.All(Drawn(panel), placed => Assert.Null(placed.Label));
 
         window.Close();

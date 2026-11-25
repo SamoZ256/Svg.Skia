@@ -86,7 +86,7 @@ well (`fontsFolder="../fonts"`, relative to the project's folder), whose fonts c
 
 The tabs, the board, `File → Export…`, the assistant's code and a build through Svg.Studio.Projects
 all measure with those files, so every machine writes the same C#. A text whose family, weight or
-style they do not hold is said on its tab's status line and among the export's warnings — even where
+style they do not hold is said on the status bar and among the export's warnings — even where
 the machine has that font installed, since another machine would measure it with a font of its own.
 A project with no fonts measures with the machine's, and says only of a family the machine lacks. A
 font's **▾** in **Attributes** offers the families the project's fonts hold.
@@ -162,6 +162,15 @@ land is drawn while you carry it. The arrangement is remembered, so it is there 
 Commands…** (⌘K, Ctrl+K elsewhere) finds a command, a tool, or a drawing or group of the project by
 name, and runs or opens it.
 
+Two bars run across the window and are about whichever tab is in front. The **control bar**, under
+the menus, names what is picked — `rect #a`, *3 objects*, *Page* — and holds **Reset parameters**,
+**Lock ratio**, **Snap**, **Invisible** and **Captions**, with **Search** at its right end. The
+**status bar** at the foot zooms (**−**, a percentage to type, **+**, **Fit**), says the drawing's
+name, how many parameters it has and the tool in hand with how it is used, reads the pointer in the
+drawing's own units, and carries the note about anything wrong with the drawing. **Snap** lands what
+is dragged on the grid, and **Grid** draws the grid's lines; each works without the other. The same
+switches are in **View**.
+
 ## A group's tab: several icons at once
 
 A group's tab is a canvas of **every drawing under it**, built the way the project builds them.
@@ -196,7 +205,7 @@ and one with a group between them that names no place of its own.
 A drag writes the project as it is made, and like every other arrangement edit it is one step on the
 project's history, *move …* in the Edit menu, so ⌘Z takes it back.
 
-**Captions** writes each drawing's name inside its own top corner, where a group's name sits in its
+**Captions**, on the control bar and in **View**, writes each drawing's name inside its own top corner, where a group's name sits in its
 frame, and a board comes up with them. The name is shrunk until it fits the drawing — across it and
 down it — so it takes no room at all: a board that names what is on it is laid out and fitted exactly
 like one that does not, and switching them off moves nothing. That is also why the name is only the
@@ -312,8 +321,35 @@ element writes that property: a value in `style` stays in the style, its `!impor
 unwritten fill swaps as the black it paints and an unwritten stroke as none, so a plain shape turns
 into its outline. What an element only inherits from a group is written on it where it would now
 paint otherwise, and where that shadows a group's expression the canvas says so. A `<stop>` has
-nothing to swap, a shape in a `<clipPath>` paints nothing, and a paint a `<style>` sheet may set is
-not guessed at; each is refused before anything is written.
+nothing to swap, a shape in a `<clipPath>` paints nothing, and a paint a `<style>` sheet may set, or
+a `<use>` gives what a `<symbol>` holds, is not guessed at; each is refused before anything is written.
+
+## The View menu
+
+**Rulers** (⌘R, Ctrl+R elsewhere) runs a ruler along the top and the left of the canvas. They count
+the drawing's own units, its `viewBox`, not the size it is drawn at: a `viewBox="0 0 24 24"` drawn
+48 wide reads 24 across. On a group's board they count the drawing being read, the one the
+Elements tab shows, from that drawing's own zero, and the board's units before one is read.
+
+Press on a ruler and drag onto the canvas for a guide: a level one from the top ruler, an upright
+one from the left. Drag a guide to move it, and drop it on a ruler or anywhere off the canvas to
+take it away; with **Snap to Grid** on it lands on the grid, and Escape puts it back. A click on a
+guide is a click on whatever is under it, and a drawing tool draws over a guide rather than taking
+hold of it. On a drawing's tab a guide keeps the number its ruler gave it, so it stays on the
+artwork when the page grows on its left. Guides belong to the tab: nothing is written into the
+drawing, and closing the tab takes them away. **Guides** (⌘;) shows and hides them, and hidden,
+nothing lands on them.
+
+Whatever is dragged — a shape carried or resized, a point, a page edge, a shape being drawn —
+lands on a guide within eight pixels of it. **Smart Guides** (⌘U) adds the other shapes' left and
+right edges, tops and bottoms and centres, and the page's: a shape carried near another lines up
+its left edge, centre or right edge with it, and what it lines up with is drawn in magenta until it
+is let go. On a board that includes the drawings beside it. What is being dragged is never one of
+them, and neither is anything in `<defs>`, a clip path or a mask, or anything hidden. Near a grid
+line and a guide both, the nearer wins, and with **Snap to Grid** on the grid's own rule still
+holds: a shape narrower than a step lands on nothing along that axis. Carrying a whole drawing about
+a board lands it on the grid and the guides, not on other shapes. Rulers start off and both kinds
+of guide on; all three are remembered.
 
 ## The Attributes tab
 
@@ -393,8 +429,8 @@ for every shape named `Embed<X>`.
 A box paints nothing, so the canvas draws it for you: a dashed cyan line with the constant written
 inside, such as `LevelRect 2, 6, 28, 24`. The numbers are the ones the class will get, as left,
 top, right, bottom. A box that a variable moves reads `LevelRect (driven)` instead, because the
-class has only the defaults. **Invisible** on the toolbar, on a drawing's tab and on a group's
-board, shows or hides them, along with the rest of what a drawing has but does not paint (see
+class has only the defaults. **Invisible**, on the control bar and in **View**, shows or hides
+them on a drawing's tab and a group's board alike, along with the rest of what a drawing has but does not paint (see
 [invisible elements](#invisible-elements)).
 
 Click a box's dashed line to pick it. Ink inside a box is still picked by clicking it, and empty
@@ -448,7 +484,7 @@ drawn and keeping the paint and font its groups gave it. A mask made from a shap
 where it covers it. A board offers all of this, though its rows cannot otherwise be dragged.
 
 The paths a clip or a mask is made of are reshaped where they apply: double-click one on the canvas,
-or pick it in the tree and choose **Points** (`⌖`) on the toolbar, and its points are held on the
+or pick it in the tree and choose **Points** (`⌖`) on the tool strip, and its points are held on the
 element it clips. That reaches a shape in `<defs>` drawn only through a `<use>` as well, and a double
 click on a `<use>` reshapes the shape it draws, which changes it everywhere it is used.
 

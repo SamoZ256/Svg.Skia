@@ -114,7 +114,7 @@ public class MainWindowUndoTests
         // The bundled drawing declares parameters, so the panel is already showing value boxes.
         // On screen, not merely present: the project pane carries a search box of its own, which is
         // built with the window and sits in the tree ahead of these whether a project is open or not.
-        var box = window.GetVisualDescendants().OfType<TextBox>().First(box => box.IsEffectivelyVisible);
+        var box = window.GetVisualDescendants().OfType<TextBox>().First(box => box.IsEffectivelyVisible && box.Name != "Zoom");
 
         box.Focus();
         Dispatcher.UIThread.RunJobs();
@@ -155,7 +155,7 @@ public class MainWindowUndoTests
 
         Assert.True(viewer.Elements.TrySelect("1"));
 
-        var box = window.GetVisualDescendants().OfType<TextBox>().First(box => box.IsEffectivelyVisible);
+        var box = window.GetVisualDescendants().OfType<TextBox>().First(box => box.IsEffectivelyVisible && box.Name != "Zoom");
 
         box.Focus();
         Dispatcher.UIThread.RunJobs();
