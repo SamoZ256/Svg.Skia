@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -374,23 +375,34 @@ public static class StudioSettings
         set => Write(McpPortKey, value.ToString(CultureInfo.InvariantCulture));
     }
 
-    /// <summary>What a window nobody has arranged comes up in.</summary>
+    /// <summary>What a window nobody has arranged comes up in: the Drawing layout, UnoDraw's shell on Studio's panels.</summary>
     /// <remarks>
-    /// A strip either side of the drawing, both 300px so neither reads as the important one: the
-    /// project tree, with the repository's changes behind it, over the variables it declares on the
-    /// left, and on the right the settings and the elements sharing a run over the picked element's
-    /// attributes. The tree gets the deeper share of its column — it is the list you scroll, where
-    /// the variables are a handful of rows. Streamline runs under the drawing, which is as wide as a
-    /// row of tiles gets.
-    ///
-    /// Studio's rather than the viewer's, because the tree is Studio's panel and nothing in
-    /// <see cref="SvgViewerDock.Default"/> knows where one goes. A layout naming a panel nothing
-    /// supplies keeps the name and takes no room, so this is the right line for a drawing opened
-    /// outside a project too.
+    /// Every layout names the panels still to come too, which take no room until something supplies
+    /// them, so the dock never has to find a panel a place of its own. Streamline is folded under the
+    /// drawing, which otherwise gets a fifth of a 1180×760 window; its tab opens it.
     /// </remarks>
     public const string DefaultLayout =
-        "row(col(tree+changes/1.4/tree/open,variables/1/variables/open)/300px,col(*/1.6,streamline/1/streamline/open)/1,"
-        + "col(project+elements+assistant/1/project/open,element/1/element/open)/300px)";
+        "row(col(tree+changes+history/1.4/tree/open,variables+project/1/variables/open)/280px,col(*/1.6,streamline/1/streamline/folded)/1,"
+        + "col(element+transform+align/1.5/element/open,elements+resources+brushes+assistant/1/elements/open)/312px)";
+
+    /// <summary>For a group's board: Streamline under the tree, and the board the whole height of the window.</summary>
+    public const string BoardLayout =
+        "row(col(tree+changes+history/1.4/tree/open,streamline/1/streamline/open)/280px,*/1,"
+        + "col(variables+project/1/variables/open,element+elements+transform+align+resources+brushes+assistant/1.5/element/open)/312px)";
+
+    /// <summary>For going over what changed: Changes and History wide on the left, Streamline folded away.</summary>
+    public const string ReviewLayout =
+        "row(changes+history+tree/360px/changes/open,col(*/1.6,streamline/1/streamline/folded)/1,"
+        + "col(variables+project/1/variables/open,elements+element+transform+align+resources+brushes+assistant/1.5/elements/open)/312px)";
+
+    /// <summary>The layouts the control bar's picker and the Window menu offer, by name.</summary>
+    /// <remarks>They differ in shape and not only in size, because that is all the dock compares; see <see cref="SvgViewerDock.Matches"/>.</remarks>
+    public static IReadOnlyList<(string Name, string Line)> Layouts { get; } = new[]
+    {
+        ("Drawing", DefaultLayout),
+        ("Board", BoardLayout),
+        ("Review", ReviewLayout)
+    };
 
     /// <summary>The two steps as one, which is what a canvas and a gesture are handed.</summary>
     /// <remarks>

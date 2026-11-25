@@ -1722,6 +1722,26 @@ public class MainWindowProjectTests : IDisposable
         canvas.ContextMenu.Close();
     }
 
+    [AvaloniaFact]
+    public async Task The_Board_Swaps_Fill_And_Stroke_Of_What_Is_Picked()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        Pick(window, panel, 1);
+        Assert.True(await window.Registry.Run("selectall"));
+
+        Assert.True(await window.Registry.Run("swappaints"));
+        Dispatcher.UIThread.RunJobs();
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var ink = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+
+        Assert.Contains("""<rect width="24" height="24" fill="#00ff00" />""", home.Text);
+        Assert.Contains("""<rect width="24" height="24" fill="none" stroke="#00ff00" />""", ink.Text);
+        Assert.Equal(new[] { "0" }, Elements(panel).SelectedAddresses);
+    }
+
     /// <summary>Deselect on a board lets go of what is picked and not of the drawing being read, so All has one to pick in.</summary>
     [AvaloniaFact]
     public async Task Deselect_On_The_Board_Keeps_The_Drawing_All_Picks_In()
@@ -3901,25 +3921,32 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Pair));
         var panel = await Group(window, 0);
 
+        // From the default, whatever arrangement another test left in the settings this class shares.
+        Assert.True(await window.Registry.Run("reset-layout"));
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
+        Dispatcher.UIThread.RunJobs();
+
         var variables = Around(panel).GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
 
-        // Its own run, so nothing can be in front of it — which is what lets a variable be dragged
-        // onto an attribute here as well.
+        // In front of its run, and apart from the attributes — which is what lets a variable be
+        // dragged onto an attribute here as well.
         Assert.True(variables.IsEffectivelyVisible);
 
-        // The board's settings share a run with the element tree, and the default reads them first.
+        // The board's settings share that run, behind the variables: not shown, nor yet laid out.
+        Assert.DoesNotContain(
+            window.GetVisualDescendants().OfType<StackPanel>(),
+            found => found.Name == "Properties" && found.IsEffectivelyVisible);
+
+        // Their header brings them out, and takes the variables off show with it. Off show rather
+        // than away: a panel already built stays in the tree behind the one on top, so what it says
+        // can still be asked for.
+        Open(window, window, "Properties");
+
         Assert.True(
             window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties")
                 .IsEffectivelyVisible);
-
-        // The other header brings its own panel out, and takes the settings off show with it. Off
-        // show rather than away: a panel already built stays in the tree behind the one on top, so
-        // what it says can still be asked for.
-        Open(window, window, "Elements");
-
-        Assert.False(
-            window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties")
-                .IsEffectivelyVisible);
+        Assert.False(variables.IsEffectivelyVisible);
     }
 
     [AvaloniaFact]

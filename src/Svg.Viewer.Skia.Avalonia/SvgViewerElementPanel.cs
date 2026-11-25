@@ -549,7 +549,7 @@ public sealed class SvgViewerElementPanel : UserControl
         ToolTip.SetTip(_badge, SvgViewerAttributes.Title(element));
         _title.Text = id is { Length: > 0 } ? "#" + id : SvgViewerAttributes.Title(element);
         _title.Opacity = id is { Length: > 0 } ? 1 : 0.7;
-        ToolTip.SetTip(_title, id is { Length: > 0 } ? "The element's id. Change it in the ID row below." : $"<{element}>");
+        ToolTip.SetTip(_title, id is { Length: > 0 } ? "The element's id. Change it in the ID row below; what points at it follows." : $"<{element}>");
         _all.IsChecked = s_all;
 
         // First and outside the sections, because it is what the element says rather than how it is
@@ -1388,6 +1388,10 @@ public sealed class SvgViewerElementPanel : UserControl
                 ? _write(
                     value is null ? "clear text" : "set text",
                     source => SvgAttributeEditor.SetContent(source, address, value))
+                : string.Equals(name.Trim(), "id", StringComparison.Ordinal)
+                ? _write(
+                    string.IsNullOrWhiteSpace(value) ? "remove id" : $"rename to #{value!.Trim()}",
+                    source => SvgElementEditor.Rename(source, address, value, out _))
                 : _write(
                     value is null ? $"remove {name}" : $"set {name}",
                     source => SvgAttributeEditor.SetAttribute(source, address, name, value));
