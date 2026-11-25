@@ -220,7 +220,7 @@ each face with <strong>✕</strong> to take it out, and <strong>More fonts from<
 well (<code>fontsFolder=&quot;../fonts&quot;</code>, relative to the project's folder), whose fonts come after its own.</p>
 <p>The tabs, the board, <code>File → Export…</code>, the assistant's code and a build through Svg.Studio.Projects
 all measure with those files, so every machine writes the same C#. A text whose family, weight or
-style they do not hold is said on its tab's status line and among the export's warnings — even where
+style they do not hold is said on the status bar and among the export's warnings — even where
 the machine has that font installed, since another machine would measure it with a font of its own.
 A project with no fonts measures with the machine's, and says only of a family the machine lacks. A
 font's <strong>▾</strong> in <strong>Attributes</strong> offers the families the project's fonts hold.</p>
@@ -284,6 +284,14 @@ land is drawn while you carry it. The arrangement is remembered, so it is there 
 (⌃⇥ and ⌃⇧⇥); <strong>Help → Keyboard Shortcuts</strong> lists every key Studio answers to, and <strong>Help → Search
 Commands…</strong> (⌘K, Ctrl+K elsewhere) finds a command, a tool, or a drawing or group of the project by
 name, and runs or opens it.</p>
+<p>Two bars run across the window and are about whichever tab is in front. The <strong>control bar</strong>, under
+the menus, names what is picked — <code>rect #a</code>, <em>3 objects</em>, <em>Page</em> — and holds <strong>Reset parameters</strong>,
+<strong>Lock ratio</strong>, <strong>Snap</strong>, <strong>Invisible</strong> and <strong>Captions</strong>, with <strong>Search</strong> at its right end. The
+<strong>status bar</strong> at the foot zooms (<strong>−</strong>, a percentage to type, <strong>+</strong>, <strong>Fit</strong>), says the drawing's
+name, how many parameters it has and the tool in hand with how it is used, reads the pointer in the
+drawing's own units, and carries the note about anything wrong with the drawing. <strong>Snap</strong> lands what
+is dragged on the grid, and <strong>Grid</strong> draws the grid's lines; each works without the other. The same
+switches are in <strong>View</strong>.</p>
 <h2 id="a-groups-tab-several-icons-at-once">A group's tab: several icons at once</h2>
 <p>A group's tab is a canvas of <strong>every drawing under it</strong>, built the way the project builds them.
 Clicking a shape on it — or a row in the <strong>element tree</strong> beside it — picks that drawing, and the
@@ -311,7 +319,7 @@ row would be the first placed one and would push everything nobody touched out t
 and one with a group between them that names no place of its own.</p>
 <p>A drag writes the project as it is made, and like every other arrangement edit it is one step on the
 project's history, <em>move …</em> in the Edit menu, so ⌘Z takes it back.</p>
-<p><strong>Captions</strong> writes each drawing's name inside its own top corner, where a group's name sits in its
+<p><strong>Captions</strong>, on the control bar and in <strong>View</strong>, writes each drawing's name inside its own top corner, where a group's name sits in its
 frame, and a board comes up with them. The name is shrunk until it fits the drawing — across it and
 down it — so it takes no room at all: a board that names what is on it is laid out and fitted exactly
 like one that does not, and switching them off moves nothing. That is also why the name is only the
@@ -462,8 +470,8 @@ for every shape named <code>Embed&lt;X&gt;</code>.</p>
 <p>A box paints nothing, so the canvas draws it for you: a dashed cyan line with the constant written
 inside, such as <code>LevelRect 2, 6, 28, 24</code>. The numbers are the ones the class will get, as left,
 top, right, bottom. A box that a variable moves reads <code>LevelRect (driven)</code> instead, because the
-class has only the defaults. <strong>Invisible</strong> on the toolbar, on a drawing's tab and on a group's
-board, shows or hides them, along with the rest of what a drawing has but does not paint (see
+class has only the defaults. <strong>Invisible</strong>, on the control bar and in <strong>View</strong>, shows or hides
+them on a drawing's tab and a group's board alike, along with the rest of what a drawing has but does not paint (see
 <a href="#invisible-elements">invisible elements</a>).</p>
 <p>Click a box's dashed line to pick it. Ink inside a box is still picked by clicking it, and empty
 room inside the box is still the page. Once picked, a box moves and resizes like any shape, but it
@@ -530,7 +538,7 @@ drawn and keeping the paint and font its groups gave it. A mask made from a shap
 (<code>mask-type=&quot;alpha&quot;</code>), so a shape with no fill of its own, which paints black, still shows the element
 where it covers it. A board offers all of this, though its rows cannot otherwise be dragged.</p>
 <p>The paths a clip or a mask is made of are reshaped where they apply: double-click one on the canvas,
-or pick it in the tree and choose <strong>Points</strong> (<code>⌖</code>) on the toolbar, and its points are held on the
+or pick it in the tree and choose <strong>Points</strong> (<code>⌖</code>) on the tool strip, and its points are held on the
 element it clips. That reaches a shape in <code>&lt;defs&gt;</code> drawn only through a <code>&lt;use&gt;</code> as well, and a double
 click on a <code>&lt;use&gt;</code> reshapes the shape it draws, which changes it everywhere it is used.</p>
 <h2 id="connecting-claude-code">Connecting Claude Code</h2>
