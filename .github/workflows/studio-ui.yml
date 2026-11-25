@@ -2,33 +2,15 @@ name: Studio UI
 
 # Drives the published Svg.Studio.app with the real pointer and keyboard through Appium's mac2
 # driver. It runs only here, because it takes over whatever machine runs it: anywhere
-# SVG_STUDIO_UI_APP is unset (a developer's dotnet test, build.yml's test matrix) the tests skip.
-# A workflow of its own rather than a job in build.yml, since paths filters are per workflow.
+# SVG_STUDIO_UI_APP is unset (a developer's dotnet test, build.yml's test) the tests skip.
+# Called by release.yml, or run by hand; not on pull requests, where it failed one run in three on
+# nothing but the hosted desktop. A failure there is worth one `gh run rerun --failed` before a look.
 on:
-  pull_request:
-    branches: [master, main, develop]
-    paths:
-      - 'src/Svg.Studio/**'
-      - 'tests/Svg.Studio.UiTests/**'
-      - '.github/workflows/studio-ui.yml'
-      - 'Directory.Packages.props'
-      - 'global.json'
-  push:
-    branches: [master, main, develop]
-    paths:
-      - 'src/Svg.Studio/**'
-      - 'tests/Svg.Studio.UiTests/**'
-      - '.github/workflows/studio-ui.yml'
-      - 'Directory.Packages.props'
-      - 'global.json'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: studio-ui-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true

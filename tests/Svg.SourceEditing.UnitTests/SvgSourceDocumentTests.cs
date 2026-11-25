@@ -260,6 +260,39 @@ public class SvgSourceDocumentTests
     }
 
     [Fact]
+    public void A_Sweep_Gradient_Is_Kept_As_Written_Through_An_Edit_Beside_It()
+    {
+        // Neither suite holds a <sweepGradient>, so the corpus above never reads one.
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 30 30">
+              <sweepGradient id="hue" cx='15' cy="15"
+                             startAngle="0" endAngle="360"
+                             gradientUnits="userSpaceOnUse" gradientTransform="rotate(-90 15 15)">
+                <stop offset="0" stop-color="#FF2323"/>
+                <stop offset=".5" stop-color="#23FFFF" />
+                <stop offset="1" stop-color="#FF2323"/>
+              </sweepGradient>
+              <sweepGradient id="arc" xlink:href="#hue" startAngle="90" endAngle="270" />
+              <circle cx="15" cy="15" r="13" fill="url(#hue)" />
+              <rect width="30" height="30" fill="url(#arc) red" />
+            </svg>
+            """;
+
+        Assert.Equal(source, Read(source));
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+
+        document.Document.Root!.Element(svg + "rect")!.SetAttributeValue("width", "20");
+
+        var before = source.Split('\n');
+        var after = document.ToText().Split('\n');
+
+        Assert.Equal(before.Length, after.Length);
+        Assert.Equal("""  <rect width="20" height="30" fill="url(#arc) red" />""", Assert.Single(after.Where((line, index) => line != before[index])));
+    }
+
+    [Fact]
     public void Changing_One_Attribute_Leaves_The_Others_Where_They_Were_Written()
     {
         // The root is the likeliest tag in a file to be hand-wrapped, and the frame editor and the

@@ -325,6 +325,43 @@ which lists the names the drawing declares and picks every element that reads th
 Nothing opens while a drawing tool or **Points** is out. A group's tab does the same in the
 drawing clicked.
 
+**Swap Fill and Stroke** (⇧X on the canvas or in the element tree, in the **Edit** menu and in the
+rows' menu) exchanges what everything picked fills and strokes with, and their opacities, as one
+step to undo. The text moves, so `{%{{{ tint }}}%}` goes with its paint, and each value stays where its
+element writes that property: a value in `style` stays in the style, its `!important` kept. An
+unwritten fill swaps as the black it paints and an unwritten stroke as none, so a plain shape turns
+into its outline. What an element only inherits from a group is written on it where it would now
+paint otherwise, and where that shadows a group's expression the canvas says so. A `<stop>` has
+nothing to swap, a shape in a `<clipPath>` paints nothing, and a paint a `<style>` sheet may set, or
+a `<use>` gives what a `<symbol>` holds, is not guessed at; each is refused before anything is written.
+
+## The View menu
+
+**Rulers** (⌘R, Ctrl+R elsewhere) runs a ruler along the top and the left of the canvas. They count
+the drawing's own units, its `viewBox`, not the size it is drawn at: a `viewBox="0 0 24 24"` drawn
+48 wide reads 24 across. On a group's board they count the drawing being read, the one the
+Elements tab shows, from that drawing's own zero, and the board's units before one is read.
+
+Press on a ruler and drag onto the canvas for a guide: a level one from the top ruler, an upright
+one from the left. Drag a guide to move it, and drop it on a ruler or anywhere off the canvas to
+take it away; with **Snap to Grid** on it lands on the grid, and Escape puts it back. A click on a
+guide is a click on whatever is under it, and a drawing tool draws over a guide rather than taking
+hold of it. On a drawing's tab a guide keeps the number its ruler gave it, so it stays on the
+artwork when the page grows on its left. Guides belong to the tab: nothing is written into the
+drawing, and closing the tab takes them away. **Guides** (⌘;) shows and hides them, and hidden,
+nothing lands on them.
+
+Whatever is dragged — a shape carried or resized, a point, a page edge, a shape being drawn —
+lands on a guide within eight pixels of it. **Smart Guides** (⌘U) adds the other shapes' left and
+right edges, tops and bottoms and centres, and the page's: a shape carried near another lines up
+its left edge, centre or right edge with it, and what it lines up with is drawn in magenta until it
+is let go. On a board that includes the drawings beside it. What is being dragged is never one of
+them, and neither is anything in `<defs>`, a clip path or a mask, or anything hidden. Near a grid
+line and a guide both, the nearer wins, and with **Snap to Grid** on the grid's own rule still
+holds: a shape narrower than a step lands on nothing along that axis. Carrying a whole drawing about
+a board lands it on the grid and the guides, not on other shapes. Rulers start off and both kinds
+of guide on; all three are remembered.
+
 ## The Attributes tab
 
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
@@ -370,6 +407,11 @@ rather than written as braces nobody reads. A value the element's `style` attrib
 edited in that declaration, which is what paints, and its `!important` is kept; emptying the box takes
 it out of the style. Geometry and `transform` set in a style are read-only, as `rotate(45deg) in style`:
 what is written for them is attribute grammar, which no browser reads in a style.
+
+The **ID** row renames the element, and what in the drawing points at it follows: `url(#…)` in any
+attribute or style, an `href`, an animation timed `id.click`, and `#id` in a `<style>` sheet's
+selectors, never its colours. An id another element has, or one that is not a name — `1a`, one with a
+space — is refused, and so is taking away an id something points at.
 
 What is typed is written when the box is left or Enter is pressed, and before Save, a command, another
 tab or closing the window acts on the drawing. **Escape** puts back what the box was drawn with, and
@@ -461,7 +503,8 @@ click on a `<use>` reshapes the shape it draws, which changes it everywhere it i
 
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project, its drawings and each node's own and inherited settings, lists every problem in them, reads
-the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
+the C# a drawing is built into, sets attributes and text, renames an element's id with what points at
+it, swaps fill and stroke, adds, removes, moves and copies elements,
 selects them by key or as the Select menu does, reads and changes a group's declarations, declares
 or renames one parameter or let with every use of it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
 Before a commit, `get_changes` tells it what has changed since the last one, as the Changes panel

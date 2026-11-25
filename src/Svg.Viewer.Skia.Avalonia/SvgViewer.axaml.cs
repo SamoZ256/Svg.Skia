@@ -77,6 +77,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
     private readonly SvgViewerSweep _sweep = new();
+    private readonly SvgViewerGuides _guides = new();
+    private readonly SvgViewerRulers _rulers;
 
     /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
     private readonly SvgViewerGizmos _gizmo = new();
@@ -146,6 +148,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         LeaveOnEnter(this);
 
         _canvas = this.FindControl<SvgViewerCanvas>("PART_Canvas")!;
+        _rulers = this.FindControl<SvgViewerRulers>("PART_Rulers")!;
         _gizmo.Picks = (svg, at) => _canvas.ElementAt(svg, new SkiaSharp.SKPoint(at.X, at.Y), out _);
         _toolBar = this.FindControl<Border>("ToolBarPanel")!;
         _statusPanel = this.FindControl<Border>("StatusPanel")!;
@@ -194,6 +197,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.NewGroupRequested = NewGroup;
         _elementTree.DeleteRequested = Delete;
         _elementTree.DuplicateRequested = Duplicate;
+        _elementTree.SwapRequested = SwapPaints;
         _elementTree.ClipRequested = ApplyClip;
         _elementTree.NewClipRequested = NewClip;
         _elementTree.SelectRequested = Select;
@@ -321,10 +325,23 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _points.Driven = (key, name) => _workspace?.Document is { } source && SourceAddress(key) is { } address && SvgAttributeEditor.Driven(source, address, name) is { };
 
-        _canvas.EditBegun += (_, at) => BeginEdit(at);
+        _canvas.EditBegun += (_, at) =>
+        {
+            Guide(at);
+            BeginEdit(at);
+        };
         _canvas.EditMoved += (_, at) => DragEdit(at);
-        _canvas.EditEnded += (_, at) => EndEdit(at);
-        _canvas.EditCancelled += (_, _) => CancelEdit();
+        _canvas.EditEnded += (_, at) =>
+        {
+            EndEdit(at);
+            Unguide();
+        };
+        _canvas.EditCancelled += (_, _) =>
+        {
+            CancelEdit();
+            Unguide();
+        };
+        _canvas.GuidesChanged += (_, _) => Regrid();
 
         // The band from the last point to the pointer, between presses: the canvas leaves an idle
         // move alone, so it reaches here.
@@ -470,6 +487,22 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     public SvgViewerCanvas Canvas => _canvas;
 
+    /// <summary>The rulers round the canvas, which a host shows.</summary>
+    public SvgViewerRulers Rulers => _rulers;
+
+    /// <summary>Whether a drag lands on the other shapes' edges and centres, as well as on the guides.</summary>
+    /// <remarks>Off, so a viewer nobody has set up drags as it always did.</remarks>
+    public bool SnapsToSmartGuides
+    {
+        get => _guides.IsOn;
+        set
+        {
+            _guides.IsOn = value;
+
+            Regrid();
+        }
+    }
+
     /// <summary>The drawing tools its strip arms, for a host that arms one another way.</summary>
     public SvgViewerDraw Drafting => _draw;
 
@@ -611,7 +644,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         // Magnetic at whatever the zoom now is: how near a line is near enough is a distance on
         // screen, and the same drag at 958% covers a twentieth of the drawing it does at 50%.
-        var grid = _snaps ? _grid.Pulling(_canvas.Scale) : SvgViewerGrid.None;
+        var grid = _guides.Over(_snaps ? _grid.Pulling(_canvas.Scale) : SvgViewerGrid.None, _canvas);
 
         _canvas.Grid = grid;
         _gizmo.Grid = grid;
@@ -956,35 +989,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// pointer where it was until the timer caught up.
     /// </remarks>
     private bool MoveElement(string addressKey, string targetKey, SvgElementDrop where)
-    {
-        if (SourceAddress(addressKey) is not { } moved || SourceAddress(targetKey) is not { } target)
-        {
-            ShowNote(Unwritten);
+        => Rewritten(new("move an element", new SvgSourceEdit[] { new SvgSourceEdit.Move(addressKey, targetKey, where) }));
 
-            return false;
-        }
-
-        // Where the row landed is not where it was, and the addresses after it have all shifted, so
-        // the row it went beside is what can still be pointed at.
-        return Rewritten("move an element", source => SvgElementEditor.Move(source, moved, target, where, out _), () => new[] { targetKey });
-    }
-
+    // One break inside it, so it is written as a pair of tags rather than <g/>: a group somebody is
+    // about to drop things into wants somewhere to put them.
     private bool NewGroup(string targetKey, SvgElementDrop where)
-    {
-        if (SourceAddress(targetKey) is not { } target)
-        {
-            ShowNote(Unwritten);
-
-            return false;
-        }
-
-        // One break inside it, so it is written as a pair of tags rather than <g/>: a group somebody
-        // is about to drop things into wants somewhere to put them.
-        return Rewritten(
-            "add a group",
-            source => SvgElementEditor.Insert(source, target, where, new XElement("g", new XText("\n")), out _),
-            () => new[] { targetKey });
-    }
+        => Rewritten(new("add a group", new SvgSourceEdit[] { new SvgSourceEdit.Insert(targetKey, where, new XElement("g", new XText("\n"))) }));
 
     /// <summary>Takes the rows at <paramref name="addressKeys"/> out of the drawing, as one edit.</summary>
     /// <remarks>
@@ -992,11 +1002,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// nothing besides: a row the file does not spell refuses the lot before anything is cut.
     /// </remarks>
     public bool Delete(IReadOnlyList<string> addressKeys)
-        => Spelt(addressKeys) is { } mine
-           && Rewritten(
-               mine.Count == 1 ? "delete an element" : $"delete {mine.Count} elements",
-               source => SvgElementEditor.Remove(source, mine),
-               () => Array.Empty<string>());
+        => addressKeys.Count > 0
+           && Rewritten(new(
+               addressKeys.Count == 1 ? "delete an element" : $"delete {addressKeys.Count} elements",
+               addressKeys.Select(key => (SvgSourceEdit)new SvgSourceEdit.Remove(key)).ToList()));
 
     /// <summary>Takes the chosen point out of the shape being reshaped, or draws a chosen handle back in.</summary>
     /// <returns>Whether there was a chosen point, so a caller knows not to delete the element instead.</returns>
@@ -1036,6 +1045,28 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
 
         ShowGizmo();
+    }
+
+    /// <summary>Swaps the fill and stroke of each row at <paramref name="addressKeys"/>, as one edit, and says what it shadows.</summary>
+    public bool SwapPaints(IReadOnlyList<string> addressKeys)
+    {
+        string? note = null;
+
+        if (Spelt(addressKeys) is not { } mine
+            || !Rewritten(
+                mine.Count == 1 ? "swap fill and stroke" : $"swap fill and stroke of {mine.Count} elements",
+                source => SvgAttributeEditor.SwapPaints(source, mine, out note),
+                () => addressKeys))
+        {
+            return false;
+        }
+
+        if (note is { })
+        {
+            ShowNote(note);
+        }
+
+        return true;
     }
 
     /// <summary>Writes a copy of each row at <paramref name="addressKeys"/> after it, and selects the copies.</summary>
@@ -1308,6 +1339,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
             Duplicate(_elementTree.SelectedAddresses.ToList());
         }
+        else if (e.Key == Key.X && e.KeyModifiers == KeyModifiers.Shift)
+        {
+            e.Handled = true;
+
+            SwapPaints(_elementTree.SelectedAddresses.ToList());
+        }
     }
 
     /// <summary>
@@ -1338,6 +1375,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.TrySelect(follow());
 
         return true;
+    }
+
+    /// <summary>Commits a plan the tree's rows make, every row placed in the file first, and selects what it landed.</summary>
+    private bool Rewritten(SvgSourceEdits edits)
+    {
+        var addresses = SourceAddresses();
+        IReadOnlyList<string> landed = Array.Empty<string>();
+
+        return Rewritten(edits.Label, source => edits.Apply(source, key => addresses.TryGetValue(key, out var at) ? at : null, out landed), () => Rows(landed));
     }
 
     /// <summary>Whether an edit can be written at all, saying why not where it cannot.</summary>
@@ -1429,6 +1475,35 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _canvas.GizmoTurns = _gizmo.Turns;
         _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
+    }
+
+    /// <summary>What a gesture starting here may land on: everything but what it moves.</summary>
+    /// <remarks>
+    /// A drawing tool moves nothing, and the selection it leaves tracked is something to draw against.
+    /// The box is handed over only for a carry, which the gizmo pulls by its corner; a handle pulls
+    /// the edge it moves.
+    /// </remarks>
+    private void Guide(Point at)
+    {
+        var carry = _draw.Shape is null && !_draw.Reshaping && !_page
+            && _canvas.TryGetDrawingPoint(at, out var point)
+            && !_gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale, handlesOnly: true);
+
+        _guides.Begin(
+            _canvas.Placements,
+            _draw.Shape is { } ? Array.Empty<SvgElement>() : _gizmo.Elements,
+            carry ? _canvas.Gizmo : null,
+            _page ? _canvas.Placements.FirstOrDefault() : null);
+
+        Regrid();
+    }
+
+    private void Unguide()
+    {
+        _guides.End();
+        _canvas.Aligned = null;
+
+        Regrid();
     }
 
     /// <summary>
@@ -1524,6 +1599,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _gizmo.Drag(new ShimSkiaSharp.SKPoint(point.X, point.Y));
 
         ShowGizmo();
+        _canvas.Aligned = _guides.Aligned(_canvas.Gizmo, _canvas.Scale);
 
         // The ring is traced from the scene, which the drag has just moved, so it has to be traced
         // again or it stays behind on the shape's old silhouette while the shape leaves. Retrace

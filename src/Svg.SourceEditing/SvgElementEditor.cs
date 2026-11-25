@@ -81,6 +81,19 @@ public static class SvgElementEditor
             return Missing(targetKey);
         }
 
+        if (Move(source, moved, target, where) is { } cannot)
+        {
+            return cannot;
+        }
+
+        movedKey = SvgAttributeEditor.Key(moved);
+
+        return null;
+    }
+
+    /// <summary>The body of <see cref="Move(SvgSourceDocument, string, string, SvgElementDrop, out string?)"/>, once both elements are found.</summary>
+    internal static string? Move(SvgSourceDocument source, XElement moved, XElement target, SvgElementDrop where)
+    {
         if (moved.Parent is null)
         {
             return "The drawing itself cannot be moved.";
@@ -118,8 +131,6 @@ public static class SvgElementEditor
         Put(target, where, moved, now);
         Reindent(moved, was, now);
 
-        movedKey = SvgAttributeEditor.Key(moved);
-
         return null;
     }
 
@@ -151,6 +162,19 @@ public static class SvgElementEditor
             return Missing(targetKey);
         }
 
+        if (Insert(source, target, where, element) is { } cannot)
+        {
+            return cannot;
+        }
+
+        addressKey = SvgAttributeEditor.Key(element);
+
+        return null;
+    }
+
+    /// <summary>The body of <see cref="Insert(SvgSourceDocument, string, SvgElementDrop, XElement, out string?)"/>, once the target is found.</summary>
+    internal static string? Insert(SvgSourceDocument source, XElement target, SvgElementDrop where, XElement element)
+    {
         if (target.Parent is null && where != SvgElementDrop.Inside)
         {
             return Rootless;
@@ -175,8 +199,6 @@ public static class SvgElementEditor
 
         Reindent(element, string.Empty, indent);
         Put(target, where, element, indent);
-
-        addressKey = SvgAttributeEditor.Key(element);
 
         return null;
     }
@@ -623,6 +645,164 @@ public static class SvgElementEditor
                 attribute.Value.Contains("url(#" + id + ")", StringComparison.Ordinal)));
     }
 
+    /// <summary>Gives an element another id, or none, and points what in the drawing pointed at the old one at the new.</summary>
+    /// <remarks>
+    /// What points at an id: <c>url(#id)</c> in any attribute or declaration, an href of <c>#id</c>,
+    /// an animation timed <c>id.event</c>, and <c>#id</c> in a <c>&lt;style&gt;</c> sheet's
+    /// selectors, never in its declarations, where <c>#fff</c> is a colour. Not the declarations,
+    /// which name no element, nor anything outside this drawing.
+    /// </remarks>
+    /// <param name="id">The id to give it; null or blank takes its id away.</param>
+    /// <param name="repointed">How many references now say the new id.</param>
+    /// <returns>The sentence refusing it, or null where it was made.</returns>
+    public static string? Rename(SvgSourceDocument source, string addressKey, string? id, out int repointed)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (addressKey is null)
+        {
+            throw new ArgumentNullException(nameof(addressKey));
+        }
+
+        repointed = 0;
+
+        if (SvgAttributeEditor.Resolve(source.Document, addressKey) is not { } element)
+        {
+            return Missing(addressKey);
+        }
+
+        var now = string.IsNullOrWhiteSpace(id) ? null : id!.Trim();
+        var was = ((string?)element.Attribute("id"))?.Trim();
+
+        if (string.Equals(was is { Length: > 0 } ? was : null, now, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        if (now is { } && !SvgAttributeEditor.IsUnprefixed(now))
+        {
+            return $"'{now}' cannot be an id: it has to begin with a letter or '_' and hold no spaces, colons, brackets or braces.";
+        }
+
+        if (now is { } && source.Document.Descendants().FirstOrDefault(other => other != element && ((string?)other.Attribute("id"))?.Trim() == now) is { } taken)
+        {
+            return $"#{now} is already the id of a <{taken.Name.LocalName}>, and the drawing would answer to it twice.";
+        }
+
+        // An expression's id is not one anything can point at, as Duplicate and Referenced read it;
+        // nor is a later duplicate's, since a reference finds the first element with the id.
+        var pointed = was is { Length: > 0 } && was.IndexOf("{{", StringComparison.Ordinal) < 0
+                      && source.Document.Descendants().TakeWhile(other => other != element).All(other => ((string?)other.Attribute("id"))?.Trim() != was)
+            ? was
+            : null;
+
+        if (now is null && pointed is { } && Repoint(source.Document.Root!, pointed, null) is var pointing and > 0)
+        {
+            return pointing == 1
+                ? $"A reference points at #{pointed}: give it another id, or remove the reference first."
+                : $"{pointing} references point at #{pointed}: give it another id, or remove them first.";
+        }
+
+        if (SvgAttributeEditor.SetAttribute(element, "id", now) is { } refusal)
+        {
+            return refusal;
+        }
+
+        repointed = now is { } && pointed is { } ? Repoint(source.Document.Root!, pointed, now) : 0;
+
+        return null;
+    }
+
+    /// <summary>Counts what points at <paramref name="old"/>, and points it at <paramref name="to"/> where that is given.</summary>
+    /// <remarks>Upstream's <c>RemapReferences</c>, read off the tree, with a CDATA sheet written back as CDATA.</remarks>
+    private static int Repoint(XElement root, string old, string? to)
+    {
+        var count = 0;
+        var href = "#" + old;
+        var timing = new Regex(@"(^|[;\s])" + Regex.Escape(old) + @"(?=\.)", RegexOptions.CultureInvariant);
+
+        foreach (var element in root.DescendantsAndSelf().Where(element => element.Name.Namespace != Ns))
+        {
+            foreach (var attribute in element.Attributes().Where(attribute => !attribute.IsNamespaceDeclaration && attribute.Name != "id"))
+            {
+                var value = attribute.Value;
+
+                if (attribute.Name.LocalName == "href" && value.Trim() == href)
+                {
+                    value = value.Replace(href, "#" + to);
+                    count++;
+                }
+
+                value = Urls(value);
+
+                if (attribute.Name.LocalName is "begin" or "end")
+                {
+                    value = timing.Replace(value, match =>
+                    {
+                        count++;
+
+                        return match.Groups[1].Value + to;
+                    });
+                }
+
+                if (to is { } && value != attribute.Value)
+                {
+                    attribute.Value = value;
+                }
+            }
+
+            if (element.Name.LocalName != "style")
+            {
+                continue;
+            }
+
+            // XCData is an XText, and setting its value keeps it a CDATA section.
+            foreach (var sheet in element.Nodes().OfType<XText>().ToList())
+            {
+                var value = s_prelude.Replace(Urls(sheet.Value), rule => s_selector.Replace(rule.Groups[1].Value, selector =>
+                {
+                    if (selector.Groups[1].Value != old)
+                    {
+                        return selector.Value;
+                    }
+
+                    count++;
+
+                    return "#" + to;
+                }) + "{");
+
+                if (to is { } && value != sheet.Value)
+                {
+                    sheet.Value = value;
+                }
+            }
+        }
+
+        return count;
+
+        string Urls(string value) => s_url.Replace(value, match =>
+        {
+            if (match.Groups[2].Value != old)
+            {
+                return match.Value;
+            }
+
+            count++;
+
+            return match.Groups[1].Value + to + match.Groups[3].Value;
+        });
+    }
+
+    private static readonly Regex s_url = new(@"(url\(\s*['"" ]?#)([^\s'""()]+)(['"" ]?\s*\))", RegexOptions.CultureInvariant);
+
+    // What comes before a {, which is a rule's selectors, and the ids in them: a declaration's #fff is never before one.
+    private static readonly Regex s_prelude = new(@"([^{}]+)\{", RegexOptions.CultureInvariant);
+    // The whole id, and not one a CSS escape carries on: #a\.b is the element a.b.
+    private static readonly Regex s_selector = new(@"#([\w-]+)(?![\w\\-])", RegexOptions.CultureInvariant);
+
     private static HashSet<string> Ids(SvgSourceDocument source)
         => new(
             source.Document.Descendants().Select(element => (string?)element.Attribute("id")).OfType<string>(),
@@ -689,25 +869,67 @@ public static class SvgElementEditor
                 return Missing(key);
             }
 
-            if (element.Parent is null)
+            if (Unchosen(element, verb) is { } cannot)
             {
-                return $"The drawing itself cannot be {verb}.";
-            }
-
-            if (element.DescendantsAndSelf().Any(held => held.Name.Namespace == Ns))
-            {
-                return $"The declarations cannot be {verb} here: the Parameters panel edits them.";
+                return cannot;
             }
 
             elements.Add(element);
         }
 
-        var chosen = elements;
+        // Distinct: a key named twice, or two rows spelling one element, is one element to act on.
+        var chosen = elements.Distinct().ToList();
 
         elements = chosen.Where(element => !element.Ancestors().Any(chosen.Contains)).ToList();
 
         return null;
     }
+
+    /// <summary>Gives an element another name, keeping everything it is written with and holds.</summary>
+    /// <remarks>
+    /// The name only, in the element's own namespace: what the new element is drawn from, such as a
+    /// path's d for a rectangle's x and y, is its caller's to write in the same plan.
+    /// </remarks>
+    /// <returns>The sentence refusing it, or null where it was renamed.</returns>
+    internal static string? Retag(XElement element, string name)
+    {
+        name = name.Trim();
+
+        if (Unchosen(element, "turned into another element") is { } cannot)
+        {
+            return cannot;
+        }
+
+        if (!SvgAttributeEditor.IsUnprefixed(name))
+        {
+            return $"'{name}' cannot be the name of an element.";
+        }
+
+        var renamed = new XElement(element.Name.Namespace + name);
+
+        // Text already in a run stays in it: what Holds says of a new line written into one is not this.
+        if (!(IsText(element.Parent!) && IsText(renamed)) && Holds(element.Parent!, renamed) is { } held)
+        {
+            return held;
+        }
+
+        if (element.Elements().FirstOrDefault(child => !(IsText(renamed) && IsText(child)) && Holds(renamed, child) is { }) is { } child)
+        {
+            return Holds(renamed, child);
+        }
+
+        element.Name = renamed.Name;
+
+        return null;
+    }
+
+    /// <summary>Why <paramref name="element"/> cannot be <paramref name="verb"/>, or null where it can.</summary>
+    internal static string? Unchosen(XElement element, string verb)
+        => element.Parent is null
+            ? $"The drawing itself cannot be {verb}."
+            : element.DescendantsAndSelf().Any(held => held.Name.Namespace == Ns)
+                ? $"The declarations cannot be {verb} here: the Parameters panel edits them."
+                : null;
 
     private static readonly XNamespace Ns = SvgExpressionDeclarations.Namespace;
 
@@ -879,7 +1101,7 @@ public static class SvgElementEditor
     public static bool Keeps(string localName)
         => localName is
             "defs" or "clipPath" or "mask" or "marker" or "pattern" or "symbol" or
-            "linearGradient" or "radialGradient" or "filter";
+            "linearGradient" or "radialGradient" or "sweepGradient" or "filter";
 
     /// <summary>Whether an element named <paramref name="localName"/> is drawn with <paramref name="property"/>, <c>clip-path</c> or <c>mask</c>.</summary>
     /// <remarks>The renderer clips an <c>&lt;svg&gt;</c> and an <c>&lt;a&gt;</c> but masks neither.</remarks>
@@ -918,7 +1140,7 @@ public static class SvgElementEditor
         var any = Describes(name);
         var takes = into switch
         {
-            "linearGradient" or "radialGradient" => any || name is "stop",
+            "linearGradient" or "radialGradient" or "sweepGradient" => any || name is "stop",
             "filter" => any || name.StartsWith("fe", StringComparison.Ordinal),
             "clipPath" => any || Clips(name),
             "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "path" or "image" or "use" or "stop" or "set" or "mpath" => any,

@@ -811,10 +811,11 @@ public sealed class SvgViewerDraw
     /// The root has no node of its own under the empty address; the scene's root carries its matrix,
     /// which is where the viewBox and any size the host asked for are applied. A container nobody
     /// drew — <c>display="none"</c>, say — has no node either, and the caller falls back to the root.
+    /// Null asks for the root too: its matrix is the drawing's user units, which is what a ruler counts in.
     /// </remarks>
-    public static bool TryParent(SKSvg svg, SvgElement parent, out Shim.SKMatrix fromParent)
+    public static bool TryParent(SKSvg svg, SvgElement? parent, out Shim.SKMatrix fromParent)
     {
-        if (parent is SvgDocument)
+        if (parent is null or SvgDocument)
         {
             if (svg.TryEnsureRetainedSceneGraph(out var scene) && scene is { })
             {

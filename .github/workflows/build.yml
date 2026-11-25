@@ -1,18 +1,16 @@
 name: Build
 
+# Pull requests only, and Linux only: the suite runs locally before a push, so this is there to catch
+# what a working tree hides — a file never added, a submodule pointer never pushed. Windows, Studio UI
+# and the packs run in release.yml, the only route to the consumers; a push to master would repeat
+# the pull request's run on the same tree.
 on:
-  push:
-    branches:
-      - master
-      - main
-      - develop
-      # Not feature/**: a feature branch runs through its pull request, and both ran everything twice.
-      - 'release/**'
   pull_request:
     branches:
       - master
       - main
       - develop
+  workflow_dispatch:
 
 env:
   DOTNET_NOLOGO: true
@@ -22,23 +20,18 @@ env:
 permissions:
   contents: read
 
-# A newer push to a pull request supersedes its run; a master run is never cancelled, as publish-apps
-# is built from it.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Test (ubuntu-latest)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       checks: write
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,20 +43,11 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Determine version suffix
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
-            echo "VERSION_SUFFIX=" >> "$GITHUB_ENV"
-          else
-            echo "VERSION_SUFFIX=-build.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          fi
-
       - name: Restore
         run: dotnet restore Svg.Skia.slnx -p:Configuration=Release
 
       - name: Build
-        run: dotnet build Svg.Skia.slnx -c Release --no-restore -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
+        run: dotnet build Svg.Skia.slnx -c Release --no-restore
 
       - name: Test
         run: dotnet test Svg.Skia.slnx -c Release --no-build --logger trx --results-directory artifacts/test
@@ -72,7 +56,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.os }}
+          name: test-results-ubuntu-latest
           path: artifacts/test/**/*.trx
           if-no-files-found: error
           retention-days: 7
@@ -80,109 +64,18 @@ jobs:
       - name: Publish test results
         uses: dorny/test-reporter@v1
         # Fork and Dependabot PR tokens cannot create check runs; TRX artifacts still upload above.
-        if: ${{ always() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')) }}
+        if: ${{ always() && (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
         with:
-          name: Test Results (${{ matrix.os }})
+          name: Test Results (ubuntu-latest)
           path: artifacts/test/**/*.trx
           reporter: dotnet-trx
           fail-on-empty: false
 
-  build-maui:
-    name: Build MAUI (macos-latest)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Install .NET MAUI workload
-        working-directory: src/SvgML.Maui
-        run: dotnet workload install maui --ignore-failed-sources --skip-manifest-update
-
-      - name: Determine version suffix
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
-            echo "VERSION_SUFFIX=" >> "$GITHUB_ENV"
-          else
-            echo "VERSION_SUFFIX=-build.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Restore libraries
-        working-directory: src/SvgML.Maui
-        run: |
-          dotnet restore SvgML.Maui.csproj
-          dotnet restore ../Svg.Controls.Skia.Maui/Svg.Controls.Skia.Maui.csproj
-
-      - name: Build libraries
-        working-directory: src/SvgML.Maui
-        run: |
-          dotnet build SvgML.Maui.csproj -c Release --no-restore -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
-          dotnet build ../Svg.Controls.Skia.Maui/Svg.Controls.Skia.Maui.csproj -c Release --no-restore -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
-
-      - name: Build sample
-        working-directory: src/SvgML.Maui
-        run: dotnet build ../../samples/SvgML.Maui.Demo/SvgML.Maui.Demo.csproj -f net10.0-android -c Release -p:RuntimeIdentifier=android-arm64
-
-  pack:
-    name: Pack (ubuntu-latest)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
-
-      - name: Determine version suffix
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
-            echo "VERSION_SUFFIX=" >> "$GITHUB_ENV"
-          else
-            echo "VERSION_SUFFIX=-build.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Restore
-        run: dotnet restore Svg.Skia.slnx -p:Configuration=Release
-
-      - name: Pack
-        run: dotnet pack Svg.Skia.slnx -c Release --no-restore -p:VersionSuffix="${{ env.VERSION_SUFFIX }}" -o artifacts/packages
-
-      - name: Verify Linux package dependencies
-        run: bash scripts/verify_linux_package_dependencies.sh artifacts/packages
-
-      - name: Upload NuGet packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: nuget-packages-ubuntu-latest
-          path: |
-            artifacts/packages/*.nupkg
-            artifacts/packages/*.snupkg
-          if-no-files-found: error
-          retention-days: 30
-
   publish-apps:
     name: Publish apps (${{ matrix.rid }})
-    # Default branch only. test and pack still run on every pull request -- this
-    # gates the job, not the workflow. Publishing four self-contained runtimes is around 360 MB a
-    # time, which is not worth spending on a branch still being iterated on. Written against
-    # default_branch rather than 'master' so a rename does not silently disable it, matching how
-    # the docs deploy job gates itself.
-    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    # By hand only: four self-contained runtimes are around 360 MB a time.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
-    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -208,29 +101,20 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Determine version suffix
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
-            echo "VERSION_SUFFIX=" >> "$GITHUB_ENV"
-          else
-            echo "VERSION_SUFFIX=-build.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          fi
-
       # Self-contained, so neither app needs a .NET install on the machine that runs it. Not
       # trimmed: Avalonia and the SVG object model both reflect over types, and a trimmed build
       # fails at runtime rather than at publish, which is the worst place to find out.
       - name: Publish svgc
         run: >
           dotnet publish src/svgc/svgc.csproj -c Release -r ${{ matrix.rid }}
-          --self-contained true -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
+          --self-contained true -p:VersionSuffix="-build.${{ github.run_number }}"
           -o artifacts/publish/${{ matrix.rid }}/svgc
 
       # On macOS as Svg.Studio.app, which is what Finder opens a .svgstudio with.
       - name: Publish Svg.Studio
         run: >
           dotnet publish src/Svg.Studio/Svg.Studio.csproj -c Release -r ${{ matrix.rid }}
-          --self-contained true -p:VersionSuffix="${{ env.VERSION_SUFFIX }}"
+          --self-contained true -p:VersionSuffix="-build.${{ github.run_number }}"
           -p:StudioAppBundle=${{ startsWith(matrix.rid, 'osx') }}
           -o artifacts/publish/${{ matrix.rid }}/Svg.Studio
 
@@ -239,55 +123,5 @@ jobs:
         with:
           name: apps-${{ matrix.rid }}
           path: artifacts/publish/${{ matrix.rid }}
-          if-no-files-found: error
-          retention-days: 30
-
-  pack-maui:
-    name: Pack MAUI (macos-latest)
-    runs-on: macos-latest
-    needs: build-maui
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Install .NET MAUI workload
-        working-directory: src/SvgML.Maui
-        run: dotnet workload install maui --ignore-failed-sources --skip-manifest-update
-
-      - name: Determine version suffix
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
-            echo "VERSION_SUFFIX=" >> "$GITHUB_ENV"
-          else
-            echo "VERSION_SUFFIX=-build.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Restore
-        working-directory: src/SvgML.Maui
-        run: |
-          dotnet restore SvgML.Maui.csproj
-          dotnet restore ../Svg.Controls.Skia.Maui/Svg.Controls.Skia.Maui.csproj
-
-      - name: Pack
-        working-directory: src/SvgML.Maui
-        run: |
-          dotnet pack SvgML.Maui.csproj -c Release --no-restore -p:VersionSuffix="${{ env.VERSION_SUFFIX }}" -o ../../artifacts/maui-packages
-          dotnet pack ../Svg.Controls.Skia.Maui/Svg.Controls.Skia.Maui.csproj -c Release --no-restore -p:VersionSuffix="${{ env.VERSION_SUFFIX }}" -o ../../artifacts/maui-packages
-
-      - name: Upload NuGet packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: nuget-packages-maui-macos-latest
-          path: |
-            artifacts/maui-packages/*.nupkg
-            artifacts/maui-packages/*.snupkg
           if-no-files-found: error
           retention-days: 30

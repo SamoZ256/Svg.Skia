@@ -3487,6 +3487,9 @@ public partial class MainWindow : Window
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
         viewer.ShowsInvisible = StudioSettings.ShowInvisible;
         viewer.Canvas.GridLines = StudioSettings.ShowGrid ? grid : SvgViewerGrid.None;
+        viewer.Rulers.ShowsRulers = StudioSettings.Rulers;
+        viewer.Canvas.ShowsGuides = StudioSettings.Guides;
+        viewer.SnapsToSmartGuides = StudioSettings.SmartGuides;
     }
 
     /// <summary>
@@ -3606,6 +3609,16 @@ public partial class MainWindow : Window
             : Board()?.Duplicate() == true;
     }
 
+    /// <summary>Swaps the fill and stroke of what the selected tab has picked, as one edit.</summary>
+    /// <remarks>
+    /// Run by the menu only, so whatever is being typed has been written by then; the canvas and
+    /// the tree answer Shift+X themselves.
+    /// </remarks>
+    public bool SwapPaints()
+        => Selected() is { } viewer
+            ? viewer.SwapPaints(viewer.Elements.SelectedAddresses.ToList())
+            : Board()?.SwapPaints() == true;
+
     /// <inheritdoc cref="Duplicate"/>
     /// <summary>Takes what the selected tab has picked out of its drawing.</summary>
     public bool Delete()
@@ -3651,9 +3664,9 @@ public partial class MainWindow : Window
         const string rule = StudioCommands.Separator;
 
         yield return ("File", new[] { "open", StudioCommands.RecentSlot, "close", rule, "save", "saveas", rule, "export", rule, "preferences" });
-        yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", rule, "resize" });
+        yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", "swappaints", rule, "resize" });
         yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
-        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "reset-parameters" });
+        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "workspace-rulers", "guides", "smartguides", rule, "reset-parameters" });
         yield return ("Window", _dock.Regions.Where(region => region.Closable).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" })
             .Concat(new[] { rule }).Concat(StudioSettings.Layouts.Select(layout => LayoutCommand(layout.Name))).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
@@ -3751,6 +3764,15 @@ public partial class MainWindow : Window
             CanExecute = Picks
         };
         yield return new("delete", "Delete", "Edit", DeleteChosenAsync) { KeepsTyping = true, Scope = picked, Key = SvgEditorShortcutKey.Delete, CanExecute = Picks };
+
+        // Never shown on a Mac, where a shown gesture is a key equivalent: it would take every capital X typed into a box.
+        yield return new("swappaints", "Swap Fill and Stroke", "Edit", Done(() => SwapPaints()))
+        {
+            Scope = picked,
+            Key = SvgEditorShortcutKey.X,
+            Modifiers = shift,
+            CanExecute = Picks
+        };
         yield return new("resize", "Resize…", "Edit", () => Selected() is { } viewer ? viewer.ResizeAsync() : Task.CompletedTask)
         {
             CanExecute = () => Selected() is { Document: { } }
@@ -3825,6 +3847,11 @@ public partial class MainWindow : Window
         {
             CanExecute = () => Selected() is { Document: { } }
         };
+
+        foreach (var command in Viewing(Done))
+        {
+            yield return command;
+        }
 
         // The palette's own tools and letters. The canvas answers the letters; these are run from
         // search, and never mid-drag, which the strip cannot be clicked during either.

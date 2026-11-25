@@ -36,6 +36,21 @@ public class SvgElementEditorDocumentTests
         return source!;
     }
 
+    /// <summary>A key named twice, as two rows spelling one element can name it, is one element to act on.</summary>
+    [Fact]
+    public void An_Element_Named_Twice_Is_Removed_And_Copied_Once()
+    {
+        var removed = Read();
+
+        Assert.Null(SvgElementEditor.Remove(removed, new[] { "0", "0" }));
+        Assert.Equal(Source.Replace("  <rect id=\"a\" />\n", string.Empty, StringComparison.Ordinal), removed.ToText());
+
+        var copied = Read();
+
+        Assert.Null(SvgElementEditor.Duplicate(copied, new[] { "0", "0" }, out var copies));
+        Assert.Equal(new[] { "1" }, copies);
+    }
+
     [Fact]
     public void An_Element_Dropped_Inside_A_Group_Is_Written_At_Its_New_Depth()
     {
@@ -437,6 +452,7 @@ public class SvgElementEditorDocumentTests
               <linearGradient id="g" />
               <filter id="f" />
               <clipPath id="c" />
+              <sweepGradient id="s" />
             </svg>
             """);
 
@@ -444,10 +460,12 @@ public class SvgElementEditorDocumentTests
         Assert.Null(SvgElementEditor.Insert(source, "0/0", SvgElementDrop.After, new XElement("stop"), out var next));
         Assert.Null(SvgElementEditor.Insert(source, "1", SvgElementDrop.Inside, new XElement("feGaussianBlur"), out var blur));
         Assert.Null(SvgElementEditor.Insert(source, "2", SvgElementDrop.Inside, new XElement("circle"), out var clip));
-        Assert.Equal(new[] { "0/0", "0/1", "1/0", "2/0" }, new[] { stop, next, blur, clip });
+        Assert.Null(SvgElementEditor.Insert(source, "3", SvgElementDrop.Inside, new XElement("stop"), out var turn));
+        Assert.Equal(new[] { "0/0", "0/1", "1/0", "2/0", "3/0" }, new[] { stop, next, blur, clip, turn });
 
         Assert.Equal("A <clipPath> cannot hold a <g>.", SvgElementEditor.Insert(source, "2", SvgElementDrop.Inside, new XElement("g"), out _));
         Assert.Equal("A <linearGradient> cannot hold a <rect>.", SvgElementEditor.Insert(source, "0/0", SvgElementDrop.After, new XElement("rect"), out _));
+        Assert.Equal("A <sweepGradient> cannot hold a <rect>.", SvgElementEditor.Insert(source, "3/0", SvgElementDrop.After, new XElement("rect"), out _));
     }
 
     [Fact]

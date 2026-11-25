@@ -558,114 +558,10 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {(colorShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)});");
                     return;
                 }
-            case LinearGradientShader linearGradientShader:
+            case { } gradient when Gradient(gradient) is var (colors, colorSpace, positions, call):
                 {
-                    if (linearGradientShader.Colors is null)
-                    {
-                        sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = default(SKShader);");
-                        return;
-                    }
-
-                    var colorPos = ToGradientColorPositions(linearGradientShader.ColorPos);
-                    if (linearGradientShader.LocalMatrix is { })
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateLinearGradient(");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Start.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.End.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(linearGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Mode.ToSKShaderTileMode()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.LocalMatrix.Value.ToSKMatrix()});");
-                        return;
-                    }
-                    else
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateLinearGradient(");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Start.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.End.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(linearGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Mode.ToSKShaderTileMode()});");
-                        return;
-                    }
-                }
-            case RadialGradientShader radialGradientShader:
-                {
-                    if (radialGradientShader.Colors is null)
-                    {
-                        sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = default(SKShader);");
-                        return;
-                    }
-
-                    var colorPos = ToGradientColorPositions(radialGradientShader.ColorPos);
-                    if (radialGradientShader.LocalMatrix is { })
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateRadialGradient(");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Center.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Radius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(radialGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Mode.ToSKShaderTileMode()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.LocalMatrix.Value.ToSKMatrix()});");
-                        return;
-                    }
-                    else
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateRadialGradient(");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Center.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Radius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(radialGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Mode.ToSKShaderTileMode()});");
-                        return;
-                    }
-                }
-            case TwoPointConicalGradientShader twoPointConicalGradientShader:
-                {
-                    if (twoPointConicalGradientShader.Colors is null)
-                    {
-                        sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = default(SKShader);");
-                        return;
-                    }
-
-                    var colorPos = ToGradientColorPositions(twoPointConicalGradientShader.ColorPos);
-                    if (twoPointConicalGradientShader.LocalMatrix is { })
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateTwoPointConicalGradient(");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Start.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.StartRadius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.End.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.EndRadius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(twoPointConicalGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Mode.ToSKShaderTileMode()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.LocalMatrix.Value.ToSKMatrix()});");
-                        return;
-                    }
-                    else
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateTwoPointConicalGradient(");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Start.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.StartRadius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.End.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.EndRadius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(twoPointConicalGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Mode.ToSKShaderTileMode()});");
-                        return;
-                    }
+                    sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = {call(colors.ToSKColors(), colorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear, ToGradientColorPositions(positions))};");
+                    return;
                 }
             case PictureShader pictureShader:
                 {
@@ -1702,6 +1598,8 @@ public static class SkiaCSharpModelExtensions
                 $"SKShader.CreateRadialGradient({radial.Center.ToSKPoint()}, {radial.Radius.ToFloatString()}, {c}, {space}, {positions}, {radial.Mode.ToSKShaderTileMode()}{Matrix(radial.LocalMatrix)})"),
             TwoPointConicalGradientShader { Colors: { } colors } conical => (colors, conical.ColorSpace, conical.ColorPos, (c, space, positions) =>
                 $"SKShader.CreateTwoPointConicalGradient({conical.Start.ToSKPoint()}, {conical.StartRadius.ToFloatString()}, {conical.End.ToSKPoint()}, {conical.EndRadius.ToFloatString()}, {c}, {space}, {positions}, {conical.Mode.ToSKShaderTileMode()}{Matrix(conical.LocalMatrix)})"),
+            SweepGradientShader { Colors: { } colors } sweep => (colors, sweep.ColorSpace, sweep.ColorPos, (c, space, positions) =>
+                $"SKShader.CreateSweepGradient({sweep.Center.ToSKPoint()}, {c}, {space}, {positions}, {sweep.Mode.ToSKShaderTileMode()}, {sweep.StartAngle.ToFloatString()}, {sweep.EndAngle.ToFloatString()}{Matrix(sweep.LocalMatrix)})"),
             _ => null
         };
     }

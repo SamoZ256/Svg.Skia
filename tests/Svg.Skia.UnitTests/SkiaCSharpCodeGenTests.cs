@@ -65,7 +65,34 @@ public class SkiaCSharpCodeGenTests
 
         Assert.DoesNotContain("NaNf", code);
         Assert.Contains("SKShader.CreateRadialGradient(", code);
-        Assert.Contains("    null,", code);
+        Assert.Contains(", null, SKShaderTileMode.Clamp, ", code);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Generate_WritesSweepGradientAnglesBeforeItsOptionalMatrix(bool withMatrix)
+    {
+        var colors = new[] { new SKColorF(1f, 0f, 0f, 1f), new SKColorF(0f, 0f, 1f, 1f) };
+        var paint = new SKPaint
+        {
+            Shader = withMatrix
+                ? SKShader.CreateSweepGradient(new SKPoint(5f, 5f), colors, SKColorSpace.Srgb, new[] { 0f, 1f }, SKShaderTileMode.Mirror, 45f, 270f, SKMatrix.CreateTranslation(2f, 3f))
+                : SKShader.CreateSweepGradient(new SKPoint(5f, 5f), colors, SKColorSpace.Srgb, new[] { 0f, 1f }, SKShaderTileMode.Mirror, 45f, 270f)
+        };
+        var path = new SKPath();
+        path.AddRect(SKRect.Create(0f, 0f, 10f, 10f));
+        var picture = new SKPicture(SKRect.Create(0f, 0f, 10f, 10f), new List<CanvasCommand>
+        {
+            new DrawPathCanvasCommand(path, paint)
+        });
+
+        var code = SkiaCSharpCodeGen.Generate(picture, "Svg", "Generated");
+
+        Assert.Contains("SKShader.CreateSweepGradient(new SKPoint(5f, 5f), ", code);
+        Assert.Contains(withMatrix
+            ? ", SKShaderTileMode.Mirror, 45f, 270f, new SKMatrix(1f, 0f, 2f, 0f, 1f, 3f, 0f, 0f, 1f));"
+            : ", SKShaderTileMode.Mirror, 45f, 270f);", code);
     }
 
     [Fact]
@@ -253,6 +280,15 @@ public class SkiaCSharpCodeGenTests
             1f,
             new SKPoint(5f, 5f),
             5f,
+            colors,
+            SKColorSpace.Srgb,
+            colorPos,
+            SKShaderTileMode.Clamp,
+            null);
+        yield return new SweepGradientShader(
+            new SKPoint(5f, 5f),
+            45f,
+            270f,
             colors,
             SKColorSpace.Srgb,
             colorPos,
@@ -597,7 +633,7 @@ public class SkiaCSharpCodeGenTests
         return new DrawPathCanvasCommand(path, new SKPaint { IsAntialias = true });
     }
 
-    private static IEnumerable<SKShader> EnumerateShaders(SKPicture? picture)
+    internal static IEnumerable<SKShader> EnumerateShaders(SKPicture? picture)
     {
         if (picture?.Commands is null)
         {

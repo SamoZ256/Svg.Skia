@@ -6769,11 +6769,13 @@ public class SvgRetainedSceneGraphTests : SvgUnitTest
         AssertPicturesEqual(svg, svg.Picture!, retainedPicture!);
     }
 
-    [Fact]
-    public void RetainedSceneGraph_ApplyMutation_UpdatesGradientResourceDependents()
+    [Theory]
+    [InlineData("linearGradient")]
+    [InlineData("sweepGradient")]
+    public void RetainedSceneGraph_ApplyMutation_UpdatesGradientResourceDependents(string gradient)
     {
         using var svg = new SKSvg();
-        svg.FromSvg(GradientSvg);
+        svg.FromSvg(GradientSvg.Replace("linearGradient", gradient));
 
         var scene = svg.RetainedSceneGraph;
         Assert.NotNull(scene);
@@ -7679,7 +7681,7 @@ public class SvgRetainedSceneGraphTests : SvgUnitTest
              height="24"
              viewBox="0 0 24 24">
           <defs>
-            <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <linearGradient id="grad">
               <stop id="stop-a" offset="0%" stop-color="red" />
               <stop id="stop-b" offset="100%" stop-color="green" />
             </linearGradient>
