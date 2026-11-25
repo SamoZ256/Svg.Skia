@@ -110,6 +110,15 @@ public class SvgViewerCanvas : SKCanvasControl
     private Point _pressOrigin;
     private bool _pressed;
 
+    private IReadOnlyList<SvgEditorGuide> _guides = Array.Empty<SvgEditorGuide>();
+    private bool _showsGuides = true;
+    private IReadOnlyList<SvgEditorGuide>? _aligned;
+
+    /// <summary>The guide a press holds, and where it was before, or null for one a ruler is handing out.</summary>
+    private int _guideHeld = -1;
+    private SvgEditorGuide? _guideWas;
+    private IPointer? _guidePointer;
+
     // Written on the UI thread, read on the render thread. Everything the draw needs, in one
     // reference assignment, so a frame can never see half of a change.
     private volatile Snapshot _snapshot = new(
@@ -133,7 +142,9 @@ public class SvgViewerCanvas : SKCanvasControl
         SKRect? Marquee,
         IReadOnlyList<IReadOnlyList<Shown>>? Invisible,
         bool PageOutlined,
-        SvgViewerPointMarks? Points);
+        SvgViewerPointMarks? Points,
+        IReadOnlyList<SvgEditorGuide>? Guides = null,
+        IReadOnlyList<SvgEditorGuide>? Aligned = null);
 
     /// <summary>
     /// Something invisible as it is drawn: where it stands, its outline where it is not a box, what is
@@ -241,7 +252,7 @@ public class SvgViewerCanvas : SKCanvasControl
     public bool IsEditing => _editing;
 
     /// <summary>Whether a press is still held: an edit, a sweep, a carry or a pan.</summary>
-    public bool IsHeld => _editing || _marquee || _moving is { } || _dragging;
+    public bool IsHeld => _editing || _marquee || _moving is { } || _dragging || _guideHeld >= 0;
 
     /// <summary>The edit gesture, in control coordinates, as <see cref="Picked"/> reports a click.</summary>
     public event EventHandler<Point>? EditBegun;
@@ -505,6 +516,20 @@ public class SvgViewerCanvas : SKCanvasControl
         if (ReferenceEquals(Svg, svg))
         {
             return;
+        }
+
+        // Guides stay at the numbers the rulers gave them: a page dragged wider on its left starts
+        // the rebuilt picture somewhere else in the drawing's own units.
+        if (_guides.Count > 0 && Svg is { } was && svg is { } now
+            && SvgViewerDraw.TryParent(was, null, out var from) && from.TryInvert(out var back)
+            && SvgViewerDraw.TryParent(now, null, out var to))
+        {
+            var units = to.PreConcat(back);
+
+            Guides = _guides.Select(guide => SvgViewerGuides.Upright(guide)
+                    ? new SvgEditorGuide(guide.Id, new SKPoint(units.MapPoint(new Shim.SKPoint(guide.Origin.X, 0f)).X, 0f), guide.Direction)
+                    : new SvgEditorGuide(guide.Id, new SKPoint(0f, units.MapPoint(new Shim.SKPoint(0f, guide.Origin.Y)).Y), guide.Direction))
+                .ToArray();
         }
 
         Place(
@@ -851,6 +876,170 @@ public class SvgViewerCanvas : SKCanvasControl
 
             Publish();
         }
+    }
+
+    /// <summary>
+    /// Lines a gesture lands on, in the space the drawings are arranged in, upright ones running
+    /// along <c>(0, 1)</c>. They belong to the canvas and are never written into a drawing.
+    /// </summary>
+    public IReadOnlyList<SvgEditorGuide> Guides
+    {
+        get => _guides;
+        set
+        {
+            _guides = value ?? Array.Empty<SvgEditorGuide>();
+
+            Publish();
+            GuidesChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>Whether the guides are drawn, which is also whether a host lands gestures on them.</summary>
+    public bool ShowsGuides
+    {
+        get => _showsGuides;
+        set
+        {
+            if (_showsGuides == value)
+            {
+                return;
+            }
+
+            _showsGuides = value;
+
+            Publish();
+            GuidesChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>The object edges and centres what is being dragged now sits on, drawn until it is let go.</summary>
+    public IReadOnlyList<SvgEditorGuide>? Aligned
+    {
+        get => _aligned;
+        set
+        {
+            if (ReferenceEquals(_aligned, value))
+            {
+                return;
+            }
+
+            _aligned = value;
+
+            Publish();
+        }
+    }
+
+    /// <summary>Raised when a guide is made, moved or taken away, or the guides are shown or hidden.</summary>
+    public event EventHandler? GuidesChanged;
+
+    /// <summary>Raised after every frame's worth of state is handed over, for chrome that follows the view.</summary>
+    internal event EventHandler? Published;
+
+    /// <summary>
+    /// Takes hold of a new guide at the pointer, as a ruler hands one out. Let go outside the canvas,
+    /// it is not made.
+    /// </summary>
+    internal void HoldGuide(bool upright, PointerPressedEventArgs e)
+    {
+        if (!_showsGuides || IsHeld || !TryGetDrawingPoint(e.GetPosition(this), out var at))
+        {
+            return;
+        }
+
+        var guide = upright
+            ? new SvgEditorGuide(Guid.NewGuid().ToString("N"), new SKPoint(at.X, 0f), new SKPoint(0f, 1f))
+            : new SvgEditorGuide(Guid.NewGuid().ToString("N"), new SKPoint(0f, at.Y), new SKPoint(1f, 0f));
+
+        _guides = _guides.Append(guide).ToArray();
+        Hold(_guides.Count - 1, was: null, e);
+    }
+
+    private void Hold(int index, SvgEditorGuide? was, PointerPressedEventArgs e)
+    {
+        Focus();
+
+        _guideHeld = index;
+        _guideWas = was;
+        _guidePointer = e.Pointer;
+
+        e.Pointer.Capture(this);
+        e.Handled = true;
+
+        Publish();
+    }
+
+    /// <summary>The shown guide within reach of a press, nearest first.</summary>
+    private int? GuideAt(Point at)
+    {
+        int? found = null;
+        var nearest = GuideSlack;
+
+        for (var index = 0; _showsGuides && index < _guides.Count; index++)
+        {
+            var guide = _guides[index];
+            var distance = SvgViewerGuides.Upright(guide)
+                ? Math.Abs(guide.Origin.X * _scale + _offsetX - at.X)
+                : Math.Abs(guide.Origin.Y * _scale + _offsetY - at.Y);
+
+            if (distance <= nearest)
+            {
+                nearest = distance;
+                found = index;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>How near a guide a press takes hold of it, on screen: upstream's five pixels.</summary>
+    private const double GuideSlack = 5d;
+
+    private void MoveGuide(Point to)
+    {
+        if (!TryGetDrawingPoint(to, out var at))
+        {
+            return;
+        }
+
+        // Onto the grid's lines and never another guide's, which would include the one being moved.
+        var grid = _grid with { Uprights = null, Levels = null };
+        var guide = _guides[_guideHeld];
+        var moved = _guides.ToArray();
+
+        moved[_guideHeld] = SvgViewerGuides.Upright(guide)
+            ? new SvgEditorGuide(guide.Id, new SKPoint(grid.PullX(at.X), 0f), guide.Direction)
+            : new SvgEditorGuide(guide.Id, new SKPoint(0f, grid.PullY(at.Y)), guide.Direction);
+
+        _guides = moved;
+
+        Publish();
+    }
+
+    /// <summary>Lets go of the held guide: kept where it is, taken away, or put back where it was.</summary>
+    private void EndGuide(bool keep, bool restore = false)
+    {
+        if (_guideHeld < 0)
+        {
+            return;
+        }
+
+        var index = _guideHeld;
+        var guides = _guides.ToList();
+
+        _guideHeld = -1;
+        _guidePointer?.Capture(null);
+        _guidePointer = null;
+
+        if (restore && _guideWas is { } was)
+        {
+            guides[index] = was;
+        }
+        else if (!keep || restore)
+        {
+            guides.RemoveAt(index);
+        }
+
+        Guides = guides;
     }
 
     private SvgViewerGrid _grid = SvgViewerGrid.None;
@@ -1275,9 +1464,12 @@ public class SvgViewerCanvas : SKCanvasControl
             _marquee && _marqueeMoved ? Spanned(_marqueeFrom, _marqueeTo) : null,
             Drawn(),
             _pageOutlined,
-            _moving is { } && _moved ? null : _points);
+            _moving is { } && _moved ? null : _points,
+            _showsGuides && _guides.Count > 0 ? _guides : null,
+            _aligned);
 
         InvalidateVisual();
+        Published?.Invoke(this, EventArgs.Empty);
     }
 
     // ---- gestures ---------------------------------------------------------------------------
@@ -1377,6 +1569,14 @@ public class SvgViewerCanvas : SKCanvasControl
         // Both before the accelerators, since Escape carries no modifier, and one after the other
         // rather than in one condition: only one of the two gestures can be in flight, and each has
         // its own way back.
+        if (e.Key == Key.Escape && _guideHeld >= 0)
+        {
+            EndGuide(keep: false, restore: true);
+            e.Handled = true;
+
+            return;
+        }
+
         if (e.Key == Key.Escape && _editing)
         {
             EndEdit(commit: false);
@@ -1481,6 +1681,13 @@ public class SvgViewerCanvas : SKCanvasControl
             return;
         }
 
+        if (properties.IsLeftButtonPressed && GuideAt(_pressOrigin) is { } guide)
+        {
+            Hold(guide, _guides[guide], e);
+
+            return;
+        }
+
         // Then the host's grip, before the pan, which used to claim every press before anything knew
         // what was under the pointer — so nothing on a canvas could ever be taken hold of. The
         // middle button still pans over an item, which is the way out when a board is covered in them.
@@ -1559,6 +1766,19 @@ public class SvgViewerCanvas : SKCanvasControl
             // Moved: the gesture is a drag, and a drag pans. Anything a hand does while clicking is
             // inside the slack and still a pick.
             _pressed = false;
+        }
+
+        if (_guideHeld >= 0)
+        {
+            // Past the slack a click has, so a click on what lies under a guide is still a click.
+            if (!_pressed)
+            {
+                MoveGuide(e.GetPosition(this));
+            }
+
+            e.Handled = true;
+
+            return;
         }
 
         if (_editing)
@@ -1640,6 +1860,24 @@ public class SvgViewerCanvas : SKCanvasControl
     private void OnReleased(object? sender, PointerReleasedEventArgs e)
     {
         Modifiers = e.KeyModifiers;
+
+        if (_guideHeld >= 0)
+        {
+            var clicked = _pressed;
+
+            // Off the canvas, a ruler included, is where a guide is put away.
+            EndGuide(keep: new Rect(Bounds.Size).Contains(e.GetPosition(this)));
+
+            _pressed = false;
+            e.Handled = true;
+
+            if (clicked)
+            {
+                Picked?.Invoke(this, e.GetPosition(this));
+            }
+
+            return;
+        }
 
         if (_editing)
         {
@@ -2008,6 +2246,7 @@ public class SvgViewerCanvas : SKCanvasControl
         // A gesture the window took away writes nothing either.
         EndEdit(commit: false);
         EndMarquee(commit: false);
+        EndGuide(keep: false, restore: true);
     }
 
     // ---- drawing ----------------------------------------------------------------------------
@@ -2188,6 +2427,16 @@ public class SvgViewerCanvas : SKCanvasControl
                 SKTextAlign.Left,
                 font,
                 writing);
+        }
+
+        if (state.Guides is { } guides)
+        {
+            Lined(canvas, guides, s_guideColour, state.Scale);
+        }
+
+        if (state.Aligned is { } aligned)
+        {
+            Lined(canvas, aligned, s_alignedColour, state.Scale);
         }
 
         // Outside the loop, so it is drawn once wherever it was put rather than once per drawing on
@@ -2421,6 +2670,35 @@ public class SvgViewerCanvas : SKCanvasControl
             else
             {
                 canvas.DrawCircle(at, half * 0.8f, chosen);
+            }
+        }
+    }
+
+    private static readonly SKColor s_guideColour = new(0x00, 0xB4, 0xFF);
+    private static readonly SKColor s_alignedColour = new(0xFF, 0x2D, 0xAA);
+
+    /// <summary>Guide lines, a device pixel wide, across whatever is in view.</summary>
+    private static void Lined(SKCanvas canvas, IReadOnlyList<SvgEditorGuide> guides, SKColor colour, double scale)
+    {
+        var seen = canvas.LocalClipBounds;
+
+        using var paint = new SKPaint
+        {
+            IsAntialias = false,
+            Style = SKPaintStyle.Stroke,
+            Color = colour,
+            StrokeWidth = (float)(1d / scale)
+        };
+
+        foreach (var guide in guides)
+        {
+            if (SvgViewerGuides.Upright(guide))
+            {
+                canvas.DrawLine(guide.Origin.X, seen.Top, guide.Origin.X, seen.Bottom, paint);
+            }
+            else
+            {
+                canvas.DrawLine(seen.Left, guide.Origin.Y, seen.Right, guide.Origin.Y, paint);
             }
         }
     }

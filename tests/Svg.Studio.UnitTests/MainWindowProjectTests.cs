@@ -33,6 +33,8 @@ namespace Svg.Studio.UnitTests;
 /// Opening an svgc project: the tree beside the tabs, and a drawing shown at the size the project
 /// builds it at rather than the one it was written with.
 /// </summary>
+/// <remarks>In the settings collection, on a settings file of its own, because two of these turn smart guides off.</remarks>
+[Collection("settings")]
 public class MainWindowProjectTests : IDisposable
 {
     /// <summary>The drawing in the selected tab, which is what an edit is made to.</summary>
@@ -81,7 +83,18 @@ public class MainWindowProjectTests : IDisposable
         return path;
     }
 
-    public void Dispose() => Scratch.Delete(_directory);
+    private readonly string _settings = StudioSettings.Store;
+
+    // Beside the folder rather than in it: some of these assert the folder is left empty.
+    public MainWindowProjectTests() => StudioSettings.Store = _directory + ".settings";
+
+    public void Dispose()
+    {
+        StudioSettings.Store = _settings;
+
+        File.Delete(_directory + ".settings");
+        Scratch.Delete(_directory);
+    }
 
     /// <summary>A window with <paramref name="path"/> opened through the route a drop also ends in.</summary>
     private static async Task<MainWindow> Host(string path, string? layout = null)
@@ -1145,6 +1158,9 @@ public class MainWindowProjectTests : IDisposable
     [AvaloniaFact]
     public async Task A_Shape_Drawn_On_The_Board_Lands_In_The_Drawing_Under_It_In_Its_Own_Units()
     {
+        // Where the corners land in the drawing's units, not which line they snap to.
+        StudioSettings.SmartGuides = false;
+
         var window = await Host(Write("icons.svgstudio", Board()));
         var panel = Panel(window, "Project");
         var canvas = Canvas(panel);
@@ -1269,6 +1285,8 @@ public class MainWindowProjectTests : IDisposable
     [AvaloniaFact]
     public async Task A_Shape_Drawn_Into_A_Drawing_Open_In_A_Tab_Goes_Into_That_Tabs_Buffer()
     {
+        StudioSettings.SmartGuides = false;
+
         var window = await Host(Write("icons.svgstudio", Board()));
         var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
 

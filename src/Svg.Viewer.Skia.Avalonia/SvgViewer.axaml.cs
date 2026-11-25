@@ -77,6 +77,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
     private readonly SvgViewerSweep _sweep = new();
+    private readonly SvgViewerGuides _guides = new();
+    private readonly SvgViewerRulers _rulers;
 
     /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
     private readonly SvgViewerGizmos _gizmo = new();
@@ -146,6 +148,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         LeaveOnEnter(this);
 
         _canvas = this.FindControl<SvgViewerCanvas>("PART_Canvas")!;
+        _rulers = this.FindControl<SvgViewerRulers>("PART_Rulers")!;
         _gizmo.Picks = (svg, at) => _canvas.ElementAt(svg, new SkiaSharp.SKPoint(at.X, at.Y), out _);
         _toolBar = this.FindControl<Border>("ToolBarPanel")!;
         _statusPanel = this.FindControl<Border>("StatusPanel")!;
@@ -321,10 +324,23 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _points.Driven = (key, name) => _workspace?.Document is { } source && SourceAddress(key) is { } address && SvgAttributeEditor.Driven(source, address, name) is { };
 
-        _canvas.EditBegun += (_, at) => BeginEdit(at);
+        _canvas.EditBegun += (_, at) =>
+        {
+            Guide(at);
+            BeginEdit(at);
+        };
         _canvas.EditMoved += (_, at) => DragEdit(at);
-        _canvas.EditEnded += (_, at) => EndEdit(at);
-        _canvas.EditCancelled += (_, _) => CancelEdit();
+        _canvas.EditEnded += (_, at) =>
+        {
+            EndEdit(at);
+            Unguide();
+        };
+        _canvas.EditCancelled += (_, _) =>
+        {
+            CancelEdit();
+            Unguide();
+        };
+        _canvas.GuidesChanged += (_, _) => Regrid();
 
         // The band from the last point to the pointer, between presses: the canvas leaves an idle
         // move alone, so it reaches here.
@@ -470,6 +486,22 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     public SvgViewerCanvas Canvas => _canvas;
 
+    /// <summary>The rulers round the canvas, which a host shows.</summary>
+    public SvgViewerRulers Rulers => _rulers;
+
+    /// <summary>Whether a drag lands on the other shapes' edges and centres, as well as on the guides.</summary>
+    /// <remarks>Off, so a viewer nobody has set up drags as it always did.</remarks>
+    public bool SnapsToSmartGuides
+    {
+        get => _guides.IsOn;
+        set
+        {
+            _guides.IsOn = value;
+
+            Regrid();
+        }
+    }
+
     /// <summary>The drawing tools its strip arms, for a host that arms one another way.</summary>
     public SvgViewerDraw Drafting => _draw;
 
@@ -611,7 +643,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         // Magnetic at whatever the zoom now is: how near a line is near enough is a distance on
         // screen, and the same drag at 958% covers a twentieth of the drawing it does at 50%.
-        var grid = _snaps ? _grid.Pulling(_canvas.Scale) : SvgViewerGrid.None;
+        var grid = _guides.Over(_snaps ? _grid.Pulling(_canvas.Scale) : SvgViewerGrid.None, _canvas);
 
         _canvas.Grid = grid;
         _gizmo.Grid = grid;
@@ -1431,6 +1463,35 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
     }
 
+    /// <summary>What a gesture starting here may land on: everything but what it moves.</summary>
+    /// <remarks>
+    /// A drawing tool moves nothing, and the selection it leaves tracked is something to draw against.
+    /// The box is handed over only for a carry, which the gizmo pulls by its corner; a handle pulls
+    /// the edge it moves.
+    /// </remarks>
+    private void Guide(Point at)
+    {
+        var carry = _draw.Shape is null && !_draw.Reshaping && !_page
+            && _canvas.TryGetDrawingPoint(at, out var point)
+            && !_gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale, handlesOnly: true);
+
+        _guides.Begin(
+            _canvas.Placements,
+            _draw.Shape is { } ? Array.Empty<SvgElement>() : _gizmo.Elements,
+            carry ? _canvas.Gizmo : null,
+            _page ? _canvas.Placements.FirstOrDefault() : null);
+
+        Regrid();
+    }
+
+    private void Unguide()
+    {
+        _guides.End();
+        _canvas.Aligned = null;
+
+        Regrid();
+    }
+
     /// <summary>
     /// Takes hold of the element, having first settled whether the file would take the result.
     /// </summary>
@@ -1524,6 +1585,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _gizmo.Drag(new ShimSkiaSharp.SKPoint(point.X, point.Y));
 
         ShowGizmo();
+        _canvas.Aligned = _guides.Aligned(_canvas.Gizmo, _canvas.Scale);
 
         // The ring is traced from the scene, which the drag has just moved, so it has to be traced
         // again or it stays behind on the shape's old silhouette while the shape leaves. Retrace

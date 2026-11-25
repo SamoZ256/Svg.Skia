@@ -314,6 +314,33 @@ which lists the names the drawing declares and picks every element that reads th
 Nothing opens while a drawing tool or **Points** is out. A group's tab does the same in the
 drawing clicked.
 
+## The View menu
+
+**Rulers** (⌘R, Ctrl+R elsewhere) runs a ruler along the top and the left of the canvas. They count
+the drawing's own units, its `viewBox`, not the size it is drawn at: a `viewBox="0 0 24 24"` drawn
+48 wide reads 24 across. On a group's board they count the drawing being read, the one the
+Elements tab shows, from that drawing's own zero, and the board's units before one is read.
+
+Press on a ruler and drag onto the canvas for a guide: a level one from the top ruler, an upright
+one from the left. Drag a guide to move it, and drop it on a ruler or anywhere off the canvas to
+take it away; with **Snap to Grid** on it lands on the grid, and Escape puts it back. A click on a
+guide is a click on whatever is under it, and a drawing tool draws over a guide rather than taking
+hold of it. On a drawing's tab a guide keeps the number its ruler gave it, so it stays on the
+artwork when the page grows on its left. Guides belong to the tab: nothing is written into the
+drawing, and closing the tab takes them away. **Guides** (⌘;) shows and hides them, and hidden,
+nothing lands on them.
+
+Whatever is dragged — a shape carried or resized, a point, a page edge, a shape being drawn —
+lands on a guide within eight pixels of it. **Smart Guides** (⌘U) adds the other shapes' left and
+right edges, tops and bottoms and centres, and the page's: a shape carried near another lines up
+its left edge, centre or right edge with it, and what it lines up with is drawn in magenta until it
+is let go. On a board that includes the drawings beside it. What is being dragged is never one of
+them, and neither is anything in `<defs>`, a clip path or a mask, or anything hidden. Near a grid
+line and a guide both, the nearer wins, and with **Snap to Grid** on the grid's own rule still
+holds: a shape narrower than a step lands on nothing along that axis. Carrying a whole drawing about
+a board lands it on the grid and the guides, not on other shapes. Rulers start off and both kinds
+of guide on; all three are remembered.
+
 ## The Attributes tab
 
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
