@@ -609,6 +609,42 @@ public class SvgViewerDockTests
         window.Close();
     }
 
+    /// <summary>A click chooses a panel and leaves the keyboard with the drawing, whose tool letters still answer.</summary>
+    [AvaloniaFact]
+    public async System.Threading.Tasks.Task Choosing_A_Panel_Leaves_The_Keyboard_With_The_Drawing()
+    {
+        var viewer = new SvgViewer();
+        var window = new Window { Width = 900, Height = 600, Background = Brushes.White, Content = viewer };
+
+        window.Show();
+        Assert.True(await viewer.LoadTextAsync("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" />
+            </svg>
+            """));
+        Lay(window);
+
+        viewer.Canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        var tab = Tab(window, "Elements");
+        var at = Middle(window, tab.Child!);
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("selected", Tab(window, "Elements").Classes);
+        Assert.Same(viewer.Canvas, window.FocusManager!.GetFocusedElement());
+
+        window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("rect", viewer.Drafting.Shape);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void The_Arrow_Keys_Walk_A_Runs_Tabs()
     {

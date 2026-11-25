@@ -63,6 +63,10 @@ internal sealed class StudioBars
     {
         Name = "Layouts",
         PlaceholderText = "Custom",
+
+        // Never the keyboard's: a ComboBox searches its items as letters are typed, so the drawing's
+        // tool letters typed after a pick would switch the layout.
+        Focusable = false,
         MinWidth = 110,
         FontSize = 12,
         VerticalAlignment = VerticalAlignment.Center,

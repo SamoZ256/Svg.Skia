@@ -10,6 +10,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
@@ -1056,6 +1057,7 @@ public sealed class SvgViewerDock
             Classes = { "more" },
             Content = "»",
             IsVisible = false,
+            Focusable = false,
             Flyout = rest,
             [ToolTip.TipProperty] = "Every panel of this run"
         };
@@ -1097,7 +1099,6 @@ public sealed class SvgViewerDock
             var tab = new Border
             {
                 Classes = { "pane" },
-                Background = Brushes.Transparent,
                 Focusable = true,
                 Child = new TextBlock { Text = region.Header, VerticalAlignment = VerticalAlignment.Center },
                 Tag = id,
@@ -1111,24 +1112,6 @@ public sealed class SvgViewerDock
 
             var chosen = id;
 
-            tab.PointerPressed += (_, e) =>
-            {
-                e.Handled = true;
-
-                if (!e.GetCurrentPoint(_shell).Properties.IsLeftButtonPressed)
-                {
-                    return;
-                }
-
-                // Taken hold of either way: a press that goes nowhere is the panel being chosen, and
-                // one that travels is it being carried somewhere else.
-                _carried = chosen;
-                _pressedAt = e.GetPosition(_shell);
-                _dragging = false;
-
-                Choose(leaf, chosen, tabs);
-            };
-
             tabs.Children.Add(tab);
 
             var item = new MenuItem { Header = region.Header };
@@ -1137,7 +1120,31 @@ public sealed class SvgViewerDock
             rest.Items.Add(item);
         }
 
-        // Across the run, as a tab strip is read: the ends wrap round, Home and End go to them.
+        // On the way down, so a tab is never handed the press to be focused by: a click leaves the
+        // keyboard where it was, with the drawing's tool letters, and only the keyboard reaches a tab.
+        bar.AddHandler(InputElement.PointerPressedEvent, (_, e) =>
+        {
+            if (Pressed(e.Source as Visual) is not { Tag: string chosen })
+            {
+                return;
+            }
+
+            e.Handled = true;
+
+            if (!e.GetCurrentPoint(_shell).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+
+            // Taken hold of either way: a press that goes nowhere is the panel being chosen, and one
+            // that travels is it being carried somewhere else.
+            _carried = chosen;
+            _pressedAt = e.GetPosition(_shell);
+            _dragging = false;
+
+            Choose(leaf, chosen, tabs);
+        }, RoutingStrategies.Tunnel);
+
         bar.KeyDown += (_, e) =>
         {
             if (shown.Count == 0 || e.Key is not (Key.Left or Key.Right or Key.Home or Key.End))
@@ -1161,6 +1168,20 @@ public sealed class SvgViewerDock
         };
 
         return new Border { Classes = { "slot" }, Background = Brushes.Transparent, Child = bar };
+    }
+
+    /// <summary>The tab a press landed in, where it landed in one.</summary>
+    private static Border? Pressed(Visual? at)
+    {
+        for (; at is not null; at = at.GetVisualParent())
+        {
+            if (at is Border tab && tab.Classes.Contains("pane"))
+            {
+                return tab;
+            }
+        }
+
+        return null;
     }
 
     private SvgViewerRegion? Region(string id)

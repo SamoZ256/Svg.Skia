@@ -6,7 +6,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -82,6 +85,9 @@ public class LayoutPresetTests : IDisposable
         }
     }
 
+    private static Point Middle(Window window, Visual visual)
+        => visual.TranslatePoint(new Point(visual.Bounds.Width / 2d, visual.Bounds.Height / 2d), window)!.Value;
+
     [AvaloniaFact]
     public async Task The_Picker_Names_The_Layout_In_Use()
     {
@@ -103,6 +109,23 @@ public class LayoutPresetTests : IDisposable
 
         // With no project, so without the tree and Changes on it.
         Assert.Equal("Drawing", picker.SelectedItem);
+
+        // Opened with the pointer and never left holding the keyboard: a tool letter typed afterwards is
+        // the drawing's, not the picker's search for a layout starting with it.
+        window.MouseDown(Middle(window, picker), MouseButton.Left);
+        window.MouseUp(Middle(window, picker), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        picker.IsDropDownOpen = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.IsNotType<ComboBox>(window.FocusManager!.GetFocusedElement());
+
+        window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
+        window.KeyTextInput("r");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(StudioSettings.DefaultLayout, StudioSettings.Layout);
 
         Assert.True(await window.Registry.Run("layout-board"));
         Dispatcher.UIThread.RunJobs();
