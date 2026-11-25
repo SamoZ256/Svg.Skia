@@ -183,6 +183,14 @@
 <td>The attributes of the picked element, each editable as the file writes it</td>
 </tr>
 <tr>
+<td><code>SvgExpressionField</code></td>
+<td>A box for a value that may be an expression: Escape puts back what the file says, ↑/↓ step a number, and it is outlined as driven</td>
+</tr>
+<tr>
+<td><code>SvgPaintChip</code></td>
+<td>A paint shown as a swatch that opens a colour picker: solid, none, a reference, mixed, or driven, and raising one <code>Picked</code> as the picker closes</td>
+</tr>
+<tr>
 <td><code>SvgViewerDock</code></td>
 <td>The body: the middle, and the panels arranged round it as a tree of splits</td>
 </tr>
@@ -313,6 +321,10 @@
 <tr>
 <td><code>DocumentOpened</code> / <code>ErrorRaised</code> / <code>ParameterValueChanged</code></td>
 <td>Syncing host titles and status</td>
+</tr>
+<tr>
+<td><code>SvgViewerElementPanel.IsPending</code> / <code>CommitPending</code></td>
+<td>Writing what is being typed in the Attributes panel before your own command acts on the drawing: ask the panel that has the keyboard. Its <code>UndoStep</code> and <code>Holds</code> say where its edits go, so a box typed while the drawing moved underneath is refused rather than written over the move</td>
 </tr>
 <tr>
 <td><code>SvgViewerSourceColorizer</code> / <code>SourceResourceKey</code></td>
