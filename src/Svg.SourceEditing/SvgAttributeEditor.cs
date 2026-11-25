@@ -332,11 +332,14 @@ public static class SvgAttributeEditor
             throw new ArgumentNullException(nameof(addressKey));
         }
 
-        if (Resolve(source.Document, addressKey) is not { } element)
-        {
-            return SvgElementEditor.Missing(addressKey);
-        }
+        return Resolve(source.Document, addressKey) is { } element
+            ? SetContent(element, value)
+            : SvgElementEditor.Missing(addressKey);
+    }
 
+    /// <inheritdoc cref="SetContent(SvgSourceDocument, string, string?)"/>
+    internal static string? SetContent(XElement element, string? value)
+    {
         if (Carries(element) is { } why)
         {
             return why;
@@ -536,25 +539,168 @@ public static class SvgAttributeEditor
             return null;
         }
 
-        for (var at = Resolve(source.Document, addressKey); at is { }; at = at.Parent)
+        return Painted(Resolve(source.Document, addressKey), name) is { } painted && painted.Value.IndexOf("{{", StringComparison.Ordinal) >= 0
+            ? painted.Value
+            : null;
+    }
+
+    /// <summary>
+    /// What the file writes <paramref name="name"/> with for the element, as written and without
+    /// <c>!important</c>, and the element it is written on; null where nothing is.
+    /// </summary>
+    /// <remarks>The same reading as <see cref="Driven"/>, of a literal as much as of an expression.</remarks>
+    internal static (string Value, XElement From)? Painted(XElement? element, string name)
+    {
+        for (var at = element; at is { }; at = at.Parent)
         {
             var value = (string?)at.Attribute("style") is { } style && Winner(style, name) is { } declaration
                 ? style.Substring(declaration.ValueStart, declaration.ValueEnd - declaration.ValueStart)
                 : (string?)at.Attribute(name);
 
-            if (value is null ? SvgElementEditor.Inherits(name) : value.Trim() == "inherit")
+            // Blank is no value at all, as an empty declaration is none to Winner.
+            if (string.IsNullOrWhiteSpace(value) ? SvgElementEditor.Inherits(name) : value!.Trim() == "inherit")
             {
                 continue;
             }
 
-            return value?.IndexOf("{{", StringComparison.Ordinal) >= 0 ? value : null;
+            return string.IsNullOrWhiteSpace(value) ? null : (value!, at);
         }
 
         return null;
     }
 
+    /// <summary>Swaps what elements fill and stroke with, and their two opacities, as written.</summary>
+    /// <remarks>
+    /// The text moves, so an expression travels with its paint, and each value is written where its
+    /// element writes that property: a declaration in style stays one, its <c>!important</c> kept.
+    /// What an element only inherits is carried onto it, and only where it would now paint
+    /// otherwise, so a child swapped with its group follows the group and gets nothing of its own.
+    /// An unwritten fill is the black it paints, and an unwritten stroke none.
+    /// </remarks>
+    /// <param name="note">Which group's expressions a value written on an element now shadows, or null.</param>
+    /// <returns>The sentence refusing it, before anything is written, or null where it was made.</returns>
+    public static string? SwapPaints(SvgSourceDocument source, IReadOnlyList<string> addressKeys, out string? note)
+    {
+        if (source is null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+
+        if (addressKeys is null)
+        {
+            throw new ArgumentNullException(nameof(addressKeys));
+        }
+
+        note = null;
+
+        var root = source.Document.Root;
+        var sheet = root?.Descendants().Any(element => element.Name.LocalName == "style" && !string.IsNullOrWhiteSpace(element.Value)) == true;
+        var before = new Dictionary<XElement, Dictionary<string, (string Value, XElement From)?>>();
+
+        foreach (var key in addressKeys)
+        {
+            if (Resolve(source.Document, key) is not { } element)
+            {
+                return SvgElementEditor.Missing(key);
+            }
+
+            if (!(element.Name.Namespace == SvgNamespace || element.Name.Namespace == XNamespace.None) || !s_paintable.Contains(element.Name.LocalName))
+            {
+                return $"A <{element.Name.LocalName}> has no fill or stroke to swap.";
+            }
+
+            if (element.Ancestors().Any(around => around.Name.LocalName == "clipPath"))
+            {
+                return "Inside a <clipPath> only its outline counts, so its fill and stroke do nothing.";
+            }
+
+            var read = s_swapped.ToDictionary(pair => pair.Name, pair => Painted(element, pair.Name));
+
+            if (sheet && (read["fill"] is null || read["stroke"] is null))
+            {
+                var unwritten = read["fill"] is null ? "fill" : "stroke";
+
+                return $"Its {unwritten} is not written on it or on a group around it, and the drawing's <style> sheet, which swapping does not read, may set it.";
+            }
+
+            // What a <use> draws inherits from the <use>, not from the groups the file writes it in.
+            if (element.AncestorsAndSelf().FirstOrDefault(around => around.Name.LocalName is "symbol" or "defs") is { } kept
+                && new[] { "fill", "stroke" }.FirstOrDefault(name => read[name] is not { } paints || !paints.From.AncestorsAndSelf().Contains(kept)) is { } drawn)
+            {
+                return $"Its {drawn} is not written inside the <{kept.Name.LocalName}> it is kept in, so a <use> drawing it gives it its own; write it there first.";
+            }
+
+            before[element] = read;
+        }
+
+        var shadowed = new List<(XElement Element, string Name, string Expression, XElement From)>();
+
+        // In document order, so a group is swapped before what it holds, and a child reads what it inherits afterwards.
+        foreach (var element in root!.DescendantsAndSelf().Where(before.ContainsKey))
+        {
+            var read = before[element];
+
+            foreach (var (name, other, unwritten) in s_swapped)
+            {
+                var value = read[other]?.Value.Trim() ?? s_swapped.First(pair => pair.Name == other).Unwritten;
+                var own = (string?)element.Attribute(name) is { } || (string?)element.Attribute("style") is { } style && Winner(style, name) is { };
+
+                if (!own)
+                {
+                    // What it inherits now, after any group around it has been swapped.
+                    var around = Painted(element.Parent, name);
+
+                    if (string.Equals(value, around?.Value.Trim() ?? unwritten, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (around is { } driven && driven.Value.IndexOf("{{", StringComparison.Ordinal) >= 0)
+                    {
+                        shadowed.Add((element, name, driven.Value.Trim(), driven.From));
+                    }
+                }
+
+                if (SetAttribute(element, name, value) is { } refusal)
+                {
+                    return refusal;
+                }
+            }
+        }
+
+        var expressions = string.Join(", ", shadowed.Select(each => each.Expression).Distinct());
+        var groups = shadowed.Select(each => each.From).Distinct().ToList();
+
+        note = shadowed.Count == 0
+            ? null
+            : shadowed.Select(each => each.Element).Distinct().Count() is var elements and > 1
+                ? $"Paints written on {elements} elements now shadow {expressions} from the groups around them."
+                : shadowed.Count == 1
+                    ? $"The {shadowed[0].Name} now shadows {expressions} from {Named(groups[0])}."
+                    : $"Its {string.Join(" and ", shadowed.Select(each => each.Name))} now shadow {expressions} from {(groups.Count == 1 ? Named(groups[0]) : "the groups around it")}.";
+
+        return null;
+
+        static string Named(XElement element)
+            => (string?)element.Attribute("id") is { Length: > 0 } id ? $"<{element.Name.LocalName} #{id}>" : $"<{element.Name.LocalName}>";
+    }
+
+    /// <summary>The properties a swap exchanges: each, the one it takes its value from, and what it paints unwritten.</summary>
+    private static readonly (string Name, string Other, string Unwritten)[] s_swapped =
+    {
+        ("fill", "stroke", "black"), ("stroke", "fill", "none"),
+        ("fill-opacity", "stroke-opacity", "1"), ("stroke-opacity", "fill-opacity", "1")
+    };
+
+    /// <summary>What has a fill and a stroke of its own, or passes them on to what it holds.</summary>
+    private static readonly HashSet<string> s_paintable = new(StringComparer.Ordinal)
+    {
+        "svg", "g", "a", "switch", "symbol", "marker", "pattern", "mask", "use", "rect", "circle", "ellipse",
+        "line", "polyline", "polygon", "path", "text", "tspan", "textPath", "tref"
+    };
+
     /// <summary>Whether <paramref name="name"/> can be the name of an attribute with no prefix.</summary>
-    private static bool IsUnprefixed(string name) => name.Length > 0 && XmlConvert.IsStartNCNameChar(name[0]) && name.All(XmlConvert.IsNCNameChar);
+    internal static bool IsUnprefixed(string name) => name.Length > 0 && XmlConvert.IsStartNCNameChar(name[0]) && name.All(XmlConvert.IsNCNameChar);
 
     /// <summary>Whether <paramref name="name"/> is geometry or a transform: set in a style, it is not written there.</summary>
     public static bool IsGeometry(string name) => s_geometry.Contains(name.Trim());

@@ -1929,6 +1929,50 @@ public class SvgViewerElementPanelTests
         }
     }
 
+    private const string Pointed = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+          <linearGradient id="tone"><stop offset="0" /></linearGradient>
+          <circle id="dot" r="2" />
+          <rect fill="url(#tone)" width="4" height="4" />
+          <use xlink:href="#tone" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public void Renaming_In_The_Id_Row_Carries_What_Points_At_It()
+    {
+        var worked = new Worked(Pointed);
+        var window = worked.Show("0");
+
+        Assert.True(worked.Panel.Set("id", "accent"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Pointed.Replace("tone", "accent", StringComparison.Ordinal), worked.Workspace.Text);
+        Assert.Equal("rename to #accent", worked.Workspace.UndoLabel);
+        Assert.Equal("accent", Box(window, "id").Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Taken_Id_Typed_In_The_Id_Row_Is_Refused()
+    {
+        var worked = new Worked(Pointed);
+        var window = worked.Show("0");
+        var id = Box(window, "id");
+
+        id.Focus();
+        id.Text = "dot";
+        worked.Panel.CommitPending();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("#dot is already the id of a <circle>, and the drawing would answer to it twice.", worked.Panel.Fault);
+        Assert.Equal(Pointed, worked.Workspace.Text);
+        Assert.Equal("tone", Box(window, "id").Text);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void Escape_Puts_Back_What_The_Box_Was_Drawn_With()
     {

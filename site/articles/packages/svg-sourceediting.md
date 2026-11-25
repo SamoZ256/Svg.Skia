@@ -31,11 +31,11 @@ dotnet add package SamoZ256.Svg.SourceEditing --prerelease
 | --- | --- |
 | `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's replacement rules — the half of a recipe that is not declarations |
-| `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with; `Content` and `SetContent` for the text between a `<text>`, `<tspan>` or `<textPath>`'s tags; `Driven` for the expression a value is written with, on the element or a group around it; `IsGeometry` for the properties a style declaration is not written into |
-| `SvgSourceEdits` | What one gesture writes, as steps for one commit: every element they name is found before anything is written |
+| `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with; `Content` and `SetContent` for the text between a `<text>`, `<tspan>` or `<textPath>`'s tags; `Driven` for the expression a value is written with, on the element or a group around it; `IsGeometry` for the properties a style declaration is not written into; `SwapPaints` to exchange fill and stroke, and their opacities, as written |
+| `SvgSourceEdits` | What one gesture writes, as steps for one commit — `SetAttributes`, `Insert`, `Move`, `Remove`, `SetContent` and `Retag`: every element they name is found before anything is written, and `Apply` gives back where what it wrote landed |
 | `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` — or one element of it by `TextOf` |
 | `SvgSourceWorkspace` | That drawing and its history: `Commit`, `Undo`, `Redo`, `IsModified`, `MarkSaved`, and `UndoStep`, `RedoStep`, `Holds` and `Undone` for a caller to know its own steps again |
-| `SvgElementEditor` | `Move` an element to where a drop puts it, `Insert` a new one there, `Remove` and `Duplicate` several; each that places one says the key it lands at |
+| `SvgElementEditor` | `Move` an element to where a drop puts it, `Insert` a new one there, `Remove` and `Duplicate` several; each that places one says the key it lands at. `Rename` gives one another id and points what referred to the old one at it |
 
 Every editor has two halves: one that writes the tree and answers a refusal or null, and one that
 measures spans against text. The first is what a host with a document uses. The second remains
@@ -78,6 +78,8 @@ three attributes and is one thing to take back — and a step is reversed by rea
 text back. `SvgSourceEdits` is such a gesture written down: its `Apply` finds every element its steps
 name first, so a key the host cannot place, or the file no longer has, is refused before anything is
 written, and is meant to run inside a commit, which puts back a step refused after an earlier one.
+Its keys name the drawing as it was before the plan: a removal does not shift what a later step means,
+and a step naming what an earlier one took out is refused.
 
 Reversing by snapshot is usually the wrong answer, and it is the right one here for two reasons.
 `ToText` is byte-faithful, so the text is a lossless record of the tree rather than an approximation
