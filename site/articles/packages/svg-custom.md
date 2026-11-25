@@ -126,6 +126,15 @@ default stands, and `Svg.Highlighting` marks the value.
 **In a browser.** Browsers do not know the element, and `url(#id)` that names it paints nothing.
 Write a fallback colour after it, as in `fill="url(#hue) #FF2323"`, and a browser paints that.
 
+**Against TapHome's hand-drawn ones.** `SkiaCSharpRenderTests.ButtonHelper` draws the four sweep
+drawings in TapHome's `ButtonHelper.cs` with their own SkiaSharp calls and compares each with the SVG
+that replaces it, at 256 px. The hue wheel measures 0.0008 RMS at most, the hue colour picker 0.0001
+and the thermostat ring 0.0006, each held to 0.001. The thermostat dial measures 0.0009, 0.0047,
+0.0036 and 0.0053 at levels 0, 0.25, 0.5 and 1, held to 0.001, 0.005, 0.004 and 0.006: Skia strokes
+ButtonHelper's arc, which starts at 120°, up to a fifth of a pixel off the whole ring that the SVG
+clips. Every bound is exceeded by the same drawing a little off, such as the hue turned 2° or the
+arc 1° short.
+
 ## Animation DOM coverage
 
 `Svg.Custom` now includes the repository's SVG 1.1 animation object-model overlay in the `Svg` namespace.
