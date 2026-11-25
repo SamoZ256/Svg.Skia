@@ -60,6 +60,8 @@ public static class StudioSettings
 
     private const string SnapToGridKey = "snapToGrid";
 
+    private const string ShowGridKey = "showGrid";
+
     private const string GridSizeKey = "gridSize";
 
     private const string RotationStepKey = "rotationStep";
@@ -259,6 +261,14 @@ public static class StudioSettings
     {
         get => string.Equals(Read(SnapToGridKey), "on", StringComparison.Ordinal);
         set => Write(SnapToGridKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether the grid's lines are drawn, which is apart from whether anything lands on them.</summary>
+    /// <remarks>Off unless the file says otherwise, as <see cref="SnapToGrid"/> is.</remarks>
+    public static bool ShowGrid
+    {
+        get => string.Equals(Read(ShowGridKey), "on", StringComparison.Ordinal);
+        set => Write(ShowGridKey, value ? "on" : "off");
     }
 
     /// <summary>How far apart the grid lines are, in the space the drawings are arranged in.</summary>

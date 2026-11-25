@@ -86,7 +86,7 @@ well (`fontsFolder="../fonts"`, relative to the project's folder), whose fonts c
 
 The tabs, the board, `File → Export…`, the assistant's code and a build through Svg.Studio.Projects
 all measure with those files, so every machine writes the same C#. A text whose family, weight or
-style they do not hold is said on its tab's status line and among the export's warnings — even where
+style they do not hold is said on the status bar and among the export's warnings — even where
 the machine has that font installed, since another machine would measure it with a font of its own.
 A project with no fonts measures with the machine's, and says only of a family the machine lacks. A
 font's **▾** in **Attributes** offers the families the project's fonts hold.
@@ -162,6 +162,15 @@ land is drawn while you carry it. The arrangement is remembered, so it is there 
 Commands…** (⌘K, Ctrl+K elsewhere) finds a command, a tool, or a drawing or group of the project by
 name, and runs or opens it.
 
+Two bars run across the window and are about whichever tab is in front. The **control bar**, under
+the menus, names what is picked — `rect #a`, *3 objects*, *Page* — and holds **Reset parameters**,
+**Lock ratio**, **Snap**, **Invisible** and **Captions**, with **Search** at its right end. The
+**status bar** at the foot zooms (**−**, a percentage to type, **+**, **Fit**), says the drawing's
+name, how many parameters it has and the tool in hand with how it is used, reads the pointer in the
+drawing's own units, and carries the note about anything wrong with the drawing. **Snap** lands what
+is dragged on the grid, and **Grid** draws the grid's lines; each works without the other. The same
+switches are in **View**.
+
 ## A group's tab: several icons at once
 
 A group's tab is a canvas of **every drawing under it**, built the way the project builds them.
@@ -196,7 +205,7 @@ and one with a group between them that names no place of its own.
 A drag writes the project as it is made, and like every other arrangement edit it is one step on the
 project's history, *move …* in the Edit menu, so ⌘Z takes it back.
 
-**Captions** writes each drawing's name inside its own top corner, where a group's name sits in its
+**Captions**, on the control bar and in **View**, writes each drawing's name inside its own top corner, where a group's name sits in its
 frame, and a board comes up with them. The name is shrunk until it fits the drawing — across it and
 down it — so it takes no room at all: a board that names what is on it is laid out and fitted exactly
 like one that does not, and switching them off moves nothing. That is also why the name is only the
@@ -378,8 +387,8 @@ for every shape named `Embed<X>`.
 A box paints nothing, so the canvas draws it for you: a dashed cyan line with the constant written
 inside, such as `LevelRect 2, 6, 28, 24`. The numbers are the ones the class will get, as left,
 top, right, bottom. A box that a variable moves reads `LevelRect (driven)` instead, because the
-class has only the defaults. **Invisible** on the toolbar, on a drawing's tab and on a group's
-board, shows or hides them, along with the rest of what a drawing has but does not paint (see
+class has only the defaults. **Invisible**, on the control bar and in **View**, shows or hides
+them on a drawing's tab and a group's board alike, along with the rest of what a drawing has but does not paint (see
 [invisible elements](#invisible-elements)).
 
 Click a box's dashed line to pick it. Ink inside a box is still picked by clicking it, and empty
@@ -433,7 +442,7 @@ drawn and keeping the paint and font its groups gave it. A mask made from a shap
 where it covers it. A board offers all of this, though its rows cannot otherwise be dragged.
 
 The paths a clip or a mask is made of are reshaped where they apply: double-click one on the canvas,
-or pick it in the tree and choose **Points** (`⌖`) on the toolbar, and its points are held on the
+or pick it in the tree and choose **Points** (`⌖`) on the tool strip, and its points are held on the
 element it clips. That reaches a shape in `<defs>` drawn only through a `<use>` as well, and a double
 click on a `<use>` reshapes the shape it draws, which changes it everywhere it is used.
 
