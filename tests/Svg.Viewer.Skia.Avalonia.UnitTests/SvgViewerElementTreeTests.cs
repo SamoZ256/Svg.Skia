@@ -963,6 +963,70 @@ public class SvgViewerElementTreeTests
         Assert.Equal(new[] { "1/2" }, viewer.Elements.SelectedAddresses);
     }
 
+    /// <summary>Picked where it landed, rather than at the key of the row it was dropped beside.</summary>
+    [AvaloniaFact]
+    public async Task A_Moved_Row_Stays_Selected_Where_It_Landed()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.MoveRequested!("1/1", "1", SvgElementDrop.After));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "2" }, viewer.Elements.SelectedAddresses);
+        Assert.Equal("text", viewer.Elements.SelectedNode!.Label);
+    }
+
+    [AvaloniaFact]
+    public async Task A_New_Group_Is_Selected_Where_It_Was_Written()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.NewGroupRequested!("1", SvgElementDrop.After));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new[] { "2" }, viewer.Elements.SelectedAddresses);
+    }
+
+    [AvaloniaFact]
+    public async Task Shift_X_Swaps_The_Picked_Rows_As_One_Step()
+    {
+        var (window, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect(new[] { "1/0", "1/1" }));
+        viewer.Canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        var was = viewer.Source;
+
+        window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("""<rect x="0" y="0" width="24" height="24" fill="none" stroke="{{ tint }}" />""", viewer.Source);
+        Assert.Contains("""<text x="2" y="20" fill="none" stroke="black">hi</text>""", viewer.Source);
+        Assert.Equal("swap fill and stroke of 2 elements", viewer.UndoLabel);
+        Assert.Equal(new[] { "1/0", "1/1" }, viewer.Elements.SelectedAddresses);
+
+        window.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(was, viewer.Source);
+    }
+
+    [AvaloniaFact]
+    public async Task The_Rows_Menu_Swaps_Fill_And_Stroke()
+    {
+        var (_, viewer) = await Host();
+
+        Assert.True(viewer.Elements.TrySelect("1/0"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(new KeyGesture(Key.X, KeyModifiers.Shift), Offered(viewer).Single(item => Said(item) == "Swap Fill and Stroke").InputGesture);
+
+        Choose(viewer, "Swap Fill and Stroke");
+
+        Assert.Contains("""fill="none" stroke="{{ tint }}" />""", viewer.Source);
+    }
+
     [AvaloniaFact]
     public async Task A_Key_With_Nothing_Picked_Is_Not_The_Canvas_To_Answer()
     {

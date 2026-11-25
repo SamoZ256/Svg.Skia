@@ -165,6 +165,9 @@ public partial class SvgViewerElementTree : UserControl
     /// <summary>Writes a copy of each row named after it, for the same kind of host.</summary>
     public Func<IReadOnlyList<string>, bool>? DuplicateRequested { get; set; }
 
+    /// <summary>Swaps the fill and stroke of the rows named, for the same kind of host.</summary>
+    public Func<IReadOnlyList<string>, bool>? SwapRequested { get; set; }
+
     /// <summary>
     /// Clips or masks a row with another, for any host that writes: the content's row, the
     /// target's, then <c>clip-path</c> or <c>mask</c>. Asked by the menu and by a drop.
@@ -195,6 +198,7 @@ public partial class SvgViewerElementTree : UserControl
         var maskWith = Item(string.Empty, () => With("mask"));
         var duplicate = Item("Duplicate", () => DuplicateRequested is { } write && write(_selectedAddresses.ToList()));
         var delete = Item("Delete", () => DeleteRequested is { } write && write(_selectedAddresses.ToList()));
+        var swap = Item("Swap Fill and Stroke", () => SwapRequested is { } write && write(_selectedAddresses.ToList()));
         var all = Item("All", () => Select(SvgElementSelect.All));
         var none = Item("Deselect", () => Select(SvgElementSelect.None));
         var same = new MenuItem
@@ -216,7 +220,7 @@ public partial class SvgViewerElementTree : UserControl
             Header = "Select",
             ItemsSource = new object[] { all, none, Item("Inverse", () => Select(SvgElementSelect.Inverse)), new Separator(), same, uses }
         };
-        var menu = new ContextMenu { ItemsSource = new object[] { group, clip, mask, clipWith, maskWith, duplicate, delete, rule, select } };
+        var menu = new ContextMenu { ItemsSource = new object[] { group, clip, mask, clipWith, maskWith, duplicate, delete, swap, rule, select } };
 
         menu.Opening += (_, e) =>
         {
@@ -229,12 +233,13 @@ public partial class SvgViewerElementTree : UserControl
             maskWith.IsVisible = pair is { } && Offers(pair.Value, "mask");
             duplicate.IsVisible = DuplicateRequested is { };
             delete.IsVisible = DeleteRequested is { };
+            swap.IsVisible = SwapRequested is { };
             select.IsVisible = rule.IsVisible = SelectRequested is { };
 
             group.IsEnabled = SelectedNode is { };
             clip.IsEnabled = One("clip-path");
             mask.IsEnabled = One("mask");
-            duplicate.IsEnabled = delete.IsEnabled = same.IsEnabled = _selectedAddresses.Count > 0;
+            duplicate.IsEnabled = delete.IsEnabled = swap.IsEnabled = same.IsEnabled = _selectedAddresses.Count > 0;
 
             // A text block for a header, as below: a name's first underscore would be an access key.
             uses.ItemsSource = (Declared?.Invoke() ?? Enumerable.Empty<string>())
@@ -256,11 +261,12 @@ public partial class SvgViewerElementTree : UserControl
             // by the tree and the canvas, so they work while this menu is closed.
             duplicate.InputGesture = new KeyGesture(Key.D, command);
             delete.InputGesture = new KeyGesture(Key.Delete);
+            swap.InputGesture = new KeyGesture(Key.X, KeyModifiers.Shift);
             all.InputGesture = new KeyGesture(Key.A, command);
             none.InputGesture = new KeyGesture(Key.A, command | KeyModifiers.Shift);
 
             e.Cancel = _document is null
-                       || !(group.IsVisible || clip.IsVisible || clipWith.IsVisible || maskWith.IsVisible || duplicate.IsVisible || delete.IsVisible || select.IsVisible);
+                       || !(group.IsVisible || clip.IsVisible || clipWith.IsVisible || maskWith.IsVisible || duplicate.IsVisible || delete.IsVisible || swap.IsVisible || select.IsVisible);
         };
 
         return menu;
@@ -354,6 +360,12 @@ public partial class SvgViewerElementTree : UserControl
             e.Handled = true;
 
             duplicate(_selectedAddresses.ToList());
+        }
+        else if (e.Key == Key.X && e.KeyModifiers == KeyModifiers.Shift && SwapRequested is { } swap)
+        {
+            e.Handled = true;
+
+            swap(_selectedAddresses.ToList());
         }
     }
 

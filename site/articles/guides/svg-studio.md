@@ -305,6 +305,16 @@ which lists the names the drawing declares and picks every element that reads th
 Nothing opens while a drawing tool or **Points** is out. A group's tab does the same in the
 drawing clicked.
 
+**Swap Fill and Stroke** (⇧X on the canvas or in the element tree, in the **Edit** menu and in the
+rows' menu) exchanges what everything picked fills and strokes with, and their opacities, as one
+step to undo. The text moves, so `{%{{{ tint }}}%}` goes with its paint, and each value stays where its
+element writes that property: a value in `style` stays in the style, its `!important` kept. An
+unwritten fill swaps as the black it paints and an unwritten stroke as none, so a plain shape turns
+into its outline. What an element only inherits from a group is written on it where it would now
+paint otherwise, and where that shadows a group's expression the canvas says so. A `<stop>` has
+nothing to swap, a shape in a `<clipPath>` paints nothing, and a paint a `<style>` sheet may set is
+not guessed at; each is refused before anything is written.
+
 ## The Attributes tab
 
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
@@ -350,6 +360,11 @@ rather than written as braces nobody reads. A value the element's `style` attrib
 edited in that declaration, which is what paints, and its `!important` is kept; emptying the box takes
 it out of the style. Geometry and `transform` set in a style are read-only, as `rotate(45deg) in style`:
 what is written for them is attribute grammar, which no browser reads in a style.
+
+The **ID** row renames the element, and what in the drawing points at it follows: `url(#…)` in any
+attribute or style, an `href`, an animation timed `id.click`, and `#id` in a `<style>` sheet's
+selectors, never its colours. An id another element has, or one that is not a name — `1a`, one with a
+space — is refused, and so is taking away an id something points at.
 
 What is typed is written when the box is left or Enter is pressed, and before Save, a command, another
 tab or closing the window acts on the drawing. **Escape** puts back what the box was drawn with, and
@@ -441,7 +456,8 @@ click on a `<use>` reshapes the shape it draws, which changes it everywhere it i
 
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project, its drawings and each node's own and inherited settings, lists every problem in them, reads
-the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
+the C# a drawing is built into, sets attributes and text, renames an element's id with what points at
+it, swaps fill and stroke, adds, removes, moves and copies elements,
 selects them by key or as the Select menu does, reads and changes a group's declarations, declares
 or renames one parameter or let with every use of it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
 Before a commit, `get_changes` tells it what has changed since the last one, as the Changes panel

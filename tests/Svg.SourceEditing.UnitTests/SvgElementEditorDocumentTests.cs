@@ -36,6 +36,21 @@ public class SvgElementEditorDocumentTests
         return source!;
     }
 
+    /// <summary>A key named twice, as two rows spelling one element can name it, is one element to act on.</summary>
+    [Fact]
+    public void An_Element_Named_Twice_Is_Removed_And_Copied_Once()
+    {
+        var removed = Read();
+
+        Assert.Null(SvgElementEditor.Remove(removed, new[] { "0", "0" }));
+        Assert.Equal(Source.Replace("  <rect id=\"a\" />\n", string.Empty, StringComparison.Ordinal), removed.ToText());
+
+        var copied = Read();
+
+        Assert.Null(SvgElementEditor.Duplicate(copied, new[] { "0", "0" }, out var copies));
+        Assert.Equal(new[] { "1" }, copies);
+    }
+
     [Fact]
     public void An_Element_Dropped_Inside_A_Group_Is_Written_At_Its_New_Depth()
     {

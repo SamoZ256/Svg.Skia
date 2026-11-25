@@ -190,6 +190,7 @@ public sealed class AssistantTools
         ["remove_elements"] = "Remove elements",
         ["move_element"] = "Move an element",
         ["duplicate_elements"] = "Duplicate elements",
+        ["swap_paints"] = "Swap fill and stroke",
         ["select"] = "Select elements",
         ["open"] = "Open a node",
         ["add_group"] = "Add a group",
@@ -247,7 +248,7 @@ public sealed class AssistantTools
 
         Add(GetProject, "get_project", "Lists the open project's groups and drawings with their node paths, and which one is in front.");
         Add(GetDrawing, "get_drawing", "Reads a drawing: its elements with their address keys, any problems, and its SVG source, as it stands or as a git revision has it.");
-        Add(SetAttributes, "set_attributes", "Sets or removes attributes on one element of a drawing, as a single undo step.");
+        Add(SetAttributes, "set_attributes", "Sets or removes attributes on one element of a drawing, as a single undo step. Setting id renames the element and rewrites what in the drawing points at it: url(#id), href, animation timings and #id in <style> selectors.");
         Add(Undo, "undo", "Takes back the last edit these tools made, whichever drawing or the project it went to, and names it. Takes nothing back while another edit is on top of it in its tab or the project, and names that one. With no edit of these tools' left, takes back the person's last and names it; where the person has taken back every one already, the first call takes nothing and says so.");
 
         if (small)
@@ -267,6 +268,7 @@ public sealed class AssistantTools
         Add(RemoveElements, "remove_elements", "Removes elements of a drawing, with everything inside them, as a single undo step.");
         Add(MoveElement, "move_element", "Moves an element of a drawing inside or beside another, as a single undo step, and says the key it lands at. A move into itself, or across a <defs>, <clipPath> or <mask>, is refused.");
         Add(DuplicateElements, "duplicate_elements", "Copies elements of a drawing, each right after itself with every id in it renamed, as a single undo step, and says the copies' keys and ids.");
+        Add(SwapPaints, "swap_paints", "Swaps the fill and stroke of elements of a drawing, with their fill-opacity and stroke-opacity, as a single undo step. What each paints with moves as written, {{ }} expressions included, and a value set in style stays in style; an unset fill swaps as black and an unset stroke as none.");
         Add(Select, "select", "Selects elements of the drawing in front so the person sees them: by address key, or as Studio's Select menu does — all, none, the inverse of keys, those whose fill, stroke, stroke-width or opacity is written as the first key's is, every element of a kind, or what reads a declared name — and names the keys it selected.");
         Add(Open, "open", "Opens a group or drawing of the project in its tab.");
         Add(AddGroup, "add_group", "Adds an empty group inside a group, and opens it.");
@@ -1218,18 +1220,48 @@ public sealed class AssistantTools
         [Description("The attributes to write.")] AttributeChange[] attributes,
         [Description("A few words saying what this does, which the Edit menu shows after Undo.")] string summary,
         [Description("The drawing's node path; empty for the drawing in front.")] string? node = null)
-        => Ui(() => Edit(node, summary, source =>
+        => Ui(() =>
         {
-            foreach (var change in attributes)
-            {
-                if (SvgAttributeEditor.SetAttribute(source, Key(key), change.Name, string.IsNullOrEmpty(change.Value) ? null : change.Value) is { } refused)
-                {
-                    return $"{change.Name}: {refused}";
-                }
-            }
+            var repointed = 0;
 
-            return null;
-        }));
+            return Edit(
+                node,
+                summary,
+                source =>
+                {
+                    foreach (var change in attributes)
+                    {
+                        var value = string.IsNullOrEmpty(change.Value) ? null : change.Value;
+                        var refused = change.Name.Trim() == "id"
+                            ? SvgElementEditor.Rename(source, Key(key), value, out repointed)
+                            : SvgAttributeEditor.SetAttribute(source, Key(key), change.Name, value);
+
+                        if (refused is { })
+                        {
+                            return $"{change.Name}: {refused}";
+                        }
+                    }
+
+                    return null;
+                },
+                () => repointed switch
+                {
+                    0 => null,
+                    1 => "One reference to it now says the new id.",
+                    _ => $"{repointed} references to it now say the new id."
+                });
+        });
+
+    private Task<string> SwapPaints(
+        [Description("The address keys from get_drawing of the elements whose fill and stroke to swap.")] string[] keys,
+        [Description("A few words saying what this does, which the Edit menu shows after Undo.")] string summary,
+        [Description("The drawing's node path; empty for the drawing in front.")] string? node = null)
+        => Ui(() =>
+        {
+            string? note = null;
+
+            return Edit(node, summary, source => SvgAttributeEditor.SwapPaints(source, keys.Select(Key).ToList(), out note), () => note);
+        });
 
     private Task<string> SetText(
         [Description("The element's address key from get_drawing.")] string key,
@@ -3267,7 +3299,7 @@ public sealed class AssistantTools
 
     /// <summary>Makes one edit to a drawing, in its tab or else the project, and answers it as <see cref="Done"/> does.</summary>
     /// <param name="said">What else to say once it is done, read after the edit has run.</param>
-    private string Edit(string? node, string summary, Func<SvgSourceDocument, string?> edit, Func<string>? said = null)
+    private string Edit(string? node, string summary, Func<SvgSourceDocument, string?> edit, Func<string?>? said = null)
     {
         if (Target(node, out var about) is not { } target)
         {

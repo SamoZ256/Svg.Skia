@@ -363,8 +363,14 @@ at.
 Rows are **dragged** the way a project's rows are: pick one up and a line shows where it will land —
 between two rows to go beside one, or an outline round a row to go inside it. Dropping writes the
 move into the drawing, so the element really is somewhere else afterwards, and the order it paints
-in changes with it. **New group** on the tree's own menu writes an empty `<g>` beside the picked row
-for things to be dragged into. Both arrive as one step to take back.
+in changes with it; the row stays picked where it landed. **New group** on the tree's own menu writes
+an empty `<g>` beside the picked row for things to be dragged into, and picks it. Both arrive as one
+step to take back.
+
+**Swap Fill and Stroke** on the same menu, or `Shift` `X` on the tree or the canvas, exchanges what
+the picked rows fill and stroke with, and their two opacities, as written and as one step: an
+expression travels with its paint, and a value in `style` stays there. A host wires it through
+`SwapRequested`, as it wires Duplicate and Delete.
 
 A `<clipPath>`, a `<mask>` or a shape kept in `<defs>` dropped on a drawn row is **applied** to it
 rather than moved: the row is outlined green for a clip and violet for a mask, the colours of the

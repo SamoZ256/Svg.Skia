@@ -425,6 +425,7 @@ public sealed class GroupPanel : UserControl
         // The rows are the picked elements, so what the tree is asked for is what the board holds.
         _tree.DeleteRequested = _ => Delete();
         _tree.DuplicateRequested = _ => Duplicate();
+        _tree.SwapRequested = _ => SwapPaints();
         _tree.ClipRequested = ApplyClip;
         _tree.NewClipRequested = NewClip;
         _tree.SelectRequested = Select;
@@ -3310,6 +3311,33 @@ public sealed class GroupPanel : UserControl
             SvgElementEditor.Remove,
             Array.Empty<string>());
 
+    /// <summary>Swaps the fill and stroke of each picked element, as one edit, and says what it shadows.</summary>
+    public bool SwapPaints()
+    {
+        string? note = null;
+        var kept = new List<string>();
+
+        if (!Rewritten(
+                count => count == 1 ? "swap fill and stroke" : $"swap fill and stroke of {count} elements",
+                (source, mine) =>
+                {
+                    kept.AddRange(mine);
+
+                    return SvgAttributeEditor.SwapPaints(source, mine, out note);
+                },
+                kept))
+        {
+            return false;
+        }
+
+        if (note is { })
+        {
+            Says(note);
+        }
+
+        return true;
+    }
+
     /// <summary>Writes a copy of each picked element after it, and picks the copies.</summary>
     public bool Duplicate()
     {
@@ -3619,6 +3647,12 @@ public sealed class GroupPanel : UserControl
             e.Handled = true;
 
             Duplicate();
+        }
+        else if (e.Key == Key.X && e.KeyModifiers == KeyModifiers.Shift)
+        {
+            e.Handled = true;
+
+            SwapPaints();
         }
     }
 
