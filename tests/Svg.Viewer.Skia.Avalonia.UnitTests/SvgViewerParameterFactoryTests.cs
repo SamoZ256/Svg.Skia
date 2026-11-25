@@ -373,4 +373,18 @@ public class SvgViewerParameterFactoryTests
         Assert.False(row.IsModified);
         Assert.Equal(0.25f, row.ToExprValue().AsNumber, 4);
     }
+
+    [Fact]
+    public void A_List_Is_Described_As_Its_Literal_In_The_Element_Spellings()
+    {
+        // A let can come to a list, and its readout spells each element as a lone value is spelled:
+        // three bytes for an opaque colour, round-trip digits for a number.
+        Assert.Equal(
+            "[0, 0.5, 1]",
+            SvgViewerParameterFactory.Describe(ExprValue.NumberList(new[] { 0f, 0.5f, 1f })));
+        Assert.Equal(
+            "[#ff0000, #00000080]",
+            SvgViewerParameterFactory.Describe(ExprValue.ColorList(new[] { ExprValue.Color(255, 0, 0, 255), ExprValue.Color(0, 0, 0, 0x80) })));
+        Assert.Equal("[]", SvgViewerParameterFactory.Describe(ExprValue.ColorList(Array.Empty<ExprValue>())));
+    }
 }

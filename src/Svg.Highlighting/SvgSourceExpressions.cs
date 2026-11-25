@@ -139,6 +139,7 @@ internal static class SvgSourceExpressions
         ExprTokenKind.Color => SvgSourceTokenKind.ExpressionColor,
         ExprTokenKind.String => SvgSourceTokenKind.ExpressionString,
         ExprTokenKind.Comma or ExprTokenKind.OpenParen or ExprTokenKind.CloseParen
+            or ExprTokenKind.OpenBracket or ExprTokenKind.CloseBracket
             => SvgSourceTokenKind.ExpressionPunctuation,
         ExprTokenKind.Identifier => Name(token.Text),
 

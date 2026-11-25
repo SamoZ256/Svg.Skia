@@ -16,7 +16,13 @@ public enum ExprType
     Integer,
     Color,
     Boolean,
-    String
+    String,
+
+    /// <summary><c>number[]</c>: what a gradient's stop positions are when a host supplies them.</summary>
+    NumberList,
+
+    /// <summary><c>color[]</c>: a gradient's stop colours when a host supplies them.</summary>
+    ColorList
 }
 
 public sealed class ExprException : Exception

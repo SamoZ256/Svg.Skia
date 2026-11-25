@@ -491,6 +491,80 @@ public class SvgSourceDiagnosticsTests
             Marked("<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:let name=\"cold\">hue &lt; nope</e:let></e:code>"));
     }
 
+    [Fact]
+    public void An_Empty_List_Declared_As_One_Has_Nothing_To_Say()
+    {
+        // [] alone says nothing about what it holds, so a default or a typed let is checked as what
+        // it was declared to be rather than flagged for not saying.
+        Assert.Empty(SvgSourceDiagnostics.Analyse("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+              <defs>
+                <e:code>
+                  <e:param name="stops" type="number[]" default="[]" />
+                  <e:param name="colors" type="color[]" default="[#fff, #000]" />
+                  <e:param name="i" type="integer" default="0" />
+                  <e:let name="none" type="color[]">[]</e:let>
+                  <e:let name="ramp">len(colors) &gt; 0 ? colors : none</e:let>
+                </e:code>
+              </defs>
+              <rect fill="{{ ramp[i] }}" stroke="{{ [#fff, colors[1]][i] }}" stroke-width="{{ stops[i] }}" />
+            </svg>
+            """));
+    }
+
+    [Fact]
+    public void An_Empty_List_Nothing_Declares_Is_Marked()
+    {
+        // The token the language stopped at, as every mark is.
+        Assert.Equal("[", Marked("<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:let name=\"none\">[]</e:let></e:code>"));
+
+        var source = Declarations.Replace("BODY", "<e:code xmlns:e=\"https://svg.skia/expr/1.0\"><e:let name=\"none\">[]</e:let></e:code>");
+        Assert.StartsWith("An empty list needs a type.", Assert.Single(SvgSourceDiagnostics.Analyse(source)).Message);
+    }
+
+    [Fact]
+    public void A_Default_Of_The_Wrong_List_Is_Marked_At_The_Default()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+              <defs><e:code><e:param name="stops" type="number[]" default="[#fff]" /></e:code></defs>
+            </svg>
+            """;
+        var one = Assert.Single(SvgSourceDiagnostics.Analyse(source));
+
+        Assert.Equal("The default for 'stops' must be a list of numbers, but this one is a list of colours.", one.Message);
+        Assert.Equal(source.IndexOf("[#fff]", StringComparison.Ordinal), one.Start);
+    }
+
+    [Fact]
+    public void A_Let_Typed_As_An_Integer_Indexes_A_List()
+    {
+        // Untyped, the 1 would be a number and the index refused for not being whole.
+        Assert.Empty(SvgSourceDiagnostics.Analyse("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+              <defs><e:code>
+                <e:param name="colors" type="color[]" default="[#fff, #000]" />
+                <e:let name="last" type="integer">1</e:let>
+              </e:code></defs>
+              <rect fill="{{ colors[last] }}" />
+            </svg>
+            """));
+    }
+
+    [Fact]
+    public void A_Let_Is_Marked_Where_Its_Body_Is_Not_What_It_Was_Declared()
+    {
+        var source = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24">
+              <defs><e:code><e:let name="size" type="number">len('ab')</e:let></e:code></defs>
+            </svg>
+            """;
+        var one = Assert.Single(SvgSourceDiagnostics.Analyse(source));
+
+        Assert.Equal("The let 'size' must be a number expression, but this one is an integer.", one.Message);
+        Assert.Equal(source.IndexOf("len('ab')", StringComparison.Ordinal), one.Start);
+    }
+
     private static string Slice(string source, SvgSourceDiagnostic diagnostic)
         => source.Substring(diagnostic.Start, diagnostic.Length);
 }

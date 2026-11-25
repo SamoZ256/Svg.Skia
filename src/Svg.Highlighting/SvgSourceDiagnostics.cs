@@ -128,11 +128,15 @@ public static class SvgSourceDiagnostics
             {
                 // Checked against what the attribute will do with the answer, so an expression that
                 // is well-formed and still wrong for its use is refused here rather than at render.
+                // A typed let is checked as its type and a list default as its list, as the evaluator
+                // checks them: alone, [] is no list in particular and a whole literal is a number.
                 var typed = site.Kind == SvgSourceSiteKind.Placeholder
                             && site.Attribute is { } attribute
                             && SvgExpressionAttributes.TypeFor(attribute) is { } expected
                     ? scope.CheckAs(text, expected, ExprFunctions.DescribeUse(expected))
-                    : scope.Check(text);
+                    : Declared(site, declarations, lets) is { } list
+                        ? scope.CheckAs(text, list.Type, list.What)
+                        : scope.Check(text);
 
                 if (site.Kind == SvgSourceSiteKind.Let && lets < declarations.Lets.Count)
                 {
@@ -159,6 +163,21 @@ public static class SvgSourceDiagnostics
 
         Resolve(found, declarations, reported, sites, tokens, source);
     }
+
+    /// <summary>
+    /// The type a let was declared as, or a parameter's where its default is a list: any other
+    /// default is checked by <see cref="Resolve"/>, which evaluates it.
+    /// </summary>
+    private static (ExprType Type, string What)? Declared(SvgSourceSite site, SvgExpressionDeclarations declarations, int lets)
+        => site.Kind switch
+        {
+            SvgSourceSiteKind.Let when lets < declarations.Lets.Count && declarations.Lets[lets].DeclaredType is { } declared
+                => (declared, $"The let '{declarations.Lets[lets].Name}'"),
+            SvgSourceSiteKind.Declaration when site.Attribute == "default"
+                    && declarations.Parameters.FirstOrDefault(parameter => parameter.Name == site.Owner)?.Type is { } list and (ExprType.NumberList or ExprType.ColorList)
+                => (list, $"The default for '{site.Owner}'"),
+            _ => null
+        };
 
     /// <summary>Reports what only running a declaration's own expressions can find.</summary>
     /// <remarks>

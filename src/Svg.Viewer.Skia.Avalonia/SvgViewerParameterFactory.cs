@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Avalonia.Media;
 using Svg.Expressions;
 
@@ -167,8 +168,14 @@ public static class SvgViewerParameterFactory
         // Quoted by the language itself, so a committed default is spelled the one way the lexer
         // reads back.
         ExprType.String => value.ToString(),
+
+        // A let can come to a list, and its readout is the literal, each element spelled as above.
+        ExprType.NumberList => List(value.AsNumberList.Select(number => Describe(ExprValue.Number(number)))),
+        ExprType.ColorList => List(value.AsColorList.Select(Describe)),
         _ => throw Unknown(value.Type),
     };
+
+    private static string List(IEnumerable<string> elements) => "[" + string.Join(", ", elements) + "]";
 
     private static Exception Unknown(ExprType type)
         => new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
