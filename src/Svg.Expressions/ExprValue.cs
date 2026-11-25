@@ -163,12 +163,13 @@ public readonly struct ExprValue : IEquatable<ExprValue>
     public override string ToString()
         => Type switch
         {
-            ExprType.Number => _number.ToString("R", CultureInfo.InvariantCulture),
-            ExprType.Integer => _integer.ToString(CultureInfo.InvariantCulture),
+            ExprType.Number => Spell(_number),
+            // The lexer reads -2147483648 as a minus over 2147483648, which no integer holds.
+            ExprType.Integer => _integer == int.MinValue ? "-2147483647 - 1" : _integer.ToString(CultureInfo.InvariantCulture),
             ExprType.Color => $"#{_r:x2}{_g:x2}{_b:x2}{_a:x2}",
             ExprType.Boolean => _boolean ? "true" : "false",
             ExprType.String => Quote((string)_reference!),
-            ExprType.NumberList => List(Numbers(this).Select(number => Number(number).ToString())),
+            ExprType.NumberList => List(Numbers(this).Select(Spell)),
             ExprType.ColorList => List(Colours(this).Select(colour => Unpack(colour).ToString())),
             _ => throw Unknown(Type)
         };
@@ -193,6 +194,54 @@ public readonly struct ExprValue : IEquatable<ExprValue>
     }
 
     private static string List(IEnumerable<string> elements) => "[" + string.Join(", ", elements) + "]";
+
+    /// <summary>A number in digits the lexer reads back as the same float.</summary>
+    /// <remarks>
+    /// The language has no exponent, so the point is moved where "R" writes 1E-05, and no literal for
+    /// an infinity or a NaN, so those are the divisions that answer them. The lexer narrows a double:
+    /// of all 4,278,190,080 finite floats, ±7.038531E-26 alone have shortest digits that narrow to
+    /// their neighbour, so the double's own digits, which are exact, are written for those.
+    /// </remarks>
+    private static string Spell(float number)
+    {
+        if (float.IsNaN(number))
+        {
+            return "0 / 0";
+        }
+
+        if (float.IsInfinity(number))
+        {
+            return number > 0f ? "1 / 0" : "-1 / 0";
+        }
+
+        var shortest = Plain(number.ToString("R", CultureInfo.InvariantCulture));
+
+        return (float)double.Parse(shortest, NumberStyles.Float, CultureInfo.InvariantCulture) == number
+            ? shortest
+            : Plain(((double)number).ToString("R", CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Round-trip digits with any exponent moved into the point.</summary>
+    private static string Plain(string written)
+    {
+        var exponent = written.IndexOf('E');
+
+        if (exponent < 0)
+        {
+            return written;
+        }
+
+        var sign = written[0] == '-' ? "-" : string.Empty;
+        var mantissa = written.Substring(sign.Length, exponent - sign.Length);
+        var point = mantissa.IndexOf('.');
+        var digits = point < 0 ? mantissa : mantissa.Remove(point, 1);
+        var at = (point < 0 ? mantissa.Length : point)
+                 + int.Parse(written.Substring(exponent + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+
+        return sign + (at <= 0 ? "0." + new string('0', -at) + digits
+            : at >= digits.Length ? digits + new string('0', at - digits.Length)
+            : digits.Substring(0, at) + "." + digits.Substring(at));
+    }
 
     private static float[] Numbers(ExprValue value) => (float[])value._reference!;
 

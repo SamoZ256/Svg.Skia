@@ -387,4 +387,31 @@ public class SvgViewerParameterFactoryTests
             SvgViewerParameterFactory.Describe(ExprValue.ColorList(new[] { ExprValue.Color(255, 0, 0, 255), ExprValue.Color(0, 0, 0, 0x80) })));
         Assert.Equal("[]", SvgViewerParameterFactory.Describe(ExprValue.ColorList(Array.Empty<ExprValue>())));
     }
+
+    [Theory]
+    [InlineData(0.00001d, "0.00001")]
+    [InlineData(-1E+20d, "-100000000000000000000")]
+    public void A_Number_Is_Committed_In_Digits_The_Language_Reads_Back(double value, string written)
+    {
+        var row = Number("""<e:param name="t" type="number" default="0" />""");
+
+        row.Value = value;
+
+        Assert.Equal(written, row.ToExpression());
+        Assert.Equal(row.ToExprValue(), ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(written, ExprType.Number, "The default"));
+    }
+
+    /// <summary>An integer row with no range reaches int.MinValue, which a minus over 2147483648 is not.</summary>
+    [Fact]
+    public void An_Integer_At_Either_End_Is_Committed_So_That_It_Reads_Back()
+    {
+        var row = Integer("""<e:param name="n" type="integer" default="0" />""");
+
+        foreach (var value in new[] { row.Minimum, row.Maximum })
+        {
+            row.Value = value;
+
+            Assert.Equal(value, ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(row.ToExpression(), ExprType.Integer, "The default").AsInteger);
+        }
+    }
 }

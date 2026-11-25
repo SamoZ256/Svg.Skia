@@ -438,6 +438,79 @@ public class ExprListTests
         }
     }
 
+    [Theory]
+    [InlineData(1E-05f, "0.00001")]
+    [InlineData(-2.5E-07f, "-0.00000025")]
+    [InlineData(1E+15f, "1000000000000000")]
+    [InlineData(float.Epsilon, "0.000000000000000000000000000000000000000000001")]
+    [InlineData(float.MaxValue, "340282350000000000000000000000000000000")]
+    [InlineData(-0f, "-0")]
+    [InlineData(float.NaN, "0 / 0")]
+    [InlineData(float.PositiveInfinity, "1 / 0")]
+    [InlineData(float.NegativeInfinity, "-1 / 0")]
+    public void A_Number_Is_Written_In_What_The_Language_Has(float number, string text)
+        => Assert.Equal(text, ExprValue.Number(number).ToString());
+
+    /// <summary>
+    /// Every number, alone or in a list, is written so that reading it back gives the same float.
+    /// </summary>
+    /// <remarks>
+    /// Random bit patterns rather than random values, so every exponent is as likely as any other —
+    /// the subnormals, the ends and the NaNs included — beside the ones a spelling gets wrong first.
+    /// Bit for bit, so a negative zero has to come back negative.
+    /// </remarks>
+    [Fact]
+    public void Every_Number_Is_Written_So_That_It_Reads_Back()
+    {
+        var random = new Random(20261125);
+        var numbers = new[]
+            {
+                0f, -0f, 1f, -1f, 0.1f, 0.3f, 1E-05f, 1E-06f, 1E+15f, 1E+16f, 16777216f, 123456790f, 1E+10f,
+                float.Epsilon, -float.Epsilon, 1.17549435E-38f, 1.1754942E-38f, float.MaxValue, float.MinValue,
+                float.NaN, float.PositiveInfinity, float.NegativeInfinity,
+
+                // The two floats of all 4,278,190,080 finite ones whose shortest digits, read through
+                // a double, narrow to the float beside them.
+                7.038531E-26f, -7.038531E-26f
+            }
+            .Concat(Enumerable.Range(0, 20000).Select(_ => BitConverter.Int32BitsToSingle(random.Next() | (random.Next(2) << 31))))
+            .ToArray();
+
+        foreach (var number in numbers)
+        {
+            var text = ExprValue.Number(number).ToString();
+
+            Assert.DoesNotContain('E', text);
+            Assert.True(Same(number, ExprEvaluator.Isolated.EvaluateTo(text, ExprType.Number, "The value").AsNumber), $"{number:R} was written {text}.");
+        }
+
+        foreach (var chunk in numbers.Chunk(7))
+        {
+            var back = ExprEvaluator.Isolated.EvaluateTo(Numbers(chunk).ToString(), ExprType.NumberList, "The value").AsNumberList;
+
+            Assert.True(chunk.Zip(back, Same).All(same => same) && back.Count == chunk.Length, Numbers(chunk).ToString());
+        }
+
+        static bool Same(float a, float b) => float.IsNaN(a) ? float.IsNaN(b) : BitConverter.SingleToInt32Bits(a) == BitConverter.SingleToInt32Bits(b);
+    }
+
+    /// <summary>
+    /// The integers' ends among them: the lexer reads <c>-2147483648</c> as a minus over 2147483648,
+    /// which no integer holds.
+    /// </summary>
+    [Fact]
+    public void Every_Integer_Is_Written_So_That_It_Reads_Back()
+    {
+        var random = new Random(20261125);
+
+        foreach (var integer in new[] { int.MinValue, int.MinValue + 1, -1, 0, 1, int.MaxValue }.Concat(Enumerable.Range(0, 2000).Select(_ => random.Next() | (random.Next(2) << 31))))
+        {
+            var text = ExprValue.Integer(integer).ToString();
+
+            Assert.Equal(integer, ExprEvaluator.Isolated.EvaluateTo(text, ExprType.Integer, "The value").AsInteger);
+        }
+    }
+
     // ---- evaluating ------------------------------------------------------------------------
 
     [Theory]

@@ -153,29 +153,18 @@ public static class SvgViewerParameterFactory
     /// <summary>A value as a document would write it.</summary>
     /// <remarks>
     /// One spelling for the readout beside a let and for the default a commit writes, so the two
-    /// cannot disagree. Round-trip formatting for a number, since the same parser reads it back;
+    /// cannot disagree. The language's own for anything the lexer has to read back the same;
     /// three bytes for an opaque colour, because that is how a drawing writes one.
     /// </remarks>
     public static string Describe(ExprValue value) => value.Type switch
     {
-        ExprType.Number => value.AsNumber.ToString("R", CultureInfo.InvariantCulture),
-        ExprType.Integer => value.AsInteger.ToString(CultureInfo.InvariantCulture),
+        ExprType.Number or ExprType.Integer or ExprType.Boolean or ExprType.String or ExprType.NumberList => value.ToString(),
         ExprType.Color => value.Alpha == byte.MaxValue
             ? string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}", value.Red, value.Green, value.Blue)
             : string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}{3:x2}", value.Red, value.Green, value.Blue, value.Alpha),
-        ExprType.Boolean => value.AsBoolean ? "true" : "false",
-
-        // Quoted by the language itself, so a committed default is spelled the one way the lexer
-        // reads back.
-        ExprType.String => value.ToString(),
-
-        // A let can come to a list, and its readout is the literal, each element spelled as above.
-        ExprType.NumberList => List(value.AsNumberList.Select(number => Describe(ExprValue.Number(number)))),
-        ExprType.ColorList => List(value.AsColorList.Select(Describe)),
+        ExprType.ColorList => "[" + string.Join(", ", value.AsColorList.Select(Describe)) + "]",
         _ => throw Unknown(value.Type),
     };
-
-    private static string List(IEnumerable<string> elements) => "[" + string.Join(", ", elements) + "]";
 
     private static Exception Unknown(ExprType type)
         => new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
