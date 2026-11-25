@@ -350,6 +350,29 @@ public sealed class SvgViewerDock
         Rebuild();
     }
 
+    /// <summary>Whether this is arranged as <paramref name="line"/> says, leaving aside sizes, folds and which panel is on top.</summary>
+    /// <remarks>
+    /// Panels the arrangement has no place for — taken off, or kept off by the host — are taken out of
+    /// the line first, so a layout still reads as itself while a project's tree is off it.
+    /// </remarks>
+    public bool Matches(string line)
+    {
+        if (Parsed(line) is not { } tree)
+        {
+            return false;
+        }
+
+        var placed = Walk(_tree).OfType<Leaf>().SelectMany(leaf => leaf.Ids).ToHashSet(StringComparer.Ordinal);
+        var other = new SvgViewerDock(tree);
+
+        foreach (var id in Walk(tree).OfType<Leaf>().SelectMany(leaf => leaf.Ids).Where(id => !placed.Contains(id)).ToList())
+        {
+            other.Take(id);
+        }
+
+        return string.Equals(Written(other._tree, root: true, bare: true), Written(_tree, root: true, bare: true), StringComparison.Ordinal);
+    }
+
     // ---- the tree ------------------------------------------------------------------------------
 
     /// <summary>How big a node is among its neighbours: a share of them, or an extent it keeps.</summary>
@@ -654,7 +677,8 @@ public sealed class SvgViewerDock
 
     // ---- reading and writing the line ----------------------------------------------------------
 
-    private static string Written(Node node, bool root = false)
+    /// <param name="bare">Only the shape: no sizes, and no word on which panel is on top or whether it is folded.</param>
+    private static string Written(Node node, bool root = false, bool bare = false)
     {
         var line = new StringBuilder();
 
@@ -666,9 +690,14 @@ public sealed class SvgViewerDock
 
             case Split split:
                 line.Append(split.Across ? "row(" : "col(")
-                    .Append(string.Join(",", split.Children.Select(child => Written(child))))
+                    .Append(string.Join(",", split.Children.Select(child => Written(child, bare: bare))))
                     .Append(')');
                 break;
+        }
+
+        if (bare)
+        {
+            return line.ToString();
         }
 
         // The root's own size is a share of nothing.

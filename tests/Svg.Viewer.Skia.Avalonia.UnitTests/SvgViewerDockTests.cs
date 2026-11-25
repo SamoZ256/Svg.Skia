@@ -669,4 +669,42 @@ public class SvgViewerDockTests
 
         window.Close();
     }
+
+    // ---- whether an arrangement is the one a line describes --------------------------------------
+
+    [AvaloniaFact]
+    public void A_Line_Matches_Whatever_Its_Sizes_Folds_And_Tabs()
+    {
+        var (window, dock, _) = Host(Three);
+
+        Assert.True(dock.Matches(Three));
+        Assert.True(dock.Matches("row(*/2,col(project+elements+variables/3/variables/folded,element/1/element/open)/500px)"));
+
+        Assert.False(dock.Matches("row(*/1,col(elements+project+variables/1/project/open,element/1/element/open)/340px)"));
+        Assert.False(dock.Matches("row(*/1,col(project+elements/1/project/open,variables+element/1/element/open)/340px)"));
+        Assert.False(dock.Matches("not a line"));
+
+        window.Close();
+    }
+
+    /// <summary>A panel taken off the arrangement is taken out of the line too, so the arrangement still reads as itself.</summary>
+    [AvaloniaFact]
+    public void A_Panel_Taken_Off_Still_Matches()
+    {
+        var (window, dock, _) = Host(Three);
+
+        dock.Show("elements", false);
+
+        Assert.True(dock.Matches(Three));
+
+        // A panel nothing supplies yet is kept in the line it was laid out from, and matches it.
+        var later = "row(*/1,col(project+elements+variables/1/project/open,element+transform/1/element/open)/340px)";
+
+        dock.Layout = later;
+
+        Assert.True(dock.Matches(later));
+        Assert.False(dock.Matches(Three));
+
+        window.Close();
+    }
 }
