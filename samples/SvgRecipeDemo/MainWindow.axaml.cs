@@ -51,7 +51,7 @@ public partial class MainWindow : Window
         float Width,
         float Height);
 
-    private sealed record ParameterBinding(SvgExpressionParameter Parameter, Func<ExprValue> Read);
+    private sealed record ParameterBinding(SvgExpressionParameter Parameter, Func<ExprValue?> Read);
 
     public MainWindow()
     {
@@ -250,7 +250,7 @@ public partial class MainWindow : Window
                         break;
                     }
 
-                default:
+                case ExprType.Color:
                     {
                         var box = new TextBox { Text = "#3fb5b5", FontFamily = "monospace" };
                         box.TextChanged += (_, _) => Publish();
@@ -261,6 +261,26 @@ public partial class MainWindow : Window
                         _bindings.Add(new ParameterBinding(parameter, () => ParseColor(box.Text)));
                         break;
                     }
+
+                case ExprType.Integer:
+                case ExprType.String:
+                case ExprType.NumberList:
+                case ExprType.ColorList:
+                    {
+                        // Written as the language writes it, 4, 'dark' or [0, 0.5, 1]. Left unbound
+                        // while it does not evaluate, which draws the declared default.
+                        var box = new TextBox { Text = parameter.DefaultExpression, FontFamily = "monospace" };
+                        box.TextChanged += (_, _) => Publish();
+
+                        Grid.SetColumn(box, 1);
+                        row.Children.Add(box);
+
+                        _bindings.Add(new ParameterBinding(parameter, () => Evaluated(box.Text, parameter.Type)));
+                        break;
+                    }
+
+                default:
+                    throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {parameter.Type}.");
             }
 
             _parameterPanel.Children.Add(row);
@@ -275,6 +295,18 @@ public partial class MainWindow : Window
             ? value
             : fallback;
 
+    private static ExprValue? Evaluated(string? text, ExprType type)
+    {
+        try
+        {
+            return ExprEvaluator.Create(SvgExpressionDeclarations.Empty).EvaluateTo(text ?? string.Empty, type, "The value");
+        }
+        catch (Exception failure) when (failure is ExprException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
     private static ExprValue ParseColor(string? text)
     {
         var color = SKColor.TryParse(text, out var parsed) ? parsed : SKColors.Magenta;
@@ -288,7 +320,10 @@ public partial class MainWindow : Window
     {
         _snapshot = _snapshot with
         {
-            Values = _bindings.ToDictionary(b => b.Parameter.Name, b => b.Read(), StringComparer.Ordinal),
+            Values = _bindings
+                .Select(b => (b.Parameter.Name, Value: b.Read()))
+                .Where(bound => bound.Value is not null)
+                .ToDictionary(bound => bound.Name, bound => bound.Value!.Value, StringComparer.Ordinal),
             Width = (float)_canvas.Bounds.Width,
             Height = (float)_canvas.Bounds.Height
         };
