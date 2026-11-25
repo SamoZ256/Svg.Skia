@@ -115,6 +115,7 @@ renderers ignore:
     <e:param name="tint"  type="color"   />
     <e:param name="bold"  type="boolean" default="false" />
     <e:param name="theme" type="string"  default="'dark'" />
+    <e:param name="stops" type="color[]" default="[#f7de77, #ace3e3]" />
 
     <e:let name="wave">(sin(t * tau) + 1) / 2</e:let>
     <e:let name="shade">mix(tint, #000000, wave)</e:let>
@@ -132,7 +133,9 @@ and every drawing under it is built with that block written in front of its own 
 first — so the family shares one declaration rather than a copy of it each. A `svgc` recipe splices
 its block the same way.
 
-**`<e:param>`** declares a parameter. `name` and `type` are required.
+**`<e:param>`** declares a parameter. `name` and `type` are required, and `type` is one of the
+types in [§3.1](#31-types): `number`, `integer`, `color`, `boolean`, `string`, `number[]` or
+`color[]`.
 
 `default` is an expression, and makes the parameter optional. With no `default` the parameter is
 **required** — nothing is invented, so a value never appears that is written nowhere in the document.
@@ -164,10 +167,12 @@ time is accepted wherever it lies, and a `default` outside its own range is lega
 **`<e:let>`** declares a local. Its type is **inferred** from the expression. Lets resolve in document
 order, so a let may reference parameters and earlier lets, but not later ones — and not itself.
 
-`type` is optional on a let, and the only thing it is really for is the numeric types: an inferred
-whole literal is a number ([§3.2](#32-literals)), so `<e:let name="n">3</e:let>` is a number and
-`<e:let name="n" type="integer">3</e:let>` is how to ask for the other. Written anywhere else it is a
-check rather than a choice — the expression has to produce that type or the block is refused.
+`type` is optional on a let, and the only things it is really for are the numeric types and the
+empty list: an inferred whole literal is a number ([§3.2](#32-literals)), so
+`<e:let name="n">3</e:let>` is a number and `<e:let name="n" type="integer">3</e:let>` is how to ask
+for the other, and `[]` is no list until something says which, so `<e:let name="xs" type="number[]">[]</e:let>`
+is how to write an empty one. Written anywhere else it is a check rather than a choice — the
+expression has to produce that type or the block is refused.
 
 Names must be valid identifiers (letter or `_`, then letters, digits or `_`), must not collide with a
 built-in constant, function or operator word ([§3.3](#33-operators)), and must be unique across
@@ -412,7 +417,7 @@ Three that look like they belong on that list and do not, which is the more usef
 ### 3.1 Types
 
 `number` (single-precision float), `integer` (32-bit, wrapping), `color` (RGBA, 8 bits per channel),
-`boolean`, `string`.
+`boolean`, `string`, and two lists: `number[]` and `color[]`.
 
 There are no implicit conversions between them. In particular `+` never turns a number into text:
 between a string and anything else it is an error, not a conversion — and it does not turn an integer
@@ -448,6 +453,26 @@ of a `<text>`, and as the thing that chooses between values the other attributes
 ```
 }%%}
 
+A list is how a host hands a drawing a run of values whose length it decides — a gradient's colours
+and their offsets ([A gradient's stops as lists](#a-gradients-stops-as-lists)), which is the one
+place a whole list is taken. Only a number and a colour have one. Anywhere else a list is read an
+element at a time: `xs[i]` is one element and `len(xs)` how many there are. A list does no
+arithmetic, is compared with nothing, and is no condition, each refused with a message saying what
+to write instead — index it, or test its length.
+
+{%%{
+```xml
+<e:param name="colors" type="color[]" default="[#f7de77, #ffffff, #ace3e3]" />
+<e:param name="level" type="integer" default="0" />
+
+<rect fill="{{ colors[level] }}" visibility="{{ len(colors) > 0 }}" />
+```
+}%%}
+
+An index is an integer, and it is **clamped** into the list rather than refused, because a drawing
+has to draw whatever index it is handed: `colors[-1]` is the first colour and `colors[99]` the last,
+and an empty list answers `0` or transparent.
+
 ### 3.2 Literals
 
 | Form | Type | Notes |
@@ -461,6 +486,9 @@ of a `<text>`, and as the thing that chooses between values the other attributes
 | `#ff880080` | color | 8 hex digits, RGBA. |
 | `true`, `false` | boolean | |
 | `'dark'`, `"dark"` | string | Either quote; the one that opened the literal closes it. |
+| `[0, 0.42, 1]` | number[] | Every element a number, a whole literal among them counting as one. Each element is an expression. |
+| `[#ff0000, #00ff00]` | color[] | Every element a colour. |
+| `[]` | either list | Only where one is declared: a parameter's `default`, a typed let, or a branch of `?:` beside a list. |
 
 #### A whole literal takes the type its context asks for
 
@@ -510,6 +538,7 @@ listed alongside:
 | 7 | `*` `/` | | number, or two integers | that type |
 | 8 | `-x` (unary) | | number, or integer | that type |
 | 8 | `!x` | `not x` | boolean | boolean |
+| 9 | `xs[i]` (postfix) | | a list, and an integer | its element |
 
 Parentheses group as usual.
 
@@ -603,7 +632,7 @@ String:
 | Signature | Notes |
 | --- | --- |
 | `upper(s)` `lower(s)` | **Invariant** case folding, so the answer does not vary with the machine. |
-| `len(s)` | Number of UTF-16 code units, as an **integer** — which is how a string reaches the arithmetic. |
+| `len(s)` | Number of UTF-16 code units, as an **integer** — which is how a string reaches the arithmetic. `len(xs)` of a list is how many elements it holds. |
 | `str(x)` | A number **or an integer** as text, invariant and shortest round-trip — which is how either reaches the words. A whole number reads as one: `str(100)` is `'100'`, not `'100.0'`. |
 
 Note the deliberate asymmetry: `rgb` takes 0..255 and `hsl` takes degrees plus fractions, matching
@@ -631,11 +660,13 @@ equality       := comparison ( ( '==' | '!=' | 'eq' | 'ne' ) comparison )*
 comparison     := additive ( ( '<' | '<=' | '>' | '>=' | 'lt' | 'le' | 'gt' | 'ge' ) additive )*
 additive       := multiplicative ( ( '+' | '-' ) multiplicative )*
 multiplicative := unary ( ( '*' | '/' ) unary )*
-unary          := ( '-' | '!' | 'not' ) unary | primary
+unary          := ( '-' | '!' | 'not' ) unary | postfix
+postfix        := primary ( '[' conditional ']' )*
 primary        := number | color | string | 'true' | 'false'
                 | identifier
                 | identifier '(' ( conditional ( ',' conditional )* )? ')'
                 | '(' conditional ')'
+                | '[' ( conditional ( ',' conditional )* )? ']'
 ```
 
 The grammar is unchanged by the integer, and deliberately so: `3` and `3.0` are one production, and
