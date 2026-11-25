@@ -119,8 +119,7 @@ public class MainWindowFontsTests : IDisposable
     private static StackPanel Properties(MainWindow window)
         => window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties");
 
-    private static string? Note(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Name == "NoteText") is { IsVisible: true } note ? note.Text : null;
+    private static string? Note(SvgViewer viewer) => viewer.Note;
 
     private static void Click(Button button)
     {

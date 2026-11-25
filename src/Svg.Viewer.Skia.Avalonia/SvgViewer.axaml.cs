@@ -154,6 +154,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _errorPanel = this.FindControl<Grid>("ErrorPanel")!;
         _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
         _noteText = this.FindControl<TextBlock>("NoteText")!;
+        _statusText.PropertyChanged += Told;
+        _noteText.PropertyChanged += Told;
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
         _lockRatioButton = this.FindControl<ToggleButton>("LockRatioButton")!;
         _snapButton = this.FindControl<ToggleButton>("SnapButton")!;
@@ -481,6 +483,26 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         get => _statusPanel.IsVisible;
         set => _statusPanel.IsVisible = value;
+    }
+
+    /// <summary>What the status bar says: the drawing's name and how many parameters it has.</summary>
+    public string Status => _statusText.Text ?? string.Empty;
+
+    /// <summary>The note beside it, or null while there is none.</summary>
+    public string? Note => _noteText.IsVisible ? _noteText.Text : null;
+
+    /// <summary>Whether the note is painted as a warning rather than an error.</summary>
+    public bool NoteWarns { get; private set; }
+
+    /// <summary>Raised when <see cref="Status"/>, <see cref="Note"/> or its colour changes, for a host that shows them itself.</summary>
+    public event EventHandler? StatusChanged;
+
+    private void Told(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == TextBlock.TextProperty || e.Property == IsVisibleProperty || e.Property == TextBlock.ForegroundProperty)
+        {
+            StatusChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>
@@ -1185,7 +1207,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         var picked = _elementTree.SelectedAddresses.Select(row => spelt.TryGetValue(row, out var key) ? key : null).OfType<string>().ToList();
         var chosen = SvgElementEditor.Select(source, how, picked, name, out var note);
 
-        ShowNote(note ?? Note());
+        ShowNote(note ?? Standing());
 
         if (chosen.Count == 0 && how is not (SvgElementSelect.None or SvgElementSelect.Inverse))
         {
@@ -2258,12 +2280,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         {
             // All or nothing, so the previous rendering is still up. The control keeps its value:
             // it is what the user has to see to correct it.
-            ShowNote(Note());
+            ShowNote(Standing());
             ShowFault(IsMarked(failure) ? null : failure.ToDiagnostic());
         }
         catch (Exception failure)
         {
-            ShowNote(Note());
+            ShowNote(Standing());
             ShowFault(failure.Message);
         }
 
@@ -3428,7 +3450,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// A count only: each one is said where it lands, on the attribute row in the Attributes panel that
     /// carries it, and repeating the sentence here would say it twice.
     /// </remarks>
-    private string? Note()
+    private string? Standing()
     {
         if (_document is not { } open)
         {
@@ -3487,7 +3509,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Says everything that is standing about the open drawing.</summary>
     private void ShowTrouble()
     {
-        ShowNote(Note());
+        ShowNote(Standing());
         ShowFault(Fault());
     }
 
@@ -3513,6 +3535,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void ShowNote(string? message)
     {
+        NoteWarns = !string.IsNullOrEmpty(message)
+                    && _sourceDiagnostics.Count > 0
+                    && !_sourceDiagnostics.Any(d => d.Severity == SvgSourceSeverity.Error);
         _noteText.Text = message ?? string.Empty;
         _noteText.IsVisible = !string.IsNullOrEmpty(message);
 
@@ -3520,10 +3545,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         {
             // Through the resource rather than a resolved brush, so the note follows a theme change
             // like everything else does. A note that is only warnings is not painted as an error.
-            var key = _sourceDiagnostics.Any(d => d.Severity == SvgSourceSeverity.Error)
-                      || _sourceDiagnostics.Count == 0
-                ? "SvgViewerSourceErrorBrush"
-                : "SvgViewerSourceWarningBrush";
+            var key = NoteWarns ? "SvgViewerSourceWarningBrush" : "SvgViewerSourceErrorBrush";
 
             _noteText[!TextBlock.ForegroundProperty] = new DynamicResourceExtension(key);
         }
