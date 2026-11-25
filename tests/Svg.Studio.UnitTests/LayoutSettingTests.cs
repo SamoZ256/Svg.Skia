@@ -211,7 +211,7 @@ public class LayoutSettingTests : IDisposable
 
         Carry(window, "Variables", "Attributes");
 
-        Assert.Contains("element+variables", window.Layout, StringComparison.Ordinal);
+        Assert.Contains("element+transform+align+variables", window.Layout, StringComparison.Ordinal);
 
         // Written down, so it is there again next time.
         Assert.Equal(window.Layout, StudioSettings.Layout);
@@ -220,7 +220,7 @@ public class LayoutSettingTests : IDisposable
         await window.ShowAsync(board.Node);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("element+variables", window.Layout, StringComparison.Ordinal);
+        Assert.Contains("element+transform+align+variables", window.Layout, StringComparison.Ordinal);
 
         window.Close();
     }
@@ -253,13 +253,13 @@ public class LayoutSettingTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Project));
 
         // Down the left, over the variables, where Studio's own default puts it.
-        Assert.StartsWith("row(col(tree+changes/1.4/tree/open", window.Layout, StringComparison.Ordinal);
+        Assert.StartsWith("row(col(tree+changes+history/1.4/tree/open", window.Layout, StringComparison.Ordinal);
 
         // And it is carried by its header like the rest: dropped on the variables it sits behind
         // them, which is a place three fixed sides could not have put it.
         Carry(window, "Project", "Variables");
 
-        Assert.Contains("variables+tree", window.Layout, StringComparison.Ordinal);
+        Assert.Contains("variables+project+tree", window.Layout, StringComparison.Ordinal);
         Assert.Equal(window.Layout, StudioSettings.Layout);
 
         window.Close();

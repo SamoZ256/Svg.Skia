@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Globalization;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -24,9 +25,13 @@ namespace Svg.Studio;
 /// </remarks>
 internal sealed class StudioBars
 {
+    private readonly StudioCommands _commands;
     private readonly Func<Control?> _front;
     private Control? _shown;
     private bool _queued;
+
+    /// <summary>Set while the picker is being told what the layout is, which is not somebody choosing one.</summary>
+    private bool _telling;
 
     /// <summary>Where the pointer last was over a canvas, read again when the view moves under it.</summary>
     private (SvgViewerCanvas Canvas, Point At)? _hover;
@@ -53,16 +58,35 @@ internal sealed class StudioBars
         VerticalAlignment = VerticalAlignment.Center
     };
 
+    /// <summary>The layout in use, or Custom where the arrangement is none of them.</summary>
+    private readonly ComboBox _layouts = new()
+    {
+        Name = "Layouts",
+        PlaceholderText = "Custom",
+        MinWidth = 110,
+        FontSize = 12,
+        VerticalAlignment = VerticalAlignment.Center,
+        ItemsSource = StudioSettings.Layouts.Select(layout => layout.Name).ToList()
+    };
+
     private readonly TextBlock _status = Said("Status");
     private readonly TextBlock _note = Said("Note");
     private readonly TextBlock _pointer = Said("Pointer");
 
     public StudioBars(StudioCommands commands, Func<Control?> front)
     {
+        _commands = commands;
         _front = front;
 
-        // The right end, where the layout picker joins Search.
-        var end = Row(commands.Bound("commands", "Search"));
+        var end = Row(_layouts, commands.Bound("commands", "Search"));
+
+        _layouts.SelectionChanged += async (_, _) =>
+        {
+            if (!_telling && _layouts.SelectedItem is string name)
+            {
+                await commands.Run(MainWindow.LayoutCommand(name));
+            }
+        };
 
         DockPanel.SetDock(_selection, Dock.Left);
         DockPanel.SetDock(end, Dock.Right);
@@ -197,6 +221,10 @@ internal sealed class StudioBars
         }
 
         _note.IsVisible = _note.Text is { Length: > 0 };
+
+        _telling = true;
+        _layouts.SelectedIndex = StudioSettings.Layouts.ToList().FindIndex(layout => _commands[MainWindow.LayoutCommand(layout.Name)].IsChecked?.Invoke() == true);
+        _telling = false;
 
         // Not under somebody typing a zoom, unless it was for a tab no longer in front.
         if (turned || !_zoom.IsFocused)

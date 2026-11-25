@@ -3635,12 +3635,16 @@ public partial class MainWindow : Window
         yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", rule, "resize" });
         yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
         yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "reset-parameters" });
-        yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
+        yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" })
+            .Concat(new[] { rule }).Concat(StudioSettings.Layouts.Select(layout => LayoutCommand(layout.Name))).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
         yield return ("Help", new[] { "help", "commands", "user-guide", "mcp-connection", rule, "about" });
     }
 
     private static string Panel(SvgViewerRegion region) => "panel-" + region.Header.ToLowerInvariant();
+
+    /// <summary>A layout's command, which the control bar's picker runs as well.</summary>
+    internal static string LayoutCommand(string name) => "layout-" + name.ToLowerInvariant();
 
     /// <summary>A tool's id, upstream's where the tool is upstream's under another name.</summary>
     private static string Tool(string name) => name switch
@@ -3841,6 +3845,11 @@ public partial class MainWindow : Window
         };
         yield return new("reset-layout", "Reset Layout", "Window", Done(ResetLayout));
 
+        foreach (var (name, line) in StudioSettings.Layouts)
+        {
+            yield return new(LayoutCommand(name), name + " Layout", "Window", Done(() => Arrange(line))) { IsChecked = () => _dock.Matches(line) };
+        }
+
         yield return new("new-project", "New", "Project", () => NewProjectAsync());
         yield return new("close-project", "Close", "Project", () => CloseProjectAsync()) { CanExecute = () => _workspace is { } };
 
@@ -3919,17 +3928,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ResetLayout()
+    private void ResetLayout() => Arrange(StudioSettings.DefaultLayout);
+
+    /// <summary>Puts the panels as <paramref name="line"/> says, keeping off the ones the project keeps off.</summary>
+    private void Arrange(string line)
     {
         // Written rather than cleared, so the line on file is the arrangement rather than a gap
         // meaning "whatever the default happens to be next time".
-        StudioSettings.Layout = StudioSettings.DefaultLayout;
-        _dock.Layout = StudioSettings.DefaultLayout;
+        StudioSettings.Layout = line;
+        _dock.Layout = line;
 
         // Changes before the tree, as when the window opens: a panel goes back exactly where it was
         // only while the rest of the line is what it was when it went.
         _dock.Show(ChangesPanelId, _workspace is { } && _changes.Tracking);
         _dock.Show(ProjectTreePanel, _workspace is { });
+
+        UpdateMenu();
     }
 
     /// <summary>The shortcuts, in a window of their own beside the editor rather than over it.</summary>
