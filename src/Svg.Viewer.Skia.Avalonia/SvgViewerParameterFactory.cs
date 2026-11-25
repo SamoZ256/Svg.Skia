@@ -181,10 +181,9 @@ public static class SvgViewerParameterFactory
     /// Widens a number the language computed to the double a control wants.
     /// </summary>
     /// <remarks>
-    /// Through decimal, which rounds to the seven significant digits a float carries. Widening
-    /// plainly keeps the binary tail, so <c>step="0.1"</c> arrives as 0.10000000149011612 and two
-    /// ticks along reads 0.200000002980232. Narrowing gives back the same float, so this is a
-    /// widening and not a rounding; what decimal cannot hold is widened plainly instead.
+    /// The digits a document writes it in, read as a double: <c>step="0.1"</c> arrives as 0.1 rather
+    /// than the binary tail's 0.10000000149011612, and still narrows to the same float, which
+    /// decimal's seven digits did not for 1 / 3.
     /// </remarks>
     /// <remarks>
     /// Internal because <see cref="SvgViewer.TrySetParameterValue"/> puts a float back the same way.
@@ -192,16 +191,9 @@ public static class SvgViewerParameterFactory
     /// nobody chose.
     /// </remarks>
     internal static double Widen(float value)
-    {
-        try
-        {
-            return (double)(decimal)value;
-        }
-        catch (OverflowException)
-        {
-            return value;
-        }
-    }
+        => float.IsFinite(value)
+            ? double.Parse(ExprValue.Number(value).ToString(), NumberStyles.Float, CultureInfo.InvariantCulture)
+            : value;
 
     /// <summary>The declared default, evaluated as the binder will evaluate it.</summary>
     /// <remarks>

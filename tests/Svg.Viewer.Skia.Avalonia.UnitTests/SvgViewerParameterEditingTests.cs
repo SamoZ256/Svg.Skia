@@ -766,6 +766,31 @@ public class SvgViewerParameterEditingTests
         window.Close();
     }
 
+    /// <summary>
+    /// A list is committed whole whenever one element changed, so the others have to be written as
+    /// they were declared and drawn, the floats that need eight or nine digits among them.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Committing_A_List_Leaves_The_Elements_Nobody_Edited_As_They_Were()
+    {
+        var (window, viewer) = await HostLoaded(Listed.Replace("default=\"[0, 1]\"", "default=\"[1 / 3, 123456789]\""));
+
+        var positions = Assert.IsType<SvgViewerNumberListParameter>(viewer.Parameters[1]);
+
+        Assert.Equal(ExprValue.NumberList(new[] { 1f / 3f, 123456789f }), viewer.Svg!.ExpressionValues!["positions"]);
+
+        positions.Add();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.CommitParameterDefaults());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("name=\"positions\" type=\"number[]\" default=\"[0.33333334, 123456790, 123456790]\"", viewer.Source);
+        Assert.Equal(ExprValue.NumberList(new[] { 1f / 3f, 123456789f, 123456789f }), viewer.Svg!.ExpressionValues!["positions"]);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task Committing_Writes_Every_Changed_Value_As_The_Declared_Default()
     {

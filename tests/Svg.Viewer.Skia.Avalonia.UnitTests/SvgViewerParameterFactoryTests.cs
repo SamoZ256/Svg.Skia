@@ -529,4 +529,46 @@ public class SvgViewerParameterFactoryTests
             Assert.Equal(value, ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(row.ToExpression(), ExprType.Integer, "The default").AsInteger);
         }
     }
+
+    /// <summary>
+    /// A row holds the float it was given, digits a float needs eight or nine of, a negative zero and
+    /// a tiny number included, since a list commits every element whenever one is edited.
+    /// </summary>
+    [Fact]
+    public void A_Row_Holds_Every_Float_It_Is_Given()
+    {
+        const string defaults = "[0, 1 / 3, 0.12345679, 12345.678, 123456789, 1]";
+
+        var declared = ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(defaults, ExprType.NumberList, "The default").AsNumberList;
+        var list = Assert.IsType<SvgViewerNumberListParameter>(
+            SvgViewerParameterFactory.Create(Declare($"""<e:param name="xs" type="number[]" default="{defaults}" />""")));
+
+        Assert.Equal(declared, list.ToExprValue().AsNumberList);
+
+        // Only the last element is edited; what is committed is every other one as it was declared.
+        list.Items[5].Value = 0.9d;
+
+        Assert.Equal(
+            declared.Take(5).Append(0.9f),
+            ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(list.ToExpression(), ExprType.NumberList, "The default").AsNumberList);
+
+        var given = new[] { 0.1f, 1E-07f, 123456789f, -0f, 1E-30f, float.Epsilon, float.MaxValue, 7.038531E-26f };
+
+        Assert.True(list.TrySet(ExprValue.NumberList(given)));
+        Assert.Equal(given.Select(BitConverter.SingleToInt32Bits), list.ToExprValue().AsNumberList.Select(BitConverter.SingleToInt32Bits));
+        Assert.StartsWith("[0.1, 0.0000001, 123456790, -0, ", list.ToExpression());
+
+        // Still without the binary tail a plain widening gives 0.1, which is what a field shows.
+        Assert.Equal(0.1d, list.Items[0].Value);
+
+        var third = Number("""<e:param name="third" type="number" default="1 / 3" />""");
+
+        Assert.Equal(1f / 3f, third.ToExprValue().AsNumber);
+
+        foreach (var number in given)
+        {
+            Assert.True(third.TrySet(ExprValue.Number(number)));
+            Assert.Equal(BitConverter.SingleToInt32Bits(number), BitConverter.SingleToInt32Bits(third.ToExprValue().AsNumber));
+        }
+    }
 }
