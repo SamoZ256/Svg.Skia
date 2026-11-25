@@ -1207,6 +1207,7 @@ public class SvgViewerElementPanelTests
             <svg xmlns="http://www.w3.org/2000/svg">
               <linearGradient id="g" />
               <rect fill="red" />
+              <sweepGradient id="s" />
             </svg>
             """);
         var window = held.Show("1");
@@ -1216,7 +1217,7 @@ public class SvgViewerElementPanelTests
 
         var offered = Offered(pick);
 
-        Assert.Equal(new[] { "none", "currentColor", "url(#g)" }, offered.Select(Said));
+        Assert.Equal(new[] { "none", "currentColor", "url(#g)", "url(#s)" }, offered.Select(Said));
 
         offered[2].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Dispatcher.UIThread.RunJobs();

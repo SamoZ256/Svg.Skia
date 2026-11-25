@@ -226,7 +226,7 @@ public sealed partial class SvgEditorController
 
     private static bool IsClipboardResource(XElement element)
         => element.Name.LocalName is "defs" or "style" or "symbol" or "clipPath" or "mask" or "filter"
-            or "linearGradient" or "radialGradient" or "pattern" or "marker" or "font" or "font-face"
+            or "linearGradient" or "radialGradient" or "sweepGradient" or "pattern" or "marker" or "font" or "font-face"
             or "color-profile" or "metadata" or "title" or "desc";
 
     private SvgDocument CreateFragmentDocument()
