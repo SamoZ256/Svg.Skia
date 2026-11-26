@@ -196,6 +196,29 @@ public static class SvgViewerOutline
             ? applied
             : null;
 
+    /// <summary>Whether <paramref name="node"/> is drawn: shown, and under nothing hidden or held back.</summary>
+    /// <remarks>
+    /// A <c>display="none"</c> group keeps its subtree compiled, each child with its own flag clear, and
+    /// so does one failing its conditions or naming a filter that is not there.
+    /// </remarks>
+    public static bool Drawn(SvgSceneNode node)
+    {
+        if (!node.IsVisible)
+        {
+            return false;
+        }
+
+        for (var item = node; item is { }; item = item.Parent)
+        {
+            if (item.IsDisplayNone || item.SuppressSubtreeRendering)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Whether <paramref name="node"/> is the content of a mask, compiled for one element it masks.</summary>
     internal static bool InMask(SvgSceneNode node)
     {

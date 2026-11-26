@@ -14,7 +14,7 @@ import sys
 ALLOWED = "SamoZ256/Svg.Skia"
 
 # Subcommands that write. Read-only ones (view, list, status, diff, checks) are left alone.
-WRITE_SUBCOMMANDS = r"create|merge|edit|close|reopen|ready|comment|review|lock|unlock"
+WRITE_SUBCOMMANDS = r"create|merge|edit|close|reopen|ready|comment|review|lock|unlock|update-branch"
 
 
 def deny(reason: str) -> None:

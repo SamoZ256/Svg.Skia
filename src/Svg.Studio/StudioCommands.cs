@@ -283,13 +283,16 @@ public sealed class StudioCommands
     /// <summary>The command a key pressed in the window asks for, or null for one the window leaves alone.</summary>
     /// <param name="typing">A text box has the focus, which keeps its own undo and every key without Alt.</param>
     /// <param name="exported">macOS has the window's menu, so what it shows it answers before the window sees the key.</param>
-    public StudioCommand? Resolve(KeyEventArgs e, bool typing, bool exported)
+    /// <param name="canvas">A key a canvas had and left alone, for which only the canvas's own commands are asked.</param>
+    public StudioCommand? Resolve(KeyEventArgs e, bool typing, bool exported, bool canvas = false)
     {
         var answered = _mac && exported;
 
         foreach (var command in _all)
         {
-            if (command.Scope is SvgEditorShortcutScope.Canvas or SvgEditorShortcutScope.CanvasOrDocumentTree)
+            if (canvas
+                    ? command.Scope != SvgEditorShortcutScope.Canvas
+                    : command.Scope is SvgEditorShortcutScope.Canvas or SvgEditorShortcutScope.CanvasOrDocumentTree)
             {
                 continue;
             }
@@ -427,6 +430,12 @@ public sealed class StudioCommands
 
     private static (SvgEditorShortcutKey Key, SvgEditorShortcutModifiers Modifiers)? FromAvalonia(KeyGesture gesture)
     {
+        // Control and Command both, as macOS's full screen is: the catalog has one Primary for the two.
+        if ((gesture.KeyModifiers & (KeyModifiers.Meta | KeyModifiers.Control)) == (KeyModifiers.Meta | KeyModifiers.Control))
+        {
+            return null;
+        }
+
         SvgEditorShortcutKey? key = gesture.Key switch
         {
             >= Avalonia.Input.Key.A and <= Avalonia.Input.Key.Z => SvgEditorShortcutKey.A + (gesture.Key - Avalonia.Input.Key.A),

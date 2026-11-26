@@ -1,15 +1,18 @@
 name: Build
 
-# Pull requests only, and Linux only: the suite runs locally before a push, so this is there to catch
-# what a working tree hides — a file never added, a submodule pointer never pushed. Windows, Studio UI
-# and the packs run in release.yml, the only route to the consumers; a push to master would repeat
-# the pull request's run on the same tree.
+# Linux only, and the whole suite: locally only the test projects a change reaches run. Windows,
+# Studio UI and the packs run in release.yml. Master's ruleset does not require a branch to be up to
+# date with it, so two pull requests can each pass and still clash once both land; the push run on
+# master is what catches that.
 on:
   pull_request:
     branches:
       - master
       - main
       - develop
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
 env:
@@ -27,7 +30,7 @@ concurrency:
 jobs:
   test:
     name: Test (ubuntu-latest)
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -42,6 +45,14 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+
+      # setup-dotnet's own cache needs packages.lock.json, which this repository does not keep.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'Directory.Packages.props', 'build/*.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
 
       - name: Restore
         run: dotnet restore Svg.Skia.slnx -p:Configuration=Release
@@ -64,7 +75,7 @@ jobs:
       - name: Publish test results
         uses: dorny/test-reporter@v1
         # Fork and Dependabot PR tokens cannot create check runs; TRX artifacts still upload above.
-        if: ${{ always() && (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        if: ${{ always() && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')) }}
         with:
           name: Test Results (ubuntu-latest)
           path: artifacts/test/**/*.trx

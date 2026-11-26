@@ -463,6 +463,7 @@ public static class AvaloniaModelExtensions
         // so the stops are cut at 0 and 1 with the colour Skia draws there.
         var start = sweepGradientShader.StartAngle;
         var sweep = sweepGradientShader.EndAngle - start;
+        (colors, positions) = UnrollPeriods(colors, positions, sweepGradientShader.Mode, -start / sweep, (360f - start) / sweep);
         var offsets = Array.ConvertAll(positions, pos => (start + pos * sweep) / 360f);
         var stops = new List<AMII.ImmutableGradientStop>(offsets.Length + 2);
         if (offsets[0] < 0f)
@@ -510,6 +511,38 @@ public static class AvaloniaModelExtensions
                 a.Blue + (b.Blue - a.Blue) * t,
                 a.Alpha + (b.Alpha - a.Alpha) * t).ToColor());
         }
+    }
+
+    // The conic brush only pads, so repeat and reflect lay a copy of the stops over each period the turn crosses
+    // between first and last, every odd one reversed for reflect. Past MaxSweepPeriods, from a sliver of a sweep,
+    // it is left to pad rather than build a stop list that size.
+    private const float MaxSweepPeriods = 1024f;
+
+    private static (SKColorF[] Colors, float[] Positions) UnrollPeriods(SKColorF[] colors, float[] positions, SKShaderTileMode mode, float first, float last)
+    {
+        var from = MathF.Floor(first);
+        if (mode == SKShaderTileMode.Clamp || !(MathF.Ceiling(last) - from is >= 1f and <= MaxSweepPeriods))
+        {
+            return (colors, positions);
+        }
+
+        var periods = (int)(MathF.Ceiling(last) - from);
+        var count = colors.Length;
+        var unrolledColors = new SKColorF[periods * count];
+        var unrolledPositions = new float[periods * count];
+        for (var p = 0; p < periods; p++)
+        {
+            var period = (int)from + p;
+            var reversed = mode == SKShaderTileMode.Mirror && (period & 1) != 0;
+            for (var i = 0; i < count; i++)
+            {
+                var source = reversed ? count - 1 - i : i;
+                unrolledColors[p * count + i] = colors[source];
+                unrolledPositions[p * count + i] = period + (reversed ? 1f - positions[source] : positions[source]);
+            }
+        }
+
+        return (unrolledColors, unrolledPositions);
     }
 
     public static AM.IImmutableBrush? ToVisualBrush(this PictureShader pictureShader, SKRect bounds)

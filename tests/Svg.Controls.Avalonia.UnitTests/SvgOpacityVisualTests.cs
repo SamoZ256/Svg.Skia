@@ -116,6 +116,44 @@ public class SvgOpacityVisualTests
             "<rect x='14' y='6' width='21' height='21' fill='url(#s)' />",
             (32, 16, Red), (24, 24, Yellow), (16, 16, Green), (24, 8, Blue), (29, 19, null), (18, 11, null));
 
+    // A half turn repeated: 3 o'clock is a quarter period before startAngle, and the colours jump back to red at 225 degrees.
+    [AvaloniaFact]
+    public void SvgImage_RepeatsAPartialSweepWhereSkiaModelDoes()
+        => AssertSweepDrawsAsSkiaModel(
+            AtCentre + " startAngle='45' endAngle='225' spreadMethod='repeat'",
+            RedToBlue,
+            Canvas,
+            (32, 20, new(64, 0, 191)), (20, 32, new(191, 0, 64)), (8, 20, new(64, 0, 191)), (20, 8, new(191, 0, 64)),
+            (10, 13, null), (13, 10, null), (30, 27, null), (27, 30, null), (32, 19, null), (32, 21, null));
+
+    [AvaloniaFact]
+    public void SvgImage_ReflectsAPartialSweepWhereSkiaModelDoes()
+        => AssertSweepDrawsAsSkiaModel(
+            AtCentre + " startAngle='45' endAngle='225' spreadMethod='reflect'",
+            RedToBlue,
+            Canvas,
+            (32, 20, new(191, 0, 64)), (20, 32, new(191, 0, 64)), (8, 20, new(64, 0, 191)), (20, 8, new(64, 0, 191)),
+            (10, 13, null), (13, 10, null), (30, 27, null), (27, 30, null), (32, 19, null), (32, 21, null));
+
+    // A whole turn that starts a quarter early: past 270 degrees the second period begins at red again.
+    [AvaloniaFact]
+    public void SvgImage_RepeatsASweepReachingOutsideTheTurnWhereSkiaModelDoes()
+        => AssertSweepDrawsAsSkiaModel(
+            AtCentre + " startAngle='-90' endAngle='270' spreadMethod='repeat'",
+            RedToBlue,
+            Canvas,
+            (32, 20, new(191, 0, 64)), (20, 32, new(128, 0, 128)), (8, 20, new(64, 0, 191)),
+            (18, 8, null), (22, 8, null), (30, 10, null), (32, 19, null), (32, 21, null));
+
+    [AvaloniaFact]
+    public void SvgImage_ReflectsASweepReachingOutsideTheTurnWhereSkiaModelDoes()
+        => AssertSweepDrawsAsSkiaModel(
+            AtCentre + " startAngle='-90' endAngle='270' spreadMethod='reflect'",
+            RedToBlue,
+            Canvas,
+            (32, 20, new(191, 0, 64)), (20, 32, new(128, 0, 128)), (8, 20, new(64, 0, 191)),
+            (18, 8, null), (22, 8, null), (30, 10, null), (32, 19, null), (32, 21, null));
+
     // Bound, a gradient's lists reach the brush as the stops they come to, spaced evenly without offsets.
     [AvaloniaTheory]
     [InlineData("linearGradient", " e:stop-offsets='{{ positions }}'")]

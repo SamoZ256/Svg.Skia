@@ -19,7 +19,7 @@ public class AvaloniaModelExtensionsTests
             new[] { new SKColorF(1f, 0f, 0f, 1f), new SKColorF(0f, 1f, 0f, 1f), new SKColorF(0f, 0f, 1f, 1f) },
             SKColorSpace.Srgb,
             positions,
-            SKShaderTileMode.Mirror,
+            SKShaderTileMode.Clamp,
             new SKMatrix { ScaleX = 2f, SkewX = 0.5f, TransX = 3f, SkewY = 0.25f, ScaleY = 1f, TransY = 4f, Persp2 = 1f });
 
         var brush = Assert.IsType<ImmutableConicGradientBrush>(shader.ToBrush(SKRect.Create(0f, 0f, 24f, 24f)));
