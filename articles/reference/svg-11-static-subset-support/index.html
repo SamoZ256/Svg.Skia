@@ -340,7 +340,7 @@
 <tr>
 <td>Color</td>
 <td>Partial</td>
-<td>Supports CSS color names, hex colors, rgb forms, opacity, <code>currentColor</code>, <code>color-interpolation</code>, and <code>color-interpolation-filters</code> in supported paint/filter paths. ICC <code>color-profile</code> behavior is compatibility-only and not a static target.</td>
+<td>Supports CSS color names, hex colors, rgb forms, opacity, <code>currentColor</code>, <code>color-interpolation</code>, and <code>color-interpolation-filters</code> in supported paint/filter paths. A <code>linearRGB</code> gradient does not blend in linear space: SkiaSharp exposes no way to choose a gradient's interpolation colour space, so Skia blends in the surface's. It draws as <code>sRGB</code> on an sRGB surface, such as <code>SKSvg.Save</code>, and too dark on a surface with no colour space, which includes most of Avalonia's. ICC <code>color-profile</code> behavior is compatibility-only and not a static target.</td>
 </tr>
 <tr>
 <td>Gradients and patterns</td>
