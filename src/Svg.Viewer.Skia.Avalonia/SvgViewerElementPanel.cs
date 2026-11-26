@@ -86,7 +86,24 @@ public sealed class SvgViewerElementPanel : UserControl
 
     private readonly Func<ExprEvaluator?> _values;
 
-    private readonly List<(string Name, TextBox Box, TextBlock Readout, TextBlock Trouble, Action<string, ExprValue?>? Follow)> _shown = new();
+    private readonly List<Line> _shown = new();
+
+    /// <summary>One row: its attribute, where it writes, its box and lines, and the control it is drawn as.</summary>
+    /// <param name="Styled">Whether a style declaration sets it.</param>
+    /// <param name="Inherited">The expression a group around it drives it with, where it writes none itself.</param>
+    private sealed record Line(
+        string Name,
+        string Address,
+        SvgExpressionField Box,
+        TextBlock Readout,
+        TextBlock Trouble,
+        Action<string, ExprValue?>? Follow,
+        Control Row,
+        bool Styled,
+        string? Inherited);
+
+    /// <summary>The sections drawn, with the rows each holds, which a search shows and hides.</summary>
+    private readonly List<(Expander Section, List<Line> Lines)> _sections = new();
 
     private readonly ContentControl _host = new();
 
@@ -103,6 +120,21 @@ public sealed class SvgViewerElementPanel : UserControl
         TextTrimming = TextTrimming.CharacterEllipsis
     };
 
+    /// <summary>The element's tag, as the file writes it.</summary>
+    private readonly TextBlock _badge = new() { FontSize = 11 };
+
+    private readonly TextBox _search = new()
+    {
+        Watermark = "Find an attribute",
+        FontSize = 12,
+        Margin = new Thickness(0, 6, 0, 0),
+        Classes = { "search" }
+    };
+
+    private readonly TextBlock _nothing = new() { Text = "Nothing here is called that.", Opacity = 0.6, IsVisible = false };
+
+    private string _filter = string.Empty;
+
     private readonly CheckBox _all = new()
     {
         Content = "Show all",
@@ -117,8 +149,21 @@ public sealed class SvgViewerElementPanel : UserControl
 
     private static readonly HashSet<SvgViewerAttributeGroup> s_folded = new();
 
-    /// <summary>The <see cref="s_all"/> this panel's rows were last listed under.</summary>
+    /// <summary>The <see cref="Listing"/> this panel's rows were last drawn under.</summary>
     private bool _listedAll;
+
+    /// <summary>Whether every attribute the element can take is listed: shown all, or being searched.</summary>
+    private bool Listing => s_all || _filter.Length > 0;
+
+    /// <summary>The state the rows were drawn from, or last wrote: the text, the history's step, and what the element was.</summary>
+    /// <remarks>
+    /// When the rows are drawn rather than when a box takes the keyboard: rows are drawn together, and a
+    /// refresh put off can leave them showing that state while the keyboard moves between them.
+    /// </remarks>
+    private (string Text, object? Step, string? Element)? _basis;
+
+    /// <summary>Whether a write is under way, which the host's refresh may call back into.</summary>
+    private bool _writing;
 
     /// <summary>Whether a refresh was put off while a row was held, and is owed once it is let go.</summary>
     private bool _stale;
@@ -128,14 +173,6 @@ public sealed class SvgViewerElementPanel : UserControl
 
     /// <summary>How many rows have a picker or a menu open.</summary>
     private int _picking;
-
-    /// <summary>What each row's box was drawn with, or last wrote.</summary>
-    /// <remarks>
-    /// A box is written only where it says something else. Against the file alone, a row left
-    /// behind by a refresh put off — the file undone under it — would write itself back on leaving,
-    /// and the undo would be undone without anybody asking.
-    /// </remarks>
-    private readonly Dictionary<TextBox, string> _drawn = new();
 
     private string? _address;
 
@@ -149,6 +186,13 @@ public sealed class SvgViewerElementPanel : UserControl
     private const string BoxRow = "e:bounds";
 
     private const string ArgumentRow = "e:" + SvgExpressionAttributes.Argument;
+
+    /// <inheritdoc cref="SvgSourceWorkspace.UndoStep"/>
+    /// <remarks>Of whatever holds the drawing, so a box typed while it moved underneath is not written over it.</remarks>
+    public Func<object?>? UndoStep { get; set; }
+
+    /// <inheritdoc cref="SvgSourceWorkspace.Holds"/>
+    public Func<object, bool>? Holds { get; set; }
 
     /// <summary>The class the drawing generates, which a box may not be named after; asked each time, since it can be renamed.</summary>
     public Func<string?>? ClassName { get; set; }
@@ -183,7 +227,7 @@ public sealed class SvgViewerElementPanel : UserControl
     private readonly HashSet<string> _takes = new(StringComparer.Ordinal);
 
     /// <summary>The row the pointer is over, which wears the heavier outline of the two.</summary>
-    private TextBox? _aimed;
+    private SvgExpressionField? _aimed;
 
     public SvgViewerElementPanel(
         Func<string> text,
@@ -217,11 +261,37 @@ public sealed class SvgViewerElementPanel : UserControl
         _all.IsCheckedChanged += (_, _) => ShowsAll = _all.IsChecked == true;
         ToolTip.SetTip(_all, "List every attribute this element can take, not only the usual ones.");
 
-        var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(10, 8, 10, 0) };
+        var heading = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto"),
+            Margin = new Thickness(10, 8, 10, 0)
+        };
 
+        var badge = new Border
+        {
+            Child = _badge,
+            Classes = { "badge" },
+            Padding = new Thickness(5, 1),
+            Margin = new Thickness(0, 0, 6, 0),
+            CornerRadius = new CornerRadius(3),
+            BorderThickness = new Thickness(1),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        badge[!Border.BorderBrushProperty] =
+            new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("TextControlBorderBrush");
+
+        heading.Children.Add(badge);
+        Grid.SetColumn(_title, 1);
         heading.Children.Add(_title);
-        Grid.SetColumn(_all, 1);
+        Grid.SetColumn(_all, 2);
         heading.Children.Add(_all);
+        Grid.SetRow(_search, 1);
+        Grid.SetColumnSpan(_search, 3);
+        heading.Children.Add(_search);
+
+        _search.TextChanged += (_, _) => Filter = _search.Text ?? string.Empty;
 
         _body.Children.Add(heading);
         DockPanel.SetDock(heading, Dock.Top);
@@ -262,7 +332,50 @@ public sealed class SvgViewerElementPanel : UserControl
     }
 
     /// <summary>The attributes on show, in the order they are listed.</summary>
-    public IReadOnlyList<string> Attributes => _shown.Select(row => row.Name).ToList();
+    public IReadOnlyList<string> Attributes => _shown.Where(row => row.Row.IsVisible).Select(row => row.Name).ToList();
+
+    /// <summary>What the rows are searched for: a row is listed where its label or attribute holds it.</summary>
+    /// <remarks>Searching lists every attribute the element can take, as <see cref="ShowsAll"/> does, without turning that on.</remarks>
+    public string Filter
+    {
+        get => _filter;
+        set
+        {
+            value ??= string.Empty;
+
+            var was = _filter.Length > 0;
+
+            _filter = value;
+
+            if (!string.Equals(_search.Text ?? string.Empty, value, StringComparison.Ordinal))
+            {
+                _search.Text = value;
+            }
+
+            // Rebuilt as a search starts or ends, Show all on or off: a search draws its sections
+            // open, and only a rebuild puts them back as they were folded.
+            if (was != _filter.Length > 0 || _listedAll != Listing)
+            {
+                Refresh();
+            }
+            else
+            {
+                Sift();
+            }
+        }
+    }
+
+    /// <summary>Whether a box here has the keyboard and says something other than what it was drawn with.</summary>
+    public bool IsPending => Typing() is { };
+
+    /// <summary>Writes what the box being typed in says, before something else acts on the drawing.</summary>
+    /// <returns>Whether it was written; false where nothing was typed, it was refused, or it still has trouble.</returns>
+    public bool CommitPending() => !_writing && Typing() is { } line && Commit(line.Box, line.Name, line.Address);
+
+    private Line? Typing()
+        => TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is SvgExpressionField { IsPending: true } box
+            ? _shown.FirstOrDefault(line => ReferenceEquals(line.Box, box))
+            : null;
 
     /// <summary>Why the last edit was refused, or null.</summary>
     public string? Fault { get; private set; }
@@ -278,7 +391,7 @@ public sealed class SvgViewerElementPanel : UserControl
 
             // Against what this panel lists rather than the setting, which another panel may have
             // changed since this one was drawn.
-            if (_listedAll != value)
+            if (_listedAll != Listing)
             {
                 Refresh();
             }
@@ -291,7 +404,7 @@ public sealed class SvgViewerElementPanel : UserControl
     {
         base.OnAttachedToVisualTree(e);
 
-        if (_listedAll != s_all)
+        if (_listedAll != Listing)
         {
             Refresh();
         }
@@ -343,8 +456,16 @@ public sealed class SvgViewerElementPanel : UserControl
             return;
         }
 
-        // Another element's rows are wrong whoever is holding them, and a row still being left
-        // writes to the element it was made for.
+        // What is typed goes to the element it was typed for, before its rows go. Its write's own
+        // refresh may have shown the new element already.
+        CommitPending();
+
+        if (string.Equals(_address, addressKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // Another element's rows are wrong whoever is holding them.
         _address = addressKey;
 
         Rebuild();
@@ -360,6 +481,9 @@ public sealed class SvgViewerElementPanel : UserControl
         if (Held())
         {
             _stale = true;
+
+            // The rows already drawn still show what a search asks for.
+            Sift();
 
             return;
         }
@@ -391,9 +515,9 @@ public sealed class SvgViewerElementPanel : UserControl
 
         _stale = false;
         _shown.Clear();
-        _drawn.Clear();
+        _sections.Clear();
         _rows.Children.Clear();
-        _listedAll = s_all;
+        _listedAll = Listing;
 
         if (_address is not { } address)
         {
@@ -417,15 +541,22 @@ public sealed class SvgViewerElementPanel : UserControl
 
         _element = element;
         _clipped = SvgAttributeEditor.IsClipped(open, address);
-        _title.Text = SvgViewerAttributes.Title(element);
-        ToolTip.SetTip(_title, $"<{element}>");
+        _basis = Now();
+
+        var id = SvgAttributeEditor.Attribute(open, address, "id");
+
+        _badge.Text = element;
+        ToolTip.SetTip(_badge, SvgViewerAttributes.Title(element));
+        _title.Text = id is { Length: > 0 } ? "#" + id : SvgViewerAttributes.Title(element);
+        _title.Opacity = id is { Length: > 0 } ? 1 : 0.7;
+        ToolTip.SetTip(_title, id is { Length: > 0 } ? "The element's id. Change it in the ID row below; what points at it follows." : $"<{element}>");
         _all.IsChecked = s_all;
 
         // First and outside the sections, because it is what the element says rather than how it is
         // said: somebody who picked a <text> came for the words far more often than for its spacing.
         if (SvgAttributeEditor.Content(open, address, out var missing) is { } content)
         {
-            _rows.Children.Add(Row(SvgExpressionAttributes.ContentName, content, content.Length > 0, element, null));
+            _rows.Children.Add(Row(SvgExpressionAttributes.ContentName, content, content.Length > 0, element, null, null));
         }
         else if (missing is { })
         {
@@ -441,7 +572,7 @@ public sealed class SvgViewerElementPanel : UserControl
         var listed = new HashSet<string>(rows.Select(row => Unprefixed(row.Name)), StringComparer.Ordinal);
 
         foreach (var name in SvgViewerAttributes.Usual(element)
-                     .Concat(s_all ? SvgElementNames.AttributesOf(element) : Array.Empty<string>()))
+                     .Concat(Listing ? SvgElementNames.AttributesOf(element) : Array.Empty<string>()))
         {
             if (listed.Add(Unprefixed(name)))
             {
@@ -455,21 +586,67 @@ public sealed class SvgViewerElementPanel : UserControl
         {
             var body = new StackPanel { Spacing = 10 };
             var set = 0;
+            var first = _shown.Count;
 
             foreach (var row in section.OrderBy(row => SvgViewerAttributes.Find(row.Name).Rank))
             {
-                body.Children.Add(Row(row.Name, row.Value, row.Set, element, SvgAttributeEditor.Styled(open, address, row.Name)));
-                set += row.Set ? 1 : 0;
+                var styled = SvgAttributeEditor.Styled(open, address, row.Name);
+                var inherited = row.Set || styled is { } ? null : SvgAttributeEditor.Driven(open, address, row.Name);
+
+                body.Children.Add(Row(row.Name, row.Value, row.Set, element, styled, inherited));
+                set += row.Set || styled is { } ? 1 : 0;
             }
 
-            _rows.Children.Add(Section(section.Key, set, body));
+            var expander = Section(section.Key, set, body, _filter.Length > 0);
+
+            _sections.Add((expander, _shown.GetRange(first, _shown.Count - first)));
+            _rows.Children.Add(expander);
         }
 
+        _rows.Children.Add(_nothing);
         _host.Content = _body;
+
+        Sift();
     }
 
+    /// <summary>Shows the rows a search finds, and the sections holding them; all of them while nothing is searched.</summary>
+    private void Sift()
+    {
+        foreach (var line in _shown)
+        {
+            line.Row.IsVisible = Matches(line);
+        }
+
+        foreach (var (section, lines) in _sections)
+        {
+            section.IsVisible = lines.Any(line => line.Row.IsVisible);
+        }
+
+        _nothing.IsVisible = _filter.Length > 0 && !_shown.Any(line => line.Row.IsVisible);
+    }
+
+    private bool Matches(Line line)
+        => _filter.Length == 0
+           || line.Name.IndexOf(_filter, StringComparison.OrdinalIgnoreCase) >= 0
+           || (IsText(line.Name) ? "Text" : SvgViewerAttributes.Find(line.Name).Label).IndexOf(_filter, StringComparison.OrdinalIgnoreCase) >= 0;
+
+    private (string Text, object? Step, string? Element) Now() => (_text(), UndoStep?.Invoke(), _element);
+
+    /// <summary>Whether the drawing is still the one the rows were drawn from, or has only moved on by edits built on it.</summary>
+    /// <remarks>
+    /// The element at the row's address is asked to be the same kind as well, which is the cheap check
+    /// against an address that is a path of indexes and could now name another element.
+    /// </remarks>
+    private bool Unmoved(SvgSourceDocument open, string address)
+        => _basis is not { } basis
+           || string.Equals(_text(), basis.Text, StringComparison.Ordinal)
+           || basis.Step is { } step
+           && Holds?.Invoke(step) == true
+           && string.Equals(SvgAttributeEditor.ElementName(open, address), basis.Element, StringComparison.Ordinal);
+
     /// <summary>One collapsible section of rows, which stays the way somebody left it.</summary>
-    private static Expander Section(SvgViewerAttributeGroup group, int set, Control rows)
+    /// <param name="searching">Opened, and left out of what is remembered, while a search is showing it.</param>
+    private static Expander Section(SvgViewerAttributeGroup group, int set, Control rows, bool searching)
     {
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
 
@@ -488,10 +665,15 @@ public sealed class SvgViewerElementPanel : UserControl
             Header = header,
             Content = rows,
             Tag = group.ToString(),
-            IsExpanded = !s_folded.Contains(group),
+            IsExpanded = searching || !s_folded.Contains(group),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
+
+        if (searching)
+        {
+            return section;
+        }
 
         // After IsExpanded is set, so reading the setting back is not taken for somebody changing it.
         section.Expanded += (_, _) => s_folded.Remove(group);
@@ -503,20 +685,28 @@ public sealed class SvgViewerElementPanel : UserControl
     private static string Unprefixed(string name) => name.Substring(name.IndexOf(':') + 1);
 
     /// <param name="styled">What the element's style attribute sets this to instead, or null.</param>
-    private Control Row(string name, string value, bool set, string element, string? styled)
+    /// <param name="inherited">The expression a group around the element drives this with, where nothing on it sets it.</param>
+    private Control Row(string name, string value, bool set, string element, string? styled, string? inherited)
     {
         var about = SvgViewerAttributes.Find(name);
 
         // The row's own, and not whatever is picked by the time a posted write runs.
         var address = _address!;
+
+        // A style declaration wins over the attribute, so a row it sets shows and writes the
+        // declaration; not geometry, whose attribute grammar no browser reads in a style.
+        var fixedInStyle = styled is { } && SvgAttributeEditor.IsGeometry(name);
+        var inStyle = styled is { } && !fixedInStyle;
+        var shown = inStyle ? Unimportant(styled!) : value;
+
         var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto") };
 
         var label = new TextBlock
         {
             Text = IsText(name) ? "Text" : about.Label,
             FontSize = 12,
-            FontWeight = set ? FontWeight.SemiBold : FontWeight.Normal,
-            Opacity = set ? 1 : 0.7,
+            FontWeight = set || inStyle ? FontWeight.SemiBold : FontWeight.Normal,
+            Opacity = set || inStyle ? 1 : 0.7,
             VerticalAlignment = VerticalAlignment.Center
         };
 
@@ -525,13 +715,22 @@ public sealed class SvgViewerElementPanel : UserControl
 
         // What an expression here would have to come to. A row that takes none says nothing, and
         // braces typed into it are refused with the reason the moment they are typed.
-        if (Typed(name) is { } type)
+        var note = Typed(name) is { } type
+            ? ExprFunctions.Describe(type)
+              + (SvgExpressionAttributes.IsInArguments(name) ? " per argument" : string.Empty)
+              + (SvgExpressionAttributes.IsResolvedBeforeRecording(name) ? ", built in" : string.Empty)
+            : null;
+
+        if (inStyle)
+        {
+            note = note is { } ? note + " · in style" : "in style";
+        }
+
+        if (note is { })
         {
             var kind = new TextBlock
             {
-                Text = ExprFunctions.Describe(type)
-                       + (SvgExpressionAttributes.IsInArguments(name) ? " per argument" : string.Empty)
-                       + (SvgExpressionAttributes.IsResolvedBeforeRecording(name) ? ", built in" : string.Empty),
+                Text = note,
                 Opacity = 0.45,
                 FontSize = 11,
                 Margin = new Thickness(8, 0, 0, 0),
@@ -542,20 +741,26 @@ public sealed class SvgViewerElementPanel : UserControl
             heading.Children.Add(kind);
         }
 
-        var box = new TextBox
+        var box = new SvgExpressionField
         {
-            Text = value,
-            Watermark = styled is { } ? $"{styled} in style" : IsText(name) ? "no text" : "not set",
+            Text = shown,
+            Value = shown,
+            Watermark = fixedInStyle ? $"{styled} in style"
+                : inherited is { } ? $"{inherited} inherited"
+                : IsText(name) ? "no text"
+                : "not set",
             FontSize = 12,
             Tag = name
         };
 
-        // A style declaration wins over the attribute, so the row says what the element is painted
-        // with and where that can be changed rather than offering a box for the attribute under it.
-        if (styled is { })
+        if (fixedInStyle)
         {
             box.IsReadOnly = true;
             ToolTip.SetTip(box, "Set in this element's style attribute, which wins over the attribute. Change it under Inline style.");
+        }
+        else if (inStyle)
+        {
+            ToolTip.SetTip(box, "Set in this element's style attribute, which wins over the attribute. What is typed here is written there.");
         }
 
         if (this.TryFindResource("SvgExpressionBox", ActualThemeVariant, out var theme) && theme is ControlTheme box_)
@@ -599,11 +804,11 @@ public sealed class SvgViewerElementPanel : UserControl
 
         void Put(string text) => Commit(box, name, address, text);
 
-        if (!IsText(name) && Controlled(element) && styled is null)
+        if (!IsText(name) && Controlled(element) && !fixedInStyle)
         {
             follow = about.Control switch
             {
-                SvgViewerAttributeControl.Colour => Swatch(line, box, Put),
+                SvgViewerAttributeControl.Colour => Chip(line, box, Put, inherited),
                 SvgViewerAttributeControl.Fraction => Fraction(lines, box, name, Put),
                 _ => null
             };
@@ -613,19 +818,21 @@ public sealed class SvgViewerElementPanel : UserControl
                 Choices(line, name, Put, about.Choices);
             }
 
-            if (about.Control == SvgViewerAttributeControl.Number)
+            (box.Step, box.Minimum, box.Maximum) = about.Control switch
             {
-                box.AddHandler(KeyDownEvent, Nudge, RoutingStrategies.Tunnel);
-            }
+                SvgViewerAttributeControl.Number => (1d, double.NegativeInfinity, double.PositiveInfinity),
+                SvgViewerAttributeControl.Fraction => (0.1, 0d, 1d),
+                _ => (0d, double.NegativeInfinity, double.PositiveInfinity)
+            };
+            box.PercentIsFraction = about.Control == SvgViewerAttributeControl.Fraction;
         }
 
         lines.Children.Add(readout);
         lines.Children.Add(trouble);
 
-        var row = (name, box, readout, trouble, follow);
+        var row = new Line(name, address, box, readout, trouble, follow, lines, styled is { }, inherited);
 
         _shown.Add(row);
-        _drawn[box] = value;
 
         // Not for a row its style paints: removing it would take the declaration too, which the row
         // says is changed under Inline style.
@@ -673,6 +880,10 @@ public sealed class SvgViewerElementPanel : UserControl
         return lines;
     }
 
+    /// <summary>A style declaration's value without its <c>!important</c>, which a write into it keeps.</summary>
+    private static string Unimportant(string styled)
+        => Regex.Replace(styled, @"\s*!\s*important\s*$", string.Empty, RegexOptions.IgnoreCase);
+
     /// <summary>Whether a row on <paramref name="element"/> may offer a control beside its box.</summary>
     /// <remarks>
     /// Not on an animation or a transfer function, where the names mean something else:
@@ -683,134 +894,37 @@ public sealed class SvgViewerElementPanel : UserControl
            && !element.StartsWith("animate", StringComparison.Ordinal)
            && !element.StartsWith("feFunc", StringComparison.Ordinal);
 
-    /// <summary>A swatch before the box that opens a colour picker, answering what the box says.</summary>
-    private Action<string, ExprValue?> Swatch(Grid line, TextBox box, Action<string> put)
+    /// <summary>A paint chip before the box that opens a colour picker, answering what the box says.</summary>
+    /// <param name="inherited">The expression a group around it drives the paint with, where the element writes none.</param>
+    private Action<string, ExprValue?> Chip(Grid line, SvgExpressionField box, Action<string> put, string? inherited)
     {
-        var shown = new Border
-        {
-            Width = 16,
-            Height = 16,
-            CornerRadius = new CornerRadius(3),
-            BorderThickness = new Thickness(1)
-        };
+        var chip = new SvgPaintChip { Tag = box.Tag, Margin = new Thickness(0, 0, 6, 0) };
 
-        shown[!Border.BorderBrushProperty] =
-            new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("TextControlBorderBrush");
+        chip.Flyout!.Opened += (_, _) => _picking++;
 
-        var swatch = new Button
-        {
-            Content = shown,
-            Classes = { "swatch" },
-            Tag = box.Tag,
-            Padding = new Thickness(4),
-            MinHeight = 0,
-            Margin = new Thickness(0, 0, 6, 0),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
-        var flyout = new Flyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
-
-        swatch.Flyout = flyout;
-        ToolTip.SetShowOnDisabled(swatch, true);
-
-        flyout.Opened += (_, _) => _picking++;
-
-        // Written once, when the picker goes: every write rebuilds the rows and is one more step
-        // to undo.
-        flyout.Closed += (_, _) =>
+        // Written once, when the picker goes: every write rebuilds the rows and is one more step to undo.
+        chip.Flyout.Closed += (_, _) =>
         {
             _picking--;
-            put(box.Text ?? string.Empty);
             Owed();
         };
 
-        // Made as it opens rather than with the row, which Studio builds for every pick; and before
-        // it is shown, since showing it hands the keyboard to what it holds.
-        flyout.Opening += (_, _) =>
-        {
-            var had = shown.Background is ISolidColorBrush { Color: var known } ? known : (Color?)null;
-            var was = box.Text;
+        chip.Previewed += (_, paint) => box.Text = paint;
+        chip.Picked += (_, paint) => put(paint);
 
-            // Grey where the row has no colour. Opened on black, the spectrum stays black wherever it
-            // is clicked, and black itself could never be picked.
-            var picker = new ColorView
-            {
-                IsAlphaEnabled = false,
-                IsAlphaVisible = false,
-                Color = had is { } colour ? Color.FromRgb(colour.R, colour.G, colour.B) : Colors.Gray
-            };
-
-            picker.Styles.Add(new StyleInclude(Home)
-            {
-                Source = new Uri("avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml")
-            });
-
-            // Into the box as it moves, so the row reads what is picked. The colour it opened on
-            // puts back what was written, so opening and closing it cannot turn red into #ff0000.
-            picker.ColorChanged += (_, e) => box.Text =
-                had is { } same && e.NewColor.R == same.R && e.NewColor.G == same.G && e.NewColor.B == same.B
-                    ? was
-                    : Spelt(e.NewColor, had?.A ?? byte.MaxValue);
-
-            flyout.Content = picker;
-        };
-
-        Grid.SetColumn(swatch, 0);
-        line.Children.Add(swatch);
+        Grid.SetColumn(chip, 0);
+        line.Children.Add(chip);
 
         return (written, value) =>
         {
-            var bound = SvgExpressionAttributes.TryUnwrap(written, out _);
-            var colour = bound
-                ? value is { Type: ExprType.Color } ? SvgViewerParameterFactory.ToColor(value) : (Color?)null
-                : Parsed(written);
-
-            shown.Background = colour is { } known ? new SolidColorBrush(known) : null;
-            swatch.IsEnabled = !bound;
-
-            ToolTip.SetTip(swatch, bound
-                ? "Follows the expression. Type a colour into the box to set one instead."
-                : "Pick a colour");
+            chip.Paint = written;
+            chip.IsDriven = inherited is { };
+            chip.DrivenColor = value is { Type: ExprType.Color } ? SvgViewerParameterFactory.ToColor(value) : null;
         };
     }
 
-    /// <summary>A picked colour as the row writes it, at the opacity the row already had.</summary>
-    /// <remarks>
-    /// The picker has no alpha of its own, so a translucent fill keeps its own rather than being made
-    /// opaque by a change of hue. Spelt rgba() rather than #rrggbbaa, which a paint reads and a
-    /// stop-color does not.
-    /// </remarks>
-    private static string Spelt(Color colour, byte alpha)
-        => alpha == byte.MaxValue
-            ? SvgViewerParameterFactory.Describe(ExprValue.Color(colour.R, colour.G, colour.B, alpha))
-            : string.Format(CultureInfo.InvariantCulture, "rgba({0}, {1}, {2}, {3:0.###})", colour.R, colour.G, colour.B, alpha / 255d);
-
-    /// <summary>A written colour, or null where it is none, a reference, or not a colour at all.</summary>
-    private static Color? Parsed(string written)
-    {
-        // Not through the converter, which answers these with an exception on every keystroke.
-        if (written.Length == 0
-            || written is "none" or "currentColor" or "inherit"
-            || written.StartsWith("url(", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        try
-        {
-            return new SvgColourConverter().ConvertFrom(null, CultureInfo.InvariantCulture, written)
-                is System.Drawing.Color { IsEmpty: false } colour
-                ? Color.FromArgb(colour.A, colour.R, colour.G, colour.B)
-                : null;
-        }
-        catch (Exception failure) when (failure is SvgException or FormatException or ArgumentException)
-        {
-            return null;
-        }
-    }
-
     /// <summary>A slider under the box for a value from 0 to 1, answering what the box says.</summary>
-    private static Action<string, ExprValue?> Fraction(StackPanel lines, TextBox box, string name, Action<string> put)
+    private static Action<string, ExprValue?> Fraction(StackPanel lines, SvgExpressionField box, string name, Action<string> put)
     {
         var slider = new Slider
         {
@@ -985,101 +1099,111 @@ public sealed class SvgViewerElementPanel : UserControl
         }
     }
 
-    /// <summary>Up and down step a number in the box, without writing it until the box is left.</summary>
-    /// <remarks>Tunnelling, because the box's own handler takes the arrows to move the caret.</remarks>
-    private static void Nudge(object? sender, KeyEventArgs e)
-    {
-        if (e.Key is not (Key.Up or Key.Down) || sender is not TextBox box)
-        {
-            return;
-        }
-
-        var match = s_measure.Match(box.Text?.Trim() ?? string.Empty);
-
-        if (!match.Success
-            || !double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
-        {
-            return;
-        }
-
-        var step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10
-            : e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? 0.1
-            : 1;
-
-        number = Math.Round(number + (e.Key == Key.Up ? step : -step), 6);
-
-        box.Text = number.ToString("0.######", CultureInfo.InvariantCulture) + match.Groups[2].Value;
-        box.CaretIndex = box.Text.Length;
-        e.Handled = true;
-    }
-
-    /// <summary>A number and the unit after it, if any: <c>12</c>, <c>-0.5em</c>, <c>50%</c>.</summary>
-    private static readonly Regex s_measure = new(@"^([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)([a-zA-Z%]*)$", RegexOptions.CultureInvariant);
-
     /// <summary>Puts <paramref name="text"/> in a row's box and writes it, as though it had been typed.</summary>
     /// <remarks>
     /// Posted, because writing rebuilds every row, and the control whose handler asked for this is
     /// still inside that handler. A second write of the same text is a no-op in the commit below.
     /// </remarks>
-    private void Commit(TextBox box, string name, string address, string text)
+    private void Commit(SvgExpressionField box, string name, string address, string text)
     {
         box.Text = text;
 
         Dispatcher.UIThread.Post(() => Commit(box, name, address));
     }
 
-    private void Commit(TextBox box, string name, string address)
+    /// <summary>Writes what a row's box says, where it says something new.</summary>
+    /// <returns>Whether the file now says what the box does.</returns>
+    private bool Commit(SvgExpressionField box, string name, string address)
     {
         var content = IsText(name);
         var written = content ? box.Text ?? string.Empty : box.Text?.Trim() ?? string.Empty;
+        var drawn = box.Value ?? string.Empty;
 
-        if (_drawn.TryGetValue(box, out var drawn) && string.Equals(written, content ? drawn : drawn.Trim(), StringComparison.Ordinal))
+        // Against what the box was drawn with as well as the file. Against the file alone, a box
+        // left behind by a refresh put off, the file undone under it, would write itself back.
+        if (string.Equals(written, content ? drawn : drawn.Trim(), StringComparison.Ordinal))
         {
-            return;
+            // A space typed after the value is nothing to write, and nothing left pending.
+            box.Value = box.Text;
+
+            return true;
         }
 
         var open = Open();
+        var had = Written(open, address, name);
 
-        var had = content
-            ? (open is { } ? SvgAttributeEditor.Content(open, address, out _) : null) ?? string.Empty
-            : (open is { }
-                    ? SvgAttributeEditor.Attributes(open, address)
-                    : Array.Empty<SvgSourceAttribute>())
-                .FirstOrDefault(attribute => string.Equals(attribute.Name, name, StringComparison.Ordinal))
-                .Value ?? string.Empty;
-
+        // Before the drawing is asked whether it moved, so the panel's own write, refreshed back
+        // into it, is never refused.
         if (string.Equals(written, had, StringComparison.Ordinal))
         {
-            return;
+            box.Value = written;
+
+            return true;
         }
 
         // Said on the row already. The box keeps what was typed, so it can be finished.
         if (Trouble(name, written) is { })
         {
-            return;
+            return false;
+        }
+
+        if (open is { } && !Unmoved(open, address))
+        {
+            Say($"The drawing changed while {(content ? "the text" : $"'{name}'")} was being typed, so it was not written.");
+
+            // Put back first, so the box's leaving as the rows go writes nothing. Rebuilt held or not:
+            // what is typed is refused either way, and the keyboard goes back to the same row.
+            box.Text = box.Value;
+            Rebuild();
+
+            return false;
         }
 
         if (!Set(address, name, written))
         {
             box.Text = had;
+
+            return false;
         }
-        else if (_drawn.ContainsKey(box))
-        {
-            _drawn[box] = written;
-        }
+
+        box.Value = written;
+
+        return true;
     }
 
-    /// <summary>Fills one row's trouble and readout from what its box currently says.</summary>
-    private void Says((string Name, TextBox Box, TextBlock Readout, TextBlock Trouble, Action<string, ExprValue?>? Follow) row)
+    /// <summary>What the file says for a row: its text, the style declaration that paints it, or its attribute.</summary>
+    private static string Written(SvgSourceDocument? open, string address, string name)
+    {
+        if (open is null)
+        {
+            return string.Empty;
+        }
+
+        if (IsText(name))
+        {
+            return SvgAttributeEditor.Content(open, address, out _) ?? string.Empty;
+        }
+
+        return SvgAttributeEditor.Styled(open, address, name) is { } styled && !SvgAttributeEditor.IsGeometry(name)
+            ? Unimportant(styled)
+            : SvgAttributeEditor.Attribute(open, address, name) ?? string.Empty;
+    }
+
+    /// <summary>Fills one row's trouble and readout from what its box currently says, or from the group driving it.</summary>
+    private void Says(Line row)
     {
         var written = row.Box.Text?.Trim() ?? string.Empty;
+        var shown = written.Length == 0 && row.Inherited is { } inherited ? inherited : written;
         var trouble = Trouble(row.Name, written);
 
         row.Trouble.Text = trouble;
         row.Trouble.IsVisible = trouble is { };
 
-        var value = trouble is null ? Value(written) : null;
-        var readout = trouble is null ? Readout(row.Name, written, value) : string.Empty;
+        row.Box.IsDriven = SvgExpressionAttributes.TryUnwrap(shown, out _)
+                           || SvgExpressionAttributes.IsInArguments(row.Name) && SvgTransformExpression.Parse(row.Name, shown).Any;
+
+        var value = trouble is null ? Value(shown) : null;
+        var readout = trouble is null ? Readout(row.Name, shown, value) : string.Empty;
 
         row.Readout.Text = readout;
         row.Readout.IsVisible = readout.Length > 0;
@@ -1254,15 +1378,36 @@ public sealed class SvgViewerElementPanel : UserControl
     /// </remarks>
     private bool Write(string address, string name, string? value)
     {
-        var refusal = IsText(name)
-            ? _write(
-                value is null ? "clear text" : "set text",
-                source => SvgAttributeEditor.SetContent(source, address, value))
-            : _write(
-                value is null ? $"remove {name}" : $"set {name}",
-                source => SvgAttributeEditor.SetAttribute(source, address, name, value));
+        string? refusal;
+
+        _writing = true;
+
+        try
+        {
+            refusal = IsText(name)
+                ? _write(
+                    value is null ? "clear text" : "set text",
+                    source => SvgAttributeEditor.SetContent(source, address, value))
+                : string.Equals(name.Trim(), "id", StringComparison.Ordinal)
+                ? _write(
+                    string.IsNullOrWhiteSpace(value) ? "remove id" : $"rename to #{value!.Trim()}",
+                    source => SvgElementEditor.Rename(source, address, value, out _))
+                : _write(
+                    value is null ? $"remove {name}" : $"set {name}",
+                    source => SvgAttributeEditor.SetAttribute(source, address, name, value));
+        }
+        finally
+        {
+            _writing = false;
+        }
 
         Say(refusal);
+
+        // The panel's own write moves the state its rows are measured against on.
+        if (refusal is null)
+        {
+            _basis = Now();
+        }
 
         return refusal is null;
     }
@@ -1334,7 +1479,7 @@ public sealed class SvgViewerElementPanel : UserControl
         }
         else if (ClipRequested is { } && SvgViewerElementTree.Carried(e) is { Applies.Count: > 0 } row)
         {
-            Offer(row.Key, property => row.Applies.Contains(property) && Clippable(property));
+            Offer(row.Key, property => row.Applies.Contains(property) && Clippable(property) && !_shown.Any(line => line.Name == property && line.Styled));
         }
         else
         {
@@ -1419,13 +1564,13 @@ public sealed class SvgViewerElementPanel : UserControl
     }
 
     /// <summary>The box under the pointer, where it is one that would take what is being carried.</summary>
-    private TextBox? Under(DragEventArgs e)
-        => SvgViewerDragScroll.Under(e, this)?.FindAncestorOfType<TextBox>(true) is { Tag: string name } box
+    private SvgExpressionField? Under(DragEventArgs e)
+        => SvgViewerDragScroll.Under(e, this)?.FindAncestorOfType<SvgExpressionField>(true) is { Tag: string name } box
            && _takes.Contains(name)
             ? box
             : null;
 
-    private void Aim(TextBox? box)
+    private void Aim(SvgExpressionField? box)
     {
         if (ReferenceEquals(_aimed, box))
         {

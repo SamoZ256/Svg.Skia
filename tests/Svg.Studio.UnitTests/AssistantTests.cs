@@ -2726,6 +2726,42 @@ public class AssistantTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Swap_Paints_Is_One_Step_And_Says_What_It_Shadows()
+    {
+        var window = await Host(Write("parts.svg", Parts.Replace("<g id=\"body\">", "<g id=\"body\" fill=\"{{ ink }}\">", StringComparison.Ordinal)));
+        var viewer = Viewer(window);
+
+        var chat = new ScriptedChat(
+            Call("swap_paints", new() { ["keys"] = new[] { "1/0", "2" }, ["summary"] = "outline them" }),
+            Say("Swapped."));
+
+        await Send(window, chat, "outline the box and the dot");
+
+        Assert.Contains("""<rect id="box" width="24" height="24" fill="none" stroke="{{ ink }}" />""", viewer.Source);
+        Assert.Contains("""<circle id="dot" cx="12" cy="12" r="4" fill="none" stroke="black" />""", viewer.Source);
+        Assert.Contains("The fill now shadows {{ ink }} from <g #body>.", chat.Results[0], StringComparison.Ordinal);
+        Assert.Equal("Assistant: outline them", viewer.UndoLabel);
+    }
+
+    [AvaloniaFact]
+    public async Task Setting_An_Id_Renames_It_With_What_Points_At_It()
+    {
+        var window = await Host(Write("parts.svg", Parts.Replace("<rect id=\"box\"", "<rect id=\"box\" fill=\"url(#shade)\" stroke=\"url(#shade)\"", StringComparison.Ordinal)));
+        var viewer = Viewer(window);
+
+        var chat = new ScriptedChat(
+            Call("set_attributes", new() { ["key"] = "0/0", ["attributes"] = new[] { new { name = "id", value = "tone" } }, ["summary"] = "rename the gradient" }),
+            Say("Renamed."));
+
+        await Send(window, chat, "call the gradient tone");
+
+        Assert.Contains("""<linearGradient id="tone" />""", viewer.Source);
+        Assert.Contains("""fill="url(#tone)" stroke="url(#tone)""", viewer.Source);
+        Assert.DoesNotContain("shade", viewer.Source, StringComparison.Ordinal);
+        Assert.Contains("2 references to it now say the new id.", chat.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
     public async Task A_Gradient_Takes_Its_Stops_And_Each_Of_Several_Copies_Is_Named()
     {
         var window = await Host(Write("parts.svg", Parts));

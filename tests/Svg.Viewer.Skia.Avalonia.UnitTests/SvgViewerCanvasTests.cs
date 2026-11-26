@@ -406,6 +406,42 @@ public class SvgViewerCanvasTests
         return inked;
     }
 
+    /// <summary>The lines drawn and the lines a carry lands on are set apart, and null draws the second.</summary>
+    [AvaloniaFact]
+    public void Lines_Are_Drawn_Apart_From_What_Snaps()
+    {
+        // 100x50 at 4x fills the pane, and the drawing paints nothing above y=30: lines show there.
+        var (window, canvas, document) = Host(Roomy);
+
+        using var _ = document;
+        var lined = new SvgViewerGrid(10f, 0f);
+        var ground = Painted(window, 20, 20);
+
+        int Lined()
+        {
+            Dispatcher.UIThread.RunJobs();
+
+            using var shot = Shot(window);
+
+            return Inked(shot, ground, 0, 0, 400, 100);
+        }
+
+        // The page's own edge is in the band too, so lines are counted against the band without them.
+        var bare = Lined();
+
+        canvas.GridLines = lined;
+        Assert.True(Lined() > bare, "lines nothing snaps to are drawn");
+
+        canvas.Grid = lined;
+        canvas.GridLines = SvgViewerGrid.None;
+        Assert.Equal(bare, Lined());
+
+        canvas.GridLines = null;
+        Assert.True(Lined() > bare, "with no lines of its own the canvas draws what snaps");
+
+        window.Close();
+    }
+
     /// <summary>
     /// An arrangement that does not begin at the origin is drawn where everything else says it is.
     /// </summary>

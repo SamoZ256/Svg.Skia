@@ -190,18 +190,19 @@ public partial class SkiaCSharpRenderTests
     }
 
     // A disabled ring turned 2 degrees measures under its bound, so it is told apart from an opacity of
-    // 0.21; an enabled white one, with no hue to turn, from a ring 0.02 narrower.
+    // 0.22; an enabled white one, with no hue to turn, from a ring 0.02 narrower. Ubuntu's x64 raster
+    // rounds the 0.2 opacity differently and measured the disabled one at 0.00115, twice this machine.
     [Theory]
     [InlineData(true, false, 0.001)]
     [InlineData(true, true, 0.001)]
-    [InlineData(false, false, 0.001)]
-    [InlineData(false, true, 0.0013)]
+    [InlineData(false, false, 0.0016)]
+    [InlineData(false, true, 0.0016)]
     public void A_Thermostat_Ring_Draws_What_ButtonHelper_Draws(bool enabled, bool light, double threshold)
     {
         var arguments = new object?[] { enabled, light };
         var off = (enabled, light) switch
         {
-            (false, _) => ThermostatRing.Replace(": 0.2<", ": 0.21<"),
+            (false, _) => ThermostatRing.Replace(": 0.2<", ": 0.22<"),
             (_, true) => ThermostatRing.Replace("#FFFFFF\" stroke-width=\"1.2\"", "#FFFFFF\" stroke-width=\"1.18\""),
             _ => WithGradientTransform(ThermostatRing, "rotate(2 15 15)")
         };

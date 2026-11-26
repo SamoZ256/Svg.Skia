@@ -44,6 +44,7 @@ of these controls.
 | Move an element | Drag its row in the element tree |
 | A new group | The element tree's own menu, which a right click on the canvas opens too, on what it lands on |
 | Select all, or none | `Ctrl`/`Cmd` `A`, and with `Shift` none, or Select on that menu |
+| Swap fill and stroke | `Shift` `X` on the canvas or the element tree, or that menu |
 | Select the same fill, stroke, stroke width, opacity or kind, or what reads a name | That menu's Select, comparing what the file writes |
 | Clip or mask an element | Drop a `<clipPath>`, a `<mask>` or a shape kept in `<defs>` on its row (`Alt` makes the shape a mask) or on its Clip path or Mask box; **New clip path** and **New mask** are on the element tree's menu |
 | Reach a row or box out of sight | Hold the drag near the pane's edge, which scrolls it, faster the nearer the edge |
@@ -143,6 +144,12 @@ other way; the default is the platform picker.
 No extra theme setup is needed. `ColorPicker` keeps its control theme in its own assembly rather
 than in `FluentTheme`, so `SvgViewerDeclarationPanel` includes it itself — a host that forgets would
 otherwise get a colour row templated with nothing, present in the tree and invisible on screen.
+
+The Attributes panel's box and swatch are public for a host's own chrome: `SvgExpressionField` and
+`SvgPaintChip`. Give the field the `SvgExpressionBox` theme, from `SvgExpressionBox.axaml`, for the
+expression colours and its `:driven` outline, which is `SvgViewerDrivenBrush`. Before a command of the
+host's acts on the drawing, call `CommitPending()` on the `SvgViewerElementPanel` that has the
+keyboard, so what is typed there is written first.
 
 ## Two things worth knowing
 

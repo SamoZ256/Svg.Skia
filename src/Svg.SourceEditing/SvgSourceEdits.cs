@@ -19,16 +19,29 @@ public readonly record struct SvgSourceEdits(string Label, IReadOnlyList<SvgSour
     /// <summary>Every key the steps name, in order: what a host has to be able to place before anything is written.</summary>
     public IReadOnlyList<string> Keys => Steps.SelectMany(step => step.Keys).ToList();
 
+    /// <inheritdoc cref="Apply(SvgSourceDocument, Func{string, string?}, out IReadOnlyList{string})"/>
+    public string? Apply(SvgSourceDocument source, Func<string, string?> address) => Apply(source, address, out _);
+
     /// <summary>Applies every step to one document, once every key the steps name has been found in it.</summary>
     /// <remarks>
     /// Belongs inside a commit: a step's own refusal can come after an earlier step has written,
     /// and the commit is what puts that back. A key the host cannot place, or the file does not
     /// have, is refused before anything is written.
+    ///
+    /// Every key names the drawing as it was before the plan, however the steps before it shift
+    /// what is where: a key is found once, and the steps act on what it found. A step naming what
+    /// an earlier step took out is refused, except a removal, for which it is already done.
     /// </remarks>
     /// <param name="address">What the host calls each key, turned into an address in the file.</param>
+    /// <param name="landed">
+    /// The file keys, once every step is written, of what the steps wrote, moved or put in, in step
+    /// order: what a host picks afterwards. Empty where the edit was refused.
+    /// </param>
     /// <returns>The sentence refusing the edit, or null where it was made.</returns>
-    public string? Apply(SvgSourceDocument source, Func<string, string?> address)
+    public string? Apply(SvgSourceDocument source, Func<string, string?> address, out IReadOnlyList<string> landed)
     {
+        landed = Array.Empty<string>();
+
         if (source is null)
         {
             throw new ArgumentNullException(nameof(source));
@@ -40,6 +53,7 @@ public readonly record struct SvgSourceEdits(string Label, IReadOnlyList<SvgSour
         }
 
         var found = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var addresses = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var key in Keys)
         {
@@ -59,13 +73,33 @@ public readonly record struct SvgSourceEdits(string Label, IReadOnlyList<SvgSour
             }
 
             found[key] = element;
+            addresses[key] = at;
         }
+
+        var touched = new List<XElement>();
 
         foreach (var step in Steps)
         {
+            var gone = step.Keys.FirstOrDefault(key => found[key].Document is null);
+
+            if (gone is { } && step is SvgSourceEdit.Remove)
+            {
+                continue;
+            }
+
+            if (gone is { })
+            {
+                return SvgElementEditor.Missing(addresses[gone]);
+            }
+
             var refusal = step switch
             {
                 SvgSourceEdit.SetAttributes set => Write(found[set.Key], set.Writes),
+                SvgSourceEdit.Insert insert => Put(source, found[insert.TargetKey], insert, touched),
+                SvgSourceEdit.Move move => SvgElementEditor.Move(source, found[move.Key], found[move.TargetKey], move.Where),
+                SvgSourceEdit.Remove remove => Cut(found[remove.Key]),
+                SvgSourceEdit.SetContent content => SvgAttributeEditor.SetContent(found[content.Key], content.Value),
+                SvgSourceEdit.Retag retag => SvgElementEditor.Retag(found[retag.Key], retag.Name),
                 _ => throw new ArgumentException($"'{step.GetType().Name}' is not a step this applies.", nameof(Steps))
             };
 
@@ -73,7 +107,42 @@ public readonly record struct SvgSourceEdits(string Label, IReadOnlyList<SvgSour
             {
                 return refusal;
             }
+
+            if (step is not SvgSourceEdit.Insert and not SvgSourceEdit.Remove)
+            {
+                touched.Add(found[step.Keys.First()]);
+            }
         }
+
+        // Only once every step is in: each one can shift the addresses after it.
+        landed = touched.Where(element => element.Document is { }).Distinct().Select(SvgAttributeEditor.Key).ToList();
+
+        return null;
+    }
+
+    /// <remarks>A copy, so the plan stays a value: the element its caller built is never parented.</remarks>
+    private static string? Put(SvgSourceDocument source, XElement target, SvgSourceEdit.Insert insert, List<XElement> touched)
+    {
+        var copy = SvgSourceDocument.Copy(insert.Element);
+
+        if (SvgElementEditor.Insert(source, target, insert.Where, copy) is { } refusal)
+        {
+            return refusal;
+        }
+
+        touched.Add(copy);
+
+        return null;
+    }
+
+    private static string? Cut(XElement element)
+    {
+        if (SvgElementEditor.Unchosen(element, "deleted") is { } refusal)
+        {
+            return refusal;
+        }
+
+        SvgElementEditor.Cut(element);
 
         return null;
     }
@@ -106,6 +175,36 @@ public abstract record SvgSourceEdit
 
     /// <summary>Writes attributes of one element, in order.</summary>
     public sealed record SetAttributes(string Key, IReadOnlyList<(string Name, string Value)> Writes) : SvgSourceEdit
+    {
+        internal override IEnumerable<string> Keys => new[] { Key };
+    }
+
+    /// <summary>Writes a copy of <paramref name="Element"/> where a drop on <paramref name="TargetKey"/> says, as <see cref="SvgElementEditor.Insert(SvgSourceDocument, string, SvgElementDrop, XElement, out string?)"/> does.</summary>
+    public sealed record Insert(string TargetKey, SvgElementDrop Where, XElement Element) : SvgSourceEdit
+    {
+        internal override IEnumerable<string> Keys => new[] { TargetKey };
+    }
+
+    /// <summary>Moves an element where a drop on <paramref name="TargetKey"/> says, as <see cref="SvgElementEditor.Move(SvgSourceDocument, string, string, SvgElementDrop, out string?)"/> does.</summary>
+    public sealed record Move(string Key, string TargetKey, SvgElementDrop Where) : SvgSourceEdit
+    {
+        internal override IEnumerable<string> Keys => new[] { Key, TargetKey };
+    }
+
+    /// <summary>Takes an element out with the line that carried it, as <see cref="SvgElementEditor.Remove"/> does.</summary>
+    public sealed record Remove(string Key) : SvgSourceEdit
+    {
+        internal override IEnumerable<string> Keys => new[] { Key };
+    }
+
+    /// <summary>Writes the text between an element's tags, or takes it away where null, as <see cref="SvgAttributeEditor.SetContent(SvgSourceDocument, string, string?)"/> does.</summary>
+    public sealed record SetContent(string Key, string? Value) : SvgSourceEdit
+    {
+        internal override IEnumerable<string> Keys => new[] { Key };
+    }
+
+    /// <summary>Gives an element another name in its own namespace, keeping what it is written with and holds.</summary>
+    public sealed record Retag(string Key, string Name) : SvgSourceEdit
     {
         internal override IEnumerable<string> Keys => new[] { Key };
     }

@@ -167,6 +167,34 @@ public class MainWindowMenuTests : IDisposable
         window.Close();
     }
 
+    /// <summary>A tab closes what the Window menu can bring back, and nothing it cannot.</summary>
+    [AvaloniaFact]
+    public async Task A_Tab_Closes_Only_What_The_Window_Menu_Brings_Back()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        ContextMenu MenuOf(string header)
+            => window.GetVisualDescendants().OfType<Border>()
+                .First(tab => tab.Classes.Contains("pane") && tab.Child is TextBlock { Text: var said } && said == header)
+                .ContextMenu!;
+
+        Assert.DoesNotContain(MenuOf("Project").Items.OfType<MenuItem>(), item => Equals(item.Header, "Close"));
+
+        var close = MenuOf("Streamline").Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Close"));
+
+        close.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(MenuItem.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain("streamline/", window.Layout, StringComparison.Ordinal);
+        // As the menu reads it when it opens.
+        Assert.False(window.Registry["panel-streamline"].IsChecked!());
+
+        Pick(Item(window, "Window", "Streamline"));
+        Assert.Contains("streamline/", window.Layout, StringComparison.Ordinal);
+
+        window.Close();
+    }
+
     /// <remarks>
     /// The window used to read the arrangement on file again whenever a setting changed, which put
     /// back every panel it had taken off — the project tree, with no project to show in it.

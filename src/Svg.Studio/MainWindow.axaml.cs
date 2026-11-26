@@ -84,6 +84,9 @@ public partial class MainWindow : Window
     /// <summary>The open project's place in git, on the arrangement while a saved project is open and git is installed.</summary>
     private readonly ChangesPanel _changes = new();
 
+    /// <summary>What Undo would take back, beside Changes.</summary>
+    private readonly HistoryPanel _history = new();
+
     /// <summary>The chat that answers from the docs and works the window through <see cref="AssistantTools"/>.</summary>
     private readonly AssistantPanel _assistant;
 
@@ -123,6 +126,11 @@ public partial class MainWindow : Window
 
     /// <summary>The window's commands, its menus, and the keys it answers for them.</summary>
     private readonly StudioCommands _registry;
+
+    /// <summary>The control bar and the status bar, which are about the tab in front.</summary>
+    private readonly StudioBars _bars;
+    private readonly Border _controlBar;
+    private readonly Border _statusBar;
 
     /// <summary>The window's commands, for the application menu and a test to drive.</summary>
     public StudioCommands Registry => _registry;
@@ -192,6 +200,8 @@ public partial class MainWindow : Window
         _changes.Unsaved = () => Unwritten is { } || Unsaved().Count > 0;
         _changes.Reopen = path => OpenProjectAsync(path);
         _changes.Document = () => _workspace?.Document;
+        _history.Drawing = Selected;
+        _history.Project = () => _workspace;
         _changes.Open = ShowAsync;
         _changes.Compared += (_, _) =>
         {
@@ -211,6 +221,9 @@ public partial class MainWindow : Window
         _tabs = this.FindControl<TabControl>("Tabs")!;
         _tabs.SelectionChanged += (_, _) =>
         {
+            // While the tab being left still holds its panel.
+            Typing()?.CommitPending();
+
             UpdateTitle();
             UpdateMenu();
             Refill();
@@ -331,7 +344,13 @@ public partial class MainWindow : Window
         };
 
         // Once the dock is there, since the Window menu has an item for each of its panels.
-        _registry = new StudioCommands(Commanded(), OperatingSystem.IsMacOS());
+        _registry = new StudioCommands(Commanded(), OperatingSystem.IsMacOS()) { CommitPending = () => Typing()?.CommitPending() };
+
+        _bars = new StudioBars(_registry, () => (_tabs.SelectedItem as TabItem)?.Content as Control);
+        _controlBar = this.FindControl<Border>("ControlBar")!;
+        _statusBar = this.FindControl<Border>("StatusBar")!;
+        _controlBar.Child = _bars.Top;
+        _statusBar.Child = _bars.Bottom;
 
         // The window's own commands rather than a second pair beside them: the picker Open shows
         // with nothing open is the one this button wants, and New is what the Project menu picks.
@@ -446,25 +465,17 @@ public partial class MainWindow : Window
     {
         // The window arranges them, not the tab: one set of panels round a strip of tabs rather
         // than a set inside each of them.
-        var viewer = new SvgViewer { FileDialogService = new StudioFileDialogService(), ArrangesPanels = false };
+        // Its toolbar and status bar are the window's control bar and status bar.
+        var viewer = new SvgViewer
+        {
+            FileDialogService = new StudioFileDialogService(),
+            ArrangesPanels = false,
+            ShowToolBar = false,
+            ShowStatusBar = false
+        };
 
         Regrid(viewer);
-
-        // The toolbar's toggle is the settings window's checkbox by another route, so what one tab
-        // was told goes to the rest of them and is there again next time.
-        viewer.SnapChanged += (_, _) =>
-        {
-            StudioSettings.SnapToGrid = viewer.SnapsToGrid;
-
-            Reread();
-        };
-
-        viewer.InvisibleChanged += (_, _) =>
-        {
-            StudioSettings.ShowInvisible = viewer.ShowsInvisible;
-
-            Reread();
-        };
+        _bars.Watch(viewer);
 
         // A tab is added and selected before it has been given the project's pane, so what it has to
         // show is asked for again when it changes rather than only when the tab comes forward.
@@ -519,11 +530,14 @@ public partial class MainWindow : Window
 
         viewer.SourceModifiedChanged += (_, _) => Mark(item);
 
+        // The Undo item's label, and History, are about every step the drawing takes.
+        viewer.SourceChanged += (_, _) => UpdateMenu();
+
         viewer.OpenRequested += (_, request) =>
         {
             request.Handled = true;
 
-            // Handed back rather than discarded, so whoever asked — the toolbar, a drop, a test —
+            // Handed back rather than discarded, so whoever asked — a drop, a test —
             // waits for the drawings instead of for the request being taken.
             request.Completion = OpenAsync(viewer, request.Paths);
         };
@@ -1228,6 +1242,8 @@ public partial class MainWindow : Window
     /// <summary>What the arrangement calls the changes panel.</summary>
     private const string ChangesPanelId = "changes";
 
+    private const string HistoryPanelId = "history";
+
     private const string AssistantPanelId = "assistant";
 
     /// <summary>
@@ -1266,14 +1282,17 @@ public partial class MainWindow : Window
             _panels[id] = new Border();
         }
 
+        // The tree and Changes follow the project: taken off by hand, one came back beside the wrong
+        // panel. The Window menu offers what a tab can close.
         return new[]
             {
                 new SvgViewerRegion(ProjectTreePanel, "Project", _projectPaneHost),
                 new SvgViewerRegion(ChangesPanelId, "Changes", _changes),
-                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant)
+                new SvgViewerRegion(AssistantPanelId, "Assistant", _assistant) { Closable = true }
             }
-            .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id])))
-            .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline))
+            .Concat(named.Select(pane => new SvgViewerRegion(pane.Id, pane.Header, _panels[pane.Id]) { Closable = true }))
+            .Append(new SvgViewerRegion(StreamlineRegion, "Streamline", _streamline) { Closable = true })
+            .Append(new SvgViewerRegion(HistoryPanelId, "History", _history) { Closable = true })
             .ToList();
     }
 
@@ -1326,7 +1345,12 @@ public partial class MainWindow : Window
     /// tab has been closed, and a window showing those is not one that wants greeting.
     /// </remarks>
     private void ShowWelcome()
-        => _welcome.IsVisible = _tabs.Items.Count == 0 && _workspace is null;
+    {
+        _welcome.IsVisible = _tabs.Items.Count == 0 && _workspace is null;
+
+        // The bars are about the editor the welcome stands in for.
+        _controlBar.IsVisible = _statusBar.IsVisible = !_welcome.IsVisible;
+    }
 
     private void ShowProjectPane(bool show)
     {
@@ -1340,6 +1364,12 @@ public partial class MainWindow : Window
         }
 
         _dock.Show(ProjectTreePanel, show);
+
+        // A project opens on its tree, whatever its run held while there was none.
+        if (show)
+        {
+            _dock.Select(ProjectTreePanel);
+        }
 
         // Here rather than at the two ends of a project's life: this is where both of them already
         // land, and by now the workspace has been set or cleared.
@@ -2657,6 +2687,7 @@ public partial class MainWindow : Window
             };
 
             board.SettingChanged += (_, _) => Reread();
+            _bars.Watch(board);
 
             board.DescribedChanged += (_, _) =>
             {
@@ -3276,7 +3307,7 @@ public partial class MainWindow : Window
     /// <summary>Puts what was just opened at the front of File → Open Recent.</summary>
     /// <remarks>
     /// Called where the file was actually read rather than where it was asked for, so a drop, the
-    /// command line, the picker and the viewer's own toolbar all reach it, and a path that failed
+    /// command line and the picker all reach it, and a path that failed
     /// to open reaches none of them.
     /// </remarks>
     private void Remember(string path)
@@ -3428,7 +3459,7 @@ public partial class MainWindow : Window
             }
         }
 
-        // Snap and Invisible are toggles in View as well as on each tab's toolbar.
+        // Snap and Invisible are toggles in View as well as on the control bar.
         UpdateMenu();
     }
 
@@ -3455,6 +3486,10 @@ public partial class MainWindow : Window
         viewer.Grid = grid;
         viewer.SnapsToGrid = StudioSettings.SnapToGrid;
         viewer.ShowsInvisible = StudioSettings.ShowInvisible;
+        viewer.Canvas.GridLines = StudioSettings.ShowGrid ? grid : SvgViewerGrid.None;
+        viewer.Rulers.ShowsRulers = StudioSettings.Rulers;
+        viewer.Canvas.ShowsGuides = StudioSettings.Guides;
+        viewer.SnapsToSmartGuides = StudioSettings.SmartGuides;
     }
 
     /// <summary>
@@ -3500,6 +3535,9 @@ public partial class MainWindow : Window
     }
 
     private IInputElement? Focused() => FocusManager?.GetFocusedElement();
+
+    /// <summary>The Attributes panel whose box has the keyboard, or null.</summary>
+    private SvgViewerElementPanel? Typing() => (Focused() as Visual)?.FindAncestorOfType<SvgViewerElementPanel>(true);
 
     /// <summary>Whether the project tree has the keyboard: its rows answer Delete, Copy and the like themselves.</summary>
     private bool InProjectTree() => Focused() is Visual focused && _projectTree.IsVisualAncestorOf(focused);
@@ -3571,6 +3609,16 @@ public partial class MainWindow : Window
             : Board()?.Duplicate() == true;
     }
 
+    /// <summary>Swaps the fill and stroke of what the selected tab has picked, as one edit.</summary>
+    /// <remarks>
+    /// Run by the menu only, so whatever is being typed has been written by then; the canvas and
+    /// the tree answer Shift+X themselves.
+    /// </remarks>
+    public bool SwapPaints()
+        => Selected() is { } viewer
+            ? viewer.SwapPaints(viewer.Elements.SelectedAddresses.ToList())
+            : Board()?.SwapPaints() == true;
+
     /// <inheritdoc cref="Duplicate"/>
     /// <summary>Takes what the selected tab has picked out of its drawing.</summary>
     public bool Delete()
@@ -3592,7 +3640,12 @@ public partial class MainWindow : Window
     internal bool OnBoard(ProjectNode node) => Board() is { } board && node.DescendsFrom(board.Node);
 
     /// <summary>Offers only what the selected tab can do, with Undo and Redo naming what they would reach.</summary>
-    private void UpdateMenu() => _registry.Refresh();
+    private void UpdateMenu()
+    {
+        _registry.Refresh();
+        _bars.Show();
+        _history.Refresh();
+    }
 
     /// <summary>"Undo", or "Undo remove Large" where the history knows what it was.</summary>
     /// <remarks>
@@ -3611,15 +3664,19 @@ public partial class MainWindow : Window
         const string rule = StudioCommands.Separator;
 
         yield return ("File", new[] { "open", StudioCommands.RecentSlot, "close", rule, "save", "saveas", rule, "export", rule, "preferences" });
-        yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", rule, "resize" });
+        yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", "swappaints", rule, "resize" });
         yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
-        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio" });
-        yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
+        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "workspace-rulers", "guides", "smartguides", rule, "reset-parameters" });
+        yield return ("Window", _dock.Regions.Where(region => region.Closable).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" })
+            .Concat(new[] { rule }).Concat(StudioSettings.Layouts.Select(layout => LayoutCommand(layout.Name))).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
         yield return ("Help", new[] { "help", "commands", "user-guide", "mcp-connection", rule, "about" });
     }
 
     private static string Panel(SvgViewerRegion region) => "panel-" + region.Header.ToLowerInvariant();
+
+    /// <summary>A layout's command, which the control bar's picker runs as well.</summary>
+    internal static string LayoutCommand(string name) => "layout-" + name.ToLowerInvariant();
 
     /// <summary>A tool's id, upstream's where the tool is upstream's under another name.</summary>
     private static string Tool(string name) => name switch
@@ -3629,12 +3686,6 @@ public partial class MainWindow : Window
         "Polygon" => "tool-polygon-path",
         _ => "tool-" + name.ToLowerInvariant()
     };
-
-    /// <summary>
-    /// Whether the Window menu turns this panel on and off. Not the project tree or Changes, which
-    /// follow the project: taken off by hand, one came back beside the wrong panel when it did.
-    /// </summary>
-    private static bool Toggled(SvgViewerRegion region) => region.Id is not (ProjectTreePanel or ChangesPanelId);
 
     /// <summary>Everything the window can be asked to do, with its key and when it is live.</summary>
     private IEnumerable<StudioCommand> Commanded()
@@ -3686,6 +3737,7 @@ public partial class MainWindow : Window
             Key = SvgEditorShortcutKey.Z,
             Modifiers = primary,
             Platform = hotkeys?.Undo,
+            KeepsTyping = true,
             CanExecute = () => Selected()?.CanUndo == true || _workspace?.CanUndo == true,
             Header = () => Taking("Undo", Selected()?.UndoLabel ?? _workspace?.UndoLabel)
         };
@@ -3695,6 +3747,7 @@ public partial class MainWindow : Window
             Key = SvgEditorShortcutKey.Z,
             Modifiers = primary | shift,
             Platform = hotkeys?.Redo,
+            KeepsTyping = true,
             CanExecute = () => Selected()?.CanRedo == true || _workspace?.CanRedo == true,
             Header = () => Taking("Redo", Selected()?.RedoLabel ?? _workspace?.RedoLabel)
         };
@@ -3703,13 +3756,23 @@ public partial class MainWindow : Window
         // the click, and with nothing picked either does nothing, which is honest.
         yield return new("duplicate", "Duplicate", "Edit", Done(() => Duplicate()))
         {
+            KeepsTyping = true,
             Scope = picked,
             Key = SvgEditorShortcutKey.D,
             Modifiers = primary,
             ShownOnMac = true,
             CanExecute = Picks
         };
-        yield return new("delete", "Delete", "Edit", DeleteChosenAsync) { Scope = picked, Key = SvgEditorShortcutKey.Delete, CanExecute = Picks };
+        yield return new("delete", "Delete", "Edit", DeleteChosenAsync) { KeepsTyping = true, Scope = picked, Key = SvgEditorShortcutKey.Delete, CanExecute = Picks };
+
+        // Never shown on a Mac, where a shown gesture is a key equivalent: it would take every capital X typed into a box.
+        yield return new("swappaints", "Swap Fill and Stroke", "Edit", Done(() => SwapPaints()))
+        {
+            Scope = picked,
+            Key = SvgEditorShortcutKey.X,
+            Modifiers = shift,
+            CanExecute = Picks
+        };
         yield return new("resize", "Resize…", "Edit", () => Selected() is { } viewer ? viewer.ResizeAsync() : Task.CompletedTask)
         {
             CanExecute = () => Selected() is { Document: { } }
@@ -3719,6 +3782,7 @@ public partial class MainWindow : Window
         yield return new("selectall", "All", "Select", Done(SelectAll))
         {
             Scope = picked,
+            KeepsTyping = true,
             Key = SvgEditorShortcutKey.A,
             Modifiers = primary,
             ShownOnMac = true,
@@ -3756,7 +3820,7 @@ public partial class MainWindow : Window
         yield return new("zoomin", "Zoom In", "View", Done(() => FrontCanvas()?.ZoomIn())) { Scope = document, Key = SvgEditorShortcutKey.Equals, Modifiers = primary, CanExecute = HasCanvas };
         yield return new("zoomout", "Zoom Out", "View", Done(() => FrontCanvas()?.ZoomOut())) { Scope = document, Key = SvgEditorShortcutKey.Minus, Modifiers = primary, CanExecute = HasCanvas };
 
-        // The route each tab's toolbar toggle takes, so every tab and the next session agree.
+        // The route the control bar's toggles take, so every tab and the next session agree.
         yield return new("snapgrid", "Snap to Grid", "View", Done(() => Setting(() => StudioSettings.SnapToGrid = !StudioSettings.SnapToGrid)))
         {
             IsChecked = () => StudioSettings.SnapToGrid
@@ -3770,6 +3834,24 @@ public partial class MainWindow : Window
             CanExecute = () => Selected() is { } || Board() is { },
             IsChecked = () => Selected()?.LocksAspectRatio ?? Board()?.LocksAspectRatio ?? false
         };
+        yield return new("show-grid", "Show Grid", "View", Done(() => Setting(() => StudioSettings.ShowGrid = !StudioSettings.ShowGrid)))
+        {
+            IsChecked = () => StudioSettings.ShowGrid
+        };
+        yield return new("captions", "Drawing Captions", "View", Done(() => Setting(() => StudioSettings.DrawingCaptions = !StudioSettings.DrawingCaptions)))
+        {
+            CanExecute = () => Board() is { },
+            IsChecked = () => StudioSettings.DrawingCaptions
+        };
+        yield return new("reset-parameters", "Reset Parameters", "View", Done(() => Selected()?.ResetParameters()))
+        {
+            CanExecute = () => Selected() is { Document: { } }
+        };
+
+        foreach (var command in Viewing(Done))
+        {
+            yield return command;
+        }
 
         // The palette's own tools and letters. The canvas answers the letters; these are run from
         // search, and never mid-drag, which the strip cannot be clicked during either.
@@ -3783,7 +3865,7 @@ public partial class MainWindow : Window
             };
         }
 
-        foreach (var region in _dock.Regions.Where(Toggled))
+        foreach (var region in _dock.Regions.Where(region => region.Closable))
         {
             yield return new(Panel(region), region.Header, "Window", Done(() => Toggle(region.Id))) { IsChecked = () => _dock.Shows(region.Id) };
         }
@@ -3801,6 +3883,11 @@ public partial class MainWindow : Window
             CanExecute = () => _tabs.ItemCount > 1
         };
         yield return new("reset-layout", "Reset Layout", "Window", Done(ResetLayout));
+
+        foreach (var (name, line) in StudioSettings.Layouts)
+        {
+            yield return new(LayoutCommand(name), name + " Layout", "Window", Done(() => Arrange(line))) { IsChecked = () => _dock.Matches(line) };
+        }
 
         yield return new("new-project", "New", "Project", () => NewProjectAsync());
         yield return new("close-project", "Close", "Project", () => CloseProjectAsync()) { CanExecute = () => _workspace is { } };
@@ -3880,17 +3967,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ResetLayout()
+    private void ResetLayout() => Arrange(StudioSettings.DefaultLayout);
+
+    /// <summary>Puts the panels as <paramref name="line"/> says, keeping off the ones the project keeps off.</summary>
+    private void Arrange(string line)
     {
         // Written rather than cleared, so the line on file is the arrangement rather than a gap
         // meaning "whatever the default happens to be next time".
-        StudioSettings.Layout = StudioSettings.DefaultLayout;
-        _dock.Layout = StudioSettings.DefaultLayout;
+        StudioSettings.Layout = line;
+        _dock.Layout = line;
 
         // Changes before the tree, as when the window opens: a panel goes back exactly where it was
         // only while the rest of the line is what it was when it went.
         _dock.Show(ChangesPanelId, _workspace is { } && _changes.Tracking);
         _dock.Show(ProjectTreePanel, _workspace is { });
+
+        UpdateMenu();
     }
 
     /// <summary>The shortcuts, in a window of their own beside the editor rather than over it.</summary>
@@ -4444,6 +4536,9 @@ public partial class MainWindow : Window
     /// <summary>The open project's repository panel, which is the way in to its commands without a click.</summary>
     public ChangesPanel Changes => _changes;
 
+    /// <summary>The panel listing what Undo would take back, for a test to drive.</summary>
+    public HistoryPanel History => _history;
+
     /// <summary>
     /// How the window asks whether a copy of unsaved work may be thrown away.
     /// </summary>
@@ -4612,6 +4707,9 @@ public partial class MainWindow : Window
             return;
         }
 
+        // So a value still being typed counts as unsaved, and is asked about.
+        Typing()?.CommitPending();
+
         var unsaved = Unsaved();
         var project = Unwritten;
 
@@ -4709,7 +4807,8 @@ public partial class MainWindow : Window
     /// nothing to lose — so the two questions stop being the same one here.
     /// </remarks>
     private bool Savable()
-        => Marked()
+        => Typing() is { IsPending: true }
+           || Marked()
            || _workspace is { Document.Path: null }
            || _tabs.SelectedItem is TabItem { Tag: not ProjectNode, Content: SvgViewer { Document: { Path: null } } };
 
@@ -5092,7 +5191,7 @@ public partial class MainWindow : Window
     /// <summary>The picker, widened to the projects this window can also open.</summary>
     /// <remarks>
     /// The viewer's own offers drawings, which is all it can open. Given to every viewer so File →
-    /// Open, a drop and the toolbar all reach the same set of files through the request the window
+    /// Open and a drop reach the same set of files through the request the window
     /// already handles.
     /// </remarks>
     private sealed class StudioFileDialogService : ISvgViewerFileDialogService

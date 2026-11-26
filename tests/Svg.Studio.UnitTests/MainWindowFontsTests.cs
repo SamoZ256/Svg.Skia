@@ -113,14 +113,25 @@ public class MainWindowFontsTests : IDisposable
         window.Arrange(new Rect(0, 0, 900, 600));
         Dispatcher.UIThread.RunJobs();
 
+        // The settings sit behind the variables, and what is behind is never laid out until it is chosen.
+        var tab = window.GetVisualDescendants().OfType<Border>()
+            .First(found => found.Classes.Contains("pane") && found.Child is TextBlock { Text: "Properties" });
+
+        var at = tab.TranslatePoint(new Point(tab.Bounds.Width / 2d, tab.Bounds.Height / 2d), window)!.Value;
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        window.Measure(new Size(900, 600));
+        window.Arrange(new Rect(0, 0, 900, 600));
+        Dispatcher.UIThread.RunJobs();
+
         return panel;
     }
 
     private static StackPanel Properties(MainWindow window)
         => window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties");
 
-    private static string? Note(SvgViewer viewer)
-        => viewer.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Name == "NoteText") is { IsVisible: true } note ? note.Text : null;
+    private static string? Note(SvgViewer viewer) => viewer.Note;
 
     private static void Click(Button button)
     {

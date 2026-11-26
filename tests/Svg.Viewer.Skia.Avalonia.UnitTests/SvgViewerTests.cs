@@ -1219,6 +1219,42 @@ public class SvgViewerTests
         window.Close();
     }
 
+    /// <summary>A host that hides the status bar can say what it said, and is told when that changes.</summary>
+    [AvaloniaFact]
+    public async Task A_Host_Is_Told_The_Status_And_The_Note()
+    {
+        var (window, viewer) = Host();
+        var told = 0;
+        string? said = "a font is missing";
+
+        viewer.ShowStatusBar = false;
+        viewer.StatusChanged += (_, _) => told++;
+        viewer.Notice = _ => said;
+
+        Assert.True(await viewer.LoadTextAsync("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rekt />
+            </svg>
+            """));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(told > 0);
+        Assert.Equal(Status(viewer).Text, viewer.Status);
+        Assert.Equal("a font is missing · 1 warning", viewer.Note);
+        Assert.True(viewer.NoteWarns);
+
+        told = 0;
+        said = null;
+        viewer.SetSource(viewer.Source.Replace("<rekt />", string.Empty, StringComparison.Ordinal));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(told > 0);
+        Assert.Null(viewer.Note);
+        Assert.False(viewer.NoteWarns);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task Errors_And_Warnings_Are_Counted_Apart()
     {

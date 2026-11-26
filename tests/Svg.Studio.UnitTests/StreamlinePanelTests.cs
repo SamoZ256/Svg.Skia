@@ -238,10 +238,24 @@ public class StreamlinePanelTests : IDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
+    /// <summary>Folded under the drawing, which wants the height until the panel is wanted, and opened by its tab.</summary>
     [AvaloniaFact]
     public async Task The_Panel_Is_In_The_Default_Arrangement_Under_The_Drawing()
     {
         var window = await Opened();
+
+        Assert.Contains("col(*/1.6,streamline/1/streamline/folded)/1,", window.Layout, StringComparison.Ordinal);
+
+        window.Measure(new Size(1180, 760));
+        window.Arrange(new Rect(0, 0, 1180, 760));
+        Dispatcher.UIThread.RunJobs();
+
+        var tab = window.GetVisualDescendants().OfType<Border>().First(found => found.Classes.Contains("pane") && found.Child is TextBlock { Text: "Streamline" });
+        var at = tab.TranslatePoint(new Point(tab.Bounds.Width / 2d, tab.Bounds.Height / 2d), window)!.Value;
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("col(*/1.6,streamline/1/streamline/open)/1,", window.Layout, StringComparison.Ordinal);
         Assert.Same(window, TopLevel.GetTopLevel(window.Streamline));

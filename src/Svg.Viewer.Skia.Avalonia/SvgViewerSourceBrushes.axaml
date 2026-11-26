@@ -19,6 +19,8 @@
       <SolidColorBrush x:Key="SvgViewerSourceValueBrush" Color="#CE9178" />
       <SolidColorBrush x:Key="SvgViewerSourceCommentBrush" Color="#6A9955" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#C586C0" />
+      <!-- A value an expression decides, wherever it is shown: the expression's own colour. -->
+      <SolidColorBrush x:Key="SvgViewerDrivenBrush" Color="#C586C0" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionNumberBrush" Color="#B5CEA8" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionColorBrush" Color="#4EC9B0" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionStringBrush" Color="#CE9178" />
@@ -42,6 +44,7 @@
       <SolidColorBrush x:Key="SvgViewerSourceValueBrush" Color="#A31515" />
       <SolidColorBrush x:Key="SvgViewerSourceCommentBrush" Color="#008000" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionBrush" Color="#A626A4" />
+      <SolidColorBrush x:Key="SvgViewerDrivenBrush" Color="#A626A4" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionNumberBrush" Color="#098658" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionColorBrush" Color="#0E7C6B" />
       <SolidColorBrush x:Key="SvgViewerSourceExpressionStringBrush" Color="#A31515" />

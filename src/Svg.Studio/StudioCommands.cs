@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -47,6 +48,12 @@ public sealed record StudioCommand(string Id, string Label, string Category, Fun
     /// fires over every text box, so this is only for a command that routes by focus itself.
     /// </summary>
     public bool ShownOnMac { get; init; }
+
+    /// <summary>
+    /// Answered by the box being typed in, or left to it, which keeps what is typed: undo and redo
+    /// take back the typing itself, and Duplicate and Delete do nothing while a box has the keyboard.
+    /// </summary>
+    public bool KeepsTyping { get; init; }
 }
 
 /// <summary>
@@ -69,8 +76,12 @@ public sealed class StudioCommands
     private readonly IReadOnlyList<StudioCommand> _all;
     private readonly Dictionary<string, StudioCommand> _byId = new(StringComparer.Ordinal);
     private readonly List<(StudioCommand Command, NativeMenuItem Item)> _items = new();
+    private readonly List<(StudioCommand Command, Button Button)> _bound = new();
     private readonly HashSet<string> _shown = new(StringComparer.Ordinal);
     private readonly bool _mac;
+
+    /// <summary>Writes what is being typed into the drawing, before a command acts on it.</summary>
+    public Action? CommitPending { get; init; }
 
     public StudioCommands(IEnumerable<StudioCommand> commands, bool mac)
     {
@@ -201,12 +212,63 @@ public sealed class StudioCommands
                 item.Header = live();
             }
         }
+
+        foreach (var (command, button) in _bound)
+        {
+            Sync(command, button);
+        }
+    }
+
+    /// <summary>A button that runs the command and is kept in step with it as its menu item is: a toggle where the item is checkable.</summary>
+    public Button Bound(string id, object? content = null)
+    {
+        var command = _byId[id];
+        var button = command.IsChecked is { } ? new ToggleButton() : new Button();
+        var shortcut = Shortcut(command);
+
+        button.Content = content ?? command.Label;
+        button.Tag = id;
+        ToolTip.SetTip(button, shortcut.Length > 0 ? $"{command.Label} ({shortcut})" : command.Label);
+
+        // Refreshed even when Run refuses: a toggle has already flipped itself by the time it is clicked.
+        button.Click += async (_, _) =>
+        {
+            await Run(id).ConfigureAwait(true);
+
+            Refresh();
+        };
+
+        _bound.Add((command, button));
+        Sync(command, button);
+
+        return button;
+    }
+
+    private static void Sync(StudioCommand command, Button button)
+    {
+        button.IsEnabled = command.CanExecute();
+
+        if (button is ToggleButton toggle && command.IsChecked is { } on)
+        {
+            toggle.IsChecked = on();
+        }
     }
 
     /// <returns>Whether the command was there to run and could.</returns>
     public async Task<bool> Run(string id)
     {
-        if (!_byId.TryGetValue(id, out var command) || command.Execute is not { } execute || !command.CanExecute())
+        if (!_byId.TryGetValue(id, out var command) || command.Execute is not { } execute)
+        {
+            return false;
+        }
+
+        // Before it is asked whether it can run: Save is only live once what is typed is in the drawing.
+        if (!command.KeepsTyping)
+        {
+            CommitPending?.Invoke();
+        }
+
+        if (!command.CanExecute())
         {
             return false;
         }
@@ -353,6 +415,7 @@ public sealed class StudioCommands
         >= SvgEditorShortcutKey.F1 and <= SvgEditorShortcutKey.F12 => Key.F1 + (key - SvgEditorShortcutKey.F1),
         SvgEditorShortcutKey.Tab => Key.Tab,
         SvgEditorShortcutKey.Comma => Key.OemComma,
+        SvgEditorShortcutKey.Semicolon => Key.OemSemicolon,
         SvgEditorShortcutKey.Equals => Key.OemPlus,
         SvgEditorShortcutKey.Minus => Key.OemMinus,
         SvgEditorShortcutKey.Delete => Key.Delete,

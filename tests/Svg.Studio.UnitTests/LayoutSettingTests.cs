@@ -35,12 +35,12 @@ public class LayoutSettingTests : IDisposable
         + "col(project+elements+streamline/1/elements/open,element/1/element/open)/340px)";
 
     /// <summary>
-    /// <see cref="Arranged"/> once a saved project is open: the changes panel joins the tree it sits
-    /// behind by default, and the tree stays in front. The assistant, which the line predates, joins
-    /// the settings and elements behind the one that was in front.
+    /// <see cref="Arranged"/> once a saved project is open: the changes panel and History join the tree
+    /// they sit behind by default, and the tree stays in front. The assistant, which the line predates,
+    /// joins the settings and elements behind the one that was in front.
     /// </summary>
     private const string ArrangedWithChanges =
-        "row(tree+changes/260px/tree/open,variables/300px/variables/open,*/1,"
+        "row(tree+changes+history/260px/tree/open,variables/300px/variables/open,*/1,"
         + "col(project+elements+streamline+assistant/1/elements/open,element/1/element/open)/340px)";
 
     private const string Project = """
@@ -211,7 +211,7 @@ public class LayoutSettingTests : IDisposable
 
         Carry(window, "Variables", "Attributes");
 
-        Assert.Contains("element+variables", window.Layout, StringComparison.Ordinal);
+        Assert.Contains("element+transform+align+variables", window.Layout, StringComparison.Ordinal);
 
         // Written down, so it is there again next time.
         Assert.Equal(window.Layout, StudioSettings.Layout);
@@ -220,7 +220,7 @@ public class LayoutSettingTests : IDisposable
         await window.ShowAsync(board.Node);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("element+variables", window.Layout, StringComparison.Ordinal);
+        Assert.Contains("element+transform+align+variables", window.Layout, StringComparison.Ordinal);
 
         window.Close();
     }
@@ -245,6 +245,25 @@ public class LayoutSettingTests : IDisposable
 
         window.Close();
     }
+    /// <summary>A line saved before History existed keeps its arrangement, and History joins Changes behind the tree.</summary>
+    /// <remarks>The saved line is not migrated: Reset Layout and the layout picker are the way to the new default.</remarks>
+    [AvaloniaFact]
+    public async Task A_Line_From_Before_History_Puts_It_Behind_Changes()
+    {
+        const string before =
+            "row(col(tree+changes/1.4/tree/open,variables/1/variables/open)/300px,col(*/1.6,streamline/1/streamline/open)/1,"
+            + "col(project+elements+assistant/1/project/open,element/1/element/open)/300px)";
+
+        StudioSettings.Layout = before;
+
+        var window = await Host(Write("icons.svgstudio", Project));
+
+        Assert.StartsWith("row(col(tree+changes+history/1.4/tree/open,variables/1/variables/open)/300px,", window.Layout, StringComparison.Ordinal);
+        Assert.Equal(before, StudioSettings.Layout);
+
+        window.Close();
+    }
+
     // ---- the project tree is a panel like any other ----------------------------------------------
 
     [AvaloniaFact]
@@ -253,13 +272,13 @@ public class LayoutSettingTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Project));
 
         // Down the left, over the variables, where Studio's own default puts it.
-        Assert.StartsWith("row(col(tree+changes/1.4/tree/open", window.Layout, StringComparison.Ordinal);
+        Assert.StartsWith("row(col(tree+changes+history/1.4/tree/open", window.Layout, StringComparison.Ordinal);
 
         // And it is carried by its header like the rest: dropped on the variables it sits behind
         // them, which is a place three fixed sides could not have put it.
         Carry(window, "Project", "Variables");
 
-        Assert.Contains("variables+tree", window.Layout, StringComparison.Ordinal);
+        Assert.Contains("variables+project+tree", window.Layout, StringComparison.Ordinal);
         Assert.Equal(window.Layout, StudioSettings.Layout);
 
         window.Close();

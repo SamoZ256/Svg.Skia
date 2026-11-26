@@ -77,6 +77,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
     private readonly SvgViewerSweep _sweep = new();
+    private readonly SvgViewerGuides _guides = new();
+    private readonly SvgViewerRulers _rulers;
 
     /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
     private readonly SvgViewerGizmos _gizmo = new();
@@ -146,6 +148,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         LeaveOnEnter(this);
 
         _canvas = this.FindControl<SvgViewerCanvas>("PART_Canvas")!;
+        _rulers = this.FindControl<SvgViewerRulers>("PART_Rulers")!;
         _gizmo.Picks = (svg, at) => _canvas.ElementAt(svg, new SkiaSharp.SKPoint(at.X, at.Y), out _);
         _toolBar = this.FindControl<Border>("ToolBarPanel")!;
         _statusPanel = this.FindControl<Border>("StatusPanel")!;
@@ -154,6 +157,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _errorPanel = this.FindControl<Grid>("ErrorPanel")!;
         _errorText = this.FindControl<SelectableTextBlock>("ErrorText")!;
         _noteText = this.FindControl<TextBlock>("NoteText")!;
+        _statusText.PropertyChanged += Told;
+        _noteText.PropertyChanged += Told;
         _elementsButton = this.FindControl<ToggleButton>("ElementsButton")!;
         _lockRatioButton = this.FindControl<ToggleButton>("LockRatioButton")!;
         _snapButton = this.FindControl<ToggleButton>("SnapButton")!;
@@ -192,6 +197,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.NewGroupRequested = NewGroup;
         _elementTree.DeleteRequested = Delete;
         _elementTree.DuplicateRequested = Duplicate;
+        _elementTree.SwapRequested = SwapPaints;
         _elementTree.ClipRequested = ApplyClip;
         _elementTree.NewClipRequested = NewClip;
         _elementTree.SelectRequested = Select;
@@ -201,6 +207,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _element.NewClipRequested = property => _elementTree.SelectedAddresses is [var row, ..] && NewClip(row, property);
         _element.ClipRequested = (content, property) => _elementTree.SelectedAddresses is [var row, ..] && ApplyClip(content, row, property);
         _element.Typefaces = () => _document?.Svg.Settings.TypefaceProviders;
+        _element.UndoStep = () => UndoStep;
+        _element.Holds = Holds;
 
         _canvas.KeyDown += OnCanvasKeyDown;
 
@@ -317,10 +325,23 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _points.Driven = (key, name) => _workspace?.Document is { } source && SourceAddress(key) is { } address && SvgAttributeEditor.Driven(source, address, name) is { };
 
-        _canvas.EditBegun += (_, at) => BeginEdit(at);
+        _canvas.EditBegun += (_, at) =>
+        {
+            Guide(at);
+            BeginEdit(at);
+        };
         _canvas.EditMoved += (_, at) => DragEdit(at);
-        _canvas.EditEnded += (_, at) => EndEdit(at);
-        _canvas.EditCancelled += (_, _) => CancelEdit();
+        _canvas.EditEnded += (_, at) =>
+        {
+            EndEdit(at);
+            Unguide();
+        };
+        _canvas.EditCancelled += (_, _) =>
+        {
+            CancelEdit();
+            Unguide();
+        };
+        _canvas.GuidesChanged += (_, _) => Regrid();
 
         // The band from the last point to the pointer, between presses: the canvas leaves an idle
         // move alone, so it reaches here.
@@ -466,6 +487,22 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     public SvgViewerCanvas Canvas => _canvas;
 
+    /// <summary>The rulers round the canvas, which a host shows.</summary>
+    public SvgViewerRulers Rulers => _rulers;
+
+    /// <summary>Whether a drag lands on the other shapes' edges and centres, as well as on the guides.</summary>
+    /// <remarks>Off, so a viewer nobody has set up drags as it always did.</remarks>
+    public bool SnapsToSmartGuides
+    {
+        get => _guides.IsOn;
+        set
+        {
+            _guides.IsOn = value;
+
+            Regrid();
+        }
+    }
+
     /// <summary>The drawing tools its strip arms, for a host that arms one another way.</summary>
     public SvgViewerDraw Drafting => _draw;
 
@@ -479,6 +516,26 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         get => _statusPanel.IsVisible;
         set => _statusPanel.IsVisible = value;
+    }
+
+    /// <summary>What the status bar says: the drawing's name and how many parameters it has.</summary>
+    public string Status => _statusText.Text ?? string.Empty;
+
+    /// <summary>The note beside it, or null while there is none.</summary>
+    public string? Note => _noteText.IsVisible ? _noteText.Text : null;
+
+    /// <summary>Whether the note is painted as a warning rather than an error.</summary>
+    public bool NoteWarns { get; private set; }
+
+    /// <summary>Raised when <see cref="Status"/>, <see cref="Note"/> or its colour changes, for a host that shows them itself.</summary>
+    public event EventHandler? StatusChanged;
+
+    private void Told(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == TextBlock.TextProperty || e.Property == IsVisibleProperty || e.Property == TextBlock.ForegroundProperty)
+        {
+            StatusChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>
@@ -587,7 +644,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         // Magnetic at whatever the zoom now is: how near a line is near enough is a distance on
         // screen, and the same drag at 958% covers a twentieth of the drawing it does at 50%.
-        var grid = _snaps ? _grid.Pulling(_canvas.Scale) : SvgViewerGrid.None;
+        var grid = _guides.Over(_snaps ? _grid.Pulling(_canvas.Scale) : SvgViewerGrid.None, _canvas);
 
         _canvas.Grid = grid;
         _gizmo.Grid = grid;
@@ -932,35 +989,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// pointer where it was until the timer caught up.
     /// </remarks>
     private bool MoveElement(string addressKey, string targetKey, SvgElementDrop where)
-    {
-        if (SourceAddress(addressKey) is not { } moved || SourceAddress(targetKey) is not { } target)
-        {
-            ShowNote(Unwritten);
+        => Rewritten(new("move an element", new SvgSourceEdit[] { new SvgSourceEdit.Move(addressKey, targetKey, where) }));
 
-            return false;
-        }
-
-        // Where the row landed is not where it was, and the addresses after it have all shifted, so
-        // the row it went beside is what can still be pointed at.
-        return Rewritten("move an element", source => SvgElementEditor.Move(source, moved, target, where, out _), () => new[] { targetKey });
-    }
-
+    // One break inside it, so it is written as a pair of tags rather than <g/>: a group somebody is
+    // about to drop things into wants somewhere to put them.
     private bool NewGroup(string targetKey, SvgElementDrop where)
-    {
-        if (SourceAddress(targetKey) is not { } target)
-        {
-            ShowNote(Unwritten);
-
-            return false;
-        }
-
-        // One break inside it, so it is written as a pair of tags rather than <g/>: a group somebody
-        // is about to drop things into wants somewhere to put them.
-        return Rewritten(
-            "add a group",
-            source => SvgElementEditor.Insert(source, target, where, new XElement("g", new XText("\n")), out _),
-            () => new[] { targetKey });
-    }
+        => Rewritten(new("add a group", new SvgSourceEdit[] { new SvgSourceEdit.Insert(targetKey, where, new XElement("g", new XText("\n"))) }));
 
     /// <summary>Takes the rows at <paramref name="addressKeys"/> out of the drawing, as one edit.</summary>
     /// <remarks>
@@ -968,11 +1002,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// nothing besides: a row the file does not spell refuses the lot before anything is cut.
     /// </remarks>
     public bool Delete(IReadOnlyList<string> addressKeys)
-        => Spelt(addressKeys) is { } mine
-           && Rewritten(
-               mine.Count == 1 ? "delete an element" : $"delete {mine.Count} elements",
-               source => SvgElementEditor.Remove(source, mine),
-               () => Array.Empty<string>());
+        => addressKeys.Count > 0
+           && Rewritten(new(
+               addressKeys.Count == 1 ? "delete an element" : $"delete {addressKeys.Count} elements",
+               addressKeys.Select(key => (SvgSourceEdit)new SvgSourceEdit.Remove(key)).ToList()));
 
     /// <summary>Takes the chosen point out of the shape being reshaped, or draws a chosen handle back in.</summary>
     /// <returns>Whether there was a chosen point, so a caller knows not to delete the element instead.</returns>
@@ -1012,6 +1045,28 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         }
 
         ShowGizmo();
+    }
+
+    /// <summary>Swaps the fill and stroke of each row at <paramref name="addressKeys"/>, as one edit, and says what it shadows.</summary>
+    public bool SwapPaints(IReadOnlyList<string> addressKeys)
+    {
+        string? note = null;
+
+        if (Spelt(addressKeys) is not { } mine
+            || !Rewritten(
+                mine.Count == 1 ? "swap fill and stroke" : $"swap fill and stroke of {mine.Count} elements",
+                source => SvgAttributeEditor.SwapPaints(source, mine, out note),
+                () => addressKeys))
+        {
+            return false;
+        }
+
+        if (note is { })
+        {
+            ShowNote(note);
+        }
+
+        return true;
     }
 
     /// <summary>Writes a copy of each row at <paramref name="addressKeys"/> after it, and selects the copies.</summary>
@@ -1183,7 +1238,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         var picked = _elementTree.SelectedAddresses.Select(row => spelt.TryGetValue(row, out var key) ? key : null).OfType<string>().ToList();
         var chosen = SvgElementEditor.Select(source, how, picked, name, out var note);
 
-        ShowNote(note ?? Note());
+        ShowNote(note ?? Standing());
 
         if (chosen.Count == 0 && how is not (SvgElementSelect.None or SvgElementSelect.Inverse))
         {
@@ -1284,6 +1339,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
             Duplicate(_elementTree.SelectedAddresses.ToList());
         }
+        else if (e.Key == Key.X && e.KeyModifiers == KeyModifiers.Shift)
+        {
+            e.Handled = true;
+
+            SwapPaints(_elementTree.SelectedAddresses.ToList());
+        }
     }
 
     /// <summary>
@@ -1314,6 +1375,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.TrySelect(follow());
 
         return true;
+    }
+
+    /// <summary>Commits a plan the tree's rows make, every row placed in the file first, and selects what it landed.</summary>
+    private bool Rewritten(SvgSourceEdits edits)
+    {
+        var addresses = SourceAddresses();
+        IReadOnlyList<string> landed = Array.Empty<string>();
+
+        return Rewritten(edits.Label, source => edits.Apply(source, key => addresses.TryGetValue(key, out var at) ? at : null, out landed), () => Rows(landed));
     }
 
     /// <summary>Whether an edit can be written at all, saying why not where it cannot.</summary>
@@ -1405,6 +1475,35 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
         _canvas.GizmoTurns = _gizmo.Turns;
         _canvas.Gizmo = _gizmo.Box((float)_canvas.Scale);
+    }
+
+    /// <summary>What a gesture starting here may land on: everything but what it moves.</summary>
+    /// <remarks>
+    /// A drawing tool moves nothing, and the selection it leaves tracked is something to draw against.
+    /// The box is handed over only for a carry, which the gizmo pulls by its corner; a handle pulls
+    /// the edge it moves.
+    /// </remarks>
+    private void Guide(Point at)
+    {
+        var carry = _draw.Shape is null && !_draw.Reshaping && !_page
+            && _canvas.TryGetDrawingPoint(at, out var point)
+            && !_gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale, handlesOnly: true);
+
+        _guides.Begin(
+            _canvas.Placements,
+            _draw.Shape is { } ? Array.Empty<SvgElement>() : _gizmo.Elements,
+            carry ? _canvas.Gizmo : null,
+            _page ? _canvas.Placements.FirstOrDefault() : null);
+
+        Regrid();
+    }
+
+    private void Unguide()
+    {
+        _guides.End();
+        _canvas.Aligned = null;
+
+        Regrid();
     }
 
     /// <summary>
@@ -1500,6 +1599,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _gizmo.Drag(new ShimSkiaSharp.SKPoint(point.X, point.Y));
 
         ShowGizmo();
+        _canvas.Aligned = _guides.Aligned(_canvas.Gizmo, _canvas.Scale);
 
         // The ring is traced from the scene, which the drag has just moved, so it has to be traced
         // again or it stays behind on the shape's old silhouette while the shape leaves. Retrace
@@ -2053,6 +2153,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         if (_workspace is { })
         {
             _unreadable = null;
+            _workspace.Changed += (_, _) => SourceChanged?.Invoke(this, EventArgs.Empty);
         }
 
         if (previous is { Path: { } was } && was == document.Path)
@@ -2256,12 +2357,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         {
             // All or nothing, so the previous rendering is still up. The control keeps its value:
             // it is what the user has to see to correct it.
-            ShowNote(Note());
+            ShowNote(Standing());
             ShowFault(IsMarked(failure) ? null : failure.ToDiagnostic());
         }
         catch (Exception failure)
         {
-            ShowNote(Note());
+            ShowNote(Standing());
             ShowFault(failure.Message);
         }
 
@@ -2536,6 +2637,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>Raised when <see cref="IsSourceModified"/> changes, for a host that marks its chrome.</summary>
     public event EventHandler<bool>? SourceModifiedChanged;
+
+    /// <summary>Raised after every edit, undo and redo of the drawing, for a host that lists its history.</summary>
+    public event EventHandler? SourceChanged;
 
     private void RaiseModified()
     {
@@ -3426,7 +3530,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// A count only: each one is said where it lands, on the attribute row in the Attributes panel that
     /// carries it, and repeating the sentence here would say it twice.
     /// </remarks>
-    private string? Note()
+    private string? Standing()
     {
         if (_document is not { } open)
         {
@@ -3485,7 +3589,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>Says everything that is standing about the open drawing.</summary>
     private void ShowTrouble()
     {
-        ShowNote(Note());
+        ShowNote(Standing());
         ShowFault(Fault());
     }
 
@@ -3511,6 +3615,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void ShowNote(string? message)
     {
+        NoteWarns = !string.IsNullOrEmpty(message)
+                    && _sourceDiagnostics.Count > 0
+                    && !_sourceDiagnostics.Any(d => d.Severity == SvgSourceSeverity.Error);
         _noteText.Text = message ?? string.Empty;
         _noteText.IsVisible = !string.IsNullOrEmpty(message);
 
@@ -3518,10 +3625,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         {
             // Through the resource rather than a resolved brush, so the note follows a theme change
             // like everything else does. A note that is only warnings is not painted as an error.
-            var key = _sourceDiagnostics.Any(d => d.Severity == SvgSourceSeverity.Error)
-                      || _sourceDiagnostics.Count == 0
-                ? "SvgViewerSourceErrorBrush"
-                : "SvgViewerSourceWarningBrush";
+            var key = NoteWarns ? "SvgViewerSourceWarningBrush" : "SvgViewerSourceErrorBrush";
 
             _noteText[!TextBlock.ForegroundProperty] = new DynamicResourceExtension(key);
         }

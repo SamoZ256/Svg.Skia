@@ -86,7 +86,7 @@ well (`fontsFolder="../fonts"`, relative to the project's folder), whose fonts c
 
 The tabs, the board, `File → Export…`, the assistant's code and a build through Svg.Studio.Projects
 all measure with those files, so every machine writes the same C#. A text whose family, weight or
-style they do not hold is said on its tab's status line and among the export's warnings — even where
+style they do not hold is said on the status bar and among the export's warnings — even where
 the machine has that font installed, since another machine would measure it with a font of its own.
 A project with no fonts measures with the machine's, and says only of a family the machine lacks. A
 font's **▾** in **Attributes** offers the families the project's fonts hold.
@@ -137,30 +137,50 @@ held at either end of a strip with more tabs than fit scrolls the strip the same
 an `.svg` file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
 clipboard. Adding, removing and moving edit the project; nothing reaches the folder until you save it.
 
-Five panels sit round the tabs: the **Project** tree, the **Properties** of whatever is in front, the
-**Variables** it declares, the **Attributes** of the element picked in it, and the **Elements** those
-come from. They
-belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
-holds still while you move between drawings, and the tree that names them stays beside all of them.
+Panels sit round the tabs: the **Project** tree, **Changes** and **History**; the **Variables** a
+drawing declares and the **Properties** of whatever is in front; the **Attributes** of the element
+picked in it, the **Elements** those come from, and the **Assistant**; and **Streamline**. They belong
+to the window rather than to a tab, and show whatever tab is in front — so the arrangement holds still
+while you move between drawings, and the tree that names them stays beside all of them.
 
-They come up as a strip either side of the drawing, both the same width so neither reads as the
-important one: the tree over the variables it declares on the left, and on the right the settings and
-the elements sharing a run over the picked element's attributes. The tree gets the deeper share of
-its column, being the list you scroll where the variables are a handful of rows. The variables and
-the element are apart on purpose — a variable is dragged onto an attribute, and behind a tab each
-would hide the other.
+They come up in the **Drawing** layout: down the left the tree, with Changes and History behind it,
+over the variables and the properties; Streamline folded under the drawing, which its tab opens; down
+the right the attributes over the element tree and the assistant. The variables and the attributes are apart on purpose — a
+variable is dragged onto an attribute, and behind a tab each would hide the other. **Board** puts
+Streamline under the tree and gives a group's board the window's whole height; **Review** puts
+Changes and History wide on the left. Pick one in the control bar's picker, at its right end, or in
+the **Window** menu. The picker names the layout you are in, and says *Custom* once the panels are
+arranged as none of them.
 
-**Arrange them as you like.** The chevron on a header folds that panel away. Take a panel by its
+**History** lists what **Edit → Undo** would take back, in the order it would: the drawing in front
+first, then the project. Clicking a row takes back that step and everything above it.
+
+**Arrange them as you like.** The chevron on a header folds that panel away, and a click on a folded
+run's tab opens it again. Drag the gap between two panels, which lights up under the pointer, to
+resize them. Take a panel by its
 header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
 Drop it against the foot of the drawing and it sits under the drawing; drop it against the **edge of
 the window** and it runs under everything, taking nothing from the strip beside it. Where it would
-land is drawn while you carry it. The arrangement is remembered, so it is there again next time, and
-**Window → Reset Layout** puts it back for when it has gone somewhere you would rather it had not. The
+land is drawn while you carry it. A tab's own menu, on a right-click, moves it left or right along its
+run or into a run of its own below it, and closes it where the **Window** menu can bring it back;
+clicking a tab leaves the keyboard with the drawing, and once a tab has it the arrow keys walk the run's tabs, and a run too
+narrow for its tabs offers the rest under the **»** at its end. The arrangement is remembered, so it
+is there again next time, and **Window → Reset Layout** puts it back for when it has gone somewhere
+you would rather it had not. The
 **Window** menu also takes a panel off or puts it back for this session — all but the project tree and
 **Changes**, which come and go with the project — and moves between tabs
 (⌃⇥ and ⌃⇧⇥); **Help → Keyboard Shortcuts** lists every key Studio answers to, and **Help → Search
 Commands…** (⌘K, Ctrl+K elsewhere) finds a command, a tool, or a drawing or group of the project by
 name, and runs or opens it.
+
+Two bars run across the window and are about whichever tab is in front. The **control bar**, under
+the menus, names what is picked — `rect #a`, *3 objects*, *Page* — and holds **Reset parameters**,
+**Lock ratio**, **Snap**, **Invisible** and **Captions**, with **Search** at its right end. The
+**status bar** at the foot zooms (**−**, a percentage to type, **+**, **Fit**), says the drawing's
+name, how many parameters it has and the tool in hand with how it is used, reads the pointer in the
+drawing's own units, and carries the note about anything wrong with the drawing. **Snap** lands what
+is dragged on the grid, and **Grid** draws the grid's lines; each works without the other. The same
+switches are in **View**.
 
 ## A group's tab: several icons at once
 
@@ -196,7 +216,7 @@ and one with a group between them that names no place of its own.
 A drag writes the project as it is made, and like every other arrangement edit it is one step on the
 project's history, *move …* in the Edit menu, so ⌘Z takes it back.
 
-**Captions** writes each drawing's name inside its own top corner, where a group's name sits in its
+**Captions**, on the control bar and in **View**, writes each drawing's name inside its own top corner, where a group's name sits in its
 frame, and a board comes up with them. The name is shrunk until it fits the drawing — across it and
 down it — so it takes no room at all: a board that names what is on it is laid out and fitted exactly
 like one that does not, and switching them off moves nothing. That is also why the name is only the
@@ -305,12 +325,51 @@ which lists the names the drawing declares and picks every element that reads th
 Nothing opens while a drawing tool or **Points** is out. A group's tab does the same in the
 drawing clicked.
 
+**Swap Fill and Stroke** (⇧X on the canvas or in the element tree, in the **Edit** menu and in the
+rows' menu) exchanges what everything picked fills and strokes with, and their opacities, as one
+step to undo. The text moves, so `{%{{{ tint }}}%}` goes with its paint, and each value stays where its
+element writes that property: a value in `style` stays in the style, its `!important` kept. An
+unwritten fill swaps as the black it paints and an unwritten stroke as none, so a plain shape turns
+into its outline. What an element only inherits from a group is written on it where it would now
+paint otherwise, and where that shadows a group's expression the canvas says so. A `<stop>` has
+nothing to swap, a shape in a `<clipPath>` paints nothing, and a paint a `<style>` sheet may set, or
+a `<use>` gives what a `<symbol>` holds, is not guessed at; each is refused before anything is written.
+
+## The View menu
+
+**Rulers** (⌘R, Ctrl+R elsewhere) runs a ruler along the top and the left of the canvas. They count
+the drawing's own units, its `viewBox`, not the size it is drawn at: a `viewBox="0 0 24 24"` drawn
+48 wide reads 24 across. On a group's board they count the drawing being read, the one the
+Elements tab shows, from that drawing's own zero, and the board's units before one is read.
+
+Press on a ruler and drag onto the canvas for a guide: a level one from the top ruler, an upright
+one from the left. Drag a guide to move it, and drop it on a ruler or anywhere off the canvas to
+take it away; with **Snap to Grid** on it lands on the grid, and Escape puts it back. A click on a
+guide is a click on whatever is under it, and a drawing tool draws over a guide rather than taking
+hold of it. On a drawing's tab a guide keeps the number its ruler gave it, so it stays on the
+artwork when the page grows on its left. Guides belong to the tab: nothing is written into the
+drawing, and closing the tab takes them away. **Guides** (⌘;) shows and hides them, and hidden,
+nothing lands on them.
+
+Whatever is dragged — a shape carried or resized, a point, a page edge, a shape being drawn —
+lands on a guide within eight pixels of it. **Smart Guides** (⌘U) adds the other shapes' left and
+right edges, tops and bottoms and centres, and the page's: a shape carried near another lines up
+its left edge, centre or right edge with it, and what it lines up with is drawn in magenta until it
+is let go. On a board that includes the drawings beside it. What is being dragged is never one of
+them, and neither is anything in `<defs>`, a clip path or a mask, or anything hidden. Near a grid
+line and a guide both, the nearer wins, and with **Snap to Grid** on the grid's own rule still
+holds: a shape narrower than a step lands on nothing along that axis. Carrying a whole drawing about
+a board lands it on the grid and the guides, not on other shapes. Rulers start off and both kinds
+of guide on; all three are remembered.
+
 ## The Attributes tab
 
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
 own tab or on a group's — under names a person would use, filed in sections by what they do:
 **Geometry**, **Fill**, **Stroke**, **Text** and so on. Hover a label for the attribute's name as the
-file writes it. A section folds away and stays folded from one pick to the next.
+file writes it. A section folds away and stays folded from one pick to the next. The heading names the
+element's tag and its id; **Find an attribute** under it lists only the rows whose name holds what is
+typed, and finds the attributes the element does not usually list as well.
 
 Every attribute the element writes is listed, and beside them the ones an element of its kind usually
 has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, not a stop's stroke
@@ -325,10 +384,13 @@ Typing into one of the empty rows adds it.
 Some rows have a control beside the box, which writes into it. A colour has a swatch that opens a
 picker; an opacity or a stop's offset has a slider; an attribute SVG spells a handful of values for —
 a line cap, a text's alignment, a fill's `none` or a gradient the drawing holds, a font the project's
-fonts hold — has a **▾** listing them; and **↑**/**↓** step a number in its box, by ten with Shift and a tenth with Alt. The picker
-writes once when it closes and the slider once when it is let go, so either is one step to undo. On
-a row an expression drives, the swatch and the slider show what the expression comes to and are
-locked; picking from the **▾**, like typing a value, lets the expression go.
+fonts hold — has a **▾** listing them; and **↑**/**↓** step a number in its box, by ten with Shift
+and a tenth with Alt, and an opacity by a tenth. The picker writes once when it closes and the slider
+once when it is let go, so either is one step to undo. On a row an expression drives, the swatch and
+the slider show what the expression comes to and are locked; picking from the **▾**, like typing a
+value, lets the expression go. A box an expression decides is outlined in the expression colour, and so
+is an empty one a group's expression paints, which reads `{%{{{ tint }}}%} inherited`: giving the element
+a value of its own there is still a pick or a keystroke away.
 
 **Or drag the variable onto the row.** **Variables** and **Attributes** have a run each rather than
 sharing one, so both are on screen at once: take any variable by its name, of either kind — not the
@@ -341,9 +403,20 @@ adds the attribute already bound.
 
 Only an expression is judged: what it comes to is read out beside it, an expression of the wrong type
 is caught in the box, and one written on an attribute the parser lifts nothing out of is refused
-rather than written as braces nobody reads. A value the element's `style` attribute sets reads on its
-row as `red in style`, and the row takes nothing: the declaration wins over the attribute, so it is
-changed under **Inline style** instead.
+rather than written as braces nobody reads. A value the element's `style` attribute sets is shown and
+edited in that declaration, which is what paints, and its `!important` is kept; emptying the box takes
+it out of the style. Geometry and `transform` set in a style are read-only, as `rotate(45deg) in style`:
+what is written for them is attribute grammar, which no browser reads in a style.
+
+The **ID** row renames the element, and what in the drawing points at it follows: `url(#…)` in any
+attribute or style, an `href`, an animation timed `id.click`, and `#id` in a `<style>` sheet's
+selectors, never its colours. An id another element has, or one that is not a name — `1a`, one with a
+space — is refused, and so is taking away an id something points at.
+
+What is typed is written when the box is left or Enter is pressed, and before Save, a command, another
+tab or closing the window acts on the drawing. **Escape** puts back what the box was drawn with, and
+⌘Z while typing takes back the typing. If the drawing changes under a box being typed in — an undo
+the assistant makes, or a reload — the value is not written, and the panel says so.
 
 ## Code that calls it the way PaintCode's did
 
@@ -367,8 +440,8 @@ for every shape named `Embed<X>`.
 A box paints nothing, so the canvas draws it for you: a dashed cyan line with the constant written
 inside, such as `LevelRect 2, 6, 28, 24`. The numbers are the ones the class will get, as left,
 top, right, bottom. A box that a variable moves reads `LevelRect (driven)` instead, because the
-class has only the defaults. **Invisible** on the toolbar, on a drawing's tab and on a group's
-board, shows or hides them, along with the rest of what a drawing has but does not paint (see
+class has only the defaults. **Invisible**, on the control bar and in **View**, shows or hides
+them on a drawing's tab and a group's board alike, along with the rest of what a drawing has but does not paint (see
 [invisible elements](#invisible-elements)).
 
 Click a box's dashed line to pick it. Ink inside a box is still picked by clicking it, and empty
@@ -422,7 +495,7 @@ drawn and keeping the paint and font its groups gave it. A mask made from a shap
 where it covers it. A board offers all of this, though its rows cannot otherwise be dragged.
 
 The paths a clip or a mask is made of are reshaped where they apply: double-click one on the canvas,
-or pick it in the tree and choose **Points** (`⌖`) on the toolbar, and its points are held on the
+or pick it in the tree and choose **Points** (`⌖`) on the tool strip, and its points are held on the
 element it clips. That reaches a shape in `<defs>` drawn only through a `<use>` as well, and a double
 click on a `<use>` reshapes the shape it draws, which changes it everywhere it is used.
 
@@ -430,7 +503,8 @@ click on a `<use>` reshapes the shape it draws, which changes it everywhere it i
 
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project, its drawings and each node's own and inherited settings, lists every problem in them, reads
-the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
+the C# a drawing is built into, sets attributes and text, renames an element's id with what points at
+it, swaps fill and stroke, adds, removes, moves and copies elements,
 selects them by key or as the Select menu does, reads and changes a group's declarations, declares
 or renames one parameter or let with every use of it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
 Before a commit, `get_changes` tells it what has changed since the last one, as the Changes panel

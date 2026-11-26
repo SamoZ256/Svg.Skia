@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -520,6 +521,304 @@ public class SvgViewerDockTests
         Assert.Contains("selected", headers[0].Classes);
         Assert.DoesNotContain("selected", headers[1].Classes);
         Assert.True(headers[1].Opacity < headers[0].Opacity);
+
+        window.Close();
+    }
+
+    // ---- a tab's own menu, the keys, and a run too narrow for its tabs ---------------------------
+
+    private const string Three = "row(*/1,col(project+elements+variables/1/project/open,element/1/element/open)/340px)";
+
+    private static MenuItem Entry(Window window, string tab, string header)
+        => Tab(window, tab).ContextMenu!.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header));
+
+    private static void Pick(Window window, MenuItem item)
+    {
+        item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Lay(window);
+    }
+
+    [AvaloniaFact]
+    public void A_Tab_Moves_Left_Right_And_Below()
+    {
+        var (window, dock, _) = Host(Three);
+        var moved = 0;
+
+        dock.LayoutChanged += (_, _) => moved++;
+
+        Assert.False(Entry(window, "Project", "Move Left").IsEnabled);
+        Assert.False(Entry(window, "Variables", "Move Right").IsEnabled);
+
+        Pick(window, Entry(window, "Project", "Move Right"));
+        Assert.Contains("col(elements+project+variables/", dock.Layout, StringComparison.Ordinal);
+
+        Pick(window, Entry(window, "Project", "Move Left"));
+        Assert.Contains("col(project+elements+variables/", dock.Layout, StringComparison.Ordinal);
+
+        // Under the run it was in, at a share of the column, and the run keeps the rest.
+        Pick(window, Entry(window, "Elements", "Move Below"));
+        Assert.Contains("col(project+variables/1/project/open,elements/1/elements/open,element/", dock.Layout, StringComparison.Ordinal);
+        Assert.False(Entry(window, "Elements", "Move Below").IsEnabled);
+
+        Assert.Equal(3, moved);
+
+        window.Close();
+    }
+
+    /// <summary>A tab is right-clicked for its menu.</summary>
+    [AvaloniaFact]
+    public void A_Right_Click_Opens_A_Tabs_Menu()
+    {
+        var (window, _, _) = Host(Three);
+        var at = Middle(window, Tab(window, "Elements"));
+
+        window.MouseDown(at, MouseButton.Right);
+        window.MouseUp(at, MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(Tab(window, "Elements").ContextMenu!.IsOpen);
+
+        window.Close();
+    }
+
+    /// <summary>Close is offered only for a panel the host can bring back, and is this session's, as the host's own is.</summary>
+    [AvaloniaFact]
+    public void Close_Only_Where_The_Host_Can_Bring_It_Back()
+    {
+        var (window, dock, panels) = Host(Three);
+        var moved = 0;
+
+        dock.Regions = new[]
+        {
+            new SvgViewerRegion("project", "Project", panels[0]),
+            new SvgViewerRegion("variables", "Variables", panels[1]) { Closable = true },
+            new SvgViewerRegion("element", "Element", panels[2]),
+            new SvgViewerRegion("elements", "Elements", panels[3])
+        };
+        Lay(window);
+
+        dock.LayoutChanged += (_, _) => moved++;
+
+        Assert.DoesNotContain(Tab(window, "Project").ContextMenu!.Items.OfType<MenuItem>(), item => Equals(item.Header, "Close"));
+
+        Pick(window, Entry(window, "Variables", "Close"));
+
+        Assert.False(dock.Shows("variables"));
+        Assert.Equal(0, moved);
+
+        window.Close();
+    }
+
+    /// <summary>A click chooses a panel and leaves the keyboard with the drawing, whose tool letters still answer.</summary>
+    [AvaloniaFact]
+    public async System.Threading.Tasks.Task Choosing_A_Panel_Leaves_The_Keyboard_With_The_Drawing()
+    {
+        var viewer = new SvgViewer();
+        var window = new Window { Width = 900, Height = 600, Background = Brushes.White, Content = viewer };
+
+        window.Show();
+        Assert.True(await viewer.LoadTextAsync("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <rect width="24" height="24" />
+            </svg>
+            """));
+        Lay(window);
+
+        viewer.Canvas.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        var tab = Tab(window, "Elements");
+        var at = Middle(window, tab.Child!);
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("selected", Tab(window, "Elements").Classes);
+        Assert.Same(viewer.Canvas, window.FocusManager!.GetFocusedElement());
+
+        window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("rect", viewer.Drafting.Shape);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void The_Arrow_Keys_Walk_A_Runs_Tabs()
+    {
+        var (window, dock, _) = Host(Three);
+
+        Tab(window, "Project").Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        string Pressed(PhysicalKey key)
+        {
+            window.KeyPressQwerty(key, RawInputModifiers.None);
+            Lay(window);
+
+            var focused = Assert.IsType<Border>(window.FocusManager!.GetFocusedElement());
+
+            Assert.Equal(dock.Selected("project"), focused.Tag);
+
+            return dock.Selected("project")!;
+        }
+
+        Assert.Equal("elements", Pressed(PhysicalKey.ArrowRight));
+        Assert.Equal("variables", Pressed(PhysicalKey.ArrowRight));
+        Assert.Equal("project", Pressed(PhysicalKey.ArrowRight));
+        Assert.Equal("variables", Pressed(PhysicalKey.ArrowLeft));
+        Assert.Equal("project", Pressed(PhysicalKey.Home));
+        Assert.Equal("variables", Pressed(PhysicalKey.End));
+
+        window.Close();
+    }
+
+    /// <summary>A run too narrow for its tabs offers every one of them in a menu at its end; one wide enough does not.</summary>
+    [AvaloniaFact]
+    public void A_Run_Too_Narrow_Offers_The_Rest_In_A_Menu()
+    {
+        var (window, dock, _) = Host("row(*/1,project+elements+variables+element/200px/project/open)");
+        var moved = 0;
+
+        dock.LayoutChanged += (_, _) => moved++;
+
+        Button More() => window.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("more"));
+
+        Assert.True(More().IsVisible);
+
+        var rest = Assert.IsType<MenuFlyout>(More().Flyout);
+
+        Assert.Equal(new[] { "Project", "Elements", "Variables", "Element" }, rest.Items.OfType<MenuItem>().Select(item => (string)item.Header!));
+
+        rest.Items.OfType<MenuItem>().Last().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Lay(window);
+
+        Assert.Equal("element", dock.Selected("element"));
+        Assert.Equal(1, moved);
+
+        // And brought into view, the strip scrolled along to it.
+        Assert.True(Tab(window, "Element").FindAncestorOfType<ScrollViewer>()!.Offset.X > 0d);
+
+        dock.Layout = "row(*/1,project+elements+variables+element/800px/project/open)";
+        Lay(window);
+
+        Assert.False(More().IsVisible);
+
+        window.Close();
+    }
+
+    /// <summary>A click on a folded run's tab opens the run, and is remembered like the chevron's.</summary>
+    [AvaloniaFact]
+    public void A_Click_On_A_Folded_Runs_Tab_Opens_It()
+    {
+        var (window, dock, panels) = Host("row(*/1,col(project+elements/1/project/folded,variables/1/variables/open)/340px)");
+        var moved = 0;
+
+        dock.LayoutChanged += (_, _) => moved++;
+
+        Assert.True(dock.Folded("project"));
+
+        var at = Middle(window, Tab(window, "Project"));
+
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Lay(window);
+
+        Assert.False(dock.Folded("project"));
+        Assert.True(panels[0].IsEffectivelyVisible);
+        Assert.Equal(1, moved);
+
+        window.Close();
+    }
+
+    /// <summary>The gap between two panels shows itself under the pointer, so it can be found to drag.</summary>
+    [AvaloniaFact]
+    public void The_Gap_Lights_Up_Under_The_Pointer()
+    {
+        var (window, _, _) = Host(Three);
+        var gap = window.GetVisualDescendants().OfType<GridSplitter>().First(splitter => splitter.Classes.Contains("gap"));
+
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(gap.Background).Color);
+
+        window.MouseMove(Middle(window, gap));
+        Lay(window);
+
+        Assert.NotEqual(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(gap.Background).Color);
+
+        window.Close();
+    }
+
+    /// <summary>A run whose front panel goes shows its first real one, not a panel nothing supplies yet.</summary>
+    [AvaloniaFact]
+    public void A_Run_Never_Shows_A_Panel_Nothing_Supplies()
+    {
+        // Every region named, so settling puts none of them into the run.
+        var (window, dock, panels) = Host("row(*/1,col(elements+resources+brushes+variables/1/elements/open,project+element/1/project/open)/340px)");
+
+        dock.Show("elements", false);
+        Lay(window);
+
+        Assert.Contains("selected", Tab(window, "Variables").Classes);
+        Assert.True(panels[1].IsEffectivelyVisible);
+
+        window.Close();
+    }
+
+    /// <summary>A panel put back goes where the default has it among its run, not at the end of it.</summary>
+    [AvaloniaFact]
+    public void A_Panel_Put_Back_Takes_Its_Place_In_The_Run()
+    {
+        var (window, dock, _) = Host(Three);
+
+        dock.Fallback = Three;
+        dock.Show("project", false);
+        dock.Show("elements", false);
+
+        dock.Show("project", true);
+        dock.Show("elements", true);
+
+        Assert.Contains("col(project+elements+variables/", dock.Layout, StringComparison.Ordinal);
+        Assert.True(dock.Matches(Three));
+
+        window.Close();
+    }
+
+    // ---- whether an arrangement is the one a line describes --------------------------------------
+
+    [AvaloniaFact]
+    public void A_Line_Matches_Whatever_Its_Sizes_Folds_And_Tabs()
+    {
+        var (window, dock, _) = Host(Three);
+
+        Assert.True(dock.Matches(Three));
+        Assert.True(dock.Matches("row(*/2,col(project+elements+variables/3/variables/folded,element/1/element/open)/500px)"));
+
+        Assert.False(dock.Matches("row(*/1,col(elements+project+variables/1/project/open,element/1/element/open)/340px)"));
+        Assert.False(dock.Matches("row(*/1,col(project+elements/1/project/open,variables+element/1/element/open)/340px)"));
+        Assert.False(dock.Matches("not a line"));
+
+        window.Close();
+    }
+
+    /// <summary>A panel taken off the arrangement is taken out of the line too, so the arrangement still reads as itself.</summary>
+    [AvaloniaFact]
+    public void A_Panel_Taken_Off_Still_Matches()
+    {
+        var (window, dock, _) = Host(Three);
+
+        dock.Show("elements", false);
+
+        Assert.True(dock.Matches(Three));
+
+        // A panel nothing supplies yet is kept in the line it was laid out from, and matches it.
+        var later = "row(*/1,col(project+elements+variables/1/project/open,element+transform/1/element/open)/340px)";
+
+        dock.Layout = later;
+
+        Assert.True(dock.Matches(later));
+        Assert.False(dock.Matches(Three));
 
         window.Close();
     }

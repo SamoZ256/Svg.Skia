@@ -93,7 +93,8 @@ internal sealed class Studio : IDisposable
     }
 
     /// <summary>The front window's title, which is where Studio says what is open and whether it is saved.</summary>
-    public string Title => Until(() => Windows.FirstOrDefault(), "a window").GetAttribute("title") ?? string.Empty;
+    /// <remarks>The first titled one: a tooltip up under a resting pointer is an untitled window ahead of it.</remarks>
+    public string Title => Until(() => Windows.Select(window => window.GetAttribute("title")).FirstOrDefault(title => title is { Length: > 0 }), "a titled window");
 
     public IReadOnlyList<IWebElement> Windows => Driver.FindElements(Chain("XCUIElementTypeWindow"));
 

@@ -31,9 +31,9 @@ gh run list --repo SamoZ256/Svg.Skia --branch master --commit "$(git rev-parse o
 ```
 
 Every run there must have finished and none failed; wait for one in progress
-(`gh run watch <id> --repo SamoZ256/Svg.Skia --exit-status`, in the background). `release.yml`
-tests on Linux only, so `master`'s Build run is the only one that tested Windows and macOS. Never
-tag a commit that is not `origin/master`'s tip, and never a red one.
+(`gh run watch <id> --repo SamoZ256/Svg.Skia --exit-status`, in the background). Master runs only
+Docs now: `release.yml` is where Windows and Studio UI are tested, so a release is the first run
+to see them. Never tag a commit that is not `origin/master`'s tip, and never a red one.
 
 Say what the release carries: `git log --oneline --first-parent <last tag>..origin/master`.
 
@@ -84,6 +84,8 @@ gh api -X POST repos/SamoZ256/Svg.Skia/actions/runs/<id>/pending_deployments \
   -F 'environment_ids[]=<environment id>' -f state=approved -f comment='<who asked>'
 ```
 
+- **Studio UI failed:** it flakes on the hosted desktop. Re-run it once with `--failed` (below)
+  before treating it as a defect.
 - **Build, Test or Pack failed:** nothing reached nuget.org. Fix it through a pull request, delete
   the tag (`git push origin :refs/tags/<tag>` and `git tag -d <tag>`), and tag the fixed `master`
   with the same version.
