@@ -81,8 +81,7 @@ public sealed class SvgViewerGuides
                 if (node.Parent is null
                     || node.Element is not SvgVisualElement element
                     || element is SvgGroup
-                    || node.IsDisplayNone
-                    || !node.IsVisible
+                    || !SvgViewerOutline.Drawn(node)
                     || Defined(element)
                     || Carried(node, held))
                 {

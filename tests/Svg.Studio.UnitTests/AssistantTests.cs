@@ -966,6 +966,99 @@ public class AssistantTests : IDisposable
         Assert.Contains("Problem: Unknown name 'nope'", chat.Results[0], StringComparison.Ordinal);
     }
 
+    /// <summary>Twenty-four units drawn across forty-eight, so a box read in picture units would be twice the size.</summary>
+    private const string Measured = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48">
+          <rect id="a" x="2" y="4" width="6" height="4" />
+          <rect id="b" x="12" y="4" width="4" height="10" />
+          <use href="#b" x="6" />
+          <mask id="m"><rect x="0" y="0" width="1" height="1" fill="white" /></mask>
+          <g display="none"><rect x="1" y="1" width="1" height="1" /></g>
+          <rect x="20" y="20" width="2" height="2" mask="url(#m)" />
+        </svg>
+        """;
+
+    /// <summary>A box is in the drawing's own units, and a second element brings the gaps and the line between the centres.</summary>
+    [AvaloniaFact]
+    public async Task Measure_Reads_Boxes_And_What_Lies_Between_Them_In_User_Units()
+    {
+        var window = await Host(Write("measured.svg", Measured));
+        var chat = new ScriptedChat(
+            Call("measure", new() { ["element"] = "0" }),
+            Call("measure", new() { ["element"] = "0", ["to"] = "1" }),
+            Say("Measured."));
+
+        await Send(window, chat, "how far apart are a and b");
+
+        Assert.Contains("<rect> at 0: x 2 to 8, y 4 to 8; 6 wide and 4 tall, centred on 5, 6.", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("a gap of 4 across and -4 down", chat.Results[1], StringComparison.Ordinal);
+        // b is drawn twice, once by the use beside it, so its box and centre are both copies'.
+        Assert.Contains("the centres are 12.37 apart at 14.04°", chat.Results[1], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Measure_Says_What_It_Cannot_Measure()
+    {
+        var window = await Host(Write("measured.svg", Measured));
+        var chat = new ScriptedChat(
+            Call("measure", new() { ["element"] = "2" }),
+            Call("measure", new() { ["element"] = "3/0" }),
+            Call("measure", new() { ["element"] = "4/0" }),
+            Call("measure", new() { ["element"] = "9" }),
+            Call("measure", new() { ["element"] = "(root)" }),
+            Say("Measured."));
+
+        await Send(window, chat, "measure them");
+
+        // The use is one copy of b, moved.
+        Assert.Contains("<use> at 2: x 18 to 22", chat.Results[0], StringComparison.Ordinal);
+        Assert.Contains("<rect> at 3/0 draws nothing.", chat.Results[1], StringComparison.Ordinal);
+        Assert.Contains("<rect> at 4/0 draws nothing.", chat.Results[2], StringComparison.Ordinal);
+        Assert.Contains("There is no element 9.", chat.Results[3], StringComparison.Ordinal);
+        Assert.Contains("(root), the page: x 0 to 24, y 0 to 24", chat.Results[4], StringComparison.Ordinal);
+    }
+
+    /// <summary>A group's declarations go in front of a drawing's own shapes when it is built, so its keys are not the file's.</summary>
+    [AvaloniaFact]
+    public async Task Measure_Takes_The_Files_Keys_Not_The_Built_Drawings()
+    {
+        var window = await Host(Write("declared.svgstudio", """
+            <studio namespace="Demo.Icons">
+              <group name="Badges">
+                <e:code xmlns:e="https://svg.skia/expr/1.0">
+                  <e:param name="tint" type="color" default="#ff0000" />
+                </e:code>
+                <drawing name="Plain">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <rect x="2" y="2" width="4" height="4" fill="{{ tint }}" />
+                    <rect x="10" y="10" width="6" height="6" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+            """));
+
+        await window.ShowAsync(((ProjectGroup)window.Workspace!.Document.Root.Children[0]).Children[0]);
+        Dispatcher.UIThread.RunJobs();
+
+        var chat = new ScriptedChat(Call("measure", new() { ["element"] = "1" }), Say("Measured."));
+
+        await Send(window, chat, "measure the second square");
+
+        Assert.Contains("<rect> at 1: x 10 to 16", chat.Results[0], StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Measure_Spans_Every_Copy_A_Use_Draws()
+    {
+        var window = await Host(Write("measured.svg", Measured));
+        var chat = new ScriptedChat(Call("measure", new() { ["element"] = "1" }), Say("Measured."));
+
+        await Send(window, chat, "measure b");
+
+        Assert.Contains("<rect> at 1, drawn 2 times and spanning every copy: x 12 to 22", chat.Results[0], StringComparison.Ordinal);
+    }
+
     [AvaloniaFact]
     public async Task A_Pick_Is_Named_By_The_Files_Key_Where_A_Drawing_Has_A_Block_Before_The_Groups()
     {

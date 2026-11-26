@@ -54,6 +54,7 @@ public sealed class AssistantSession : IDisposable
     internal const string Tooled = "\n- get_declarations reads a group's or the project's declarations; declare adds or changes one, and renames one with every use; set_declarations replaces the whole block; find says where a name is used."
                                    + "\n- get_problems lists everything wrong across the project's drawings; set_text changes the text between an element's tags."
                                    + "\n- get_history says what undo and redo would take now, and whose each step is."
+                                   + "\n- measure says where an element is drawn in its drawing's own units, and how far apart two are."
                                    + "\n- get_changes says what changed since the last commit, for a commit message; git_history lists the commits, and get_drawing with a revision reads a drawing as one of them had it.";
 
     /// <summary>Only for a model that has the save, export, remove and git_commit tools; a small one nagged about saving from the mention alone.</summary>

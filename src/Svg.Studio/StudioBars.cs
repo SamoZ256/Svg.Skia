@@ -330,7 +330,7 @@ internal sealed class StudioBars
     {
         foreach (var row in SvgViewerDraw.Tools)
         {
-            if (draw.Reshaping ? row.Name == "Points" : row.Tool == draw.Shape)
+            if (draw.Reshaping ? row.Name == "Points" : draw.Measuring ? row.Name == "Measure" : row.Tool == draw.Shape)
             {
                 return $" · {row.Name}: {row.Use}";
             }

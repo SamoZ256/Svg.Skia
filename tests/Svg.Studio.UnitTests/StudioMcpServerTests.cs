@@ -199,7 +199,7 @@ public class StudioMcpServerTests : IDisposable
         Assert.True(tools["get_code"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.True(tools["get_templates"].ProtocolTool.Annotations?.ReadOnlyHint);
         Assert.True(tools["find"].ProtocolTool.Annotations?.ReadOnlyHint);
-        Assert.All(new[] { "get_changes", "git_history", "get_history" }, name => Assert.True(tools[name].ProtocolTool.Annotations?.ReadOnlyHint, name));
+        Assert.All(new[] { "get_changes", "git_history", "get_history", "measure" }, name => Assert.True(tools[name].ProtocolTool.Annotations?.ReadOnlyHint, name));
         Assert.False(tools["set_attributes"].ProtocolTool.Annotations?.DestructiveHint);
 
         // Over MCP alone, since its answer is an image, or what only such an answer gives.
