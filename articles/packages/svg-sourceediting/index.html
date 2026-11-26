@@ -150,8 +150,9 @@
 and edits it. It adds a parameter to an <code>&lt;e:code&gt;</code> block, moves an element, writes an attribute — and
 what comes out is the file with the edit in it and nothing else changed. It draws nothing and knows
 no UI framework; it is what <code>Svg.Viewer.Skia.Avalonia</code> edits through.</p>
-<p>It depends on <code>Svg.Expressions</code> alone — for the declarations it edits, the rules it validates
-against, and the position map that says where in the text each of them was written.</p>
+<p>It depends on <code>Svg.Expressions</code>, for the declarations it edits, the rules it validates against, and
+the position map that says where in the text each of them was written; and on <code>Svg.Custom</code>, whose
+loader reads the copy a command edits and the file the edit is checked against.</p>
 <h2 id="install">Install</h2>
 <pre><code class="language-bash">dotnet add package SamoZ256.Svg.SourceEditing --prerelease
 </code></pre>
@@ -185,7 +186,11 @@ document,</li>
 </tr>
 <tr>
 <td><code>SvgSourceEdits</code></td>
-<td>What one gesture writes, as steps for one commit — <code>SetAttributes</code>, <code>Insert</code>, <code>Move</code>, <code>Remove</code>, <code>SetContent</code> and <code>Retag</code>: every element they name is found before anything is written, and <code>Apply</code> gives back where what it wrote landed</td>
+<td>What one gesture writes, as steps for one commit — <code>SetAttributes</code> (a null value takes the attribute away), <code>Insert</code> (named, for a later step to place something beside it), <code>Move</code>, <code>Remove</code>, <code>SetContent</code> and <code>Retag</code>: every element they name is found before anything is written, and <code>Apply</code> gives back where what it wrote landed</td>
+</tr>
+<tr>
+<td><code>SvgDomEdit</code></td>
+<td><code>Apply</code> runs a command on a parsed copy of the drawing and writes back only what it changed, as those steps; <code>SvgDomEditContext</code> is what the command is handed, and its <code>Replace</code> keeps an element's tag while its type changes</td>
 </tr>
 <tr>
 <td><code>SvgSourceDocument</code></td>
@@ -244,7 +249,37 @@ why undo returns the file and not merely something that renders like it. And an 
 it started from anyway — a declaration can only be checked against the language's rules after the
 tree has been changed, and one of those checks needs the state before it — so a refusal must already
 be able to put a half-made edit back. Rollback and undo are one mechanism instead of two.</p>
+<h2 id="a-command-on-the-parsed-drawing">A command on the parsed drawing</h2>
+<p>Some edits are computed rather than typed: a shape converted to a path, two outlines united. Those
+are written against the parsed <code>SvgDocument</code>, and <code>SvgDomEdit.Apply</code> puts what one did back into the
+file. It parses the file's own text, runs the command on the copy, compares what each element holds
+before and after, and turns the differences into <code>SvgSourceEdits</code> steps: a changed value is written
+over the old one where it was written, in its attribute or its <code>style</code> declaration; an element taken
+out goes with its line; one the command made is written by <code>SvgFreshElementWriter</code>; children put in
+another order move, as few of them as keep the rest in order, with their comments. The rest of the
+file is not touched, and a command that changes nothing writes nothing.</p>
+<p>An expression is the hard part. The loader stands a placeholder in for each <code>{{ }}</code>, so a command
+copying a driven fill reads <code>#808080</code>, and would write it as a literal grey. So the copy is read twice,
+each time with a stand-in of its own for every expression, keyed on the expression's text, and the
+command runs on both. A value that comes out different was worked out from a stand-in. Where it is
+one expression's stand-in in both, it was copied whole, and it is written as that expression: a fill
+copied to a stroke becomes <code>stroke=&quot;{{ accent }}&quot;</code>. Anything else worked out from one is refused,
+since the number it would freeze into the file is not what the drawing shows. A value an expression
+sets is not overwritten, with one exception: terms a command puts in front of or after a driven
+<code>transform</code> are written around the author's text, as the gizmo does. A literal written under a group
+whose expression it now hides says so. A command that does not do the same thing on both readings is
+refused, and so is one whose two runs differ in a drawing with no expressions to explain it.</p>
+<p>Last, the edited file is read again and compared, value for value, with what the command made. An
+edit the file cannot say — a value a <code>&lt;style&gt;</code> rule overrides, a <code>&lt;style&gt;</code> taken out — is refused
+rather than written wrong. Over the 2,930 drawings of the W3C and resvg suites the source reads,
+doing nothing writes nothing; putting a translate in front of every top-level transform, reversing
+the root's children, copying each drawn element and taking out every other one write between 2,885
+and 2,925 of them each. Every drawing refused for not reading back holds a <code>&lt;style&gt;</code> the edit
+overrides or removes: two, none, none and five. Copying refuses six more, each holding an element of
+another namespace. The two readings, the two runs and the third reading cost 110 to 145 ms to copy
+every element of the largest of them, 139 KB and 1,480 elements.</p>
 <h2 id="one-document-inside-another">One document inside another</h2>
+<h2 id="one-document-inside-another-1">One document inside another</h2>
 <p><code>TextOf</code> writes a single element the way <code>ToText</code> writes the root: from the bytes that element was
 read as, with the file's own line endings put back. It is what lets a file hold a whole document
 inside it — a <a href="/Svg.Skia/articles/guides/svg-studio">Svg Studio</a> project keeps each of its drawings inline — and
