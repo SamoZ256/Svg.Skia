@@ -335,7 +335,7 @@ namespace Svg
             return false;
         }
 
-        private static bool ShouldIgnoreInvalidPresentationStyleAttribute(string attributeName, string attributeValue)
+        internal static bool ShouldIgnoreInvalidPresentationStyleAttribute(string attributeName, string attributeValue)
         {
             return IsCaseSensitivePresentationLengthAttribute(attributeName) &&
                    HasUppercaseLengthUnitIdentifier(attributeValue.AsSpan());
@@ -978,7 +978,7 @@ namespace Svg
         /// coloured pieces costs.
         /// </para>
         /// </remarks>
-        private static ISvgPropertyDescriptor FindProperty(SvgElement element, string attributeName)
+        internal static ISvgPropertyDescriptor FindProperty(SvgElement element, string attributeName)
         {
             var properties = s_propertiesByType.GetOrAdd(element.GetType(), _ => CreatePropertyMap(element));
 

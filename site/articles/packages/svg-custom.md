@@ -64,7 +64,9 @@ The repository wraps the vendored SVG sources with project-level concerns such a
 - typed `pointer-events` support used by the shared hit-test and interaction layers,
 - `SvgElementNames.NameOf` and `SvgElementAddress`, which answer the two questions the vendored
   `SvgElement` cannot: what an element is called, and which element it is,
-- `<sweepGradient>`, a gradient that turns around a centre.
+- `<sweepGradient>`, a gradient that turns around a centre,
+- `SvgElementState`, `SvgValueSpelling` and `SvgFreshElementWriter`, which write what a parsed element
+  holds back into a drawing's text.
 
 The rendering behavior still lives above this package, not inside it.
 
@@ -81,6 +83,40 @@ a host reloading a drawing from edited text gets a new `SvgDocument` and new ele
 a reference taken a moment ago names nothing. `SvgSceneNode.ElementAddressKey` spells the same path,
 and so does `SvgSourceElements` in `Svg.Highlighting`, which is what lets a scene node, a row of text
 and an element all be talked about as the same thing.
+
+### Writing a value back
+
+An editor that runs a command on the parsed document has to put the result back into the file, and
+SVG.NET's own writer cannot be what does it. It writes numbers in seven digits, so a float written
+and read again is another float; it drops `ex` and `pc`, `defer`, a skew of both angles and the odd
+number at the end of a point list; it writes a colour as a name on one target and as hex on another;
+and it moves fill and stroke into a generated `style`. Its `Equals` is no better: an empty transform
+list equals every list, and a paint's fallback is ignored.
+
+`SvgElementState.Capture` records what each element holds of its own — its typed values, the style
+declarations no attribute holds, its custom attributes, its text and its children — as copies, so a
+value edited in place afterwards still reads as a change. Comparing two captures is how a change is
+found: an element's `AttributeChanged` cannot be, since editing a path segment or a matrix's numbers
+in place raises nothing.
+
+`SvgValueSpelling.Precise` says whether two values are the same, to the bit, and `Spell` writes one
+as text. A number is written in the fewest digits that read back, laid out as JavaScript writes one,
+and the same on every target: `"R"` cannot be used, because on .NET Framework it is "G7, else G9".
+What `Spell` returns has been read back through the element's own converter and found equal, so a
+value it cannot write exactly is refused rather than guessed; the author's own text is kept while it
+still says the value, unless the loader reads it otherwise than the converter does — a `var()`, or
+an attribute it finds malformed. Over the W3C and resvg suites, read as the app reads them, it
+writes back 167,542 values in 2,938 drawings and refuses none.
+
+`SvgFreshElementWriter` writes an element that is not in the file — a copy a command made, a path it
+computed — as markup in no namespace, which the source editor's insert step moves into its parent's
+namespace and indents where it lands. An expression is written back as the braces it was lifted
+from, in the attribute or the `style` declaration it came from; nothing the parser keeps for itself
+is written. In a drawing with a `<style>` sheet every presentation value goes in the style, where a
+rule matching the copy cannot beat it as it would an attribute. Text is written as it runs, and
+nothing is indented under `xml:space="preserve"`. Every
+top-level element of those suites written fresh in place of itself reads back holding what it held:
+12,542 of them, and six refused, each holding an element of another namespace.
 
 ### Sweep gradients
 

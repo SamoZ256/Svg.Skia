@@ -38,7 +38,7 @@ internal sealed class SvgBookkeepingFilterWriter : XmlWriter
     public static XmlWriter Wrap(XmlWriter writer)
         => writer is SvgBookkeepingFilterWriter ? writer : new SvgBookkeepingFilterWriter(writer);
 
-    private static bool IsBookkeeping(string? ns)
+    internal static bool IsBookkeeping(string? ns)
         => ns is { Length: > 0 }
            && (ns.StartsWith(s_provenancePrefix, StringComparison.Ordinal)
                || string.Equals(ns, s_rawTextDecorationNamespace, StringComparison.Ordinal));
