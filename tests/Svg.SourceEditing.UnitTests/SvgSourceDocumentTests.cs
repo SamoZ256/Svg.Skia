@@ -354,6 +354,28 @@ public class SvgSourceDocumentTests
         Assert.Contains("""<rect fill='red' y="2" />""", document.ToText());
     }
 
+    /// <summary>
+    /// A line break or an entity in a value reads as something else once parsed, and rewriting the
+    /// tag around an edit used to write that back: a base64 image wrapped over lines came back on one.
+    /// </summary>
+    [Fact]
+    public void The_Values_Beside_An_Edited_One_Keep_Their_Bytes()
+    {
+        const string source = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <path d="M 0 0
+                       L 10 10" fill="&#x23;f00" stroke="red" />
+            </svg>
+            """;
+
+        var document = SvgSourceDocument.Read(source, out _)!;
+        XNamespace svg = "http://www.w3.org/2000/svg";
+
+        document.Document.Root!.Element(svg + "path")!.SetAttributeValue("stroke", "blue");
+
+        Assert.Equal(source.Replace("stroke=\"red\"", "stroke=\"blue\"", StringComparison.Ordinal), document.ToText());
+    }
+
     [Fact]
     public void A_Value_Spliced_Into_A_Tag_Is_Escaped_For_The_Quote_The_File_Used()
     {

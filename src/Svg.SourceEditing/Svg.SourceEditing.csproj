@@ -30,6 +30,8 @@
       where in the text each of them was written.
     -->
     <ProjectReference Include="..\Svg.Expressions\Svg.Expressions.csproj" />
+    <!-- For a command's edit of a parsed drawing, which is read and written back by the loader's own rules. -->
+    <ProjectReference Include="..\Svg.Custom\Svg.Custom.csproj" />
   </ItemGroup>
 
 </Project>

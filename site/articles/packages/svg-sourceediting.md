@@ -9,8 +9,9 @@ and edits it. It adds a parameter to an `<e:code>` block, moves an element, writ
 what comes out is the file with the edit in it and nothing else changed. It draws nothing and knows
 no UI framework; it is what `Svg.Viewer.Skia.Avalonia` edits through.
 
-It depends on `Svg.Expressions` alone — for the declarations it edits, the rules it validates
-against, and the position map that says where in the text each of them was written.
+It depends on `Svg.Expressions`, for the declarations it edits, the rules it validates against, and
+the position map that says where in the text each of them was written; and on `Svg.Custom`, whose
+loader reads the copy a command edits and the file the edit is checked against.
 
 ## Install
 
@@ -32,7 +33,8 @@ dotnet add package SamoZ256.Svg.SourceEditing --prerelease
 | `SvgDeclarationEditor` | `Add` a parameter, `Update` one, `Remove` one, `MoveParameter` one, `Set` one attribute of one, `SetDefaults` for many; `AddLet`, `UpdateLet`, `MoveLet` and `RemoveLet` for the other half of the block |
 | `SvgRecipeRuleEditor` | `SetRule` and `RemoveRule` for an svgc recipe's replacement rules — the half of a recipe that is not declarations |
 | `SvgAttributeEditor` | `SetAttribute` on any element, named by its address, and `Attributes` to read what one is written with; `Content` and `SetContent` for the text between a `<text>`, `<tspan>` or `<textPath>`'s tags; `Driven` for the expression a value is written with, on the element or a group around it; `IsGeometry` for the properties a style declaration is not written into; `SwapPaints` to exchange fill and stroke, and their opacities, as written |
-| `SvgSourceEdits` | What one gesture writes, as steps for one commit — `SetAttributes`, `Insert`, `Move`, `Remove`, `SetContent` and `Retag`: every element they name is found before anything is written, and `Apply` gives back where what it wrote landed |
+| `SvgSourceEdits` | What one gesture writes, as steps for one commit — `SetAttributes` (a null value takes the attribute away), `Insert` (named, for a later step to place something beside it), `Move`, `Remove`, `SetContent` and `Retag`: every element they name is found before anything is written, and `Apply` gives back where what it wrote landed |
+| `SvgDomEdit` | `Apply` runs a command on a parsed copy of the drawing and writes back only what it changed, as those steps; `SvgDomEditContext` is what the command is handed, and its `Replace` keeps an element's tag while its type changes |
 | `SvgSourceDocument` | A drawing as a tree, `Read` from text and written back by `ToText` — or one element of it by `TextOf` |
 | `SvgSourceWorkspace` | That drawing and its history: `Commit`, `Undo`, `Redo`, `IsModified`, `MarkSaved`, and `UndoStep`, `RedoStep`, `Holds` and `Undone` for a caller to know its own steps again |
 | `SvgElementEditor` | `Move` an element to where a drop puts it, `Insert` a new one there, `Remove` and `Duplicate` several; each that places one says the key it lands at. `Rename` gives one another id and points what referred to the old one at it |
@@ -88,6 +90,41 @@ why undo returns the file and not merely something that renders like it. And an 
 it started from anyway — a declaration can only be checked against the language's rules after the
 tree has been changed, and one of those checks needs the state before it — so a refusal must already
 be able to put a half-made edit back. Rollback and undo are one mechanism instead of two.
+
+## A command on the parsed drawing
+
+Some edits are computed rather than typed: a shape converted to a path, two outlines united. Those
+are written against the parsed `SvgDocument`, and `SvgDomEdit.Apply` puts what one did back into the
+file. It parses the file's own text, runs the command on the copy, compares what each element holds
+before and after, and turns the differences into `SvgSourceEdits` steps: a changed value is written
+over the old one where it was written, in its attribute or its `style` declaration; an element taken
+out goes with its line; one the command made is written by `SvgFreshElementWriter`; children put in
+another order move, as few of them as keep the rest in order, with their comments. The rest of the
+file is not touched, and a command that changes nothing writes nothing.
+
+An expression is the hard part. The loader stands a placeholder in for each `{%{{{ }}}%}`, so a command
+copying a driven fill reads `#808080`, and would write it as a literal grey. So the copy is read twice,
+each time with a stand-in of its own for every expression, keyed on the expression's text, and the
+command runs on both. A value that comes out different was worked out from a stand-in. Where it is
+one expression's stand-in in both, it was copied whole, and it is written as that expression: a fill
+copied to a stroke becomes `stroke="{%{{{ accent }}}%}"`. Anything else worked out from one is refused,
+since the number it would freeze into the file is not what the drawing shows. A value an expression
+sets is not overwritten, with one exception: terms a command puts in front of or after a driven
+`transform` are written around the author's text, as the gizmo does. A literal written under a group
+whose expression it now hides says so. A command that does not do the same thing on both readings is
+refused, and so is one whose two runs differ in a drawing with no expressions to explain it.
+
+Last, the edited file is read again and compared, value for value, with what the command made. An
+edit the file cannot say — a value a `<style>` rule overrides, a `<style>` taken out — is refused
+rather than written wrong. Over the 2,930 drawings of the W3C and resvg suites the source reads,
+doing nothing writes nothing; putting a translate in front of every top-level transform, reversing
+the root's children, copying each drawn element and taking out every other one write between 2,885
+and 2,925 of them each. Every drawing refused for not reading back holds a `<style>` the edit
+overrides or removes: two, none, none and five. Copying refuses six more, each holding an element of
+another namespace. The two readings, the two runs and the third reading cost 110 to 145 ms to copy
+every element of the largest of them, 139 KB and 1,480 elements.
+
+## One document inside another
 
 ## One document inside another
 

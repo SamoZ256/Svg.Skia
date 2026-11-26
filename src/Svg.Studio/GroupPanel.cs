@@ -46,6 +46,7 @@ public sealed class GroupPanel : UserControl
     private readonly SvgViewerCanvas _canvas = new();
     private readonly SvgViewerRulers _rulers = new();
     private readonly SvgViewerGuides _guides = new();
+    private readonly SvgViewerMeasure _measure = new();
     private readonly TextBlock _heading = new() { FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 10, 10, 0) };
 
     /// <summary>What each drawing of the group was last built into, in the group's own order.</summary>
@@ -236,6 +237,7 @@ public sealed class GroupPanel : UserControl
 
     /// <inheritdoc cref="_drawing"/>
     private bool _reshaping;
+    private bool _measuring;
 
     /// <summary>Whether this is the tab being looked at.</summary>
     /// <remarks>
@@ -315,7 +317,7 @@ public sealed class GroupPanel : UserControl
         //
         // The points tool has only its points, as on a drawing's own tab.
         _canvas.IsEditTarget = at =>
-            _draw.Shape is { }
+            _draw.Owns
             || Arranged(at) is { } arranged
             && (_draw.Reshaping
                 ? _points.Hits(arranged, (float)_canvas.Scale)
@@ -333,7 +335,7 @@ public sealed class GroupPanel : UserControl
 
             // The keys that finish a shape or change the tool are the canvas's, and pressing a
             // button in the strip would otherwise leave the focus on the button.
-            if (_draw.Shape is { } || _draw.Reshaping)
+            if (_draw.Owns || _draw.Reshaping)
             {
                 _canvas.Focus();
             }
@@ -341,6 +343,13 @@ public sealed class GroupPanel : UserControl
             if (!_draw.Reshaping)
             {
                 _points.Deselect();
+            }
+
+            // A reading is of the tool that took it, and goes when the tool is put down.
+            if (!_draw.Measuring && _measure.IsShowing)
+            {
+                _measure.Clear();
+                Measured();
             }
 
             ShowGizmo();
@@ -876,6 +885,8 @@ public sealed class GroupPanel : UserControl
         _rulers.ShowsRulers = StudioSettings.Rulers;
         _canvas.ShowsGuides = StudioSettings.Guides;
         _guides.IsOn = StudioSettings.SmartGuides;
+        _canvas.Outlined = StudioSettings.Outline;
+        _canvas.Ground = StudioSettings.Ground;
 
         // Magnetic at this zoom, the board's canvas being the one that knows it.
         var grid = _guides.Over(
@@ -2247,7 +2258,7 @@ public sealed class GroupPanel : UserControl
     /// <summary>Picks what a right click lands on before the element tree's menu opens over it, as a drawing's tab does.</summary>
     private void OnCanvasContext(object? sender, ContextRequestedEventArgs e)
     {
-        if (_draw.Shape is { } || _draw.Reshaping || _canvas.IsHeld)
+        if (_draw.Owns || _draw.Reshaping || _canvas.IsHeld)
         {
             e.Handled = true;
 
@@ -2556,7 +2567,7 @@ public sealed class GroupPanel : UserControl
     {
         _canvas.Points = _draw.Reshaping ? _points.Marks() : null;
 
-        if (_draw.Shape is { } || _draw.Reshaping)
+        if (_draw.Owns || _draw.Reshaping)
         {
             _canvas.Gizmo = null;
 
@@ -2630,13 +2641,13 @@ public sealed class GroupPanel : UserControl
     /// <remarks>As on a drawing's tab, the box goes over only for a carry, which the gizmo pulls by its corner.</remarks>
     private void Guide(Point at)
     {
-        var carry = _draw.Shape is null && !_draw.Reshaping && !_page
+        var carry = !_draw.Owns && !_draw.Reshaping && !_page
             && Arranged(at) is { } arranged
             && !_gizmo.Hits(arranged, (float)_canvas.Scale, handlesOnly: true);
 
         _guides.Begin(
             _canvas.Placements,
-            _draw.Shape is { } ? Array.Empty<SvgElement>() : _gizmo.Elements,
+            _draw.Owns ? Array.Empty<SvgElement>() : _gizmo.Elements,
             carry ? _canvas.Gizmo : null,
             _page ? _inspecting?.Placement : null);
 
@@ -2655,6 +2666,19 @@ public sealed class GroupPanel : UserControl
     {
         _drawing = _draw.Shape is { };
         _reshaping = _draw.Reshaping;
+        _measuring = _draw.Measuring;
+
+        // In the board's own space, which is where the rulers count from too.
+        if (_measuring)
+        {
+            if (Arranged(at) is { } from)
+            {
+                _measure.Begin(new(_canvas.Grid.PullX(from.X), _canvas.Grid.PullY(from.Y)));
+                Measured();
+            }
+
+            return;
+        }
 
         if (_drawing)
         {
@@ -2701,6 +2725,17 @@ public sealed class GroupPanel : UserControl
 
     private void DragEdit(Point at)
     {
+        if (_measuring)
+        {
+            if (Arranged(at) is { } to)
+            {
+                _measure.Drag(new(_canvas.Grid.PullX(to.X), _canvas.Grid.PullY(to.Y)), _canvas.Modifiers.HasFlag(KeyModifiers.Shift));
+                Measured();
+            }
+
+            return;
+        }
+
         if (_drawing)
         {
             if (Pulled(at) is { } point)
@@ -2759,6 +2794,13 @@ public sealed class GroupPanel : UserControl
     /// </remarks>
     private void EndEdit(Point at)
     {
+        if (_measuring)
+        {
+            DragEdit(at);
+
+            return;
+        }
+
         if (_drawing)
         {
             if (Pulled(at) is { } point)
@@ -2981,6 +3023,14 @@ public sealed class GroupPanel : UserControl
 
     private void CancelEdit()
     {
+        if (_measuring)
+        {
+            _measure.Clear();
+            Measured();
+
+            return;
+        }
+
         if (_drawing)
         {
             // The press in flight and not the shape: a click comes through here on its way to
@@ -3028,6 +3078,13 @@ public sealed class GroupPanel : UserControl
                 _canvas.Grid.PullX(arranged.X) - inspecting.Placement.At.X,
                 _canvas.Grid.PullY(arranged.Y) - inspecting.Placement.At.Y)
             : null;
+
+    /// <summary>Shows the line being measured and says what it reads, in the units the rulers count.</summary>
+    private void Measured()
+    {
+        _canvas.Measured = _measure.Line();
+        Says(_measure.Reading(_rulers.Units));
+    }
 
     /// <summary>
     /// The ring is the preview while a shape is in the making, moved to where the inspected drawing
@@ -3173,6 +3230,11 @@ public sealed class GroupPanel : UserControl
     /// </returns>
     private bool DrawClick(Point at)
     {
+        if (_draw.Measuring)
+        {
+            return true;
+        }
+
         if (_draw.Shape is not { } shape)
         {
             return false;
@@ -3251,7 +3313,7 @@ public sealed class GroupPanel : UserControl
     /// <returns>Whether the click was the points' rather than a pick.</returns>
     private bool PointClick(Point at)
     {
-        if (_draw.Shape is { } || Arranged(at) is not { } arranged)
+        if (_draw.Owns || Arranged(at) is not { } arranged)
         {
             return false;
         }

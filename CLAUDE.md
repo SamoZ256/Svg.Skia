@@ -1,10 +1,10 @@
 # CLAUDE.md
 
 A map for working in this repository. Procedures live in `.claude/skills` — `format` before a commit,
-`chrome-references` for a render baseline; commit, pull request and desk conventions are the global
-`/desk`, `/push`, `/pr`, `/merge` and `/land` commands, with this repository's details in the hub's
-`.claude/skills/desk-profile/SKILL.md`. Reference: [SVG 1.1](https://www.w3.org/TR/SVG11/) ·
-[Avalonia](https://github.com/AvaloniaUI/Avalonia) · [its docs](https://github.com/AvaloniaUI/avalonia-docs) ·
+`chrome-references` for a render baseline, `affected-tests` for the local test gate; commit, pull
+request and desk conventions are the global `/desk`, `/push`, `/pr`, `/merge` and `/land` commands,
+with this repository's details in the hub's `.claude/skills/desk-profile/SKILL.md`.
+Reference: [SVG 1.1](https://www.w3.org/TR/SVG11/) · [Avalonia](https://github.com/AvaloniaUI/Avalonia) · [its docs](https://github.com/AvaloniaUI/avalonia-docs) ·
 [ILSpy](https://github.com/icsharpcode/ILSpy), for reading what a dependency actually compiled to.
 
 **Keep this file under 100 lines.** It is a map, not a record of what anyone learned. Detail belongs

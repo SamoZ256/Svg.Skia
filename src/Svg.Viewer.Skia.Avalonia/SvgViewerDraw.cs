@@ -63,6 +63,7 @@ public sealed class SvgViewerDraw
             ("polygon", "⬠", "Polygon", Key.None, "click each corner; click the first again or press Enter to finish, Backspace to take one back"),
             ("polyline", "∧", "Polyline", Key.None, "click each point; click the last again or press Enter to finish, Backspace to take one back"),
             ("path", "✒", "Pen", Key.P, "click for a corner, drag for a curve; click the first point to close, the last or Enter to finish"),
+            (MeasureTool, "↔", "Measure", Key.M, "drag to read a distance and an angle; Shift for 45° steps; nothing is written"),
         };
 
     /// <summary>How near a click has to come to a point to mean that point, on screen.</summary>
@@ -70,6 +71,7 @@ public sealed class SvgViewerDraw
 
     private string? _shape;
     private bool _reshaping;
+    private bool _measuring;
     private Shim.SKMatrix _fromParent = Shim.SKMatrix.CreateIdentity();
     private Shim.SKMatrix _toParent = Shim.SKMatrix.CreateIdentity();
     private double _scale = 1d;
@@ -104,6 +106,7 @@ public sealed class SvgViewerDraw
 
             _shape = value;
             _reshaping &= value is null;
+            _measuring &= value is null;
 
             Changed?.Invoke(this, EventArgs.Empty);
         }
@@ -128,6 +131,7 @@ public sealed class SvgViewerDraw
 
             _reshaping = value;
             _shape = value ? null : _shape;
+            _measuring &= !value;
 
             Changed?.Invoke(this, EventArgs.Empty);
         }
@@ -136,12 +140,40 @@ public sealed class SvgViewerDraw
     /// <summary>Raised when the tool changes, armed or put away.</summary>
     public event EventHandler? Changed;
 
+    /// <summary>Whether the tool in hand measures, which reads what is drawn and writes nothing.</summary>
+    public bool Measuring
+    {
+        get => _measuring;
+        private set
+        {
+            if (_measuring == value)
+            {
+                return;
+            }
+
+            Cancel();
+
+            _measuring = value;
+            _shape = value ? null : _shape;
+            _reshaping &= !value;
+
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>Whether the tool in hand takes every press, which a shape's tool and Measure do.</summary>
+    public bool Owns => _shape is { } || _measuring;
+
     /// <summary>Arms a tool of <see cref="Tools"/>, or puts the tool away for null: what the strip and the letters do.</summary>
     public void Arm(string? tool)
     {
         if (tool == PointsTool)
         {
             Reshaping = true;
+        }
+        else if (tool == MeasureTool || _measuring && tool is null)
+        {
+            Measuring = tool == MeasureTool;
         }
         else
         {
@@ -173,7 +205,7 @@ public sealed class SvgViewerDraw
     };
 
     /// <summary>The cursor a canvas shows while the tool is armed, or null for its own.</summary>
-    public Cursor? Cursor => _shape switch
+    public Cursor? Cursor => _measuring ? new Cursor(StandardCursorType.Cross) : _shape switch
     {
         null => null,
         "text" => new Cursor(StandardCursorType.Ibeam),
@@ -1021,7 +1053,12 @@ public sealed class SvgViewerDraw
         }
 
         bool Armed(string? shape)
-            => shape == PointsTool ? draw.Reshaping : !draw.Reshaping && string.Equals(shape, draw.Shape, StringComparison.Ordinal);
+            => shape switch
+            {
+                PointsTool => draw.Reshaping,
+                MeasureTool => draw.Measuring,
+                _ => !draw.Reshaping && !draw.Measuring && string.Equals(shape, draw.Shape, StringComparison.Ordinal)
+            };
 
         void Sync()
         {
@@ -1034,6 +1071,8 @@ public sealed class SvgViewerDraw
 
     /// <summary>The points tool's button, which carries this in its tag as a shape's carries the shape.</summary>
     private const string PointsTool = "points";
+
+    private const string MeasureTool = "measure";
 
     /// <summary>
     /// Answers a key on the canvas: a tool's letter arms it, V or Escape puts the tool away, and
@@ -1071,7 +1110,7 @@ public sealed class SvgViewerDraw
             }
         }
 
-        if (e.Key is Key.Escape && (_shape is { } || _reshaping) && !_busy)
+        if (e.Key is Key.Escape && (_shape is { } || _reshaping || _measuring) && !_busy)
         {
             Arm(null);
 

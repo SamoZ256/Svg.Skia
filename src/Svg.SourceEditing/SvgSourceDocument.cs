@@ -1017,6 +1017,13 @@ public sealed class SvgSourceDocument
                     continue;
                 }
 
+                // Unchanged, so its bytes stay: a line break or an entity in it reads as something
+                // else once parsed, and writing that back would change a value nobody edited.
+                if (string.Equals(values[index], _values[slot], StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
                 builder.Append(Text, written, where.Start - written);
                 Value(builder, values[index], where.Quote);
                 written = where.Start + where.Length;

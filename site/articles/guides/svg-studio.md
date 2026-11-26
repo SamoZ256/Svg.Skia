@@ -384,6 +384,19 @@ holds: a shape narrower than a step lands on nothing along that axis. Carrying a
 a board lands it on the grid and the guides, not on other shapes. Rulers start off and both kinds
 of guide on; all three are remembered.
 
+**Measure** (M) is a drawing tool that writes nothing: drag across the canvas, with Shift for steps
+of 45°, and the status bar reads the distance, the angle clockwise from the x axis, and how far
+across and down, in the same units the rulers count. The ends land on the grid and the guides, and
+the line stays until the next drag, a click, Escape or another tool.
+
+**Fit Selection** (⇧⌘2, Ctrl+Shift+2 elsewhere) zooms to what is picked. **Outline** (⌘Y, Ctrl+Alt+Y elsewhere, where
+Ctrl+Y is Redo) shows every shape as its outline alone. The canvas stands on the theme's own
+background, on **Checker** — behind each drawing's page, where it shows what the drawing leaves
+transparent — or on **Light** or **Dark** whatever the theme is. **Focus Mode** (F, with the
+canvas in hand) hides every panel, and F again brings them back exactly as they were, as does
+showing a panel from Window or Reset Layout. **Full Screen** is ⌃⌘F, F11 elsewhere. The
+background is remembered; Outline lasts until Studio quits.
+
 ## The Attributes tab
 
 It lists the attributes of whatever is picked — on the canvas or in the element tree, on a drawing's
@@ -530,6 +543,8 @@ the C# a drawing is built into, sets attributes and text, renames an element's i
 it, swaps fill and stroke, adds, removes, moves and copies elements,
 selects them by key or as the Select menu does, reads and changes a group's declarations, declares
 or renames one parameter or let with every use of it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
+`measure` says where an element is drawn, in its drawing's own units, and with a second element the
+gaps between the two and how far apart their centres are.
 Before a commit, `get_changes` tells it what has changed since the last one, as the Changes panel
 would, counting what the project holds unsaved but not edits still held in a tab; `git_history` lists
 the project's commits, and `get_drawing` and `render` take any of them as a revision to show a
