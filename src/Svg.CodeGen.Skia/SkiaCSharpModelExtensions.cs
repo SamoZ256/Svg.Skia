@@ -1453,7 +1453,7 @@ public static class SkiaCSharpModelExtensions
 
                     shared.Assign(name, settings, text, indent);
                 }
-                : null;
+            : null;
 
             // Inside the hoisted text, so a constant fade is applied once and a driven one keeps it local.
             Hoist(counter, sb, indent, "SKPaint", name, text => ToSKPaint(paint, counter, text, indent, fade), local: local);
