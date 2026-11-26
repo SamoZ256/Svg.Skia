@@ -2582,7 +2582,7 @@ public partial class MainWindow : Window
 
         _dropLine.Width = Math.Max(item.Bounds.Width, 1);
         _dropLine.Height = RowHeight(item);
-        _dropLine.Background = new SolidColorBrush(Color.Parse("#334C9BE8"));
+        _dropLine.Background = _dropLine.BorderBrush is ISolidColorBrush accent ? new SolidColorBrush(accent.Color, 0.2d) : null;
         _dropLine.BorderThickness = new Thickness(1d);
         _dropLine.Margin = new Thickness(at.X, at.Y, 0, 0);
         _dropLine.IsVisible = true;

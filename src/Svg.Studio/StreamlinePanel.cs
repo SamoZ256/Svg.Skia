@@ -1234,7 +1234,7 @@ public sealed class StreamlinePanel : UserControl
 
         if (IsPicked(icon))
         {
-            tile.Bind(Border.BorderBrushProperty, tile.GetResourceObservable("TabItemHeaderSelectedPipeFill"));
+            tile.Bind(Border.BorderBrushProperty, tile.GetResourceObservable("StudioAccent"));
         }
 
         if (icon.FamilySlug is { })

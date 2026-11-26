@@ -771,7 +771,7 @@ public class StreamlinePanelTests : IDisposable
 
         static Border Frame(ListBoxItem card) => card.GetLogicalDescendants().OfType<Border>().First(border => border.Classes.Contains("card"));
 
-        static object? Outline(Window shown) => shown.FindResource(shown.ActualThemeVariant, "TabItemHeaderSelectedPipeFill");
+        static object? Outline(Window shown) => shown.FindResource(shown.ActualThemeVariant, "StudioAccent");
     }
 
     /// <summary>A template that fits an icon and still cannot be applied to it says why on its card, and the rest draw.</summary>

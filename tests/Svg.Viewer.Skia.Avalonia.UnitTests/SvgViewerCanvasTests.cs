@@ -1435,6 +1435,25 @@ public class SvgViewerCanvasTests
         window.Close();
     }
 
+    /// <summary>A host's resources can give the ground, and the canvas paints it as soon as they do.</summary>
+    /// <remarks>Svg.Studio gives UnoDraw's canvas grey this way, which the panels round it are lighter than.</remarks>
+    [AvaloniaFact]
+    public void A_Host_Can_Give_The_Ground()
+    {
+        var (window, canvas, document) = Host(Wide, 400, 400);
+
+        using var owner = document;
+
+        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+        window.Resources["SvgViewerCanvasGround"] = Color.FromRgb(0xBA, 0xBA, 0xBA);
+        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+        Assert.Equal(new SKColor(0xBA, 0xBA, 0xBA), Painted(window, 200, 20));
+
+        window.Close();
+    }
+
     /// <summary>
     /// A rectangle is taken hold of by the line round it and by nothing it encloses, with the same
     /// slack on the control however far the view is zoomed.

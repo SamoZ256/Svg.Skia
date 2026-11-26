@@ -525,6 +525,47 @@ public class SvgViewerDockTests
         window.Close();
     }
 
+    /// <summary>A bare dock paints its headers, the lines between panes and the landing from UnoDraw's palette, in either variant.</summary>
+    /// <remarks>The test application has Fluent and nothing of Studio's, so whatever paints here the dock brought.</remarks>
+    [AvaloniaTheory]
+    [InlineData("Light", "#DEDEDE", "#C4C4C4", "#2862B0")]
+    [InlineData("Dark", "#292929", "#222222", "#94BFF2")]
+    public void A_Dock_Paints_Its_Headers_Without_A_Host(string variant, string header, string divider, string accent)
+    {
+        var (window, dock, _) = Host();
+
+        window.RequestedThemeVariant = variant == "Dark" ? global::Avalonia.Styling.ThemeVariant.Dark : global::Avalonia.Styling.ThemeVariant.Light;
+        dock.Layout = "row(*/1,col(project+variables/1/project/open,elements/1/elements/open)/300px)";
+        Lay(window);
+
+        static Color Painted(IBrush? brush) => Assert.IsAssignableFrom<ISolidColorBrush>(brush).Color;
+
+        var slot = window.GetVisualDescendants().OfType<Border>().First(found => found.Classes.Contains("slot"));
+
+        Assert.Equal(Color.Parse(header), Painted(slot.Background));
+        Assert.Equal(Color.Parse(divider), Painted(slot.BorderBrush));
+        Assert.Equal(Color.Parse(accent), Painted(Tab(window, "Project").BorderBrush));
+        Assert.Equal(Color.Parse(divider), Painted(window.GetVisualDescendants().OfType<Border>().First(found => found.Classes.Contains("divider")).BorderBrush));
+        Assert.Equal(Color.Parse(accent), Painted(window.GetVisualDescendants().OfType<Border>().Single(found => found.Name == "Landing").Background));
+
+        window.Close();
+    }
+
+    /// <summary>The palette a dock carries leaves alone the ground of a canvas inside it, so a standalone viewer keeps its own.</summary>
+    [AvaloniaFact]
+    public void A_Docks_Palette_Leaves_A_Canvas_Its_Own_Ground()
+    {
+        var canvas = new SvgViewerCanvas();
+        var window = new Window { Width = 600, Height = 400, RequestedThemeVariant = global::Avalonia.Styling.ThemeVariant.Light, Content = new SvgViewerDock(canvas).Root };
+
+        window.Show();
+        Lay(window);
+
+        Assert.Equal(new SkiaSharp.SKColor(0xF2, 0xF2, 0xF4), canvas.Background);
+
+        window.Close();
+    }
+
     // ---- a tab's own menu, the keys, and a run too narrow for its tabs ---------------------------
 
     private const string Three = "row(*/1,col(project+elements+variables/1/project/open,element/1/element/open)/340px)";

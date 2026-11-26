@@ -14,7 +14,6 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
-using Avalonia.Media.Immutable;
 using Avalonia.VisualTree;
 
 namespace Svg.Viewer.Skia.Avalonia;
@@ -76,9 +75,6 @@ public sealed class SvgViewerDock
     private const double MiddleMinimum = 160d;
 
     private const double SplitterSize = 6d;
-
-    // Immutable, as a SolidColorBrush keeps the dispatcher it was made on, and a static one outlives it.
-    private static readonly IBrush Divider = new ImmutableSolidColorBrush(Color.Parse("#20808080"));
 
     /// <summary>The body, and the line showing where a panel being carried would land.</summary>
     private readonly Panel _shell = new();
@@ -162,7 +158,7 @@ public sealed class SvgViewerDock
         });
 
         _hint[!Border.BackgroundProperty] =
-            new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("TabItemHeaderSelectedPipeFill");
+            new global::Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("StudioAccent");
 
         _shell.Children.Add(_root);
         _shell.Children.Add(_hint);
@@ -994,8 +990,8 @@ public sealed class SvgViewerDock
     private static Control Lined(Control control, bool across)
         => new Border
         {
+            Classes = { "divider" },
             BorderThickness = across ? new Thickness(1, 0, 0, 0) : new Thickness(0, 1, 0, 0),
-            BorderBrush = Divider,
             Child = control
         };
 
@@ -1173,7 +1169,7 @@ public sealed class SvgViewerDock
             e.Handled = true;
         };
 
-        return new Border { Classes = { "slot" }, Background = Brushes.Transparent, Child = bar };
+        return new Border { Classes = { "slot" }, Child = bar };
     }
 
     /// <summary>The tab a press landed in, where it landed in one.</summary>
