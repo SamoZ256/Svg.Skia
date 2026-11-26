@@ -115,6 +115,11 @@ so under the default `pad`, `startAngle="-90"` leaves the first stops unused rat
 gradient. Turn it with `gradientTransform`. CSS's `conic-gradient(from A at X Y, …)` starts at 12 o'clock, so it is written
 `cx="X" cy="Y" gradientTransform="rotate(A−90 X Y)"`.
 
+**The seam.** A full turn whose first and last stops differ shows a hard edge where they meet, at
+3 o'clock untransformed, as it does in CSS and every design tool: end on the first colour, as the
+example above does, or for a dial with a gap, turn the seam into the gap and spread the stops over
+the arc, as in `startAngle="0" endAngle="300" gradientTransform="rotate(120 X Y)"`.
+
 **Bounding-box units.** Under the default `objectBoundingBox` the angles are measured in the box's
 unit square, so a box that is not square skews them, as it turns a `radialGradient` into an ellipse.
 Write `userSpaceOnUse` where the angles have to be true.
