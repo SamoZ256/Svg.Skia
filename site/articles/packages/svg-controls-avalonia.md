@@ -89,7 +89,7 @@ Choose [Svg.Controls.Skia.Avalonia](svg-controls-skia-avalonia) instead when you
 - wireframe rendering,
 - reload support that maps directly to the `Svg.Skia` runtime object.
 
-Paint goes through Avalonia brushes as well, and a sweep gradient becomes a conic brush, which has no start or end angle and no spread method: `repeat` and `reflect` draw as `pad`, which Skia draws too only where `startAngle` is at most 0 and `endAngle` at least 360. As on the linear and radial brushes, `color-interpolation="linearRGB"` stops come out darker than Skia draws them, because a brush carries no colour space. A radial brush always starts its cone at a point, so a `radialGradient`'s `fr` draws as 0.
+Paint goes through Avalonia brushes as well, and a sweep gradient becomes a conic brush, which has no start or end angle and no spread method, so `repeat` and `reflect` lay a copy of the stops over every period the turn crosses. As on the linear and radial brushes, `color-interpolation="linearRGB"` stops come out darker than Skia draws them, because a brush carries no colour space. A radial brush always starts its cone at a point, so a `radialGradient`'s `fr` draws as 0.
 
 ## Brushes and resources
 
