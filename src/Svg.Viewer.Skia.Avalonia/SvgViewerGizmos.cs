@@ -349,7 +349,7 @@ public sealed class SvgViewerGizmos
         if (_held.Count <= 1)
         {
             return _one.End() is { } one && _only is { } only
-                ? new SvgSourceEdits(one.Label, new SvgSourceEdit[] { new SvgSourceEdit.SetAttributes(only.Key, one.Writes) })
+                ? new SvgSourceEdits(one.Label, new SvgSourceEdit[] { new SvgSourceEdit.SetAttributes(only.Key, [.. one.Writes]) })
                 : null;
         }
 
@@ -362,7 +362,7 @@ public sealed class SvgViewerGizmos
 
         var moved = _held
             .Where(held => held.Moved)
-            .Select(held => (SvgSourceEdit)new SvgSourceEdit.SetAttributes(held.Member.Key, held.Writes!))
+            .Select(held => (SvgSourceEdit)new SvgSourceEdit.SetAttributes(held.Member.Key, [.. held.Writes!]))
             .ToList();
 
         return moved.Count == 0
