@@ -197,8 +197,9 @@ public static class SvgElementEditor
             }
         }
 
-        Reindent(element, string.Empty, indent);
+        // Placed first, so an xml:space it lands under is seen.
         Put(target, where, element, indent);
+        Reindent(element, string.Empty, indent);
 
         return null;
     }
@@ -1077,12 +1078,16 @@ public static class SvgElementEditor
 
         foreach (var text in element.DescendantNodes().OfType<XText>().ToList())
         {
-            if (text is not XCData && Blank(text.Value))
+            if (text is not XCData && Blank(text.Value) && !Preserved(text.Parent) && !text.Ancestors().Any(IsText))
             {
                 text.Value = text.Value.Replace("\n" + was, "\n" + now);
             }
         }
     }
+
+    /// <summary>Whether whitespace in <paramref name="element"/> is content: under xml:space="preserve", indenting it changes what it says, as it does in text.</summary>
+    private static bool Preserved(XElement? element)
+        => element?.AncestorsAndSelf().Select(around => (string?)around.Attribute(XNamespace.Xml + "space")).FirstOrDefault(space => space is { }) == "preserve";
 
     internal static bool Blank(string value)
     {

@@ -125,6 +125,9 @@ internal static class SvgStyleAttributeNames
         };
     }
 
+    /// <summary>Whether <paramref name="name"/> is read only from a style: as an attribute the loader skips it.</summary>
+    public static bool IsStyleOnly(string? name) => IsCssOnlyProperty(name) || name == "marker";
+
     public static bool IsCssOnlyProperty(string? name)
     {
         return name is not null &&
