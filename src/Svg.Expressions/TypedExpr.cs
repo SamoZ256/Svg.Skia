@@ -59,3 +59,15 @@ public sealed record TypedConditional(ExprType Type, int Position, TypedExpr Con
 
 public sealed record TypedCall(ExprType Type, int Position, ExprFunction Function, IReadOnlyList<TypedExpr> Arguments)
     : TypedExpr(Type, Position);
+
+/// <summary>A list written out, <c>[a, b, c]</c>, its type the list of its elements' type.</summary>
+/// <remarks>
+/// Also what a list value folds to, its elements then literals, so one node is both the list an
+/// author wrote and the constant it came to.
+/// </remarks>
+public sealed record TypedList(ExprType Type, int Position, IReadOnlyList<TypedExpr> Elements)
+    : TypedExpr(Type, Position);
+
+/// <summary><c>list[index]</c>: an element, the index clamped into the list.</summary>
+public sealed record TypedIndex(ExprType Type, int Position, TypedExpr List, TypedExpr Index)
+    : TypedExpr(Type, Position);

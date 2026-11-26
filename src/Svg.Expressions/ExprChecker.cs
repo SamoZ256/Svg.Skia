@@ -54,9 +54,7 @@ public sealed class ExprChecker
             try
             {
                 // Into the table the checker is holding, so each let is in scope for the next.
-                symbols[let.Name] = let.DeclaredType is { } declared
-                    ? checker.CheckAs(let.Expression, declared, $"The let '{let.Name}'").Type
-                    : checker.Check(let.Expression).Type;
+                symbols[let.Name] = checker.CheckLet(let.Name, let.Expression, let.DeclaredType).Type;
             }
             catch (ExprException)
             {
@@ -79,7 +77,7 @@ public sealed class ExprChecker
         if (checked_.Type != expected)
         {
             throw new ExprException(
-                $"{what} must be a {ExprFunctions.Describe(expected)} expression, but this one is a {ExprFunctions.Describe(checked_.Type)}.",
+                $"{what} must be {A(expected)}{(IsList(expected) ? string.Empty : " expression")}, but this one is {A(checked_.Type)}.",
                 0);
         }
 
@@ -87,6 +85,11 @@ public sealed class ExprChecker
     }
 
     public TypedExpr Check(string text) => Check(text, expected: null);
+
+    /// <summary>Checks a let's body, held to the type the let declares where it declares one.</summary>
+    /// <remarks>Checked alone, <c>[]</c> has no type and a whole literal is a number whatever the let says.</remarks>
+    public TypedExpr CheckLet(string name, string expression, ExprType? declared)
+        => declared is { } type ? CheckAs(expression, type, $"The let '{name}'") : Check(expression);
 
     private TypedExpr Check(string text, ExprType? expected)
     {
@@ -109,6 +112,10 @@ public sealed class ExprChecker
     /// question were put to the literal alone -- and <see cref="Untyped"/> says the answer is still
     /// open, so an operand beside it, the parameter it is passed to, or the attribute it lands in
     /// can settle it.
+    ///
+    /// <c>[]</c> is open the same way, carrying <see cref="ExprType.NumberList"/>, except that alone
+    /// it has no answer at all: only a declared type or a list in the other branch of <c>?:</c> closes
+    /// it, and anything else is an error rather than a guess.
     /// </remarks>
     private readonly struct Checked
     {
@@ -132,9 +139,7 @@ public sealed class ExprChecker
     /// never mentions an integer cannot acquire one.
     /// </remarks>
     private static TypedExpr Settle(Checked value, ExprType? expected)
-        => value.Untyped
-            ? Retype(value.Node, expected is ExprType.Integer ? ExprType.Integer : ExprType.Number)
-            : value.Node;
+        => value.Untyped ? Retype(value.Node, expected) : value.Node;
 
     /// <summary>Settles an open operand against the one beside it.</summary>
     /// <remarks>
@@ -142,33 +147,72 @@ public sealed class ExprChecker
     /// a whole literal still refuses it in the words it always used.
     /// </remarks>
     private static Checked Against(Checked value, ExprType type)
-        => value.Untyped
-            ? new Checked(Retype(value.Node, type is ExprType.Integer ? ExprType.Integer : ExprType.Number))
-            : value;
+        => value.Untyped ? new Checked(Retype(value.Node, type)) : value;
 
-    /// <summary>Stamps a concrete type on a tree that was still open.</summary>
+    /// <summary>Stamps a concrete type on a tree that was still open, by what its context asks for.</summary>
     /// <remarks>
     /// Only the open spine is rebuilt -- literals, and the operators written over nothing but
     /// literals. A definite subtree cannot be reached from here, because an operator with one
-    /// definite operand was settled where it was checked.
+    /// definite operand was settled where it was checked. Each leaf answers the context itself: a
+    /// whole literal is an integer only where one is asked for, and <c>[]</c> only ever a list.
     /// </remarks>
-    private static TypedExpr Retype(TypedExpr node, ExprType type)
-        => node switch
+    private static TypedExpr Retype(TypedExpr node, ExprType? context)
+    {
+        switch (node)
         {
-            TypedInteger integer => type == ExprType.Integer
-                ? Fits(integer)
-                : new TypedNumber(integer.Position, integer.Value),
-            TypedUnary unary => new TypedUnary(type, unary.Position, unary.Op, Retype(unary.Operand, type)),
-            TypedBinary binary => new TypedBinary(
-                type, binary.Position, binary.Op, Retype(binary.Left, type), Retype(binary.Right, type)),
-            TypedConditional conditional => new TypedConditional(
-                type,
-                conditional.Position,
-                conditional.Condition,
-                Retype(conditional.WhenTrue, type),
-                Retype(conditional.WhenFalse, type)),
-            _ => throw new NotSupportedException($"Unsupported {nameof(TypedExpr)}: {node.GetType().Name}.")
-        };
+            case TypedInteger integer:
+                return context == ExprType.Integer ? Fits(integer) : new TypedNumber(integer.Position, integer.Value);
+
+            case TypedList { Elements.Count: 0 } empty:
+                return context is ExprType.NumberList or ExprType.ColorList
+                    ? new TypedList(context.Value, empty.Position, empty.Elements)
+                    : throw new ExprException(
+                        context is { } other ? $"An empty list cannot be {A(other)}." : NeedsType,
+                        empty.Position);
+
+            case TypedUnary unary:
+                {
+                    var operand = Retype(unary.Operand, context);
+
+                    return new TypedUnary(operand.Type, unary.Position, unary.Op, operand);
+                }
+
+            case TypedBinary binary:
+                {
+                    var left = Retype(binary.Left, context);
+
+                    return new TypedBinary(left.Type, binary.Position, binary.Op, left, Retype(binary.Right, context));
+                }
+
+            case TypedConditional conditional:
+                {
+                    var whenTrue = Retype(conditional.WhenTrue, context);
+
+                    return new TypedConditional(
+                        whenTrue.Type,
+                        conditional.Position,
+                        conditional.Condition,
+                        whenTrue,
+                        Retype(conditional.WhenFalse, context));
+                }
+
+            default:
+                throw new NotSupportedException($"Unsupported {nameof(TypedExpr)}: {node.GetType().Name}.");
+        }
+    }
+
+    private const string NeedsType =
+        "An empty list needs a type. Write it where one is declared: a parameter's default, a let with a type, or a branch of '?:' beside a list.";
+
+    private static bool IsList(ExprType type) => type is ExprType.NumberList or ExprType.ColorList;
+
+    /// <summary>The type as a diagnostic names it, after its article: an integer, a number.</summary>
+    private static string A(ExprType type)
+    {
+        var noun = ExprFunctions.Describe(type);
+
+        return ("aeiou".IndexOf(noun[0]) >= 0 ? "an " : "a ") + noun;
+    }
 
     // Checked here rather than at the lexer, which does not yet know whether the literal is going to
     // be an integer at all: 3000000000 is a perfectly good number and only a bad integer.
@@ -212,6 +256,12 @@ public sealed class ExprChecker
             case CallExpr call:
                 return new Checked(CheckCall(call));
 
+            case ListExpr list:
+                return CheckList(list);
+
+            case IndexExpr index:
+                return new Checked(CheckIndex(index));
+
             default:
                 throw new ExprException($"Unsupported expression node {node.GetType().Name}.", node.Position);
         }
@@ -245,6 +295,15 @@ public sealed class ExprChecker
     {
         var operand = CheckNode(unary.Operand);
 
+        if (IsList(operand.Type))
+        {
+            throw new ExprException(
+                unary.Op == ExprUnaryOp.Negate
+                    ? "'-' does not apply to lists. Index one to negate an element, as in -xs[0]."
+                    : "'!' takes a boolean, and a list is not one. Test its length instead, as in len(xs) > 0.",
+                unary.Position);
+        }
+
         if (unary.Op == ExprUnaryOp.Negate)
         {
             // Negation does not close the question: -3 is as open as 3, so it can still land in
@@ -273,6 +332,22 @@ public sealed class ExprChecker
         var left = CheckNode(binary.Left);
         var right = CheckNode(binary.Right);
         var symbol = ExprFunctions.OperatorText(binary.Op);
+
+        // Refused before an empty one could be settled against the other side, which would report
+        // the wrong thing about it.
+        if (IsList(left.Type) || IsList(right.Type))
+        {
+            throw new ExprException(
+                binary.Op switch
+                {
+                    ExprBinaryOp.Add or ExprBinaryOp.Subtract or ExprBinaryOp.Multiply or ExprBinaryOp.Divide
+                        => $"'{symbol}' does not apply to lists. Index one to use an element, as in xs[0] {symbol} 1.",
+                    ExprBinaryOp.And or ExprBinaryOp.Or
+                        => $"'{symbol}' takes booleans, and a list is not one. Test its length instead, as in len(xs) > 0.",
+                    _ => $"Lists cannot be compared with '{symbol}'. Compare their elements instead, as in xs[0] {symbol} ys[0].",
+                },
+                binary.Position);
+        }
 
         // An open operand takes the type of the one beside it: that is what makes `steps + 1` whole
         // and `1/60` in a number slot fractional. Where both are open the answer stays open and
@@ -360,7 +435,7 @@ public sealed class ExprChecker
                     if (left.Type != right.Type)
                     {
                         throw new ExprException(
-                            $"'{symbol}' compares a {ExprFunctions.Describe(left.Type)} with a {ExprFunctions.Describe(right.Type)}.",
+                            $"'{symbol}' compares {A(left.Type)} with {A(right.Type)}.",
                             binary.Position);
                     }
 
@@ -384,17 +459,34 @@ public sealed class ExprChecker
     private Checked CheckConditional(ConditionalExpr conditional)
     {
         // The condition before the branches, so `t ? nope : 2` reports the condition.
-        var condition = Settle(CheckNode(conditional.Condition), ExprType.Boolean);
+        var tested = CheckNode(conditional.Condition);
+
+        if (IsList(tested.Type))
+        {
+            throw new ExprException(
+                "A list cannot be a condition. Test its length instead, as in len(xs) > 0.",
+                conditional.Position);
+        }
+
+        var condition = Settle(tested, ExprType.Boolean);
 
         if (condition.Type != ExprType.Boolean)
         {
             throw new ExprException(
-                $"The condition before '?' must be a boolean, but it is a {ExprFunctions.Describe(condition.Type)}.",
+                $"The condition before '?' must be a boolean, but it is {A(condition.Type)}.",
                 conditional.Position);
         }
 
         var whenTrue = CheckNode(conditional.WhenTrue);
         var whenFalse = CheckNode(conditional.WhenFalse);
+
+        // [] beside an open whole literal: neither can settle the other, and the literal alone is a
+        // number, which is then what [] is refused as.
+        if (whenTrue.Untyped && whenFalse.Untyped && IsList(whenTrue.Type) != IsList(whenFalse.Type))
+        {
+            whenTrue = IsList(whenTrue.Type) ? whenTrue : new Checked(Settle(whenTrue, null));
+            whenFalse = IsList(whenFalse.Type) ? whenFalse : new Checked(Settle(whenFalse, null));
+        }
 
         // One branch settles the other, so `steps > 0 ? steps : 0` is whole throughout and
         // `t > 0 ? t : 0` is not. Both open leaves the whole conditional open.
@@ -440,6 +532,13 @@ public sealed class ExprChecker
         for (var i = 0; i < call.Arguments.Count; i++)
         {
             checkedArguments.Add(CheckNode(call.Arguments[i]));
+
+            // Where len has an overload for each kind of list, [] fits both and says nothing. Where
+            // no overload takes a list, it is simply the wrong type, and is refused as one below.
+            if (checkedArguments[i].Untyped && IsList(checkedArguments[i].Type) && overloads.Any(overload => IsList(overload.Parameters[i])))
+            {
+                throw new ExprException(NeedsType, call.Arguments[i].Position);
+            }
         }
 
         var signature = Resolve(overloads, checkedArguments);
@@ -453,7 +552,7 @@ public sealed class ExprChecker
             if (argument.Type != signature.Parameters[i])
             {
                 throw new ExprException(
-                    $"Argument {i + 1} of '{call.Name}' must be a {ExprFunctions.Describe(signature.Parameters[i])}, but it is a {ExprFunctions.Describe(argument.Type)}.",
+                    $"Argument {i + 1} of '{call.Name}' must be {A(signature.Parameters[i])}, but it is {A(argument.Type)}.",
                     call.Arguments[i].Position);
             }
 
@@ -461,6 +560,102 @@ public sealed class ExprChecker
         }
 
         return new TypedCall(signature.Result, call.Position, signature.Function, arguments);
+    }
+
+    /// <summary>A list written out, whose elements decide whether it holds numbers or colours.</summary>
+    /// <remarks>
+    /// A whole literal in one is a number: no list holds integers, and <c>[0, 0.5, 1]</c> should not
+    /// need a point on its ends. Elements are all checked before any is judged, so a bad name in
+    /// one reports itself rather than the list.
+    /// </remarks>
+    private Checked CheckList(ListExpr list)
+    {
+        if (list.Elements.Count == 0)
+        {
+            return new Checked(new TypedList(ExprType.NumberList, list.Position, Array.Empty<TypedExpr>()), untyped: true);
+        }
+
+        var elements = list.Elements.Select(CheckNode).ToList();
+        var type = ExprType.Number;
+        var decided = -1;
+
+        for (var i = 0; i < elements.Count; i++)
+        {
+            var element = elements[i];
+
+            if (IsList(element.Type))
+            {
+                throw new ExprException("A list cannot hold another list.", list.Elements[i].Position);
+            }
+
+            if (element.Untyped)
+            {
+                continue;
+            }
+
+            if (element.Type is not (ExprType.Number or ExprType.Color))
+            {
+                throw new ExprException(
+                    element.Type == ExprType.Integer
+                        ? $"Element {i + 1} of the list is an integer, and a list holds numbers or colours. Use num() to make it a number."
+                        : $"Element {i + 1} of the list is {A(element.Type)}, and a list holds numbers or colours.",
+                    list.Elements[i].Position);
+            }
+
+            if (decided < 0)
+            {
+                decided = i;
+                type = element.Type;
+            }
+        }
+
+        var settled = new List<TypedExpr>(elements.Count);
+
+        for (var i = 0; i < elements.Count; i++)
+        {
+            var element = Settle(elements[i], type);
+
+            if (element.Type != type)
+            {
+                var (first, second) = decided < i ? (decided, i) : (i, decided);
+
+                throw new ExprException(
+                    $"A list's elements must all be numbers or all be colours, but element {first + 1} is {A(first == i ? element.Type : type)} and element {second + 1} is {A(second == i ? element.Type : type)}.",
+                    list.Elements[i].Position);
+            }
+
+            settled.Add(element);
+        }
+
+        return new Checked(
+            new TypedList(type == ExprType.Color ? ExprType.ColorList : ExprType.NumberList, list.Position, settled));
+    }
+
+    /// <summary><c>list[index]</c>, whose index is whole and whose answer is an element.</summary>
+    private TypedExpr CheckIndex(IndexExpr index)
+    {
+        // The list first, so `nope[0]` reports the name rather than anything about the index.
+        var list = Settle(CheckNode(index.Target), null);
+
+        if (!IsList(list.Type))
+        {
+            throw new ExprException(
+                $"Only a list can be indexed, but this is {A(list.Type)}.",
+                index.Position);
+        }
+
+        var at = Settle(CheckNode(index.Index), ExprType.Integer);
+
+        if (at.Type != ExprType.Integer)
+        {
+            throw new ExprException(
+                at.Type == ExprType.Number
+                    ? "A list's index must be an integer, but this one is a number. Use int() to make it one."
+                    : $"A list's index must be an integer, but this one is {A(at.Type)}.",
+                index.Index.Position);
+        }
+
+        return new TypedIndex(list.Type == ExprType.ColorList ? ExprType.Color : ExprType.Number, index.Position, list, at);
     }
 
     /// <summary>The overload a call's arguments pick out.</summary>
@@ -500,7 +695,7 @@ public sealed class ExprChecker
         if (actual != expected)
         {
             throw new ExprException(
-                $"{what} expects a {ExprFunctions.Describe(expected)}, but got a {ExprFunctions.Describe(actual)}.",
+                $"{what} expects {A(expected)}, but got {A(actual)}.",
                 position);
         }
     }

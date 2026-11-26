@@ -2,6 +2,10 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
 using Avalonia.Media;
 using Svg.Expressions;
 
@@ -355,4 +359,279 @@ public sealed class SvgViewerBooleanParameter : SvgViewerParameter
     public override bool IsModified => _value != _seed;
 
     public override void ResetToDefault() => Value = _seed;
+}
+
+/// <summary>A <c>number[]</c> or <c>color[]</c> parameter: an editor per element, and a way to add one.</summary>
+/// <remarks>
+/// Not generic, so the panel has one row for either kind, whose buttons act on an element without
+/// knowing which kind of list it is in; an element's own type picks its editor.
+/// <see cref="SvgViewerListParameter{T}"/> holds the elements.
+/// </remarks>
+public abstract class SvgViewerListParameter : SvgViewerParameter
+{
+    private protected SvgViewerListParameter(SvgExpressionParameter declaration)
+        : base(declaration)
+    {
+    }
+
+    public abstract int Count { get; }
+
+    public bool IsEmpty => Count == 0;
+
+    /// <summary>Appends a copy of the last element, or a zero or an opaque black to a list with none.</summary>
+    public abstract void Add();
+
+    internal abstract void Move(SvgViewerListItem item, int by);
+
+    internal abstract void Remove(SvgViewerListItem item);
+}
+
+/// <summary>The elements of a list parameter, each one an item a control binds to.</summary>
+/// <remarks>
+/// Every change, an edit to one element as much as an element added, removed or moved, is one
+/// <see cref="SvgViewerParameter.ValueChanged"/>: the drawing takes the list whole.
+/// </remarks>
+public abstract class SvgViewerListParameter<T> : SvgViewerListParameter
+{
+    private readonly T[] _seed;
+    private readonly ObservableCollection<SvgViewerListItem<T>> _items = new();
+
+    private protected SvgViewerListParameter(SvgExpressionParameter declaration, IEnumerable<T> seed)
+        : base(declaration)
+    {
+        _seed = seed.ToArray();
+        Items = new ReadOnlyObservableCollection<SvgViewerListItem<T>>(_items);
+
+        foreach (var value in _seed)
+        {
+            _items.Add(Item(value));
+        }
+
+        Renumber();
+    }
+
+    public ReadOnlyObservableCollection<SvgViewerListItem<T>> Items { get; }
+
+    public override int Count => _items.Count;
+
+    public override bool IsModified => !_items.Select(item => item.Value).SequenceEqual(_seed);
+
+    public override void ResetToDefault() => Replace(_seed);
+
+    public override string ToExpression() => SvgViewerParameterFactory.Describe(ToExprValue());
+
+    public override void Add()
+    {
+        _items.Add(Item(_items.Count > 0 ? _items[_items.Count - 1].Value : Blank));
+        Reordered();
+    }
+
+    /// <summary>What <see cref="Add"/> appends to a list with nothing to copy.</summary>
+    private protected abstract T Blank { get; }
+
+    /// <summary>An element of this kind of list, whose type is what picks its editor.</summary>
+    private protected abstract SvgViewerListItem<T> Item(T value);
+
+    internal override void Move(SvgViewerListItem item, int by)
+    {
+        var from = _items.IndexOf((SvgViewerListItem<T>)item);
+        var to = from + by;
+
+        if (from < 0 || to < 0 || to >= _items.Count)
+        {
+            return;
+        }
+
+        _items.Move(from, to);
+        Reordered();
+    }
+
+    internal override void Remove(SvgViewerListItem item)
+    {
+        if (_items.Remove((SvgViewerListItem<T>)item))
+        {
+            Reordered();
+        }
+    }
+
+    internal void Edited() => Changed();
+
+    /// <summary>Puts a whole list in, as one change, and none where it is the list already held.</summary>
+    private protected void Replace(IReadOnlyList<T> values)
+    {
+        if (_items.Select(item => item.Value).SequenceEqual(values))
+        {
+            return;
+        }
+
+        _items.Clear();
+
+        foreach (var value in values)
+        {
+            _items.Add(Item(value));
+        }
+
+        Reordered();
+    }
+
+    private void Reordered()
+    {
+        Renumber();
+        Raise(nameof(Count));
+        Raise(nameof(IsEmpty));
+        Changed();
+    }
+
+    private void Renumber()
+    {
+        for (var index = 0; index < _items.Count; index++)
+        {
+            _items[index].Renumber(index);
+        }
+    }
+}
+
+/// <summary>A <c>number[]</c> parameter, such as a gradient's stop offsets.</summary>
+public sealed class SvgViewerNumberListParameter : SvgViewerListParameter<double>
+{
+    internal SvgViewerNumberListParameter(SvgExpressionParameter declaration, IEnumerable<float> seed)
+        : base(declaration, seed.Select(SvgViewerParameterFactory.Widen))
+    {
+    }
+
+    private protected override double Blank => 0d;
+
+    private protected override SvgViewerListItem<double> Item(double value) => new SvgViewerNumberListItem(this, value);
+
+    public override ExprValue ToExprValue() => ExprValue.NumberList(Items.Select(item => (float)item.Value));
+
+    public override bool TrySet(ExprValue value)
+    {
+        if (value.Type != ExprType.NumberList)
+        {
+            return false;
+        }
+
+        Replace(value.AsNumberList.Select(SvgViewerParameterFactory.Widen).ToList());
+
+        return true;
+    }
+}
+
+/// <summary>A <c>color[]</c> parameter, such as a gradient's stop colours.</summary>
+public sealed class SvgViewerColorListParameter : SvgViewerListParameter<Color>
+{
+    internal SvgViewerColorListParameter(SvgExpressionParameter declaration, IEnumerable<Color> seed)
+        : base(declaration, seed)
+    {
+    }
+
+    private protected override Color Blank => Colors.Black;
+
+    private protected override SvgViewerListItem<Color> Item(Color value) => new SvgViewerColorListItem(this, value);
+
+    public override ExprValue ToExprValue()
+        => ExprValue.ColorList(Items.Select(item => ExprValue.Color(item.Value.R, item.Value.G, item.Value.B, item.Value.A)));
+
+    public override bool TrySet(ExprValue value)
+    {
+        if (value.Type != ExprType.ColorList)
+        {
+            return false;
+        }
+
+        Replace(value.AsColorList.Select(colour => SvgViewerParameterFactory.ToColor(colour)).ToList());
+
+        return true;
+    }
+}
+
+/// <summary>One element of a list parameter, where it stands and what it can be moved to.</summary>
+public abstract class SvgViewerListItem : INotifyPropertyChanged
+{
+    private protected SvgViewerListItem(SvgViewerListParameter owner)
+    {
+        Owner = owner;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public SvgViewerListParameter Owner { get; }
+
+    /// <summary>Where it stands, counted as an expression indexes it.</summary>
+    public int Index { get; private set; }
+
+    /// <summary>The element as an expression names it, <c>colors[1]</c>, which is what its controls are called.</summary>
+    public string Label => $"{Owner.Name}[{Index}]";
+
+    public bool CanMoveUp => Index > 0;
+
+    public bool CanMoveDown => Index < Owner.Count - 1;
+
+    public void MoveUp() => Owner.Move(this, -1);
+
+    public void MoveDown() => Owner.Move(this, 1);
+
+    public void Remove() => Owner.Remove(this);
+
+    /// <remarks>Raised whatever the index was, since what follows it in the list may have changed.</remarks>
+    internal void Renumber(int index)
+    {
+        Index = index;
+
+        Raise(nameof(Index));
+        Raise(nameof(Label));
+        Raise(nameof(CanMoveUp));
+        Raise(nameof(CanMoveDown));
+    }
+
+    private protected void Raise(string property) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
+}
+
+/// <summary>An element's value, for the control editing it.</summary>
+public abstract class SvgViewerListItem<T> : SvgViewerListItem
+{
+    private readonly SvgViewerListParameter<T> _list;
+    private T _value;
+
+    private protected SvgViewerListItem(SvgViewerListParameter<T> list, T value)
+        : base(list)
+    {
+        _list = list;
+        _value = value;
+    }
+
+    public T Value
+    {
+        get => _value;
+        set
+        {
+            if (EqualityComparer<T>.Default.Equals(_value, value))
+            {
+                return;
+            }
+
+            _value = value;
+            Raise(nameof(Value));
+            _list.Edited();
+        }
+    }
+}
+
+/// <summary>An element of a <c>number[]</c>, edited in a number field.</summary>
+public sealed class SvgViewerNumberListItem : SvgViewerListItem<double>
+{
+    internal SvgViewerNumberListItem(SvgViewerNumberListParameter list, double value)
+        : base(list, value)
+    {
+    }
+}
+
+/// <summary>An element of a <c>color[]</c>, edited in a colour picker.</summary>
+public sealed class SvgViewerColorListItem : SvgViewerListItem<Color>
+{
+    internal SvgViewerColorListItem(SvgViewerColorListParameter list, Color value)
+        : base(list, value)
+    {
+    }
 }

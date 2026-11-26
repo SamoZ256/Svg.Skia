@@ -377,7 +377,7 @@ public sealed class StudioMcpServer : IAsyncDisposable
         [Description("The drawing's node path from get_project; empty for the drawing in front; a group's, with svg, for a drawing before add_drawing adds it there.")] string? node = null,
         [Description("Pixels on the drawing's longer side, such as [16, 24, 48]: up to 8 sizes from 1 to 1024, side by side on one sheet 8 px apart and from its edges, two rows of them for both, and the sheet at most 4096 px a side; left out, the size it is built at.")] int[]? size = null,
         [Description("What it is drawn on: transparent, the default; light; dark; or both, a row on light above one on dark.")] AssistantTools.Ground background = AssistantTools.Ground.Transparent,
-        [Description("Values for the parameters it declares, by name, each written as a default is: #ff0000, true, 3, 'quoted text'. A parameter left out takes what its panel opens with.")] Dictionary<string, JsonElement>? values = null,
+        [Description("Values for the parameters it declares, by name, each written as a default is: #ff0000, true, 3, 'quoted text', [0, 0.5, 1] or [#ff0000, #00ff00]. A parameter left out takes what its panel opens with.")] Dictionary<string, JsonElement>? values = null,
         [Description("A complete SVG source to draw in its place, through its declarations and at its size, without applying it: a look before replace_drawing, or before add_drawing where node is a group.")] string? svg = null,
         [Description("A commit, branch or tag, such as HEAD or a hash from git_history, to draw the drawing as git has it there, through that revision's declarations and at its size; empty for as it stands.")] string? revision = null)
     {

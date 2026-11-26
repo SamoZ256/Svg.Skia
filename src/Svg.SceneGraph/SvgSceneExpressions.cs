@@ -107,6 +107,12 @@ internal static partial class SvgSceneExpressions
         return (target, arguments);
     }
 
+    /// <summary>The expression <paramref name="element"/> writes in braces in <paramref name="localName"/>, or null.</summary>
+    internal static SymNode? Braced(SvgElement element, string localName)
+        => Own(element, localName) is { } text && SvgExpressionAttributes.TryUnwrap(text, out var expression)
+            ? SymNode.Source(expression)
+            : null;
+
     /// <summary>The text this element carries itself, ignoring what it inherits.</summary>
     private static string? Own(SvgElement element, string localName)
     {

@@ -87,6 +87,14 @@ public static class ExprFolder
                         : Evaluated(folded);
                 }
 
+            // A list whose every element is known is a constant like any other, and so is an
+            // element taken from one at a known index.
+            case TypedList list:
+                return Evaluated(list with { Elements = list.Elements.Select(element => Fold(element, constants)).ToList() });
+
+            case TypedIndex index:
+                return Evaluated(index with { List = Fold(index.List, constants), Index = Fold(index.Index, constants) });
+
             default:
                 return node;
         }
@@ -113,12 +121,21 @@ public static class ExprFolder
             ExprType.Color => new TypedColor(position, value.Red, value.Green, value.Blue, value.Alpha),
             ExprType.Boolean => new TypedBoolean(position, value.AsBoolean),
             ExprType.String => new TypedString(position, value.AsString),
+            ExprType.NumberList => new TypedList(
+                value.Type,
+                position,
+                value.AsNumberList.Select(number => (TypedExpr)new TypedNumber(position, number)).ToList()),
+            ExprType.ColorList => new TypedList(
+                value.Type,
+                position,
+                value.AsColorList.Select(colour => Literal(colour, position)).ToList()),
             _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {value.Type}.")
         };
 
     // A bare pi stays MathF.PI, which reads better than its digits; it only folds inside something.
     private static bool IsConstant(TypedExpr node)
-        => node is TypedNumber or TypedInteger or TypedColor or TypedBoolean or TypedString or TypedConstant;
+        => node is TypedNumber or TypedInteger or TypedColor or TypedBoolean or TypedString or TypedConstant
+           || (node is TypedList list && list.Elements.All(IsConstant));
 
     private static TypedExpr Evaluated(TypedExpr node)
     {
@@ -127,6 +144,8 @@ public static class ExprFolder
             TypedUnary unary => new[] { unary.Operand },
             TypedBinary binary => new[] { binary.Left, binary.Right },
             TypedCall call => call.Arguments,
+            TypedList list => list.Elements,
+            TypedIndex index => new[] { index.List, index.Index },
             _ => Array.Empty<TypedExpr>()
         };
 

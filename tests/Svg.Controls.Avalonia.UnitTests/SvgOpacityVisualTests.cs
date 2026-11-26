@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -8,6 +9,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Svg;
 using SkiaSharp;
+using Svg.Expressions;
+using Svg.SceneGraph;
 using Svg.Skia;
 using Xunit;
 
@@ -113,6 +116,39 @@ public class SvgOpacityVisualTests
             "<rect x='14' y='6' width='21' height='21' fill='url(#s)' />",
             (32, 16, Red), (24, 24, Yellow), (16, 16, Green), (24, 8, Blue), (29, 19, null), (18, 11, null));
 
+    // Bound, a gradient's lists reach the brush as the stops they come to, spaced evenly without offsets.
+    [AvaloniaTheory]
+    [InlineData("linearGradient", " e:stop-offsets='{{ positions }}'")]
+    [InlineData("linearGradient", "")]
+    [InlineData("sweepGradient", " e:stop-offsets='{{ positions }}'")]
+    [InlineData("sweepGradient", "")]
+    public void SvgImage_DrawsAGradientGivenItsStopsAsListsWhereSkiaModelDoes(string element, string offsets)
+    {
+        var svg = $$$"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="40" height="40">
+              <defs>
+                <e:code><e:param name="colors" type="color[]" /><e:param name="positions" type="number[]" /></e:code>
+                <{{{element}}} id="s" gradientUnits="userSpaceOnUse" x1="0" x2="40" cx="20.5" cy="20.5" e:stop-colors="{{ colors }}"{{{offsets}}}>
+                  <stop offset="0" stop-color="#ffffff" /><stop offset="1" stop-color="#000000" />
+                </{{{element}}}>
+              </defs>
+              <rect width="40" height="40" fill="url(#s)" />
+            </svg>
+            """;
+        var bound = SvgSceneExpressionEvaluator.Evaluate(
+            SvgSource.LoadPictureFromSvg(svg),
+            SvgExpressionDeclarations.Parse(svg),
+            new Dictionary<string, ExprValue>
+            {
+                ["colors"] = ExprValue.ColorList(new[] { ExprValue.Color(255, 0, 0, 255), ExprValue.Color(0, 255, 0, 255), ExprValue.Color(0, 0, 255, 255) }),
+                ["positions"] = ExprValue.NumberList(new[] { 0f, 0.2f, 1f })
+            });
+
+        AssertDrawsAsSkiaModel(
+            bound!,
+            (1, 20, null), (6, 20, null), (14, 20, null), (26, 20, null), (32, 20, null), (20, 32, null), (8, 28, null), (20, 8, null), (30, 10, null));
+    }
+
     // Before the brushes turned their matrix about (0,0), this shape sat wholly past the red end and drew solid blue.
     [AvaloniaFact]
     public void SvgImage_DrawsABoundingBoxLinearGradientOnAShapeAwayFromTheOriginWhereSkiaModelDoes()
@@ -183,8 +219,13 @@ public class SvgOpacityVisualTests
             </svg>
             """;
 
-        using var bitmap = RenderSvg(svg);
-        using var picture = new SkiaModel(new SKSvgSettings()).ToSKPicture(SvgSource.LoadPictureFromSvg(svg));
+        AssertDrawsAsSkiaModel(SvgSource.LoadPictureFromSvg(svg)!, samples);
+    }
+
+    private static void AssertDrawsAsSkiaModel(ShimSkiaSharp.SKPicture model, params (int X, int Y, Pixel? Colour)[] samples)
+    {
+        using var bitmap = RenderPicture(model);
+        using var picture = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
         using var expected = new SKBitmap(40, 40);
         using (var canvas = new SKCanvas(expected))
         {
@@ -206,9 +247,11 @@ public class SvgOpacityVisualTests
     }
 
     private static WriteableBitmap RenderSvg(string svg)
+        => RenderPicture(SvgSource.LoadPictureFromSvg(svg)!);
+
+    private static WriteableBitmap RenderPicture(ShimSkiaSharp.SKPicture picture)
     {
-        var source = SvgSource.LoadFromSvg(svg);
-        Assert.NotNull(source.Picture);
+        var source = new SvgSource { Picture = picture };
 
         var image = new Image
         {

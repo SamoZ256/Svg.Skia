@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Avalonia.Media;
 using Svg.Expressions;
 
@@ -42,7 +43,7 @@ public static class SvgViewerParameterFactory
             throw new ArgumentNullException(nameof(declaration));
         }
 
-        var seed = Seed(declaration);
+        var seed = Seed(declaration, out _);
 
         return declaration.Type switch
         {
@@ -53,6 +54,14 @@ public static class SvgViewerParameterFactory
             ExprType.String => new SvgViewerStringParameter(
                 declaration,
                 seed?.Type == ExprType.String ? seed.Value.AsString : string.Empty),
+
+            // Empty where nothing seeds one, which is the list nobody has to have invented.
+            ExprType.NumberList => new SvgViewerNumberListParameter(
+                declaration,
+                seed?.Type == ExprType.NumberList ? seed.Value.AsNumberList : Array.Empty<float>()),
+            ExprType.ColorList => new SvgViewerColorListParameter(
+                declaration,
+                seed?.Type == ExprType.ColorList ? seed.Value.AsColorList.Select(colour => ToColor(colour)) : Array.Empty<Color>()),
             _ => throw Unknown(declaration.Type)
         };
     }
@@ -152,21 +161,16 @@ public static class SvgViewerParameterFactory
     /// <summary>A value as a document would write it.</summary>
     /// <remarks>
     /// One spelling for the readout beside a let and for the default a commit writes, so the two
-    /// cannot disagree. Round-trip formatting for a number, since the same parser reads it back;
+    /// cannot disagree. The language's own for anything the lexer has to read back the same;
     /// three bytes for an opaque colour, because that is how a drawing writes one.
     /// </remarks>
     public static string Describe(ExprValue value) => value.Type switch
     {
-        ExprType.Number => value.AsNumber.ToString("R", CultureInfo.InvariantCulture),
-        ExprType.Integer => value.AsInteger.ToString(CultureInfo.InvariantCulture),
+        ExprType.Number or ExprType.Integer or ExprType.Boolean or ExprType.String or ExprType.NumberList => value.ToString(),
         ExprType.Color => value.Alpha == byte.MaxValue
             ? string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}", value.Red, value.Green, value.Blue)
             : string.Format(CultureInfo.InvariantCulture, "#{0:x2}{1:x2}{2:x2}{3:x2}", value.Red, value.Green, value.Blue, value.Alpha),
-        ExprType.Boolean => value.AsBoolean ? "true" : "false",
-
-        // Quoted by the language itself, so a committed default is spelled the one way the lexer
-        // reads back.
-        ExprType.String => value.ToString(),
+        ExprType.ColorList => "[" + string.Join(", ", value.AsColorList.Select(Describe)) + "]",
         _ => throw Unknown(value.Type),
     };
 
@@ -177,10 +181,9 @@ public static class SvgViewerParameterFactory
     /// Widens a number the language computed to the double a control wants.
     /// </summary>
     /// <remarks>
-    /// Through decimal, which rounds to the seven significant digits a float carries. Widening
-    /// plainly keeps the binary tail, so <c>step="0.1"</c> arrives as 0.10000000149011612 and two
-    /// ticks along reads 0.200000002980232. Narrowing gives back the same float, so this is a
-    /// widening and not a rounding; what decimal cannot hold is widened plainly instead.
+    /// The digits a document writes it in, read as a double: <c>step="0.1"</c> arrives as 0.1 rather
+    /// than the binary tail's 0.10000000149011612, and still narrows to the same float, which
+    /// decimal's seven digits did not for 1 / 3.
     /// </remarks>
     /// <remarks>
     /// Internal because <see cref="SvgViewer.TrySetParameterValue"/> puts a float back the same way.
@@ -188,24 +191,20 @@ public static class SvgViewerParameterFactory
     /// nobody chose.
     /// </remarks>
     internal static double Widen(float value)
-    {
-        try
-        {
-            return (double)(decimal)value;
-        }
-        catch (OverflowException)
-        {
-            return value;
-        }
-    }
+        => float.IsFinite(value)
+            ? double.Parse(ExprValue.Number(value).ToString(), NumberStyles.Float, CultureInfo.InvariantCulture)
+            : value;
 
     /// <summary>The declared default, evaluated as the binder will evaluate it.</summary>
     /// <remarks>
     /// A default is an expression — <c>tau / 4</c>, <c>hsl(200, 60%, 50%)</c> — and resolving it the
-    /// same way is what makes this the value an unsupplied parameter renders with.
+    /// same way is what makes this the value an unsupplied parameter renders with. The form asks
+    /// too, for <paramref name="refused"/>: what it would seed a row with is what it may declare.
     /// </remarks>
-    private static ExprValue? Seed(SvgExpressionParameter declaration)
+    internal static ExprValue? Seed(SvgExpressionParameter declaration, out string? refused)
     {
+        refused = null;
+
         if (declaration.DefaultExpression is null)
         {
             return null;
@@ -225,6 +224,8 @@ public static class SvgViewerParameterFactory
         {
             // clamp throws ArgumentException rather than the language's own, and this runs while a
             // document is opening: a drawing that renders must not fail to open.
+            refused = failure.Message;
+
             return null;
         }
     }

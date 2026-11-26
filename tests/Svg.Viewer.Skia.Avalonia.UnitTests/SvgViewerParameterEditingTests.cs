@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -14,6 +15,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using SkiaSharp;
 using Svg.Expressions;
 using Xunit;
 
@@ -499,7 +501,7 @@ public class SvgViewerParameterEditingTests
     }
 
     /// <summary>Fills a form in and presses its button, as somebody adding a parameter would.</summary>
-    private static SvgExpressionParameter Added(string name, ExprType type)
+    private static SvgExpressionParameter Added(string name, ExprType type, string? @default = null)
     {
         var form = new SvgParameterFormView();
         var window = new Window { Width = 400, Height = 400, Content = form };
@@ -508,6 +510,7 @@ public class SvgViewerParameterEditingTests
         Dispatcher.UIThread.RunJobs();
 
         form.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == "NameBox").Text = name;
+        form.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == "DefaultBox").Text = @default;
         form.GetVisualDescendants().OfType<ComboBox>().First(box => box.Name == "TypeBox").SelectedIndex = type switch
         {
             // The picker's order, which is the enum's. Named rather than counted from the end, so a
@@ -517,6 +520,8 @@ public class SvgViewerParameterEditingTests
             ExprType.Color => 2,
             ExprType.Boolean => 3,
             ExprType.String => 4,
+            ExprType.NumberList => 5,
+            ExprType.ColorList => 6,
             _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}."),
         };
 
@@ -534,7 +539,257 @@ public class SvgViewerParameterEditingTests
         return accepted!;
     }
 
+    /// <summary>Both lists are offered by name, take a list literal for a default, and have no range.</summary>
+    [AvaloniaFact]
+    public void The_Form_Declares_Either_List_With_A_Literal_For_Its_Default()
+    {
+        var numbers = Added("positions", ExprType.NumberList, "[0, 0.5, 1]");
+        var colours = Added("colors", ExprType.ColorList, "[#ff0000, #0000ff]");
+
+        Assert.Equal((ExprType.NumberList, "[0, 0.5, 1]"), (numbers.Type, numbers.DefaultExpression));
+        Assert.Equal((ExprType.ColorList, "[#ff0000, #0000ff]"), (colours.Type, colours.DefaultExpression));
+        Assert.Null(numbers.MinExpression);
+
+        var form = new SvgParameterFormView();
+        var window = new Window { Width = 400, Height = 400, Content = form };
+
+        window.Show();
+
+        // And opened on one, the type is the list it was declared as and the range is not there.
+        form.Initialize(colours);
+        Dispatcher.UIThread.RunJobs();
+
+        var type = form.GetVisualDescendants().OfType<ComboBox>().First(box => box.Name == "TypeBox");
+
+        Assert.Equal("color list", (type.SelectedItem as ComboBoxItem)?.Content);
+        Assert.False(form.GetVisualDescendants().OfType<StackPanel>().First(panel => panel.Name == "RangeRows").IsVisible);
+        Assert.Equal(colours, form.TryBuild(out _));
+
+        // A literal of the other kind is refused by what the language says of it.
+        form.GetVisualDescendants().OfType<TextBox>().First(box => box.Name == "DefaultBox").Text = "[0, 1]";
+
+        Assert.Null(form.TryBuild(out var trouble));
+        Assert.Contains("list of colours", trouble);
+
+        window.Close();
+        Assert.Equal(ExprType.Number, Added("fade", ExprType.Number).Type);
+    }
+
+    // ---- lists ----
+
+    private const string Listed = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="colors" type="color[]" default="[#ff0000, #0000ff]" />
+              <e:param name="positions" type="number[]" default="[0, 1]" />
+            </e:code>
+            <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0"
+                            e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+              <stop offset="0" stop-color="#ff0000" />
+              <stop offset="1" stop-color="#0000ff" />
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="24" height="24" fill="url(#g)" />
+        </svg>
+        """;
+
+    /// <summary>A button in a list row, by the name it gives assistive technology.</summary>
+    private static Button Named(SvgViewer viewer, string name) => Editor<Button>(viewer, name);
+
+    private static T Editor<T>(SvgViewer viewer, string name)
+        where T : Control
+        => viewer.GetVisualDescendants().OfType<T>().Single(control => AutomationProperties.GetName(control) == name);
+
+    /// <summary>What the drawing renders at one pixel, from its own picture.</summary>
+    private static SKColor Pixel(SvgViewer viewer, int x, int y)
+    {
+        using var bitmap = new SKBitmap(24, 24);
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            canvas.Clear(SKColors.Transparent);
+            canvas.DrawPicture(viewer.Svg!.Picture);
+        }
+
+        return bitmap.GetPixel(x, y);
+    }
+
+    /// <summary>
+    /// A list row's own buttons and editors change the list, and the drawing follows each change.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_List_Is_Edited_Element_By_Element_And_The_Drawing_Follows()
+    {
+        var (window, viewer) = await HostLoaded(Listed);
+
+        var colours = Assert.IsType<SvgViewerColorListParameter>(viewer.Parameters[0]);
+        var positions = Assert.IsType<SvgViewerNumberListParameter>(viewer.Parameters[1]);
+        var changes = 0;
+
+        colours.ValueChanged += (_, _) => changes++;
+        positions.ValueChanged += (_, _) => changes++;
+
+        Assert.True(Pixel(viewer, 0, 12).Red > 200);
+
+        // The first and the last cannot go further, and say so by being disabled.
+        Assert.False(Named(viewer, "Move colors[0] up").IsEnabled);
+        Assert.False(Named(viewer, "Move colors[1] down").IsEnabled);
+
+        Named(viewer, "Move colors[1] up").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, changes);
+        Assert.Equal(
+            ExprValue.ColorList(new[] { ExprValue.Color(0, 0, 255, 255), ExprValue.Color(255, 0, 0, 255) }),
+            viewer.Svg!.ExpressionValues!["colors"]);
+        Assert.True(Pixel(viewer, 0, 12).Blue > 200);
+
+        Named(viewer, "Add to colors").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(3, viewer.Svg.ExpressionValues!["colors"].AsColorList.Count);
+
+        Named(viewer, "Remove colors[0]").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(
+            ExprValue.ColorList(new[] { ExprValue.Color(255, 0, 0, 255), ExprValue.Color(255, 0, 0, 255) }),
+            viewer.Svg.ExpressionValues!["colors"]);
+
+        // Through the editors themselves, each found by the name it gives assistive technology.
+        Editor<ColorPicker>(viewer, "colors[1]").Color = Color.FromRgb(0, 255, 0);
+        Editor<NumericUpDown>(viewer, "positions[0]").Value = 0.5m;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Color.FromRgb(0, 255, 0), colours.Items[1].Value);
+
+        Assert.Equal(5, changes);
+        Assert.Equal(ExprValue.NumberList(new[] { 0.5f, 1f }), viewer.Svg.ExpressionValues!["positions"]);
+
+        // Red up to the first stop, halfway across, then towards green.
+        Assert.True(Pixel(viewer, 6, 12).Red > 200);
+        Assert.True(Pixel(viewer, 23, 12).Green > 200);
+        Assert.True(CommitLabel(viewer).IsVisible);
+
+        viewer.ResetParameters();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.DoesNotContain(viewer.Parameters, row => row.IsModified);
+        Assert.Equal(ExprValue.NumberList(new[] { 0f, 1f }), viewer.Svg.ExpressionValues!["positions"]);
+        Assert.True(Pixel(viewer, 0, 12).Red > 200);
+
+        window.Close();
+    }
+
+    /// <summary>An empty list says so, and the button under it is how it starts again.</summary>
+    [AvaloniaFact]
+    public async Task An_Emptied_List_Says_So_And_Can_Be_Filled_Again()
+    {
+        var (window, viewer) = await HostLoaded(Listed);
+
+        var positions = Assert.IsType<SvgViewerNumberListParameter>(viewer.Parameters[1]);
+        var empty = viewer.GetVisualDescendants()
+            .OfType<TextBlock>()
+            .Single(text => ReferenceEquals(text.DataContext, positions) && text.Text == "empty");
+
+        Assert.False(empty.IsVisible);
+
+        Named(viewer, "Remove positions[1]").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Named(viewer, "Remove positions[0]").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(empty.IsVisible);
+
+        // With no offsets the colours are spaced evenly, which is what an empty list gives.
+        Assert.Equal(ExprValue.NumberList(Array.Empty<float>()), viewer.Svg!.ExpressionValues!["positions"]);
+
+        Named(viewer, "Add to positions").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(empty.IsVisible);
+        Assert.Equal(ExprValue.NumberList(new[] { 0f }), viewer.Svg.ExpressionValues!["positions"]);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// An element's buttons, hidden until its row is pointed at, show to the keyboard too: tabbing
+    /// reaches them without pointing at anything, and they are the only way to move or remove one.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Lists_Buttons_Show_Where_The_Keyboard_Is()
+    {
+        var (window, viewer) = await HostLoaded(Listed);
+
+        var remove = Named(viewer, "Remove colors[0]");
+
+        Assert.Equal(0d, remove.Opacity);
+
+        Assert.True(remove.Focus(NavigationMethod.Tab));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(remove.Opacity > 0d);
+        Assert.Equal(0d, Named(viewer, "Remove positions[0]").Opacity);
+
+        window.Close();
+    }
+
     // ---- committing values as defaults ----
+
+    /// <summary>A list is committed as its literal, which reads back as the list it was.</summary>
+    [AvaloniaFact]
+    public async Task Committing_A_List_Writes_The_Literal_That_Declares_It()
+    {
+        var (window, viewer) = await HostLoaded(Listed);
+
+        var colours = Assert.IsType<SvgViewerColorListParameter>(viewer.Parameters[0]);
+        var positions = Assert.IsType<SvgViewerNumberListParameter>(viewer.Parameters[1]);
+
+        colours.Items[1].MoveUp();
+        positions.Add();
+        positions.Items[1].Value = 0.00001d;
+        Dispatcher.UIThread.RunJobs();
+
+        var values = viewer.Svg!.ExpressionValues!;
+
+        Assert.True(viewer.CommitParameterDefaults());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("name=\"colors\" type=\"color[]\" default=\"[#0000ff, #ff0000]\"", viewer.Source);
+        Assert.Contains("name=\"positions\" type=\"number[]\" default=\"[0, 0.00001, 1]\"", viewer.Source);
+
+        // Read back as the default, it is the value that was showing, so nothing differs any more.
+        Assert.DoesNotContain(viewer.Parameters, row => row.IsModified);
+        Assert.Equal(values["colors"], viewer.Svg!.ExpressionValues!["colors"]);
+        Assert.Equal(values["positions"], viewer.Svg.ExpressionValues!["positions"]);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// A list is committed whole whenever one element changed, so the others have to be written as
+    /// they were declared and drawn, the floats that need eight or nine digits among them.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Committing_A_List_Leaves_The_Elements_Nobody_Edited_As_They_Were()
+    {
+        var (window, viewer) = await HostLoaded(Listed.Replace("default=\"[0, 1]\"", "default=\"[1 / 3, 123456789]\""));
+
+        var positions = Assert.IsType<SvgViewerNumberListParameter>(viewer.Parameters[1]);
+
+        Assert.Equal(ExprValue.NumberList(new[] { 1f / 3f, 123456789f }), viewer.Svg!.ExpressionValues!["positions"]);
+
+        positions.Add();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewer.CommitParameterDefaults());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("name=\"positions\" type=\"number[]\" default=\"[0.33333334, 123456790, 123456790]\"", viewer.Source);
+        Assert.Equal(ExprValue.NumberList(new[] { 1f / 3f, 123456789f, 123456789f }), viewer.Svg!.ExpressionValues!["positions"]);
+
+        window.Close();
+    }
 
     [AvaloniaFact]
     public async Task Committing_Writes_Every_Changed_Value_As_The_Declared_Default()

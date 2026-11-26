@@ -4193,6 +4193,81 @@ public class MainWindowProjectTests : IDisposable
             placed => Assert.Equal("#ff0000ff", placed.Svg.ExpressionValues!["tint"].ToString()));
     }
 
+    /// <summary>What a group declares for a gradient's stops: two lists.</summary>
+    private const string GroupLists = """
+        <e:code xmlns:e="https://svg.skia/expr/1.0"><e:param name="positions" type="number[]" default="[0, 1]" /><e:param name="colors" type="color[]" default="[#ff0000, #0000ff]" /></e:code>
+        """;
+
+    /// <summary>A gradient across the whole drawing whose stops are the group's lists.</summary>
+    private const string UsingLists = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0"
+                            e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+              <stop offset="0" stop-color="#ff0000" />
+              <stop offset="1" stop-color="#0000ff" />
+            </linearGradient>
+          </defs>
+          <rect width="24" height="24" fill="url(#g)" />
+        </svg>
+        """;
+
+    /// <summary>Where one drawing on the board paints the pixel at <paramref name="x"/>, halfway down.</summary>
+    private static SKColor Painted(SvgViewerPlacement placed, int x)
+    {
+        using var bitmap = new SKBitmap(24, 24);
+
+        using (var surface = new SKCanvas(bitmap))
+        {
+            surface.Clear(SKColors.White);
+            placed.Svg.Draw(surface);
+        }
+
+        return bitmap.GetPixel(x, 12);
+    }
+
+    /// <summary>
+    /// A group's lists are rows of their own, which drive every drawing under it and keep what was
+    /// set through the drawings being read again.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Groups_Lists_Drive_Its_Drawings_And_Survive_Them_Being_Read_Again()
+    {
+        var window = await Host(Owned(GroupLists, UsingLists, UsingLists));
+        var panel = await Group(window, 0);
+        var rows = Declarations(panel).Parameters!;
+
+        var positions = Assert.IsType<SvgViewerNumberListParameter>(rows[0]);
+        var colors = Assert.IsType<SvgViewerColorListParameter>(rows[1]);
+
+        Assert.All(Drawn(panel), placed => Assert.True(Painted(placed, 1).Red > 200));
+
+        colors.Items[1].MoveUp();
+        colors.Add();
+        positions.Items[0].Value = 0.5d;
+        positions.Add();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(Drawn(panel), placed =>
+        {
+            Assert.Equal("[#0000ffff, #ff0000ff, #ff0000ff]", Value(placed, "colors"));
+            Assert.Equal("[0.5, 1, 1]", Value(placed, "positions"));
+            Assert.True(Painted(placed, 1).Blue > 200);
+        });
+
+        // A setting the size depends on, which has every drawing built afresh.
+        Assert.True(panel.Edit("scale", "2"));
+
+        await Save(window, panel);
+        Dispatcher.UIThread.RunJobs();
+
+        rows = Declarations(panel).Parameters!;
+
+        Assert.Equal("[0.5, 1, 1]", rows[0].ToExpression());
+        Assert.Equal("[#0000ff, #ff0000, #ff0000]", rows[1].ToExpression());
+        Assert.All(Drawn(panel), placed => Assert.Equal("[#0000ffff, #ff0000ff, #ff0000ff]", Value(placed, "colors")));
+    }
+
     [AvaloniaFact]
     public async Task A_Value_Reaches_Every_Drawing_Under_The_Group()
     {

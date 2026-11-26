@@ -174,7 +174,7 @@ public partial class SkiaCSharpRenderTests
 
         var arguments = new object?[] { picker };
         AssertDrawsAsButtonHelper(
-            $"HueWheel_{picker}", HueWheel, arguments, 30, canvas => DrawSymbolHue(canvas, picker), threshold,
+            $"HueWheel_{picker}", WithSweep(HueWheel), arguments, 30, canvas => DrawSymbolHue(canvas, picker), threshold,
             WithGradientTransform(HueWheel, "rotate(2 15 15)"), arguments);
     }
 
@@ -185,7 +185,7 @@ public partial class SkiaCSharpRenderTests
     {
         var arguments = new object?[] { light };
         AssertDrawsAsButtonHelper(
-            $"HueColourPicker_{light}", HueColourPicker, arguments, 30, canvas => DrawHueColorPicker(canvas, light), threshold,
+            $"HueColourPicker_{light}", WithSweep(HueColourPicker), arguments, 30, canvas => DrawHueColorPicker(canvas, light), threshold,
             WithGradientTransform(HueColourPicker, "rotate(2 15 15)"), arguments);
     }
 
@@ -209,7 +209,7 @@ public partial class SkiaCSharpRenderTests
 
         Assert.NotEqual(ThermostatRing, off);
         AssertDrawsAsButtonHelper(
-            $"ThermostatRing_{enabled}_{light}", ThermostatRing, arguments, 30, canvas => DrawThermostattemperaturelevel(canvas, enabled, light), threshold,
+            $"ThermostatRing_{enabled}_{light}", WithSweep(ThermostatRing), arguments, 30, canvas => DrawThermostattemperaturelevel(canvas, enabled, light), threshold,
             off, arguments);
     }
 
@@ -224,7 +224,7 @@ public partial class SkiaCSharpRenderTests
     [InlineData(1f, 3, 0.007)]
     public void A_Thermostat_Dial_Draws_What_ButtonHelper_Draws(float level, int degreesShort, double threshold)
         => AssertDrawsAsButtonHelper(
-            Named("ThermostatDial", level), ThermostatDial, new object?[] { level }, 180, canvas => DrawDetailthermostatlevelangle(canvas, level), threshold,
+            Named("ThermostatDial", level), WithSweep(ThermostatDial), new object?[] { level }, 180, canvas => DrawDetailthermostatlevelangle(canvas, level), threshold,
             ThermostatDial, new object?[] { level - degreesShort * MathF.Sign(306 * level - 3) / 306f });
 
     [Fact]
@@ -292,7 +292,7 @@ public partial class SkiaCSharpRenderTests
         string offMarkup,
         object?[] offArguments)
     {
-        using var bound = Bound(WithSweep(svgMarkup), arguments);
+        using var bound = Bound(svgMarkup, arguments);
         using var boundOff = Bound(offMarkup, offArguments);
         using var reference = OnTile(size, buttonHelper);
         using var svg = OnTile(size, canvas => canvas.DrawPicture(bound));
