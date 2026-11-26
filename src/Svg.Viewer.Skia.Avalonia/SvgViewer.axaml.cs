@@ -78,6 +78,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>What a rectangle being swept has caught, and the ring showing it.</summary>
     private readonly SvgViewerSweep _sweep = new();
     private readonly SvgViewerGuides _guides = new();
+    private readonly SvgViewerMeasure _measure = new();
     private readonly SvgViewerRulers _rulers;
 
     /// <summary>Moving, turning and scaling the selected element by dragging it.</summary>
@@ -104,6 +105,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <inheritdoc cref="_drawing"/>
     private bool _reshaping;
+    private bool _measuring;
 
     /// <summary>What is wrong with the drawing, for whatever a pointer comes to rest on.</summary>
     private IReadOnlyList<SvgSourceDiagnostic> _sourceDiagnostics = Array.Empty<SvgSourceDiagnostic>();
@@ -315,7 +317,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         // else. The points tool has only its points: a press on the shape between them would carry
         // the whole element with no box drawn round it.
         _canvas.IsEditTarget = at =>
-            _draw.Shape is { }
+            _draw.Owns
             || _canvas.TryGetDrawingPoint(at, out var point)
             && (_draw.Reshaping
                 ? _points.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale)
@@ -363,7 +365,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
             // The keys that finish a shape or change the tool are the canvas's, and pressing a
             // button in the strip would otherwise leave the focus on the button.
-            if (_draw.Shape is { } || _draw.Reshaping)
+            if (_draw.Owns || _draw.Reshaping)
             {
                 _canvas.Focus();
             }
@@ -371,6 +373,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             if (!_draw.Reshaping)
             {
                 _points.Deselect();
+            }
+
+            // A reading is of the tool that took it, and goes when the tool is put down.
+            if (!_draw.Measuring && _measure.IsShowing)
+            {
+                _measure.Clear();
+                Measured();
             }
 
             ShowGizmo();
@@ -857,7 +866,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void OnCanvasContext(object? sender, ContextRequestedEventArgs e)
     {
-        if (_draw.Shape is { } || _draw.Reshaping || _canvas.IsHeld)
+        if (_draw.Owns || _draw.Reshaping || _canvas.IsHeld)
         {
             e.Handled = true;
 
@@ -1444,7 +1453,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         _canvas.Points = _draw.Reshaping ? _points.Marks() : null;
 
-        if (_draw.Shape is { } || _draw.Reshaping)
+        if (_draw.Owns || _draw.Reshaping)
         {
             _canvas.Gizmo = null;
 
@@ -1471,13 +1480,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void Guide(Point at)
     {
-        var carry = _draw.Shape is null && !_draw.Reshaping && !_page
+        var carry = !_draw.Owns && !_draw.Reshaping && !_page
             && _canvas.TryGetDrawingPoint(at, out var point)
             && !_gizmo.Hits(new ShimSkiaSharp.SKPoint(point.X, point.Y), (float)_canvas.Scale, handlesOnly: true);
 
         _guides.Begin(
             _canvas.Placements,
-            _draw.Shape is { } ? Array.Empty<SvgElement>() : _gizmo.Elements,
+            _draw.Owns ? Array.Empty<SvgElement>() : _gizmo.Elements,
             carry ? _canvas.Gizmo : null,
             _page ? _canvas.Placements.FirstOrDefault() : null);
 
@@ -1504,6 +1513,19 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         _drawing = _draw.Shape is { };
         _reshaping = _draw.Reshaping;
+        _measuring = _draw.Measuring;
+
+        // Before the file is asked whether it takes edits: a measurement writes nothing.
+        if (_measuring)
+        {
+            if (_canvas.TryGetDrawingPoint(at, out var from))
+            {
+                _measure.Begin(Pulled(from));
+                Measured();
+            }
+
+            return;
+        }
 
         if (!_canvas.TryGetDrawingPoint(at, out var point) || !Writable())
         {
@@ -1549,6 +1571,14 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     {
         if (!_canvas.TryGetDrawingPoint(at, out var point))
         {
+            return;
+        }
+
+        if (_measuring)
+        {
+            _measure.Drag(Pulled(point), _canvas.Modifiers.HasFlag(KeyModifiers.Shift));
+            Measured();
+
             return;
         }
 
@@ -1609,6 +1639,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// </remarks>
     private void EndEdit(Point at)
     {
+        if (_measuring)
+        {
+            DragEdit(at);
+
+            return;
+        }
+
         if (_drawing)
         {
             if (_canvas.TryGetDrawingPoint(at, out var point))
@@ -1733,6 +1770,15 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     private void CancelEdit()
     {
+        // A press let go where it was made, which measures nothing and takes away the last line.
+        if (_measuring)
+        {
+            _measure.Clear();
+            Measured();
+
+            return;
+        }
+
         if (_drawing)
         {
             // The press in flight and not the shape: a click comes through here on its way to
@@ -1775,6 +1821,13 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <summary>The ring is the preview while a shape is in the making, and the selection's otherwise.</summary>
     /// <remarks>Nothing is drawn into the document until the shape is written, so there is nothing to put back.</remarks>
     private void ShowDraw() => _canvas.Retrace(_draw.Preview() ?? SvgViewerPicks.Outline(Picks()));
+
+    /// <summary>Shows the line being measured and says what it reads, beside the drawing's name.</summary>
+    private void Measured()
+    {
+        _canvas.Measured = _measure.Line();
+        UpdateStatus();
+    }
 
     /// <summary>
     /// Begins a shape under the pointer, inside the selected container or beside the selected shape.
@@ -1869,7 +1922,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <returns>Whether the click was the points' rather than a pick.</returns>
     private bool PointClick(Point at)
     {
-        if (!_canvas.TryGetDrawingPoint(at, out var point) || _draw.Shape is { })
+        if (!_canvas.TryGetDrawingPoint(at, out var point) || _draw.Owns)
         {
             return false;
         }
@@ -1917,6 +1970,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
     /// <returns>Whether the click was the tool's rather than a pick.</returns>
     private bool DrawClick(Point at)
     {
+        // A click measures nothing and picks nothing: what a Measure press began, its release ended.
+        if (_draw.Measuring)
+        {
+            return true;
+        }
+
         if (_draw.Shape is not { } shape)
         {
             return false;
@@ -3499,9 +3558,10 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         var name = document.Path is { } path ? Path.GetFileName(path) : _name ?? "drawing";
         var count = document.Declarations.Parameters.Count;
 
-        _statusText.Text = count == 0
+        _statusText.Text = (count == 0
             ? $"{name} — no variables"
-            : $"{name} — {count} parameter{(count == 1 ? string.Empty : "s")}";
+            : $"{name} — {count} parameter{(count == 1 ? string.Empty : "s")}")
+            + (_measure.Reading(_rulers.Units) is { } reading ? " · " + reading : string.Empty);
     }
 
     /// <summary>

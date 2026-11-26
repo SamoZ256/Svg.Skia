@@ -42,7 +42,7 @@ public sealed record AttributeChange(
 /// Nodes are named by child index from the project (<c>0/2</c>), elements by the drawing file's own
 /// address key: names repeat, and an index is what every editor here already takes.
 /// </remarks>
-public sealed class AssistantTools
+public sealed partial class AssistantTools
 {
     private const string Undoes = " It is one undo step.";
 
@@ -142,7 +142,7 @@ public sealed class AssistantTools
     public static readonly IReadOnlySet<string> Reading = new HashSet<string>(StringComparer.Ordinal)
     {
         "read_doc", "get_project", "get_drawing", "get_element", "get_node", "get_context", "get_declarations", "get_problems", "get_code", "get_templates", "find", "render", "streamline_search",
-        "get_changes", "git_history", "get_history"
+        "get_changes", "git_history", "get_history", "measure"
     };
 
     /// <summary>The tools that write past the history - to disk, to git, or a node away - which a client should ask about.</summary>
@@ -191,6 +191,7 @@ public sealed class AssistantTools
         ["move_element"] = "Move an element",
         ["duplicate_elements"] = "Duplicate elements",
         ["select"] = "Select elements",
+        ["measure"] = "Measure elements",
         ["open"] = "Open a node",
         ["add_group"] = "Add a group",
         ["add_drawing"] = "Add a drawing",
@@ -268,6 +269,7 @@ public sealed class AssistantTools
         Add(MoveElement, "move_element", "Moves an element of a drawing inside or beside another, as a single undo step, and says the key it lands at. A move into itself, or across a <defs>, <clipPath> or <mask>, is refused.");
         Add(DuplicateElements, "duplicate_elements", "Copies elements of a drawing, each right after itself with every id in it renamed, as a single undo step, and says the copies' keys and ids.");
         Add(Select, "select", "Selects elements of the drawing in front so the person sees them: by address key, or as Studio's Select menu does — all, none, the inverse of keys, those whose fill, stroke, stroke-width or opacity is written as the first key's is, every element of a kind, or what reads a declared name — and names the keys it selected.");
+        Add(Measure, "measure", "Says where an element of a drawing is drawn, in the drawing's own user units: its box, size and centre, and with a second element the gaps between the two and the distance and angle between their centres.");
         Add(Open, "open", "Opens a group or drawing of the project in its tab.");
         Add(AddGroup, "add_group", "Adds an empty group inside a group, and opens it.");
         Add(AddDrawing, "add_drawing", "Adds a drawing from SVG text inside a group, and opens it; with template, through one of the project's templates as an import puts it, declaring on the group what it needs and lacks, in the same undo step.");

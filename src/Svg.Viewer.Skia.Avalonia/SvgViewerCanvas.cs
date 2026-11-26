@@ -144,7 +144,9 @@ public class SvgViewerCanvas : SKCanvasControl
         bool PageOutlined,
         SvgViewerPointMarks? Points,
         IReadOnlyList<SvgEditorGuide>? Guides = null,
-        IReadOnlyList<SvgEditorGuide>? Aligned = null);
+        IReadOnlyList<SvgEditorGuide>? Aligned = null,
+        bool Checkered = false,
+        SKPath? Measured = null);
 
     /// <summary>
     /// Something invisible as it is drawn: where it stands, its outline where it is not a box, what is
@@ -351,7 +353,12 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </remarks>
     public SKColor Background
     {
-        get => _background ?? Grounded(ActualThemeVariant);
+        get => _background ?? Grounded(_ground switch
+        {
+            SvgViewerGround.Light => ThemeVariant.Light,
+            SvgViewerGround.Dark => ThemeVariant.Dark,
+            _ => ActualThemeVariant
+        });
 
         set
         {
@@ -371,6 +378,62 @@ public class SvgViewerCanvas : SKCanvasControl
     /// </remarks>
     private static SKColor Grounded(ThemeVariant variant)
         => variant == ThemeVariant.Light ? new SKColor(0xF2, 0xF2, 0xF4) : new SKColor(0x1A, 0x1A, 0x1E);
+
+    private SvgViewerGround _ground;
+
+    private SKPath? _measured;
+
+    /// <summary>A line being measured, in the space the drawings are arranged in, or null.</summary>
+    /// <remarks>Apart from <see cref="Highlight"/>, so a pick, a bound value or a rebuild retracing the selection leaves it be.</remarks>
+    public SKPath? Measured
+    {
+        get => _measured;
+        set
+        {
+            _measured = value;
+
+            Publish();
+        }
+    }
+
+    /// <summary>What is behind the drawings unless a host pins <see cref="Background"/>: the theme's, a checker, or the light or dark one whatever the theme.</summary>
+    public SvgViewerGround Ground
+    {
+        get => _ground;
+        set
+        {
+            _ground = value;
+
+            Publish();
+        }
+    }
+
+    private bool _outlined;
+
+    /// <summary>Whether the drawings are shown as their outlines alone.</summary>
+    /// <remarks>Set on each drawing here, on the UI thread, since the render thread may only read.</remarks>
+    public bool Outlined
+    {
+        get => _outlined;
+        set
+        {
+            _outlined = value;
+
+            Outline(_placed);
+            Publish();
+        }
+    }
+
+    private void Outline(IReadOnlyList<SvgViewerPlacement> placed)
+    {
+        foreach (var placement in placed)
+        {
+            if (placement.Svg.Wireframe != _outlined)
+            {
+                placement.Svg.Wireframe = _outlined;
+            }
+        }
+    }
 
     public bool IsZoomEnabled { get; set; } = true;
 
@@ -551,6 +614,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
         _placed = placed;
         _frames = frames;
+        Outline(placed);
 
         // Published because the drawing changed, whatever the view does about it. The fit below
         // publishes only when it moves the view, so a drawing swapped for one that fits exactly as
@@ -579,12 +643,13 @@ public class SvgViewerCanvas : SKCanvasControl
 
     public double OffsetY => _offsetY;
 
-    /// <summary>Scales the drawing to fit the pane, centred.</summary>
-    public void Fit()
+    /// <summary>Scales the drawing, or the rectangle given in the space it is arranged in, to fit the pane, centred.</summary>
+    /// <remarks>A rectangle is a view somebody asked for, so a later resize keeps it rather than refitting.</remarks>
+    public void Fit(SKRect? within = null)
     {
-        _userAdjusted = false;
+        _userAdjusted = within is { };
 
-        if (!TryFit())
+        if (!TryFit(Bounds.Size, within) && within is null)
         {
             SetView(1d, 0d, 0d);
         }
@@ -746,15 +811,21 @@ public class SvgViewerCanvas : SKCanvasControl
 
     private bool TryFit() => TryFit(Bounds.Size);
 
-    private bool TryFit(Size size)
+    private bool TryFit(Size size, SKRect? within = null)
     {
+        var bounds = default(SKRect);
+
         // A pane resized while something is being carried or edited must not refit under it: the
         // gesture captured where it started from, and the ground would move under the hand.
-        if (_moving is { } || _editing || _marquee || size.Width <= 0d || size.Height <= 0d || !TryGetCullRect(out var bounds))
+        if (_moving is { } || _editing || _marquee || size.Width <= 0d || size.Height <= 0d
+            || (within is { } asked ? asked.Width <= 0f && asked.Height <= 0f : !TryGetCullRect(out bounds)))
         {
             return false;
         }
 
+        bounds = within ?? bounds;
+
+        // An axis with no extent, a level line's height, divides to infinity and the other axis decides.
         var scale = Math.Clamp(
             Math.Min(size.Width / bounds.Width, size.Height / bounds.Height),
             MinimumScale,
@@ -1466,7 +1537,9 @@ public class SvgViewerCanvas : SKCanvasControl
             _pageOutlined,
             _moving is { } && _moved ? null : _points,
             _showsGuides && _guides.Count > 0 ? _guides : null,
-            _aligned);
+            _aligned,
+            _ground == SvgViewerGround.Checker,
+            _measured);
 
         InvalidateVisual();
         Published?.Invoke(this, EventArgs.Empty);
@@ -2256,6 +2329,7 @@ public class SvgViewerCanvas : SKCanvasControl
         // Render thread. Only the snapshot and the canvas may be touched here.
         var state = _snapshot;
         var canvas = e.Canvas;
+        var screen = canvas.TotalMatrix;
 
         canvas.Clear(state.Ground);
 
@@ -2272,6 +2346,29 @@ public class SvgViewerCanvas : SKCanvasControl
         // nothing next to building one.
         using var font = new SKFont(SKTypeface.Default, 1f);
         using var writing = new SKPaint { IsAntialias = true, Color = SKColors.Gray };
+
+        // Behind each page and under the grid: it is the ground the page stands on, at the same size
+        // on screen whatever the zoom, and it says where a drawing is transparent.
+        if (state.Checkered)
+        {
+            foreach (var placed in state.Placed)
+            {
+                if (Extent(placed) is not { } sheet)
+                {
+                    continue;
+                }
+
+                var by = state.Moving is { } carry && carry.Carried.Contains(placed) ? carry.By : default;
+
+                sheet.Offset(placed.At.X + by.X, placed.At.Y + by.Y);
+
+                canvas.Save();
+                canvas.ClipRect(sheet);
+                canvas.SetMatrix(screen);
+                canvas.DrawPaint(s_checker);
+                canvas.Restore();
+            }
+        }
 
         // Under even the frames: the grid is what the board is standing on.
         Lines(canvas, state.Grid, state.Scale);
@@ -2465,6 +2562,19 @@ public class SvgViewerCanvas : SKCanvasControl
             held.Offset(carried.By);
 
             Around(canvas, held, state.Scale);
+        }
+
+        if (state.Measured is { } measured)
+        {
+            using var line = new SKPaint
+            {
+                IsAntialias = true,
+                Style = SKPaintStyle.Stroke,
+                Color = s_alignedColour,
+                StrokeWidth = (float)(1.5d / state.Scale)
+            };
+
+            canvas.DrawPath(measured, line);
         }
 
         // Last, so a handle is never drawn under the shape it is for. Never in the same frame as the
@@ -2674,6 +2784,25 @@ public class SvgViewerCanvas : SKCanvasControl
         }
     }
 
+    private static readonly SKPaint s_checker = Checker();
+
+    /// <summary>Squares of eight, tiled.</summary>
+    private static SKPaint Checker()
+    {
+        using var tile = new SKBitmap(16, 16);
+        using (var paint = new SKCanvas(tile))
+        {
+            paint.Clear(new SKColor(0xF2, 0xF2, 0xF4));
+
+            using var dark = new SKPaint { Color = new SKColor(0xD8, 0xD8, 0xDE) };
+
+            paint.DrawRect(0, 0, 8, 8, dark);
+            paint.DrawRect(8, 8, 8, 8, dark);
+        }
+
+        return new SKPaint { Shader = SKShader.CreateBitmap(tile, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat) };
+    }
+
     private static readonly SKColor s_guideColour = new(0x00, 0xB4, 0xFF);
     private static readonly SKColor s_alignedColour = new(0xFF, 0x2D, 0xAA);
 
@@ -2860,4 +2989,18 @@ public class SvgViewerCanvas : SKCanvasControl
 
         canvas.DrawRect(swept, paint);
     }
+}
+
+/// <summary>What a canvas shows behind its drawings.</summary>
+public enum SvgViewerGround
+{
+    /// <summary>The window's theme's own.</summary>
+    Theme,
+
+    /// <summary>A checker behind each page, where the drawing is transparent.</summary>
+    Checker,
+
+    Light,
+
+    Dark
 }

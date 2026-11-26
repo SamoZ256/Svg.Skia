@@ -1753,4 +1753,143 @@ public class SvgViewerCanvasTests
         {
             RoutedEvent = InputElement.PointerWheelChangedEvent
         };
+
+    // ---- outline, ground and fitting a rectangle ---------------------------------------------
+
+    [AvaloniaFact]
+    public void Outline_Is_Set_On_Every_Drawing_And_On_One_Put_On_Later()
+    {
+        var (window, canvas, document) = Host();
+
+        canvas.Outlined = true;
+
+        Assert.True(document.Svg.Wireframe);
+
+        var next = SvgViewerDocument.LoadFromSvg(Roomy);
+
+        canvas.Replace(next.Svg);
+
+        Assert.True(next.Svg.Wireframe);
+
+        canvas.Outlined = false;
+
+        Assert.False(next.Svg.Wireframe);
+
+        window.Close();
+    }
+
+    [AvaloniaTheory]
+    [InlineData(SvgViewerGround.Light, "Dark", 0xF2)]
+    [InlineData(SvgViewerGround.Dark, "Light", 0x1A)]
+    public void Light_And_Dark_Are_So_Whatever_The_Theme(SvgViewerGround ground, string theme, byte red)
+    {
+        var (window, canvas, _) = Host();
+
+        window.RequestedThemeVariant = theme == "Light" ? ThemeVariant.Light : ThemeVariant.Dark;
+        canvas.Ground = ground;
+
+        Assert.Equal(red, canvas.Background.Red);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Ground_A_Host_Pinned_Wins()
+    {
+        var (window, canvas, _) = Host();
+
+        canvas.Background = SKColors.Red;
+        canvas.Ground = SvgViewerGround.Dark;
+
+        Assert.Equal(SKColors.Red, canvas.Background);
+
+        window.Close();
+    }
+
+    /// <summary>The checker is behind the page, where the drawing is transparent, and not on the board around it.</summary>
+    [AvaloniaFact]
+    public void The_Checker_Is_Behind_The_Page_And_Nowhere_Else()
+    {
+        // Ink only along the bottom, so the top half of the page shows what is behind it; wide, so the page has board beside it.
+        var (window, canvas, _) = Host(Roomy, 600, 200);
+
+        canvas.Ground = SvgViewerGround.Checker;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(canvas.TryGetControlPoint(new SKPoint(0f, 0f), out var corner));
+
+        using var shot = Shot(window);
+        var left = (int)corner.X;
+        var top = (int)corner.Y;
+
+        // Two neighbouring squares of eight, inside the page.
+        Assert.NotEqual(shot.GetPixel(left + 4, top + 4), shot.GetPixel(left + 12, top + 4));
+
+        // Beside the page, where the canvas's own ground is: two neighbouring squares' worth, in case one matches.
+        Assert.Equal(canvas.Background, shot.GetPixel(left - 20, top + 4));
+        Assert.Equal(canvas.Background, shot.GetPixel(left - 28, top + 4));
+
+        window.Close();
+    }
+
+    /// <summary>The grid is drawn over the checker, as over any other ground.</summary>
+    [AvaloniaFact]
+    public void The_Grid_Shows_Over_The_Checker()
+    {
+        var (window, canvas, _) = Host(Roomy, 600, 200);
+
+        canvas.Grid = new SvgViewerGrid(10f, 15f);
+        canvas.Ground = SvgViewerGround.Checker;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(canvas.TryGetControlPoint(new SKPoint(20f, 5f), out var on));
+
+        using var shot = Shot(window);
+        SKColor[] checker = { new(0xF2, 0xF2, 0xF4), new(0xD8, 0xD8, 0xDE) };
+
+        // The line at 20, a device pixel wide, on whichever of the two pixels it falls.
+        Assert.True(
+            Array.IndexOf(checker, shot.GetPixel((int)Math.Floor(on.X), (int)on.Y)) < 0
+            || Array.IndexOf(checker, shot.GetPixel((int)Math.Ceiling(on.X), (int)on.Y)) < 0,
+            "the grid line is under the checker");
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Rectangle_Is_Fitted_Centred_And_Kept_Through_A_Resize()
+    {
+        var (window, canvas, _) = Host(Wide, 400, 200);
+
+        canvas.Fit(new SKRect(10f, 10f, 30f, 20f));
+
+        Assert.True(canvas.TryGetControlPoint(new SKPoint(20f, 15f), out var middle));
+        Assert.Equal(200d, middle.X, 1);
+        Assert.Equal(100d, middle.Y, 1);
+
+        // Bounded by height: twenty units across would want a scale of twenty, ten down one of twenty too.
+        Assert.Equal(20d, canvas.Scale, 3);
+
+        var scale = canvas.Scale;
+
+        canvas.Measure(new Size(300, 200));
+        canvas.Arrange(new Rect(0, 0, 300, 200));
+
+        Assert.Equal(scale, canvas.Scale, 3);
+
+        window.Close();
+    }
+
+    /// <summary>A level line has no height to fit, so its width decides.</summary>
+    [AvaloniaFact]
+    public void A_Level_Line_Is_Fitted_By_Its_Length()
+    {
+        var (window, canvas, _) = Host(Wide, 400, 200);
+
+        canvas.Fit(new SKRect(10f, 10f, 50f, 10f));
+
+        Assert.Equal(10d, canvas.Scale, 3);
+
+        window.Close();
+    }
 }

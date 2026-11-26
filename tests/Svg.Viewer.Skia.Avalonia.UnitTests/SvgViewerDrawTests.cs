@@ -50,7 +50,8 @@ public class SvgViewerDrawTests
 
                 Assert.Equal(from.Tool == to.Tool ? 0 : 1, changes);
                 Assert.Equal(to.Name == "Points", draw.Reshaping);
-                Assert.Equal(to.Name == "Points" ? null : to.Tool, draw.Shape);
+                Assert.Equal(to.Name == "Measure", draw.Measuring);
+                Assert.Equal(to.Name is "Points" or "Measure" ? null : to.Tool, draw.Shape);
             }
         }
     }

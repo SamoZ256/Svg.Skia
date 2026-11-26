@@ -410,6 +410,7 @@ public partial class MainWindow : Window
 
         // Tunnelling: after the canvas's own key bindings, and before a box or the strip takes the key.
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
+        AddHandler(KeyDownEvent, OnCanvasKey, RoutingStrategies.Bubble);
 
         // On the strip, and tunnelling, because TabItem handles a press itself to become selected
         // and a bubbling handler would never see it.
@@ -1341,6 +1342,8 @@ public partial class MainWindow : Window
 
     private void ShowProjectPane(bool show)
     {
+        Unfocus();
+
         // Off the arrangement rather than hidden in it: a panel with nothing in it would still hold
         // a strip of the window, and a session that only opens drawings should look as it always did.
         if (!show)
@@ -3471,6 +3474,8 @@ public partial class MainWindow : Window
         viewer.Rulers.ShowsRulers = StudioSettings.Rulers;
         viewer.Canvas.ShowsGuides = StudioSettings.Guides;
         viewer.SnapsToSmartGuides = StudioSettings.SmartGuides;
+        viewer.Canvas.Outlined = StudioSettings.Outline;
+        viewer.Canvas.Ground = StudioSettings.Ground;
     }
 
     /// <summary>
@@ -3636,7 +3641,7 @@ public partial class MainWindow : Window
         yield return ("File", new[] { "open", StudioCommands.RecentSlot, "close", rule, "save", "saveas", rule, "export", rule, "preferences" });
         yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", rule, "resize" });
         yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
-        yield return ("View", new[] { "fit", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "workspace-rulers", "guides", "smartguides", rule, "reset-parameters" });
+        yield return ("View", new[] { "fit", "fitselection", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "workspace-rulers", "guides", "smartguides", rule, "reset-parameters", rule, "wireframe", "background-theme", "background-checker", "background-light", "background-dark", rule, "zen", "fullscreen" });
         yield return ("Window", _dock.Regions.Where(Toggled).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" }).ToList());
         yield return ("Project", new[] { "new-project", rule, "close-project" });
         yield return ("Help", new[] { "help", "commands", "user-guide", "mcp-connection", rule, "about" });
@@ -3830,7 +3835,7 @@ public partial class MainWindow : Window
 
         foreach (var region in _dock.Regions.Where(Toggled))
         {
-            yield return new(Panel(region), region.Header, "Window", Done(() => Toggle(region.Id))) { IsChecked = () => _dock.Shows(region.Id) };
+            yield return new(Panel(region), region.Header, "Window", Done(() => Toggle(region.Id))) { IsChecked = () => _dock.ShowsRegions && _dock.Shows(region.Id) };
         }
 
         yield return new("next-document", "Next Tab", "Window", Done(() => Cycle(1)))
@@ -3915,7 +3920,10 @@ public partial class MainWindow : Window
 
     private void Toggle(string id)
     {
-        var shown = !_dock.Shows(id);
+        // In Focus Mode a panel's item shows it, as its unchecked mark says, whatever the line holds.
+        var shown = !_dock.ShowsRegions || !_dock.Shows(id);
+
+        Unfocus();
 
         _dock.Show(id, shown);
 
@@ -3927,6 +3935,8 @@ public partial class MainWindow : Window
 
     private void ResetLayout()
     {
+        Unfocus();
+
         // Written rather than cleared, so the line on file is the arrangement rather than a gap
         // meaning "whatever the default happens to be next time".
         StudioSettings.Layout = StudioSettings.DefaultLayout;

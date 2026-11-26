@@ -68,6 +68,8 @@ public static class StudioSettings
 
     private const string SmartGuidesKey = "smartGuides";
 
+    private const string GroundKey = "ground";
+
     private const string GridSizeKey = "gridSize";
 
     private const string RotationStepKey = "rotationStep";
@@ -106,7 +108,19 @@ public static class StudioSettings
     /// Where the settings are kept.
     /// </summary>
     /// <remarks>Settable so a test drives a file of its own instead of the one on this machine.</remarks>
-    public static string Store { get; set; } = Path.Combine(Folder, "settings");
+    public static string Store
+    {
+        get => s_store;
+        set
+        {
+            s_store = value;
+
+            // Outline is the session's and never the file's, and another file is another session.
+            Outline = false;
+        }
+    }
+
+    private static string s_store = Path.Combine(Folder, "settings");
 
     /// <summary>Whether a recovery copy is kept of the project being edited.</summary>
     /// <remarks>
@@ -296,6 +310,17 @@ public static class StudioSettings
     {
         get => !string.Equals(Read(SmartGuidesKey), "off", StringComparison.Ordinal);
         set => Write(SmartGuidesKey, value ? "on" : "off");
+    }
+
+    /// <summary>Whether the drawings are shown as their outlines alone, for this session only.</summary>
+    /// <remarks>Never written down, so no launch opens on a drawing gone grey without being asked.</remarks>
+    public static bool Outline { get; set; }
+
+    /// <summary>What is behind the drawings on every canvas: the theme's, a checker, light or dark.</summary>
+    public static SvgViewerGround Ground
+    {
+        get => Enum.TryParse<SvgViewerGround>(Read(GroundKey), ignoreCase: true, out var ground) && Enum.IsDefined(ground) ? ground : SvgViewerGround.Theme;
+        set => Write(GroundKey, value.ToString().ToLowerInvariant());
     }
 
     /// <summary>How far apart the grid lines are, in the space the drawings are arranged in.</summary>

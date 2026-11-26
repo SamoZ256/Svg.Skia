@@ -214,6 +214,33 @@ public class StudioCommandsTests
         Assert.Equal("save", commands.Resolve(Press(Key.S, KeyModifiers.Control), typing: true, exported: false)?.Id);
     }
 
+    /// <summary>A canvas key is the window's only once a canvas has had it and let it go, as Focus Mode's F is.</summary>
+    [AvaloniaFact]
+    public void A_Canvas_Key_Is_Answered_Only_For_A_Canvas()
+    {
+        var commands = new StudioCommands(new[]
+        {
+            Command("zen", SvgEditorShortcutScope.Canvas) with { Platform = new[] { new KeyGesture(Key.F) } },
+            Command("save") with { Key = SvgEditorShortcutKey.S, Modifiers = Primary }
+        }, mac: false);
+
+        KeyEventArgs Press(Key key, KeyModifiers modifiers = KeyModifiers.None) => new() { Key = key, KeyModifiers = modifiers };
+
+        Assert.Null(commands.Resolve(Press(Key.F), typing: false, exported: false));
+        Assert.Equal("zen", commands.Resolve(Press(Key.F), typing: false, exported: false, canvas: true)?.Id);
+        Assert.Null(commands.Resolve(Press(Key.S, KeyModifiers.Control), typing: false, exported: false, canvas: true));
+    }
+
+    /// <summary>Control and Command together, as macOS's full screen is, are not spelled as Command alone.</summary>
+    [AvaloniaFact]
+    public void Control_And_Command_Together_Are_Not_Spelled_As_Command()
+    {
+        var full = Command("fullscreen") with { Platform = new[] { new KeyGesture(Key.F, KeyModifiers.Control | KeyModifiers.Meta) } };
+        var commands = new StudioCommands(new[] { full }, mac: true);
+
+        Assert.NotEqual(SvgEditorShortcutCatalog.FormatGesture(SvgEditorShortcutKey.F, Primary, true), commands.Shortcut(full));
+    }
+
     [AvaloniaFact]
     public void An_Exported_Menu_On_A_Mac_Answers_What_It_Shows_And_Only_That()
     {
