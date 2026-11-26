@@ -7,9 +7,11 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.Skia;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using SkiaSharp;
@@ -185,8 +187,9 @@ public class SvgViewerCanvas : SKCanvasControl
         AddHandler(PointerReleasedEvent, OnReleased, RoutingStrategies.Tunnel);
 
         // A machine set to turn dark at sunset changes this under an editor nobody has touched,
-        // and the ground is read from the variant.
+        // and the ground is read from the variant; a host's ground is found only once this is in its tree.
         ActualThemeVariantChanged += (_, _) => Publish();
+        ResourcesChanged += (_, _) => Publish();
     }
 
     /// <summary>Raised whenever the scale or offset changes, for a zoom readout.</summary>
@@ -369,15 +372,17 @@ public class SvgViewerCanvas : SKCanvasControl
     }
 
     /// <summary>
-    /// The ground each variant is painted on.
+    /// The ground <paramref name="variant"/> is painted on, unless a host's resources give one for it as <c>SvgViewerCanvasGround</c>.
     /// </summary>
     /// <remarks>
     /// Mirrors of one another, and the light one is deliberately not white: the gizmo's handles are
     /// filled white so they read on whatever they sit on, and on white they would be an outline
-    /// round nothing.
+    /// round nothing. A resource rather than the dock's palette, which a standalone viewer carries too.
     /// </remarks>
-    private static SKColor Grounded(ThemeVariant variant)
-        => variant == ThemeVariant.Light ? new SKColor(0xF2, 0xF2, 0xF4) : new SKColor(0x1A, 0x1A, 0x1E);
+    private SKColor Grounded(ThemeVariant variant)
+        => this.TryFindResource("SvgViewerCanvasGround", variant, out var ground) && ground is Color color
+            ? new SKColor(color.R, color.G, color.B, color.A)
+            : variant == ThemeVariant.Light ? new SKColor(0xF2, 0xF2, 0xF4) : new SKColor(0x1A, 0x1A, 0x1E);
 
     private SvgViewerGround _ground;
 
@@ -2345,7 +2350,9 @@ public class SvgViewerCanvas : SKCanvasControl
         // Built once for the frames rather than one per name: setting the size on a font costs
         // nothing next to building one.
         using var font = new SKFont(SKTypeface.Default, 1f);
-        using var writing = new SKPaint { IsAntialias = true, Color = SKColors.Gray };
+        var ink = Legible(SKColors.Gray, state.Ground);
+
+        using var writing = new SKPaint { IsAntialias = true, Color = ink };
 
         // Behind each page and under the grid: it is the ground the page stands on, at the same size
         // on screen whatever the zoom, and it says where a drawing is transparent.
@@ -2386,7 +2393,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
             bounds.Offset(by);
 
-            Around(canvas, bounds, state.Scale);
+            Around(canvas, bounds, state.Scale, ink);
         }
 
         var index = 0;
@@ -2432,7 +2439,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
             if (page is { } frame && state.PageOutlined)
             {
-                Outline(canvas, frame, state.Scale);
+                Outline(canvas, frame, state.Scale, ink);
             }
 
             // Here rather than with the names below, because an outline is in the drawing's own units
@@ -2441,7 +2448,7 @@ public class SvgViewerCanvas : SKCanvasControl
             {
                 foreach (var shown in invisible[index])
                 {
-                    Unseen(canvas, shown, state.Scale, font, state.CaptionSize);
+                    Unseen(canvas, shown, state.Scale, font, state.CaptionSize, state.Ground);
                 }
             }
 
@@ -2561,7 +2568,7 @@ public class SvgViewerCanvas : SKCanvasControl
 
             held.Offset(carried.By);
 
-            Around(canvas, held, state.Scale);
+            Around(canvas, held, state.Scale, ink);
         }
 
         if (state.Measured is { } measured)
@@ -2876,13 +2883,13 @@ public class SvgViewerCanvas : SKCanvasControl
     /// hairline inside it: the dash means "these are the drawing's own edges", which is the one
     /// thing a frame must not be read as.
     /// </remarks>
-    private static void Around(SKCanvas canvas, SKRect frame, double scale)
+    private static void Around(SKCanvas canvas, SKRect frame, double scale, SKColor ink)
     {
         using var paint = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
-            Color = SKColors.Gray.WithAlpha(0x99),
+            Color = ink.WithAlpha(0x99),
             StrokeWidth = (float)(1d / scale)
         };
 
@@ -2897,7 +2904,7 @@ public class SvgViewerCanvas : SKCanvasControl
     /// None of them the grey of a page's own dashes, since a box inside a page would read as a second
     /// one, nor the orange of the selection ring.
     /// </remarks>
-    private static void Unseen(SKCanvas canvas, Shown shown, double scale, SKFont font, double captionSize)
+    private static void Unseen(SKCanvas canvas, Shown shown, double scale, SKFont font, double captionSize, SKColor ground)
     {
         var hairline = (float)(1d / scale);
         var (colour, on, off) = shown.Kind switch
@@ -2909,6 +2916,8 @@ public class SvgViewerCanvas : SKCanvasControl
             SvgViewerUnseenKind.Unpainted => (new SKColor(0x2E, 0xB8, 0xC8, 0x99), 1f, 2f),
             _ => (new SKColor(0xD9, 0x59, 0x9B), 6f, 3f)
         };
+
+        colour = Legible(colour, ground);
 
         using var paint = new SKPaint
         {
@@ -2946,7 +2955,7 @@ public class SvgViewerCanvas : SKCanvasControl
             writing);
     }
 
-    private static void Outline(SKCanvas canvas, SKRect frame, double scale)
+    private static void Outline(SKCanvas canvas, SKRect frame, double scale, SKColor ink)
     {
         var hairline = (float)(1d / scale);
 
@@ -2954,7 +2963,7 @@ public class SvgViewerCanvas : SKCanvasControl
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
-            Color = SKColors.Gray,
+            Color = ink,
             StrokeWidth = hairline,
             PathEffect = SKPathEffect.CreateDash(new[] { 4f * hairline, 4f * hairline }, 0f)
         };
@@ -2962,6 +2971,48 @@ public class SvgViewerCanvas : SKCanvasControl
         // A stroke straddles what it is drawn on, so half of it would fall outside the drawing.
         // Half a pixel in puts the whole line within the edges it is about.
         canvas.DrawRect(SKRect.Inflate(frame, -hairline / 2f, -hairline / 2f), paint);
+    }
+
+    /// <summary>The colour taken toward black, or toward white on a dark ground, until it stands 3:1 against the ground.</summary>
+    /// <remarks>
+    /// For what the canvas writes and outlines, whose colours were picked for its own near-white and
+    /// near-black grounds: on Svg.Studio's mid grey a box's cyan stood at 1.2:1 and a caption at 2:1.
+    /// Alpha is left alone, so a line meant fainter than another stays so.
+    /// </remarks>
+    private static SKColor Legible(SKColor colour, SKColor ground)
+    {
+        var toward = Luminance(ground) > 0.18d ? SKColors.Black : SKColors.White;
+
+        for (var step = 0; step < 12 && Contrast(colour, ground) < 3d; step++)
+        {
+            colour = new SKColor(
+                (byte)(colour.Red + ((toward.Red - colour.Red) / 5)),
+                (byte)(colour.Green + ((toward.Green - colour.Green) / 5)),
+                (byte)(colour.Blue + ((toward.Blue - colour.Blue) / 5)),
+                colour.Alpha);
+        }
+
+        return colour;
+
+        static double Contrast(SKColor one, SKColor other)
+        {
+            var (a, b) = (Luminance(one), Luminance(other));
+
+            return (Math.Max(a, b) + 0.05d) / (Math.Min(a, b) + 0.05d);
+        }
+    }
+
+    /// <summary>WCAG relative luminance, ignoring alpha; the recipes' own is in an assembly this one does not reference.</summary>
+    private static double Luminance(SKColor colour)
+    {
+        return (0.2126d * Linear(colour.Red)) + (0.7152d * Linear(colour.Green)) + (0.0722d * Linear(colour.Blue));
+
+        static double Linear(byte channel)
+        {
+            var c = channel / 255d;
+
+            return c <= 0.04045d ? c / 12.92d : Math.Pow((c + 0.055d) / 1.055d, 2.4d);
+        }
     }
 
     /// <summary>The rectangle being swept, as the hand is drawing it.</summary>

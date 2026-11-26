@@ -676,4 +676,127 @@ public class SvgSceneExpressionTests
         Assert.Equal(SymNode.Source("Second(t)"), paints[1].Color!.Value.Expression);
         Assert.NotEqual(paints[0].Color!.Value, paints[1].Color!.Value);
     }
+
+    private static T SingleShader<T>(string svgMarkup)
+        where T : SKShader
+        => Assert.Single(EnumeratePaints(Build(svgMarkup)).Select(p => p.Shader).OfType<T>());
+
+    [Fact]
+    public void A_Gradient_Given_Lists_Records_Them_Beside_The_Stops_It_Draws_Until_Bound()
+    {
+        var shader = SingleShader<LinearGradientShader>("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="32">
+              <defs>
+                <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="2" x2="0" y2="28" e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+                  <stop offset="0" stop-color="#F7DE77" /><stop offset="0.42" stop-color="#FFF" /><stop offset="1" stop-color="#ACE3E3" />
+                </linearGradient>
+              </defs>
+              <rect x="2" y="2" width="20" height="26" fill="url(#g)" fill-opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        Assert.Equal(new SymGradientStops(SymNode.Source("colors"), SymNode.Source("positions"), SymNode.Source("fade"), false), shader.Stops);
+        Assert.Equal(new[] { 0f, 0.42f, 1f }, shader.ColorPos);
+        Assert.Equal(3, shader.Colors!.Length);
+    }
+
+    [Fact]
+    public void A_Gradient_Finds_Its_Lists_Along_Href_And_A_Written_Opacity_Scales_Them()
+    {
+        var shader = SingleShader<RadialGradientShader>("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs>
+                <linearGradient id="base" e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+                  <stop offset="0" stop-color="#F7DE77" /><stop offset="1" stop-color="#ACE3E3" />
+                </linearGradient>
+                <radialGradient id="g" href="#base" color-interpolation="linearRGB" e:stop-offsets="{{ [0, 1] }}" />
+              </defs>
+              <rect width="24" height="24" fill="url(#g)" fill-opacity="0.5" />
+            </svg>
+            """);
+
+        Assert.Equal(new SymGradientStops(SymNode.Source("colors"), SymNode.Source("[0, 1]"), SymNode.Literal(0.5f), true), shader.Stops);
+    }
+
+    [Theory]
+    [InlineData("", 0x00000000u)]
+    [InlineData("""<stop offset="0.3" stop-color="#1e40af" />""", 0xff1e40afu)]
+    public void A_Listed_Gradient_Of_One_Stop_Or_None_Is_Still_Recorded_As_A_Gradient(string stops, uint color)
+    {
+        // Only binding knows how many the lists hold, so the kind is never settled while recording.
+        var shader = SingleShader<LinearGradientShader>($$$"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs><linearGradient id="g" e:stop-colors="{{ colors }}">{{{stops}}}</linearGradient></defs>
+              <rect width="24" height="24" fill="url(#g)" />
+            </svg>
+            """);
+
+        SKColorF stop = new SKColor((byte)(color >> 16), (byte)(color >> 8), (byte)color, (byte)(color >> 24));
+        Assert.Equal(new[] { stop, stop }, shader.Colors);
+        Assert.Equal(new[] { 0f, 1f }, shader.ColorPos);
+        Assert.Equal(new SymGradientStops(SymNode.Source("colors"), null, SymNode.One, false), shader.Stops);
+    }
+
+    [Fact]
+    public void A_Listed_Radial_Gradient_Of_No_Radius_Is_The_Last_Colour_Made_A_Stop()
+    {
+        var shader = SingleShader<ColorShader>("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs>
+                <radialGradient id="g" r="0" color-interpolation="linearRGB" e:stop-colors="{{ colors }}">
+                  <stop offset="0" stop-color="#F7DE77" /><stop offset="1" stop-color="#ACE3E3" />
+                </radialGradient>
+              </defs>
+              <rect width="24" height="24" fill="url(#g)" fill-opacity="{{ fade }}" />
+            </svg>
+            """);
+
+        Assert.Equal(
+            SymNode.ToLinearRgb(SymNode.ScaleAlpha(SymNode.Last(SymNode.Source("colors")), SymNode.Source("fade"))),
+            shader.Color.Expression);
+    }
+
+    [Fact]
+    public void Lists_Written_Without_Braces_Leave_The_Gradient_To_Its_Stops()
+    {
+        var shader = SingleShader<LinearGradientShader>("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs>
+                <linearGradient id="g" e:stop-colors="colors">
+                  <stop offset="0" stop-color="#F7DE77" /><stop offset="1" stop-color="#ACE3E3" />
+                </linearGradient>
+              </defs>
+              <rect width="24" height="24" fill="url(#g)" />
+            </svg>
+            """);
+
+        Assert.Null(shader.Stops);
+    }
+
+    [Fact]
+    public void A_Gradients_Own_Stops_Are_Not_Replaced_By_Lists_It_Inherits()
+    {
+        var shaders = EnumeratePaints(Build("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs>
+                <linearGradient id="a" e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+                  <stop offset="0" stop-color="#f00" /><stop offset="1" stop-color="#00f" />
+                </linearGradient>
+                <linearGradient id="b" href="#a">
+                  <stop offset="0" stop-color="#0f0" /><stop offset="1" stop-color="#0f0" />
+                </linearGradient>
+                <linearGradient id="c" href="#a" e:stop-colors="{{ tints }}">
+                  <stop offset="0" stop-color="#0f0" /><stop offset="1" stop-color="#0f0" />
+                </linearGradient>
+              </defs>
+              <rect width="24" height="12" fill="url(#b)" />
+              <rect y="12" width="24" height="12" fill="url(#c)" />
+            </svg>
+            """)).Select(p => p.Shader).OfType<LinearGradientShader>().ToList();
+
+        // Lists stand in for a's stops, which b's own shadow; c's own lists replace c's own stops, and
+        // the offsets a gives its stops are not c's.
+        Assert.Null(shaders[0].Stops);
+        Assert.Equal(new SymGradientStops(SymNode.Source("tints"), null, SymNode.One, false), shaders[1].Stops);
+    }
 }

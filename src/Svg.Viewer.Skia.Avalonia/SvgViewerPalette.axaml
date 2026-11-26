@@ -1,0 +1,33 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    UnoDraw's palette (Svg.Editor.Skia.Uno StudioPaletteResources), the roles the chrome paints with.
+    The only copy: the dock's headers merge it so a dock in any host paints, and Svg.Studio merges it
+    for its whole window. The canvas's ground is not here, because a dock inside a standalone viewer
+    would hand it to that viewer's canvas too; Studio sets that one itself.
+  -->
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="StudioSurface" Color="#F0F0F0" />
+      <SolidColorBrush x:Key="StudioHeader" Color="#DEDEDE" />
+      <SolidColorBrush x:Key="StudioRaised" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="StudioBorder" Color="#A6A6A6" />
+      <SolidColorBrush x:Key="StudioDivider" Color="#C4C4C4" />
+      <SolidColorBrush x:Key="StudioHover" Color="#D8D8D8" />
+      <SolidColorBrush x:Key="StudioSelection" Color="#C7DDF4" />
+      <SolidColorBrush x:Key="StudioAccent" Color="#2862B0" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="StudioSurface" Color="#323232" />
+      <SolidColorBrush x:Key="StudioHeader" Color="#292929" />
+      <SolidColorBrush x:Key="StudioRaised" Color="#3C3C3C" />
+      <SolidColorBrush x:Key="StudioBorder" Color="#5D5D5D" />
+      <SolidColorBrush x:Key="StudioDivider" Color="#222222" />
+      <SolidColorBrush x:Key="StudioHover" Color="#454545" />
+      <SolidColorBrush x:Key="StudioSelection" Color="#464646" />
+      <SolidColorBrush x:Key="StudioAccent" Color="#94BFF2" />
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+
+</ResourceDictionary>

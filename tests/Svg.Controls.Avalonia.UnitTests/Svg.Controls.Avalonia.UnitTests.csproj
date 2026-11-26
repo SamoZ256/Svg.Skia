@@ -10,6 +10,9 @@
 
   <Import Project="..\..\build\ReferenceAssemblies.props" />
   <Import Project="..\..\build\XUnit.v3.props" />
+  <Import Project="..\..\build\SkiaSharp.props" />
+  <Import Project="..\..\build\SkiaSharp.Native.props" />
+  <Import Project="..\..\build\SkiaSharp.Avalonia.props" />
   <Import Project="..\..\build\Avalonia.props" />
   <Import Project="..\..\build\Avalonia.Skia.props" />
  
@@ -19,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Svg.Controls.Avalonia\Svg.Controls.Avalonia.csproj" />
+    <ProjectReference Include="..\..\src\Svg.Skia\Svg.Skia.csproj" />
   </ItemGroup>
 
   <ItemGroup>

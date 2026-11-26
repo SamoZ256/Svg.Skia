@@ -1,9 +1,17 @@
 using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using SkiaSharp;
+using Svg.Viewer.Skia.Avalonia;
 using Xunit;
 
 namespace Svg.Studio.UnitTests;
@@ -68,22 +76,16 @@ public class SettingsThemeTests : IDisposable
     }
 
     /// <summary>
-    /// A window stands on the editor's own ground rather than on Fluent's.
+    /// A window stands on UnoDraw's panel surface rather than on Fluent's ground.
     /// </summary>
     /// <remarks>
     /// Fluent hands every window <c>SystemControlBackgroundAltHighBrush</c>, which is literally
     /// <c>Black</c> in the dark variant. Every pane in the editor is transparent over its window, so
-    /// that one brush was the whole of what a dark Studio looked like: flat black, with the canvas
-    /// floating in the middle of it a shade lighter than the chrome around it.
-    ///
-    /// The exact colour, because it is half of a relation rather than a free choice: the chrome
-    /// sits above the canvas's own ground in dark and below it in light, so the drawing surface
-    /// reads as sunk into the editor either way round. The other half is asserted in the viewer's
-    /// suite, on a canvas in a window and in pixels.
+    /// that one brush was the whole of what a dark Studio looked like.
     /// </remarks>
     [AvaloniaTheory]
-    [InlineData("Dark", 0x25, 0x25, 0x28)]
-    [InlineData("Light", 0xFF, 0xFF, 0xFF)]
+    [InlineData("Dark", 0x32, 0x32, 0x32)]
+    [InlineData("Light", 0xF0, 0xF0, 0xF0)]
     public void A_Window_Stands_On_The_Editors_Own_Ground(string variant, byte red, byte green, byte blue)
     {
         Application.Current!.RequestedThemeVariant =
@@ -99,6 +101,67 @@ public class SettingsThemeTests : IDisposable
         Assert.Equal(Color.FromRgb(red, green, blue), painted.Color);
 
         window.Close();
+    }
+
+    /// <summary>The window's rows, its tabs and the drawing paint from UnoDraw's palette, in either variant.</summary>
+    /// <remarks>
+    /// The canvas below the panels in both, so the drawing reads as sunk into the editor: Studio's own
+    /// light ground, #F2F2F4, sat level with the #F0F0F0 panels. In pixels for the canvas, which
+    /// clears its own surface and finds the ground only once it is in the window.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData("Light", "#F0F0F0", "#DEDEDE", "#C4C4C4", "#FFFFFF", "#A6A6A6", 0xBA, 0xBA, 0xBA)]
+    [InlineData("Dark", "#323232", "#292929", "#222222", "#3C3C3C", "#5D5D5D", 0x1E, 0x1E, 0x1E)]
+    public async Task The_Chrome_Paints_From_The_Palette(string variant, string surface, string header, string divider, string raised, string border, byte red, byte green, byte blue)
+    {
+        var directory = Directory.CreateTempSubdirectory().FullName;
+        var path = Path.Combine(directory, "one.svg");
+
+        File.WriteAllText(path, """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" fill="#00ff00" /></svg>""");
+
+        var window = new MainWindow { Announce = (_, _) => Task.CompletedTask, RequestedThemeVariant = variant == "Dark" ? ThemeVariant.Dark : ThemeVariant.Light };
+
+        window.Show();
+        await window.OpenAsync(new[] { path });
+        window.Measure(new Size(1180, 760));
+        window.Arrange(new Rect(0, 0, 1180, 760));
+        Dispatcher.UIThread.RunJobs();
+
+        Color Painted(IBrush? brush) => Assert.IsAssignableFrom<ISolidColorBrush>(brush).Color;
+        Border Named(string name) => window.GetVisualDescendants().OfType<Border>().First(found => found.Name == name);
+
+        var menu = window.GetVisualDescendants().OfType<NativeMenuBar>().Single().GetVisualDescendants().OfType<Menu>().Single();
+        var tabs = window.FindControl<TabControl>("Tabs")!;
+
+        Assert.Equal(Color.Parse(header), Painted(menu.Background));
+        Assert.Equal(Color.Parse(divider), Painted(menu.BorderBrush));
+        Assert.Equal(new Thickness(0, 0, 0, 1), menu.BorderThickness);
+        Assert.Equal(Color.Parse(divider), Painted(Named("ControlBar").BorderBrush));
+        Assert.Equal(Color.Parse(header), Painted(Named("StatusBar").Background));
+        Assert.Equal(Color.Parse(divider), Painted(Named("StatusBar").BorderBrush));
+        Assert.Equal(Color.Parse(header), Painted(Named("PART_TabStripBand").Background));
+        Assert.Equal(Color.Parse(surface), Painted(((TabItem)tabs.SelectedItem!).Background));
+        Assert.Equal(Color.Parse(surface), Painted(Named("Welcome").Background));
+        Assert.Equal(Color.Parse(raised), Painted(Named("CommandSearch").Background));
+        Assert.Equal(Color.Parse(border), Painted(Named("CommandSearch").BorderBrush));
+
+        var canvas = ((SvgViewer)((TabItem)tabs.SelectedItem!).Content!).Canvas;
+        var corner = canvas.TranslatePoint(new Point(4d, 4d), window)!.Value;
+
+        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+        using (var stream = new MemoryStream())
+        {
+            window.CaptureRenderedFrame()!.Save(stream);
+            stream.Position = 0;
+
+            using var shot = SKBitmap.Decode(stream);
+
+            Assert.Equal(new SKColor(red, green, blue), shot.GetPixel((int)corner.X, (int)corner.Y));
+        }
+
+        window.Close();
+        Directory.Delete(directory, recursive: true);
     }
 
     /// <summary>A second window reads the file rather than anything the first one is holding.</summary>

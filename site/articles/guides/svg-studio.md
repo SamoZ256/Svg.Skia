@@ -137,39 +137,72 @@ held at either end of a strip with more tabs than fit scrolls the strip the same
 an `.svg` file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
 clipboard. Adding, removing and moving edit the project; nothing reaches the folder until you save it.
 
-Five panels sit round the tabs: the **Project** tree, the **Properties** of whatever is in front, the
-**Variables** it declares, the **Attributes** of the element picked in it, and the **Elements** those
-come from. They
-belong to the window rather than to a tab, and show whatever tab is in front — so the arrangement
-holds still while you move between drawings, and the tree that names them stays beside all of them.
+### The window
 
-They come up as a strip either side of the drawing, both the same width so neither reads as the
-important one: the tree over the variables it declares on the left, and on the right the settings and
-the elements sharing a run over the picked element's attributes. The tree gets the deeper share of
-its column, being the list you scroll where the variables are a handful of rows. The variables and
-the element are apart on purpose — a variable is dragged onto an attribute, and behind a tab each
-would hide the other.
+From the top: the menus (in the menu bar on macOS), the **control bar**, the panels arranged round the
+tabs, and the **status bar**. Both bars are about whichever tab is in front.
 
-**Arrange them as you like.** The chevron on a header folds that panel away. Take a panel by its
-header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
-Drop it against the foot of the drawing and it sits under the drawing; drop it against the **edge of
-the window** and it runs under everything, taking nothing from the strip beside it. Where it would
-land is drawn while you carry it. The arrangement is remembered, so it is there again next time, and
-**Window → Reset Layout** puts it back for when it has gone somewhere you would rather it had not. The
-**Window** menu also takes a panel off or puts it back for this session — all but the project tree and
-**Changes**, which come and go with the project — and moves between tabs
-(⌃⇥ and ⌃⇧⇥); **Help → Keyboard Shortcuts** lists every key Studio answers to, and **Help → Search
+The control bar names what is picked — `rect #a`, *3 objects*, *Page* — and holds **Reset
+parameters**, **Lock ratio**, **Snap**, **Invisible** and **Captions**, with the layout picker and
+**Search** at its right end. The status bar zooms (**−**, a percentage to type, **+**, **Fit**), says
+the drawing's name, how many parameters it has and the tool in hand with how it is used, reads the
+pointer in the drawing's own units, and carries the note about anything wrong with the drawing.
+**Snap** lands what is dragged on the grid and **Grid** draws the grid's lines; each works without
+the other. The same switches are in **View**.
+
+**Settings → Theme** picks the machine's colours, Light or Dark. Either way the drawing sits on a grey
+darker than the panels round it.
+
+### The panels
+
+The panels belong to the window rather than to a tab, and show whatever tab is in front, so the
+arrangement holds still while you move between drawings:
+
+| Panel | What it shows |
+|---|---|
+| **Project** | The tree, while a project is open. |
+| **Changes** | The project's place in its repository: the branch, what has changed, the remote and the **Commits**. Also only while a project is open. |
+| **History** | What **Edit → Undo** would take back, in the order it would: the drawing in front first, then the project. Clicking a row takes back that step and everything above it. |
+| **Properties** | The tab in front: a drawing's or a group's own settings. |
+| **Variables** | The parameters the drawing declares. |
+| **Attributes** | The element picked in the drawing. |
+| **Elements** | The drawing's elements, as a tree. |
+| **Assistant** | Claude, with the same tools [Claude Code](#connecting-claude-code) gets. |
+| **Streamline** | Streamline's icons, searched and brought into the project through its templates. |
+
+### Layouts
+
+The panels come up in the **Drawing** layout. Down the left are the tree, with Changes and History
+behind it, over the variables and the properties. Streamline sits folded under the drawing, and its
+tab opens it. Down the right are the attributes, over the element tree and the assistant. The
+variables and the attributes are apart on purpose: a variable is dragged onto an attribute, and
+behind a tab each would hide the other.
+
+**Board** puts Streamline under the tree and gives a group's board the window's whole height.
+**Review** puts Changes and History wide on the left. Pick one in the control bar's picker or in the
+**Window** menu. The picker names the layout you are in, and says *Custom* once the panels are
+arranged as none of them.
+
+### Arranging the panels
+
+- **Fold** a panel with the chevron on its header; a click on a folded run's tab opens it again.
+- **Resize** two panels by dragging the gap between them, which lights up under the pointer.
+- **Move** a panel by its header. Drop it on another header to sit behind that panel, or on the edge
+  of a panel to split it. Dropped against the foot of the drawing, it sits under the drawing; dropped
+  against the **edge of the window**, it runs under everything, taking nothing from the strip beside
+  it. Where it would land is drawn while you carry it.
+- **Right-click a tab** to move it left or right along its run or into a run of its own below, or to
+  close it — all but the project tree and Changes; the **Window** menu brings a closed panel back.
+- **Keys:** clicking a tab leaves the keyboard with the drawing. Once a tab has the focus, the arrow
+  keys, Home and End walk the run's tabs. A run too narrow for its tabs offers the rest under the
+  **»** at its end.
+
+The arrangement is remembered, so it is there again next time. **Window → Reset Layout** puts the
+Drawing layout back. The **Window** menu also takes a panel off or puts it back for this session —
+all but the project tree and Changes, which come and go with the project — and moves between tabs
+(⌃⇥ and ⌃⇧⇥). **Help → Keyboard Shortcuts** lists every key Studio answers to, and **Help → Search
 Commands…** (⌘K, Ctrl+K elsewhere) finds a command, a tool, or a drawing or group of the project by
 name, and runs or opens it.
-
-Two bars run across the window and are about whichever tab is in front. The **control bar**, under
-the menus, names what is picked — `rect #a`, *3 objects*, *Page* — and holds **Reset parameters**,
-**Lock ratio**, **Snap**, **Invisible** and **Captions**, with **Search** at its right end. The
-**status bar** at the foot zooms (**−**, a percentage to type, **+**, **Fit**), says the drawing's
-name, how many parameters it has and the tool in hand with how it is used, reads the pointer in the
-drawing's own units, and carries the note about anything wrong with the drawing. **Snap** lands what
-is dragged on the grid, and **Grid** draws the grid's lines; each works without the other. The same
-switches are in **View**.
 
 ## A group's tab: several icons at once
 
@@ -314,6 +347,16 @@ which lists the names the drawing declares and picks every element that reads th
 Nothing opens while a drawing tool or **Points** is out. A group's tab does the same in the
 drawing clicked.
 
+**Swap Fill and Stroke** (⇧X on the canvas or in the element tree, in the **Edit** menu and in the
+rows' menu) exchanges what everything picked fills and strokes with, and their opacities, as one
+step to undo. The text moves, so `{%{{{ tint }}}%}` goes with its paint, and each value stays where its
+element writes that property: a value in `style` stays in the style, its `!important` kept. An
+unwritten fill swaps as the black it paints and an unwritten stroke as none, so a plain shape turns
+into its outline. What an element only inherits from a group is written on it where it would now
+paint otherwise, and where that shadows a group's expression the canvas says so. A `<stop>` has
+nothing to swap, a shape in a `<clipPath>` paints nothing, and a paint a `<style>` sheet may set, or
+a `<use>` gives what a `<symbol>` holds, is not guessed at; each is refused before anything is written.
+
 ## The View menu
 
 **Rulers** (⌘R, Ctrl+R elsewhere) runs a ruler along the top and the left of the canvas. They count
@@ -364,8 +407,9 @@ element's tag and its id; **Find an attribute** under it lists only the rows who
 typed, and finds the attributes the element does not usually list as well.
 
 Every attribute the element writes is listed, and beside them the ones an element of its kind usually
-has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, not a stop's stroke
-or a rectangle's font. **Show all** lists everything the parser would read on it instead, whether or
+has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, a gradient's
+`e:stop-colors` and `e:stop-offsets`, which take a `color[]` and a `number[]` parameter whole, not a
+stop's stroke or a rectangle's font. **Show all** lists everything the parser would read on it instead, whether or
 not an expression could drive it. A row the file sets is in bold, with a **×** that takes it away.
 
 A row's box holds the value itself, whatever it is. Typing `{%{{{ tint }}}%}` into `fill` writes that into
@@ -399,6 +443,11 @@ rather than written as braces nobody reads. A value the element's `style` attrib
 edited in that declaration, which is what paints, and its `!important` is kept; emptying the box takes
 it out of the style. Geometry and `transform` set in a style are read-only, as `rotate(45deg) in style`:
 what is written for them is attribute grammar, which no browser reads in a style.
+
+The **ID** row renames the element, and what in the drawing points at it follows: `url(#…)` in any
+attribute or style, an `href`, an animation timed `id.click`, and `#id` in a `<style>` sheet's
+selectors, never its colours. An id another element has, or one that is not a name — `1a`, one with a
+space — is refused, and so is taking away an id something points at.
 
 What is typed is written when the box is left or Enter is pressed, and before Save, a command, another
 tab or closing the window acts on the drawing. **Escape** puts back what the box was drawn with, and
@@ -490,7 +539,8 @@ click on a `<use>` reshapes the shape it draws, which changes it everywhere it i
 
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project, its drawings and each node's own and inherited settings, lists every problem in them, reads
-the C# a drawing is built into, sets attributes and text, adds, removes, moves and copies elements,
+the C# a drawing is built into, sets attributes and text, renames an element's id with what points at
+it, swaps fill and stroke, adds, removes, moves and copies elements,
 selects them by key or as the Select menu does, reads and changes a group's declarations, declares
 or renames one parameter or let with every use of it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
 `measure` says where an element is drawn, in its drawing's own units, and with a second element the

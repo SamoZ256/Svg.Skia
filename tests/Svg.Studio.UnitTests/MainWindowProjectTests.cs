@@ -1722,6 +1722,26 @@ public class MainWindowProjectTests : IDisposable
         canvas.ContextMenu.Close();
     }
 
+    [AvaloniaFact]
+    public async Task The_Board_Swaps_Fill_And_Stroke_Of_What_Is_Picked()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        Pick(window, panel, 1);
+        Assert.True(await window.Registry.Run("selectall"));
+
+        Assert.True(await window.Registry.Run("swappaints"));
+        Dispatcher.UIThread.RunJobs();
+
+        var home = (ProjectDrawing)window.Workspace!.Document.Root.Children[0];
+        var ink = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+
+        Assert.Contains("""<rect width="24" height="24" fill="#00ff00" />""", home.Text);
+        Assert.Contains("""<rect width="24" height="24" fill="none" stroke="#00ff00" />""", ink.Text);
+        Assert.Equal(new[] { "0" }, Elements(panel).SelectedAddresses);
+    }
+
     /// <summary>Deselect on a board lets go of what is picked and not of the drawing being read, so All has one to pick in.</summary>
     [AvaloniaFact]
     public async Task Deselect_On_The_Board_Keeps_The_Drawing_All_Picks_In()
@@ -3901,25 +3921,32 @@ public class MainWindowProjectTests : IDisposable
         var window = await Host(Write("icons.svgstudio", Pair));
         var panel = await Group(window, 0);
 
+        // From the default, whatever arrangement another test left in the settings this class shares.
+        Assert.True(await window.Registry.Run("reset-layout"));
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
+        Dispatcher.UIThread.RunJobs();
+
         var variables = Around(panel).GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().Single();
 
-        // Its own run, so nothing can be in front of it — which is what lets a variable be dragged
-        // onto an attribute here as well.
+        // In front of its run, and apart from the attributes — which is what lets a variable be
+        // dragged onto an attribute here as well.
         Assert.True(variables.IsEffectivelyVisible);
 
-        // The board's settings share a run with the element tree, and the default reads them first.
+        // The board's settings share that run, behind the variables: not shown, nor yet laid out.
+        Assert.DoesNotContain(
+            window.GetVisualDescendants().OfType<StackPanel>(),
+            found => found.Name == "Properties" && found.IsEffectivelyVisible);
+
+        // Their header brings them out, and takes the variables off show with it. Off show rather
+        // than away: a panel already built stays in the tree behind the one on top, so what it says
+        // can still be asked for.
+        Open(window, window, "Properties");
+
         Assert.True(
             window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties")
                 .IsEffectivelyVisible);
-
-        // The other header brings its own panel out, and takes the settings off show with it. Off
-        // show rather than away: a panel already built stays in the tree behind the one on top, so
-        // what it says can still be asked for.
-        Open(window, window, "Elements");
-
-        Assert.False(
-            window.GetVisualDescendants().OfType<StackPanel>().Single(found => found.Name == "Properties")
-                .IsEffectivelyVisible);
+        Assert.False(variables.IsEffectivelyVisible);
     }
 
     [AvaloniaFact]
@@ -4164,6 +4191,81 @@ public class MainWindowProjectTests : IDisposable
         Assert.All(
             Drawn(panel),
             placed => Assert.Equal("#ff0000ff", placed.Svg.ExpressionValues!["tint"].ToString()));
+    }
+
+    /// <summary>What a group declares for a gradient's stops: two lists.</summary>
+    private const string GroupLists = """
+        <e:code xmlns:e="https://svg.skia/expr/1.0"><e:param name="positions" type="number[]" default="[0, 1]" /><e:param name="colors" type="color[]" default="[#ff0000, #0000ff]" /></e:code>
+        """;
+
+    /// <summary>A gradient across the whole drawing whose stops are the group's lists.</summary>
+    private const string UsingLists = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="24" y2="0"
+                            e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+              <stop offset="0" stop-color="#ff0000" />
+              <stop offset="1" stop-color="#0000ff" />
+            </linearGradient>
+          </defs>
+          <rect width="24" height="24" fill="url(#g)" />
+        </svg>
+        """;
+
+    /// <summary>Where one drawing on the board paints the pixel at <paramref name="x"/>, halfway down.</summary>
+    private static SKColor Painted(SvgViewerPlacement placed, int x)
+    {
+        using var bitmap = new SKBitmap(24, 24);
+
+        using (var surface = new SKCanvas(bitmap))
+        {
+            surface.Clear(SKColors.White);
+            placed.Svg.Draw(surface);
+        }
+
+        return bitmap.GetPixel(x, 12);
+    }
+
+    /// <summary>
+    /// A group's lists are rows of their own, which drive every drawing under it and keep what was
+    /// set through the drawings being read again.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_Groups_Lists_Drive_Its_Drawings_And_Survive_Them_Being_Read_Again()
+    {
+        var window = await Host(Owned(GroupLists, UsingLists, UsingLists));
+        var panel = await Group(window, 0);
+        var rows = Declarations(panel).Parameters!;
+
+        var positions = Assert.IsType<SvgViewerNumberListParameter>(rows[0]);
+        var colors = Assert.IsType<SvgViewerColorListParameter>(rows[1]);
+
+        Assert.All(Drawn(panel), placed => Assert.True(Painted(placed, 1).Red > 200));
+
+        colors.Items[1].MoveUp();
+        colors.Add();
+        positions.Items[0].Value = 0.5d;
+        positions.Add();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(Drawn(panel), placed =>
+        {
+            Assert.Equal("[#0000ffff, #ff0000ff, #ff0000ff]", Value(placed, "colors"));
+            Assert.Equal("[0.5, 1, 1]", Value(placed, "positions"));
+            Assert.True(Painted(placed, 1).Blue > 200);
+        });
+
+        // A setting the size depends on, which has every drawing built afresh.
+        Assert.True(panel.Edit("scale", "2"));
+
+        await Save(window, panel);
+        Dispatcher.UIThread.RunJobs();
+
+        rows = Declarations(panel).Parameters!;
+
+        Assert.Equal("[0.5, 1, 1]", rows[0].ToExpression());
+        Assert.Equal("[#0000ff, #ff0000, #ff0000]", rows[1].ToExpression());
+        Assert.All(Drawn(panel), placed => Assert.Equal("[#0000ffff, #ff0000ff, #ff0000ff]", Value(placed, "colors")));
     }
 
     [AvaloniaFact]

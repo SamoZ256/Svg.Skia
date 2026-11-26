@@ -314,9 +314,42 @@ public static class AvaloniaModelExtensions
         }
     }
 
+    // A brush's Transform applies about TransformOrigin, which Avalonia reads as the shape's top-left when null;
+    // Skia's local matrix applies about (0,0), and a bounding-box gradient on a shape away from it lands elsewhere.
+    private static readonly A.RelativePoint s_skiaOrigin = new(0, 0, A.RelativeUnit.Absolute);
+
+    // None spaces the colours evenly, as Skia does.
+    private static float[] ToGradientPositions(SKColorF[] colors, float[]? positions)
+    {
+        if (positions is { })
+        {
+            return positions;
+        }
+
+        var even = new float[colors.Length];
+        for (var i = 1; i < even.Length; i++)
+        {
+            even[i] = i / (float)(even.Length - 1);
+        }
+
+        return even;
+    }
+
+    private static List<AMII.ImmutableGradientStop> ToGradientStops(SKColorF[] colors, float[]? positions)
+    {
+        var offsets = ToGradientPositions(colors, positions);
+        var gradientStops = new List<AMII.ImmutableGradientStop>(colors.Length);
+        for (int i = 0; i < colors.Length; i++)
+        {
+            gradientStops.Add(new AMII.ImmutableGradientStop(offsets[i], colors[i].ToColor()));
+        }
+
+        return gradientStops;
+    }
+
     public static AM.IImmutableBrush? ToLinearGradientBrush(this LinearGradientShader linearGradientShader, SKRect bounds)
     {
-        if (linearGradientShader.Colors is null || linearGradientShader.ColorPos is null)
+        if (linearGradientShader.Colors is null)
         {
             return null;
         }
@@ -334,20 +367,11 @@ public static class AvaloniaModelExtensions
         var startPoint = new A.RelativePoint(start, A.RelativeUnit.Absolute);
         var endPoint = new A.RelativePoint(end, A.RelativeUnit.Absolute);
 
-        var gradientStops = new List<AMII.ImmutableGradientStop>();
-        for (int i = 0; i < linearGradientShader.Colors.Length; i++)
-        {
-            var color = linearGradientShader.Colors[i].ToColor();
-            var offset = linearGradientShader.ColorPos[i];
-            var gradientStop = new AMII.ImmutableGradientStop(offset, color);
-            gradientStops.Add(gradientStop);
-        }
-
         return new AMII.ImmutableLinearGradientBrush(
-            gradientStops,
+            ToGradientStops(linearGradientShader.Colors, linearGradientShader.ColorPos),
             1,
             transform,
-            null,
+            s_skiaOrigin,
             spreadMethod,
             startPoint,
             endPoint);
@@ -355,7 +379,7 @@ public static class AvaloniaModelExtensions
 
     public static AM.IImmutableBrush? ToRadialGradientBrush(this RadialGradientShader radialGradientShader, SKRect bounds)
     {
-        if (radialGradientShader.Colors is null || radialGradientShader.ColorPos is null)
+        if (radialGradientShader.Colors is null)
         {
             return null;
         }
@@ -372,31 +396,23 @@ public static class AvaloniaModelExtensions
 
         var gradientOriginPoint = new A.RelativePoint(gradientOrigin, A.RelativeUnit.Absolute);
         var centerPoint = new A.RelativePoint(center, A.RelativeUnit.Absolute);
-        var radius = radialGradientShader.Radius / bounds.Width;
-
-        var gradientStops = new List<AMII.ImmutableGradientStop>();
-        for (int i = 0; i < radialGradientShader.Colors.Length; i++)
-        {
-            var color = radialGradientShader.Colors[i].ToColor();
-            var offset = radialGradientShader.ColorPos[i];
-            var gradientStop = new AMII.ImmutableGradientStop(offset, color);
-            gradientStops.Add(gradientStop);
-        }
+        var radius = new A.RelativeScalar(radialGradientShader.Radius, A.RelativeUnit.Absolute);
 
         return new AMII.ImmutableRadialGradientBrush(
-            gradientStops,
+            ToGradientStops(radialGradientShader.Colors, radialGradientShader.ColorPos),
             1,
             transform,
-            null,
+            s_skiaOrigin,
             spreadMethod,
             centerPoint,
             gradientOriginPoint,
+            radius,
             radius);
     }
 
     public static AM.IImmutableBrush? ToRadialGradientBrush(this TwoPointConicalGradientShader twoPointConicalGradientShader, SKRect bounds)
     {
-        if (twoPointConicalGradientShader.Colors is null || twoPointConicalGradientShader.ColorPos is null)
+        if (twoPointConicalGradientShader.Colors is null)
         {
             return null;
         }
@@ -414,32 +430,119 @@ public static class AvaloniaModelExtensions
         var gradientOriginPoint = new A.RelativePoint(gradientOrigin, A.RelativeUnit.Absolute);
         var centerPoint = new A.RelativePoint(center, A.RelativeUnit.Absolute);
 
-        // NOTE: twoPointConicalGradientShader.StartRadius is always 0.0
-        var startRadius = twoPointConicalGradientShader.StartRadius;
-
-        // TODO: Avalonia is passing 'radius' to 'SKShader.CreateTwoPointConicalGradient' as 'startRadius'
-        // TODO: but we need to pass it as 'endRadius' to 'SKShader.CreateTwoPointConicalGradient'
-        var endRadius = twoPointConicalGradientShader.EndRadius / bounds.Width;
-        var radius = 0.5; // endRadius
-
-        var gradientStops = new List<AMII.ImmutableGradientStop>();
-        for (int i = 0; i < twoPointConicalGradientShader.Colors.Length; i++)
-        {
-            var color = twoPointConicalGradientShader.Colors[i].ToColor();
-            var offset = twoPointConicalGradientShader.ColorPos[i];
-            var gradientStop = new AMII.ImmutableGradientStop(offset, color);
-            gradientStops.Add(gradientStop);
-        }
+        // The brush always starts its cone at a point, so a focal radius (fr) is drawn as 0.
+        var radius = new A.RelativeScalar(twoPointConicalGradientShader.EndRadius, A.RelativeUnit.Absolute);
 
         return new AMII.ImmutableRadialGradientBrush(
-            gradientStops,
+            ToGradientStops(twoPointConicalGradientShader.Colors, twoPointConicalGradientShader.ColorPos),
             1,
             transform,
-            null,
+            s_skiaOrigin,
             spreadMethod,
             centerPoint,
             gradientOriginPoint,
+            radius,
             radius);
+    }
+
+    public static AM.IImmutableBrush? ToConicGradientBrush(this SweepGradientShader sweepGradientShader, SKRect bounds)
+    {
+        if (sweepGradientShader.Colors is not { } colors || ToGradientPositions(colors, sweepGradientShader.ColorPos) is not { Length: > 0 } positions)
+        {
+            return null;
+        }
+
+        var transform = default(AMII.ImmutableTransform);
+        if (sweepGradientShader.LocalMatrix is { })
+        {
+            transform = new AMII.ImmutableTransform(sweepGradientShader.LocalMatrix.Value.ToMatrix());
+        }
+
+        // The brush always sweeps a whole turn from 0 degrees, so each stop moves to where its angle falls.
+        // It would pin a stop that falls outside the turn to its end, where Skia never reaches that stop,
+        // so the stops are cut at 0 and 1 with the colour Skia draws there.
+        var start = sweepGradientShader.StartAngle;
+        var sweep = sweepGradientShader.EndAngle - start;
+        (colors, positions) = UnrollPeriods(colors, positions, sweepGradientShader.Mode, -start / sweep, (360f - start) / sweep);
+        var offsets = Array.ConvertAll(positions, pos => (start + pos * sweep) / 360f);
+        var stops = new List<AMII.ImmutableGradientStop>(offsets.Length + 2);
+        if (offsets[0] < 0f)
+        {
+            stops.Add(StopAt(0f));
+        }
+
+        for (var i = 0; i < offsets.Length; i++)
+        {
+            if (offsets[i] is >= 0f and <= 1f)
+            {
+                stops.Add(new AMII.ImmutableGradientStop(offsets[i], colors[i].ToColor()));
+            }
+        }
+
+        if (offsets[offsets.Length - 1] > 1f)
+        {
+            stops.Add(StopAt(1f));
+        }
+
+        // Avalonia.Skia 12.1.3 turns the gradient by Angle - 90 about its centre, so 90 leaves Skia's angles as they are.
+        return new AMII.ImmutableConicGradientBrush(
+            stops,
+            1,
+            transform,
+            s_skiaOrigin,
+            AM.GradientSpreadMethod.Pad,
+            new A.RelativePoint(sweepGradientShader.Center.ToPoint(), A.RelativeUnit.Absolute),
+            90);
+
+        AMII.ImmutableGradientStop StopAt(float offset)
+        {
+            var next = Array.FindIndex(offsets, u => u > offset);
+            if (next <= 0)
+            {
+                return new AMII.ImmutableGradientStop(offset, colors[next < 0 ? colors.Length - 1 : 0].ToColor());
+            }
+
+            // Skia blends unpremultiplied channels in a straight line between the two stops.
+            var (a, b) = (colors[next - 1], colors[next]);
+            var t = (offset - offsets[next - 1]) / (offsets[next] - offsets[next - 1]);
+            return new AMII.ImmutableGradientStop(offset, new SKColorF(
+                a.Red + (b.Red - a.Red) * t,
+                a.Green + (b.Green - a.Green) * t,
+                a.Blue + (b.Blue - a.Blue) * t,
+                a.Alpha + (b.Alpha - a.Alpha) * t).ToColor());
+        }
+    }
+
+    // The conic brush only pads, so repeat and reflect lay a copy of the stops over each period the turn crosses
+    // between first and last, every odd one reversed for reflect. Past MaxSweepPeriods, from a sliver of a sweep,
+    // it is left to pad rather than build a stop list that size.
+    private const float MaxSweepPeriods = 1024f;
+
+    private static (SKColorF[] Colors, float[] Positions) UnrollPeriods(SKColorF[] colors, float[] positions, SKShaderTileMode mode, float first, float last)
+    {
+        var from = MathF.Floor(first);
+        if (mode == SKShaderTileMode.Clamp || !(MathF.Ceiling(last) - from is >= 1f and <= MaxSweepPeriods))
+        {
+            return (colors, positions);
+        }
+
+        var periods = (int)(MathF.Ceiling(last) - from);
+        var count = colors.Length;
+        var unrolledColors = new SKColorF[periods * count];
+        var unrolledPositions = new float[periods * count];
+        for (var p = 0; p < periods; p++)
+        {
+            var period = (int)from + p;
+            var reversed = mode == SKShaderTileMode.Mirror && (period & 1) != 0;
+            for (var i = 0; i < count; i++)
+            {
+                var source = reversed ? count - 1 - i : i;
+                unrolledColors[p * count + i] = colors[source];
+                unrolledPositions[p * count + i] = period + (reversed ? 1f - positions[source] : positions[source]);
+            }
+        }
+
+        return (unrolledColors, unrolledPositions);
     }
 
     public static AM.IImmutableBrush? ToVisualBrush(this PictureShader pictureShader, SKRect bounds)
@@ -469,6 +572,9 @@ public static class AvaloniaModelExtensions
 
             case TwoPointConicalGradientShader twoPointConicalGradientShader:
                 return ToRadialGradientBrush(twoPointConicalGradientShader, bounds);
+
+            case SweepGradientShader sweepGradientShader:
+                return ToConicGradientBrush(sweepGradientShader, bounds);
 
             case PictureShader pictureShader:
                 return ToVisualBrush(pictureShader, bounds);

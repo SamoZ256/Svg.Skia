@@ -34,7 +34,7 @@ dotnet add package SamoZ256.Svg.SceneGraph --prerelease
 
 - consumes SVG input plus asset-loading services
 - builds a retained tree of scene nodes with bounds and transforms
-- resolves text, resources, paint servers, masks, clips, and filters
+- resolves text, resources, paint servers (the repository's own [`<sweepGradient>`](svg-custom#sweep-gradients) among them), masks, clips, and filters
 - produces model output that `Svg.Skia` can convert to real SkiaSharp objects
 
 It is also the layer used for retained animation and native-composition analysis, where the runtime needs more structure than a flattened final picture.

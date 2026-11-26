@@ -558,114 +558,25 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {(colorShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)});");
                     return;
                 }
-            case LinearGradientShader linearGradientShader:
+            case { } gradient when Gradient(gradient) is var (colors, colorSpace, positions, stops, call):
                 {
-                    if (linearGradientShader.Colors is null)
+                    var space = colorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear;
+                    if (stops is { })
                     {
-                        sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = default(SKShader);");
+                        // Built afresh on every draw, as everything on this path is.
+                        var held = $"skStopColors{counterShader}";
+                        var kept = $"skStopPositions{counterShader}";
+                        sb.AppendLine($"{indent}SKColorF[] {held} = null;");
+                        sb.AppendLine($"{indent}float[] {kept} = null;");
+
+                        var (fill, create) = ListedStops(stops, $"{counter.ShaderVarName}{counterShader}", held, kept, space, call, sb, indent);
+                        sb.AppendLine($"{indent}{fill};");
+                        sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = {create};");
                         return;
                     }
 
-                    var colorPos = ToGradientColorPositions(linearGradientShader.ColorPos);
-                    if (linearGradientShader.LocalMatrix is { })
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateLinearGradient(");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Start.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.End.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(linearGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Mode.ToSKShaderTileMode()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.LocalMatrix.Value.ToSKMatrix()});");
-                        return;
-                    }
-                    else
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateLinearGradient(");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Start.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.End.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(linearGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {linearGradientShader.Mode.ToSKShaderTileMode()});");
-                        return;
-                    }
-                }
-            case RadialGradientShader radialGradientShader:
-                {
-                    if (radialGradientShader.Colors is null)
-                    {
-                        sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = default(SKShader);");
-                        return;
-                    }
-
-                    var colorPos = ToGradientColorPositions(radialGradientShader.ColorPos);
-                    if (radialGradientShader.LocalMatrix is { })
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateRadialGradient(");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Center.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Radius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(radialGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Mode.ToSKShaderTileMode()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.LocalMatrix.Value.ToSKMatrix()});");
-                        return;
-                    }
-                    else
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateRadialGradient(");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Center.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Radius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(radialGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {radialGradientShader.Mode.ToSKShaderTileMode()});");
-                        return;
-                    }
-                }
-            case TwoPointConicalGradientShader twoPointConicalGradientShader:
-                {
-                    if (twoPointConicalGradientShader.Colors is null)
-                    {
-                        sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = default(SKShader);");
-                        return;
-                    }
-
-                    var colorPos = ToGradientColorPositions(twoPointConicalGradientShader.ColorPos);
-                    if (twoPointConicalGradientShader.LocalMatrix is { })
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateTwoPointConicalGradient(");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Start.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.StartRadius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.End.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.EndRadius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(twoPointConicalGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Mode.ToSKShaderTileMode()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.LocalMatrix.Value.ToSKMatrix()});");
-                        return;
-                    }
-                    else
-                    {
-                        sb.Append($"{indent}var {counter.ShaderVarName}{counterShader} = ");
-                        sb.AppendLine($"SKShader.CreateTwoPointConicalGradient(");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Start.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.StartRadius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.End.ToSKPoint()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.EndRadius.ToFloatString()},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Colors.ToSKColors()},");
-                        sb.AppendLine($"{indent}    {(twoPointConicalGradientShader.ColorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)},");
-                        sb.AppendLine($"{indent}    {colorPos},");
-                        sb.AppendLine($"{indent}    {twoPointConicalGradientShader.Mode.ToSKShaderTileMode()});");
-                        return;
-                    }
+                    sb.AppendLine($"{indent}var {counter.ShaderVarName}{counterShader} = {call(colors.ToSKColors(), space, ToGradientColorPositions(positions))};");
+                    return;
                 }
             case PictureShader pictureShader:
                 {
@@ -794,6 +705,19 @@ public static class SkiaCSharpModelExtensions
         }
     }
 
+    // Leaves the crop rect out when there is none, as SkiaModel does. A null there binds to no
+    // overload of CreateColorFilter, and the colour-space stage around a primitive has no clip.
+    private static void CloseWithCropRect(StringBuilder sb, SKRect? clip, string indent)
+    {
+        if (clip is { } rect)
+        {
+            sb.AppendLine(",");
+            sb.Append($"{indent}    {rect.ToSKRect()}");
+        }
+
+        sb.AppendLine(");");
+    }
+
     public static void ToSKImageFilter(this SKImageFilter? imageFilter, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
         var counterImageFilter = counter.ImageFilter;
@@ -836,8 +760,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {arithmeticImageFilter.K4.ToFloatString()},");
                     sb.AppendLine($"{indent}    {arithmeticImageFilter.EforcePMColor.ToBoolString()},");
                     sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterBackground},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterForeground},");
-                    sb.AppendLine($"{indent}    {arithmeticImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterForeground}");
+                    CloseWithCropRect(sb, arithmeticImageFilter.Clip, indent);
                     return;
                 }
             case BlendModeImageFilter blendModeImageFilter:
@@ -872,8 +796,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"SKImageFilter.CreateBlendMode(");
                     sb.AppendLine($"{indent}    {blendModeImageFilter.Mode.ToSKBlendMode()},");
                     sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterBackground},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterForeground},");
-                    sb.AppendLine($"{indent}    {blendModeImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterForeground}");
+                    CloseWithCropRect(sb, blendModeImageFilter.Clip, indent);
                     return;
                 }
             case BlurImageFilter blurImageFilter:
@@ -892,8 +816,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"SKImageFilter.CreateBlur(");
                     sb.AppendLine($"{indent}    {blurImageFilter.SigmaX.ToFloatString()},");
                     sb.AppendLine($"{indent}    {blurImageFilter.SigmaY.ToFloatString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {blurImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, blurImageFilter.Clip, indent);
                     return;
                 }
             case ColorFilterImageFilter colorFilterImageFilter:
@@ -920,8 +844,8 @@ public static class SkiaCSharpModelExtensions
                     sb.Append($"{indent}var {counter.ImageFilterVarName}{counterImageFilter} = ");
                     sb.AppendLine($"SKImageFilter.CreateColorFilter(");
                     sb.AppendLine($"{indent}    {counter.ColorFilterVarName}{counterColorFilter},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {colorFilterImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, colorFilterImageFilter.Clip, indent);
                     return;
                 }
             case DilateImageFilter dilateImageFilter:
@@ -940,8 +864,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"SKImageFilter.CreateDilate(");
                     sb.AppendLine($"{indent}    {dilateImageFilter.RadiusX.ToIntString()},");
                     sb.AppendLine($"{indent}    {dilateImageFilter.RadiusY.ToIntString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {dilateImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, dilateImageFilter.Clip, indent);
                     return;
                 }
             case DisplacementMapEffectImageFilter displacementMapEffectImageFilter:
@@ -971,8 +895,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {displacementMapEffectImageFilter.YChannelSelector.ToSKColorChannel()},");
                     sb.AppendLine($"{indent}    {displacementMapEffectImageFilter.Scale.ToFloatString()},");
                     sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterDisplacement},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {displacementMapEffectImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, displacementMapEffectImageFilter.Clip, indent);
                     return;
                 }
             case DistantLitDiffuseImageFilter distantLitDiffuseImageFilter:
@@ -993,8 +917,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {distantLitDiffuseImageFilter.LightColor.ToSKColor()},");
                     sb.AppendLine($"{indent}    {distantLitDiffuseImageFilter.SurfaceScale.ToFloatString()},");
                     sb.AppendLine($"{indent}    {distantLitDiffuseImageFilter.Kd.ToFloatString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {distantLitDiffuseImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, distantLitDiffuseImageFilter.Clip, indent);
                     return;
                 }
             case DistantLitSpecularImageFilter distantLitSpecularImageFilter:
@@ -1016,8 +940,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {distantLitSpecularImageFilter.SurfaceScale.ToFloatString()},");
                     sb.AppendLine($"{indent}    {distantLitSpecularImageFilter.Ks.ToFloatString()},");
                     sb.AppendLine($"{indent}    {distantLitSpecularImageFilter.Shininess.ToFloatString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {distantLitSpecularImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, distantLitSpecularImageFilter.Clip, indent);
                     return;
                 }
             case ErodeImageFilter erodeImageFilter:
@@ -1036,8 +960,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"SKImageFilter.CreateErode(");
                     sb.AppendLine($"{indent}    {erodeImageFilter.RadiusX.ToIntString()},");
                     sb.AppendLine($"{indent}    {erodeImageFilter.RadiusY.ToIntString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {erodeImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, erodeImageFilter.Clip, indent);
                     return;
                 }
             case ImageImageFilter imageImageFilter:
@@ -1086,8 +1010,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {matrixConvolutionImageFilter.KernelOffset.ToSKPointI()},");
                     sb.AppendLine($"{indent}    {matrixConvolutionImageFilter.TileMode.ToSKShaderTileMode()},");
                     sb.AppendLine($"{indent}    {matrixConvolutionImageFilter.ConvolveAlpha.ToBoolString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {matrixConvolutionImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, matrixConvolutionImageFilter.Clip, indent);
                     return;
                 }
             case MergeImageFilter mergeImageFilter:
@@ -1119,8 +1043,8 @@ public static class SkiaCSharpModelExtensions
 
                     sb.Append($"{indent}var {counter.ImageFilterVarName}{counterImageFilter} = ");
                     sb.AppendLine($"SKImageFilter.CreateMerge(");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}s{counterImageFilter},");
-                    sb.AppendLine($"{indent}    {mergeImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}s{counterImageFilter}");
+                    CloseWithCropRect(sb, mergeImageFilter.Clip, indent);
                     return;
                 }
             case OffsetImageFilter offsetImageFilter:
@@ -1139,8 +1063,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"SKImageFilter.CreateOffset(");
                     sb.AppendLine($"{indent}    {offsetImageFilter.Dx.ToFloatString()},");
                     sb.AppendLine($"{indent}    {offsetImageFilter.Dy.ToFloatString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {offsetImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, offsetImageFilter.Clip, indent);
                     return;
                 }
             case PaintImageFilter paintImageFilter:
@@ -1156,8 +1080,8 @@ public static class SkiaCSharpModelExtensions
 
                     sb.Append($"{indent}var {counter.ImageFilterVarName}{counterImageFilter} = ");
                     sb.AppendLine($"SKImageFilter.CreatePaint(");
-                    sb.AppendLine($"{indent}    {counter.PaintVarName}{counterPaint},");
-                    sb.AppendLine($"{indent}    {paintImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.PaintVarName}{counterPaint}");
+                    CloseWithCropRect(sb, paintImageFilter.Clip, indent);
 
                     // NOTE: Do not dispose created SKTypeface by font manager.
 #if USE_DISPOSE_TYPEFACE
@@ -1203,8 +1127,8 @@ public static class SkiaCSharpModelExtensions
                     sb.Append($"{indent}var {counter.ImageFilterVarName}{counterImageFilter} = ");
                     sb.AppendLine($"SKImageFilter.CreateShader(");
                     sb.AppendLine($"{indent}    {counter.ShaderVarName}{counterShader},");
-                    sb.AppendLine($"{indent}    {shaderImageFilter.Dither.ToBoolString()},");
-                    sb.AppendLine($"{indent}    {shaderImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {shaderImageFilter.Dither.ToBoolString()}");
+                    CloseWithCropRect(sb, shaderImageFilter.Clip, indent);
 
                     sb.AppendLine($"{indent}{counter.ShaderVarName}{counterShader}?.Dispose();");
                     return;
@@ -1244,8 +1168,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {pointLitDiffuseImageFilter.LightColor.ToSKColor()},");
                     sb.AppendLine($"{indent}    {pointLitDiffuseImageFilter.SurfaceScale.ToFloatString()},");
                     sb.AppendLine($"{indent}    {pointLitDiffuseImageFilter.Kd.ToFloatString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {pointLitDiffuseImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, pointLitDiffuseImageFilter.Clip, indent);
                     return;
                 }
             case PointLitSpecularImageFilter pointLitSpecularImageFilter:
@@ -1267,8 +1191,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {pointLitSpecularImageFilter.SurfaceScale.ToFloatString()},");
                     sb.AppendLine($"{indent}    {pointLitSpecularImageFilter.Ks.ToFloatString()},");
                     sb.AppendLine($"{indent}    {pointLitSpecularImageFilter.Shininess.ToFloatString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {pointLitSpecularImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, pointLitSpecularImageFilter.Clip, indent);
                     return;
                 }
             case SpotLitDiffuseImageFilter spotLitDiffuseImageFilter:
@@ -1292,8 +1216,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {spotLitDiffuseImageFilter.LightColor.ToSKColor()},");
                     sb.AppendLine($"{indent}    {spotLitDiffuseImageFilter.SurfaceScale.ToFloatString()},");
                     sb.AppendLine($"{indent}    {spotLitDiffuseImageFilter.Kd.ToFloatString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {spotLitDiffuseImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, spotLitDiffuseImageFilter.Clip, indent);
                     return;
                 }
             case SpotLitSpecularImageFilter spotLitSpecularImageFilter:
@@ -1318,8 +1242,8 @@ public static class SkiaCSharpModelExtensions
                     sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.SurfaceScale.ToFloatString()},");
                     sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.Ks.ToFloatString()},");
                     sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.Shininess.ToFloatString()},");
-                    sb.AppendLine($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput},");
-                    sb.AppendLine($"{indent}    {spotLitSpecularImageFilter.Clip?.ToSKRect() ?? "null"});");
+                    sb.Append($"{indent}    {counter.ImageFilterVarName}{counterImageFilterInput}");
+                    CloseWithCropRect(sb, spotLitSpecularImageFilter.Clip, indent);
                     return;
                 }
             case TileImageFilter tileImageFilter:
@@ -1538,15 +1462,15 @@ public static class SkiaCSharpModelExtensions
 
     /// <param name="fade">The colours of the layers folded into this paint, whose alpha multiplies its own.</param>
     /// <param name="shared">
-    /// Where a paint that follows an argument and holds no filter, and no shader but a gradient, is set
-    /// up instead of built.
+    /// Where a paint that follows an argument and holds no filter, and no shader but a gradient or a
+    /// colour, is set up instead of built.
     /// </param>
     private static void ToSKPaint(SKPaint paint, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent, IReadOnlyList<SKColor>? fade, CanvasState? shared = null)
     {
         if (counter.Statics is { })
         {
             var name = $"{counter.PaintVarName}{counter.Paint}";
-            Action<StringBuilder>? local = shared?.Paint is { } && paint is { ColorFilter: null, ImageFilter: null, PathEffect: null } && (paint.Shader is null || Gradient(paint.Shader) is { })
+            Action<StringBuilder>? local = shared?.Paint is { } && paint is { ColorFilter: null, ImageFilter: null, PathEffect: null } && (paint.Shader is null or ColorShader || Gradient(paint.Shader) is { })
                 ? text =>
                 {
                     var settings = Settings(paint, fade);
@@ -1557,7 +1481,7 @@ public static class SkiaCSharpModelExtensions
 
                     shared.Assign(name, settings, text, indent);
                 }
-                : null;
+            : null;
 
             // Inside the hoisted text, so a constant fade is applied once and a driven one keeps it local.
             Hoist(counter, sb, indent, "SKPaint", name, text => ToSKPaint(paint, counter, text, indent, fade), local: local);
@@ -1687,81 +1611,141 @@ public static class SkiaCSharpModelExtensions
     };
 
     /// <summary>
-    /// A gradient's colours, colour space and positions, and the call building it from those as
-    /// written; null for any other shader, or one with no colours.
+    /// A gradient's colours, colour space and positions, the lists that replace them where it has
+    /// those, and the call building it from those as written; null for any other shader, or one with
+    /// no colours.
     /// </summary>
-    private static (SKColorF[] Colors, SKColorSpace ColorSpace, float[]? Positions, Func<string, string, string, string> Call)? Gradient(SKShader shader)
+    private static (SKColorF[] Colors, SKColorSpace ColorSpace, float[]? Positions, SymGradientStops? Stops, Func<string, string, string, string> Call)? Gradient(SKShader shader)
     {
         static string Matrix(SKMatrix? matrix) => matrix is { } local ? $", {local.ToSKMatrix()}" : "";
 
         return shader switch
         {
-            LinearGradientShader { Colors: { } colors } linear => (colors, linear.ColorSpace, linear.ColorPos, (c, space, positions) =>
+            LinearGradientShader { Colors: { } colors } linear => (colors, linear.ColorSpace, linear.ColorPos, linear.Stops, (c, space, positions) =>
                 $"SKShader.CreateLinearGradient({linear.Start.ToSKPoint()}, {linear.End.ToSKPoint()}, {c}, {space}, {positions}, {linear.Mode.ToSKShaderTileMode()}{Matrix(linear.LocalMatrix)})"),
-            RadialGradientShader { Colors: { } colors } radial => (colors, radial.ColorSpace, radial.ColorPos, (c, space, positions) =>
+            RadialGradientShader { Colors: { } colors } radial => (colors, radial.ColorSpace, radial.ColorPos, radial.Stops, (c, space, positions) =>
                 $"SKShader.CreateRadialGradient({radial.Center.ToSKPoint()}, {radial.Radius.ToFloatString()}, {c}, {space}, {positions}, {radial.Mode.ToSKShaderTileMode()}{Matrix(radial.LocalMatrix)})"),
-            TwoPointConicalGradientShader { Colors: { } colors } conical => (colors, conical.ColorSpace, conical.ColorPos, (c, space, positions) =>
+            TwoPointConicalGradientShader { Colors: { } colors } conical => (colors, conical.ColorSpace, conical.ColorPos, conical.Stops, (c, space, positions) =>
                 $"SKShader.CreateTwoPointConicalGradient({conical.Start.ToSKPoint()}, {conical.StartRadius.ToFloatString()}, {conical.End.ToSKPoint()}, {conical.EndRadius.ToFloatString()}, {c}, {space}, {positions}, {conical.Mode.ToSKShaderTileMode()}{Matrix(conical.LocalMatrix)})"),
+            SweepGradientShader { Colors: { } colors } sweep => (colors, sweep.ColorSpace, sweep.ColorPos, sweep.Stops, (c, space, positions) =>
+                $"SKShader.CreateSweepGradient({sweep.Center.ToSKPoint()}, {c}, {space}, {positions}, {sweep.Mode.ToSKShaderTileMode()}, {sweep.StartAngle.ToFloatString()}, {sweep.EndAngle.ToFloatString()}{Matrix(sweep.LocalMatrix)})"),
             _ => null
         };
     }
 
     /// <summary>
-    /// A gradient for the shared paint, as the local it is read from: built once where its colours are
-    /// written, and again only when they change where an argument decides them.
+    /// Writes the lists of a gradient that has them, and its opacity, into locals named after
+    /// <paramref name="name"/>; answers the call filling <paramref name="colors"/> and
+    /// <paramref name="positions"/> from them, and the shader those make.
     /// </summary>
     /// <remarks>
-    /// The geometry is all literals, so the colours are the whole of what can change between draws.
+    /// Fewer than two colours make a colour rather than a gradient, transparent for none, as
+    /// <c>SvgSceneExpressionEvaluator</c> binds them.
+    /// </remarks>
+    private static (string Fill, string Create) ListedStops(SymGradientStops stops, string name, string colors, string positions, string space, Func<string, string, string, string> call, StringBuilder sb, string indent)
+    {
+        var listed = $"{name}_colors";
+        var offsets = $"{name}_offsets";
+        var alpha = $"{name}_alpha";
+        var linear = stops.LinearRgb.ToBoolString();
+
+        sb.AppendLine($"{indent}var {listed} = {SymCSharpEmitter.Emit(stops.Colors, ExprType.ColorList)};");
+        sb.AppendLine($"{indent}IReadOnlyList<float> {offsets} = {(stops.Offsets is { } written ? SymCSharpEmitter.Emit(written, ExprType.NumberList) : "null")};");
+        sb.AppendLine($"{indent}var {alpha} = {SymCSharpEmitter.Emit(stops.Opacity, ExprType.Number)};");
+
+        return (
+            $"{ExprHelpers.Stops}({listed}, {offsets}, {alpha}, {linear}, ref {colors}, ref {positions})",
+            $"{colors}.Length < 2 ? SKShader.CreateColor({colors}.Length == 0 ? new SKColor(0, 0, 0, 0) : {ExprHelpers.Stop}({listed}, 0, {alpha}, {linear}), {space}) : {call(colors, space, positions)}");
+    }
+
+    /// <summary>
+    /// A gradient for the shared paint, or the colour one comes to, as the local it is read from: built
+    /// once where its colours are written, and again only when they change where an argument decides them.
+    /// </summary>
+    /// <remarks>
+    /// The geometry is all literals, so the colours are the whole of what can change between draws,
+    /// or where lists give the stops, the whole of those: how many, their colours and their offsets.
     /// Each thread keeps its own, as it keeps its own shared paint, which holds a native reference of
     /// its own to a gradient replaced under it.
     /// </remarks>
     private static string GradientShader(SKShader shader, SkiaCSharpCodeGenCounter counter, StringBuilder sb, string indent)
     {
-        var (colors, colorSpace, positions, call) = Gradient(shader)!.Value;
+        var gradient = Gradient(shader);
 
         // The number the paint's own emission took, into text nothing kept.
         var n = counter.Shader;
         var local = $"{counter.ShaderVarName}{n}";
 
-        if (colors.All(color => color.Expression is null))
+        if (shader is ColorShader { Color.Expression: null } || gradient is { Stops: null } literal && literal.Colors.All(color => color.Expression is null))
         {
             Hoist(counter, sb, indent, "SKShader", local, text => shader.ToSKShader(counter, text, indent));
             return local;
         }
 
+        var colorSpace = shader is ColorShader colorShader ? colorShader.ColorSpace : gradient!.Value.ColorSpace;
         var space = $"skColorSpace{n}";
         Hoist(counter, sb, indent, "SKColorSpace", space, text => text.AppendLine($"{indent}var {space} = {(colorSpace == SKColorSpace.Srgb ? s_srgb : s_srgbLinear)};"));
-
-        var stops = ToGradientColorPositions(positions);
-        if (stops != "null")
-        {
-            var named = $"skPositions{n}";
-            Hoist(counter, sb, indent, "float[]", named, text => text.AppendLine($"{indent}var {named} = {stops};"));
-            stops = named;
-        }
 
         var held = $"skColors{n}";
         var built = $"skGradient{n}";
         counter.ThreadStatics.Add(("SKColorF[]", held));
         counter.ThreadStatics.Add(("SKShader", built));
 
-        for (var i = 0; i < colors.Length; i++)
+        if (gradient is not var (colors, _, positions, stops, call))
         {
-            sb.AppendLine($"{indent}var {local}_{i} = {colors[i].ToSKColorF()};");
+            // A gradient of one driven stop, or a listed radial of no radius.
+            var kept = $"skColor{n}";
+            counter.ThreadStatics.Add(("SKColor", kept));
+
+            sb.AppendLine($"{indent}var {local}_0 = {((ColorShader)shader).Color.ToSKColor()};");
+            sb.AppendLine($"{indent}if (s_{built} is null || s_{kept} != {local}_0)");
+            sb.AppendLine($"{indent}{{");
+            sb.AppendLine($"{indent}    s_{kept} = {local}_0;");
+            sb.AppendLine($"{indent}    s_{built}?.Dispose();");
+            sb.AppendLine($"{indent}    s_{built} = SKShader.CreateColor({local}_0, {space});");
+            sb.AppendLine($"{indent}}}");
+        }
+        else if (stops is { })
+        {
+            var kept = $"skPositions{n}";
+            counter.ThreadStatics.Add(("float[]", kept));
+
+            var (fill, create) = ListedStops(stops, local, $"s_{held}", $"s_{kept}", space, call, sb, indent);
+            sb.AppendLine($"{indent}if ({fill})");
+            sb.AppendLine($"{indent}{{");
+            sb.AppendLine($"{indent}    s_{built}?.Dispose();");
+            sb.AppendLine($"{indent}    s_{built} = {create};");
+            sb.AppendLine($"{indent}}}");
+        }
+        else
+        {
+            var written = ToGradientColorPositions(positions);
+            if (written != "null")
+            {
+                var named = $"skPositions{n}";
+                Hoist(counter, sb, indent, "float[]", named, text => text.AppendLine($"{indent}var {named} = {written};"));
+                written = named;
+            }
+
+            for (var i = 0; i < colors.Length; i++)
+            {
+                sb.AppendLine($"{indent}var {local}_{i} = {colors[i].ToSKColorF()};");
+            }
+
+            sb.AppendLine($"{indent}var {held} = s_{held} ??= new SKColorF[{colors.Length}];");
+            sb.AppendLine($"{indent}if (s_{built} is null{string.Concat(Enumerable.Range(0, colors.Length).Select(i => $" || {held}[{i}] != {local}_{i}"))})");
+            sb.AppendLine($"{indent}{{");
+
+            for (var i = 0; i < colors.Length; i++)
+            {
+                sb.AppendLine($"{indent}    {held}[{i}] = {local}_{i};");
+            }
+
+            sb.AppendLine($"{indent}    s_{built}?.Dispose();");
+            sb.AppendLine($"{indent}    s_{built} = {call(held, space, written)};");
+            sb.AppendLine($"{indent}}}");
         }
 
-        sb.AppendLine($"{indent}var {held} = s_{held} ??= new SKColorF[{colors.Length}];");
-        sb.AppendLine($"{indent}if (s_{built} is null{string.Concat(Enumerable.Range(0, colors.Length).Select(i => $" || {held}[{i}] != {local}_{i}"))})");
-        sb.AppendLine($"{indent}{{");
-
-        for (var i = 0; i < colors.Length; i++)
-        {
-            sb.AppendLine($"{indent}    {held}[{i}] = {local}_{i};");
-        }
-
-        sb.AppendLine($"{indent}    s_{built}?.Dispose();");
-        sb.AppendLine($"{indent}    s_{built} = {call(held, space, stops)};");
-        sb.AppendLine($"{indent}}}");
         sb.AppendLine($"{indent}var {local} = s_{built};");
 
         // Kept from one draw to the next: what the paint's own disposal would dispose with it.
@@ -2742,7 +2726,7 @@ public static class SkiaCSharpModelExtensions
         }
 
         statics.AppendLine($"{StaticIndent}s_{name} = {name};");
-        counter.StaticFields.Add((type, name));
+        counter.StaticFields.Add((type, name, null));
         counter.StaticTexts.Add(key, name);
         counter.Borrowed[name] = $"s_{name}";
         sb.AppendLine($"{indent}var {name} = s_{name};");

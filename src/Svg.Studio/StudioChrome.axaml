@@ -2,16 +2,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
   <!--
-    The ground the editor stands on.
-
-    Fluent hands every window SystemControlBackgroundAltHighBrush, which is literally Black in the
-    dark variant and White in the light one. White is a fine ground; pure black is not — it reads as
-    a hole rather than as a surface, and since every pane in this editor is transparent over its
-    window, the whole of it came out flat black with the canvas floating in the middle a shade
-    lighter than the chrome around it.
-
-    Its own key rather than an override of Fluent's, which controls paint with as well: a text box
-    given the window's ground would be invisible in it.
+    The colours the editor paints its chrome with: UnoDraw's palette, which the viewer library holds
+    so that a dock outside Studio paints the same. Change a colour there, not by overriding its key
+    here: every dock merges a copy of its own, which wins inside it, so only the rows round it would move.
 
     In a file of its own rather than in App.axaml so that the suite can include it — App is the one
     class a test cannot reach, since it builds an Application of its own, and a colour nothing can
@@ -19,22 +12,21 @@
   -->
   <Styles.Resources>
     <ResourceDictionary>
-      <!-- The viewer's own, for its note: the window's status bar says it now. -->
       <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgViewerPalette.axaml" />
+        <!-- The viewer's own, for its note: the window's status bar says it now. -->
         <ResourceInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgViewerSourceBrushes.axaml" />
       </ResourceDictionary.MergedDictionaries>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
-          <!-- A shade above the canvas's own #1A1A1E, so the drawing surface reads as sunk into
-               the chrome rather than laid on top of it. Light is the same relation the other way,
-               which is the one Fluent already had right. -->
-          <SolidColorBrush x:Key="StudioWindowBrush" Color="#252528" />
+          <!-- UnoDraw's canvas, darker than the panels in both variants so the drawing reads as sunk into them. -->
+          <Color x:Key="SvgViewerCanvasGround">#1E1E1E</Color>
           <!-- The viewer's SvgViewerDrivenBrush, for Studio's own chrome: the Attributes panel's
                merged dictionary shadows an app-level key, so the two are kept equal by a test. -->
           <SolidColorBrush x:Key="StudioDrivenBrush" Color="#C586C0" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="StudioWindowBrush" Color="#FFFFFF" />
+          <Color x:Key="SvgViewerCanvasGround">#BABABA</Color>
           <SolidColorBrush x:Key="StudioDrivenBrush" Color="#A626A4" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
@@ -42,11 +34,11 @@
   </Styles.Resources>
 
   <!--
-    Every window, so the dialogs the viewer opens stand on the same ground as the editor behind them
-    rather than each carrying its own answer.
+    Every window, so the dialogs the viewer opens stand on the same ground as the editor behind them.
+    Fluent's own is literally Black in the dark variant, and every pane here is transparent over it.
   -->
   <Style Selector="Window">
-    <Setter Property="Background" Value="{DynamicResource StudioWindowBrush}" />
+    <Setter Property="Background" Value="{DynamicResource StudioSurface}" />
   </Style>
 
 </Styles>

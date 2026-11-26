@@ -399,6 +399,96 @@ public class SvgViewerElementPanelTests
         Assert.Contains("double braces", held.Panel.Fault);
     }
 
+    /// <summary>A gradient's lists are written in braces, each as the list it gives.</summary>
+    [AvaloniaFact]
+    public void A_Gradients_Lists_Are_Written_In_Braces_As_The_Lists_They_Are()
+    {
+        var held = new Held("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="colors" type="color[]" default="[#f00, #00f]" />
+                  <e:param name="positions" type="number[]" default="[0, 1]" />
+                </e:code>
+                <linearGradient id="g" e:stop-colors="{{ colors }}">
+                  <stop offset="0" stop-color="#f00" /><stop offset="1" stop-color="#00f" />
+                </linearGradient>
+              </defs>
+              <rect width="24" height="24" fill="url(#g)" />
+            </svg>
+            """);
+
+        held.Show("0/1");
+
+        Assert.True(held.Panel.Set("e:stop-colors", "{{ [colors[1], colors[0]] }}"));
+        Assert.True(held.Panel.Set("e:stop-offsets", "{{ positions }}"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains("e:stop-colors=\"{{ [colors[1], colors[0]] }}\" e:stop-offsets=\"{{ positions }}\"", held.Text);
+
+        var was = held.Text;
+
+        Assert.False(held.Panel.Set("e:stop-colors", "{{ positions }}"));
+        Assert.Contains("colour", held.Panel.Fault);
+        Assert.False(held.Panel.Set("e:stop-offsets", "{{ colors }}"));
+        Assert.False(held.Panel.Set("e:stop-colors", "[#f00, #00f]"));
+        Assert.Contains("double braces", held.Panel.Fault);
+        Assert.Equal(was, held.Text);
+    }
+
+    /// <summary>
+    /// Every kind of gradient offers its two lists unasked, so one is wired to list parameters by
+    /// dragging them on, and only a list of the right kind lands.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_Gradient_Offers_Its_Lists_And_Takes_Each_By_Dragging()
+    {
+        const string gradients = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="colors" type="color[]" default="[#f00, #00f]" />
+                  <e:param name="positions" type="number[]" default="[0, 1]" />
+                </e:code>
+                <linearGradient id="a"><stop offset="0" stop-color="#f00" /></linearGradient>
+                <radialGradient id="b"><stop offset="0" stop-color="#f00" /></radialGradient>
+                <sweepGradient id="c"><stop offset="0" stop-color="#f00" /></sweepGradient>
+              </defs>
+              <rect width="24" height="24" fill="url(#a)" />
+            </svg>
+            """;
+
+        foreach (var address in new[] { "0/1", "0/2", "0/3" })
+        {
+            var held = new Held(gradients);
+            var window = held.Show(address, width: 500);
+
+            Assert.Contains("e:stop-colors", held.Panel.Attributes);
+            Assert.Contains("e:stop-offsets", held.Panel.Attributes);
+            Assert.Equal(string.Empty, held.Panel.Shown("e:stop-colors"));
+
+            Carry(window, Box(window, "e:stop-colors"), "positions", drop: false);
+
+            Assert.Contains("e:stop-offsets", held.Panel.Offered);
+            Assert.DoesNotContain("e:stop-colors", held.Panel.Offered);
+
+            Leave(window);
+
+            Carry(window, Box(window, "e:stop-colors"), "colors");
+            Carry(window, Box(window, "e:stop-offsets"), "positions");
+
+            Assert.Contains("e:stop-colors=\"{{ colors }}\" e:stop-offsets=\"{{ positions }}\"", held.Text, StringComparison.Ordinal);
+
+            window.Close();
+        }
+
+        var shape = new Held(gradients);
+        var shown = shape.Show("1");
+
+        Assert.DoesNotContain("e:stop-colors", shape.Panel.Attributes);
+
+        shown.Close();
+    }
+
     [AvaloniaFact]
     public void An_Expression_Of_The_Wrong_Type_Is_Refused()
     {
@@ -1207,6 +1297,7 @@ public class SvgViewerElementPanelTests
             <svg xmlns="http://www.w3.org/2000/svg">
               <linearGradient id="g" />
               <rect fill="red" />
+              <sweepGradient id="s" />
             </svg>
             """);
         var window = held.Show("1");
@@ -1216,7 +1307,7 @@ public class SvgViewerElementPanelTests
 
         var offered = Offered(pick);
 
-        Assert.Equal(new[] { "none", "currentColor", "url(#g)" }, offered.Select(Said));
+        Assert.Equal(new[] { "none", "currentColor", "url(#g)", "url(#s)" }, offered.Select(Said));
 
         offered[2].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Dispatcher.UIThread.RunJobs();
@@ -1926,6 +2017,50 @@ public class SvgViewerElementPanelTests
 
             return window;
         }
+    }
+
+    private const string Pointed = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+          <linearGradient id="tone"><stop offset="0" /></linearGradient>
+          <circle id="dot" r="2" />
+          <rect fill="url(#tone)" width="4" height="4" />
+          <use xlink:href="#tone" />
+        </svg>
+        """;
+
+    [AvaloniaFact]
+    public void Renaming_In_The_Id_Row_Carries_What_Points_At_It()
+    {
+        var worked = new Worked(Pointed);
+        var window = worked.Show("0");
+
+        Assert.True(worked.Panel.Set("id", "accent"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Pointed.Replace("tone", "accent", StringComparison.Ordinal), worked.Workspace.Text);
+        Assert.Equal("rename to #accent", worked.Workspace.UndoLabel);
+        Assert.Equal("accent", Box(window, "id").Text);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_Taken_Id_Typed_In_The_Id_Row_Is_Refused()
+    {
+        var worked = new Worked(Pointed);
+        var window = worked.Show("0");
+        var id = Box(window, "id");
+
+        id.Focus();
+        id.Text = "dot";
+        worked.Panel.CommitPending();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("#dot is already the id of a <circle>, and the drawing would answer to it twice.", worked.Panel.Fault);
+        Assert.Equal(Pointed, worked.Workspace.Text);
+        Assert.Equal("tone", Box(window, "id").Text);
+
+        window.Close();
     }
 
     [AvaloniaFact]

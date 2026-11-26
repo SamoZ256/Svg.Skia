@@ -1693,6 +1693,72 @@ public class StudioMcpServerTests : IDisposable
         Assert.Contains("declares tint (colour), edge (colour).", Text(wrong), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A list is declared with a literal for its default, and drawn with a list given as a JSON array
+    /// or as the literal itself.
+    /// </summary>
+    /// <remarks>An array of strings reads as the colours it spells, not as a list of strings, which the language has none of.</remarks>
+    [AvaloniaFact]
+    public async Task A_List_Parameter_Is_Declared_And_Drawn_With_The_Values_Given()
+    {
+        const string halves = """
+            <studio namespace="Demo.Icons">
+              <group name="Badges">
+                <drawing name="Halves">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <rect width="12" height="24" fill="{{ colors[0] }}" />
+                    <rect x="12" width="12" height="24" fill="{{ colors[1] }}" opacity="{{ positions[2] }}" />
+                  </svg>
+                </drawing>
+              </group>
+            </studio>
+            """;
+        var path = Path.Combine(_directory, "halves.svgstudio");
+
+        TestPackage.Write(path, halves);
+
+        var (window, port) = await Serving(path);
+        await using var client = await Client(port);
+        var badges = (ProjectGroup)window.Workspace!.Document.Root.Children[0];
+
+        var declared = await Call(client, "declare", new() { ["node"] = "0", ["name"] = "colors", ["type"] = "ColorList", ["default"] = "[#ff0000, #00ff00]", ["summary"] = "colors" });
+        var offsets = await Call(client, "declare", new() { ["node"] = "0", ["name"] = "positions", ["type"] = "NumberList", ["default"] = "[0, 0.5, 1]", ["summary"] = "positions" });
+
+        Assert.All(new[] { declared, offsets }, result => Assert.NotEqual(true, result.IsError));
+        Assert.Contains("No problems in the 1 drawing(s) under it.", Text(offsets), StringComparison.Ordinal);
+        Assert.Contains("name=\"colors\" type=\"color[]\" default=\"[#ff0000, #00ff00]\"", badges.CodeText, StringComparison.Ordinal);
+        Assert.Contains("name=\"positions\" type=\"number[]\" default=\"[0, 0.5, 1]\"", badges.CodeText, StringComparison.Ordinal);
+
+        var seeded = await Call(client, "render", new() { ["node"] = "0/0" });
+        var array = await Call(client, "render", new() { ["node"] = "0/0", ["values"] = new Dictionary<string, object?> { ["colors"] = new[] { "#0000ff", "#ffff00" } } });
+        var literal = await Call(client, "render", new() { ["node"] = "0/0", ["values"] = new Dictionary<string, object?> { ["colors"] = "[#0000ff, #ffff00]" } });
+        var numbers = await Call(client, "render", new() { ["node"] = "0/0", ["values"] = new Dictionary<string, object?> { ["colors"] = new[] { 0, 1 } } });
+
+        // A serializer writes a small number with an exponent, 1E-05, which the language has none of.
+        var exponents = await Call(client, "render", new() { ["node"] = "0/0", ["values"] = new Dictionary<string, object?> { ["positions"] = new[] { 0d, 0.00001d, 1E+20d } } });
+
+        Assert.NotEqual(true, exponents.IsError);
+        Assert.Contains("positions=[0, 0.00001, 100000000000000000000]", Text(exponents), StringComparison.Ordinal);
+
+        using (var first = Png(seeded))
+        {
+            Assert.Equal(new SKColor(0xFF, 0x00, 0x00), first.GetPixel(6, 12));
+            Assert.Equal(new SKColor(0x00, 0xFF, 0x00), first.GetPixel(18, 12));
+        }
+
+        foreach (var given in new[] { array, literal })
+        {
+            using var image = Png(given);
+
+            Assert.Equal(new SKColor(0x00, 0x00, 0xFF), image.GetPixel(6, 12));
+            Assert.Equal(new SKColor(0xFF, 0xFF, 0x00), image.GetPixel(18, 12));
+            Assert.Contains("colors=[#0000ff, #ffff00]", Text(given), StringComparison.Ordinal);
+        }
+
+        Assert.True(numbers.IsError, Text(numbers));
+        Assert.Contains("list of colours", Text(numbers), StringComparison.Ordinal);
+    }
+
     [AvaloniaFact]
     public async Task A_Candidate_Is_Drawn_Through_The_Drawings_Declarations_And_Changes_Nothing()
     {

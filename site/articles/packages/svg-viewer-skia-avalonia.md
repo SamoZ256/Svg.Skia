@@ -86,6 +86,13 @@ A `number` parameter uses the `min`, `max` and `step` its author declared, falli
 
 Every row is seeded by *evaluating* the declared `default`, so `default="tau / 4"` works as well as a literal does.
 
+A `number[]` or `color[]` parameter is a row with an editor per element, a number field or a colour
+picker, each named for how an expression reads it (`colors[1]`), with `↑`, `↓` and `−` to move or
+remove it and `+ Add` under the lot, which appends a copy of the last element, or `0` or black to a
+list that has none. A list with no `default` starts empty and says so. Any of those changes the
+value, so the drawing follows each, and reset and `CommitParameterDefaults` treat the list as one
+value, writing it back as its literal.
+
 A `default` that will not evaluate, or a range whose ends are the wrong way round, does not stop the
 parameter being offered: the drawing still renders and the value is still bindable, the row falls back
 to a placeholder and the default range. What is wrong with it is said on the declaration panel, in
@@ -363,8 +370,14 @@ at.
 Rows are **dragged** the way a project's rows are: pick one up and a line shows where it will land —
 between two rows to go beside one, or an outline round a row to go inside it. Dropping writes the
 move into the drawing, so the element really is somewhere else afterwards, and the order it paints
-in changes with it. **New group** on the tree's own menu writes an empty `<g>` beside the picked row
-for things to be dragged into. Both arrive as one step to take back.
+in changes with it; the row stays picked where it landed. **New group** on the tree's own menu writes
+an empty `<g>` beside the picked row for things to be dragged into, and picks it. Both arrive as one
+step to take back.
+
+**Swap Fill and Stroke** on the same menu, or `Shift` `X` on the tree or the canvas, exchanges what
+the picked rows fill and stroke with, and their two opacities, as written and as one step: an
+expression travels with its paint, and a value in `style` stays there. A host wires it through
+`SwapRequested`, as it wires Duplicate and Delete.
 
 A `<clipPath>`, a `<mask>` or a shape kept in `<defs>` dropped on a drawn row is **applied** to it
 rather than moved: the row is outlined green for a clip and violet for a mask, the colours of the

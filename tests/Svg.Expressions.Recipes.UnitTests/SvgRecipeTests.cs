@@ -182,4 +182,17 @@ public class SvgRecipeTests
         // would change what the element does rather than what shade it is.
         Assert.False(SvgRecipeColor.TryParse(value, out _));
     }
+
+    [Fact]
+    public void A_Rule_Names_No_Integer_String_Or_List()
+    {
+        // No attribute a rule claims holds one: the first two simply never match, and a list says so.
+        Assert.False(SvgRecipeValue.TryKey(ExprType.String, "dark", out _));
+        Assert.False(SvgRecipeValue.TryKey(ExprType.Integer, "4", out _));
+        Assert.Throws<System.NotSupportedException>(() => SvgRecipeValue.TryKey(ExprType.NumberList, "[0, 1]", out _));
+        Assert.Throws<System.NotSupportedException>(() => SvgRecipeValue.TryKey(ExprType.ColorList, "[#fff]", out _));
+
+        Assert.Equal("string", SvgRecipeValue.Describe(ExprType.String));
+        Assert.Equal("list of colours", SvgRecipeValue.Describe(ExprType.ColorList));
+    }
 }

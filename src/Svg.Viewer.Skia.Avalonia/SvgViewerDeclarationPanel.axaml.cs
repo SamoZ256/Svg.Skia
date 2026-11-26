@@ -478,6 +478,20 @@ public partial class SvgViewerDeclarationPanel : UserControl
         }
     }
 
+    // A list's own buttons change the value rather than the declaration, so they act on the row
+    // here and the change reaches the host as any other value's does.
+    private void OnAddItemClick(object? sender, RoutedEventArgs e)
+        => ((sender as Control)?.DataContext as SvgViewerListParameter)?.Add();
+
+    private void OnItemUpClick(object? sender, RoutedEventArgs e)
+        => ((sender as Control)?.DataContext as SvgViewerListItem)?.MoveUp();
+
+    private void OnItemDownClick(object? sender, RoutedEventArgs e)
+        => ((sender as Control)?.DataContext as SvgViewerListItem)?.MoveDown();
+
+    private void OnItemRemoveClick(object? sender, RoutedEventArgs e)
+        => ((sender as Control)?.DataContext as SvgViewerListItem)?.Remove();
+
     /// <summary>A row nothing has been written for yet is thrown away rather than asked about.</summary>
     private void OnRemoveLetClick(object? sender, RoutedEventArgs e)
     {
@@ -635,7 +649,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
             try
             {
-                symbols[name] = new ExprChecker(symbols).Check(expression).Type;
+                symbols[name] = new ExprChecker(symbols).CheckLet(name, expression, let.Declaration?.DeclaredType).Type;
                 let.Trouble = null;
             }
             catch (ExprException failure)
@@ -664,7 +678,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
             try
             {
-                symbols[above.Name.Trim()] = new ExprChecker(symbols).Check(above.Expression).Type;
+                symbols[above.Name.Trim()] = new ExprChecker(symbols).CheckLet(above.Name.Trim(), above.Expression, above.Declaration?.DeclaredType).Type;
             }
             catch (ExprException)
             {
@@ -866,7 +880,7 @@ public partial class SvgViewerDeclarationPanel : UserControl
 
             try
             {
-                symbols[let.Name.Trim()] = new ExprChecker(symbols).Check(let.Expression).Type;
+                symbols[let.Name.Trim()] = new ExprChecker(symbols).CheckLet(let.Name.Trim(), let.Expression, let.Declaration?.DeclaredType).Type;
             }
             catch (ExprException)
             {

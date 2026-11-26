@@ -138,6 +138,26 @@ public class StudioCommandsTests
         window.Close();
     }
 
+    /// <summary>Shift+X on the canvas and the tree, and in the Edit menu with no key shown on a Mac, where a shown key would take every capital X typed into a box.</summary>
+    [AvaloniaFact]
+    public void Swap_Is_Shift_X_And_No_Key_Equivalent_On_A_Mac()
+    {
+        var window = new MainWindow();
+        var swap = window.Registry["swappaints"];
+
+        Assert.Equal(
+            (SvgEditorShortcutKey.X, SvgEditorShortcutModifiers.Shift, SvgEditorShortcutScope.CanvasOrDocumentTree, false),
+            (swap.Key, swap.Modifiers, swap.Scope, swap.ShownOnMac));
+
+        var item = new StudioCommands(new[] { swap }, mac: true)
+            .Menu(new (string, IReadOnlyList<string>)[] { ("Edit", new[] { "swappaints" }) })
+            .Items.OfType<NativeMenuItem>().Single().Menu!.Items.OfType<NativeMenuItem>().Single();
+
+        Assert.Null(item.Gesture);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void A_Menu_Leaves_Out_What_Has_No_Command_And_Every_Stray_Rule()
     {

@@ -32,6 +32,8 @@ internal enum ExprTokenKind
     Comma,
     OpenParen,
     CloseParen,
+    OpenBracket,
+    CloseBracket,
     End
 }
 
@@ -160,6 +162,8 @@ internal static class ExprLexer
                 case ',': tokens.Add(Single(ExprTokenKind.Comma, start, ",")); i++; continue;
                 case '(': tokens.Add(Single(ExprTokenKind.OpenParen, start, "(")); i++; continue;
                 case ')': tokens.Add(Single(ExprTokenKind.CloseParen, start, ")")); i++; continue;
+                case '[': tokens.Add(Single(ExprTokenKind.OpenBracket, start, "[")); i++; continue;
+                case ']': tokens.Add(Single(ExprTokenKind.CloseBracket, start, "]")); i++; continue;
 
                 case '<':
                     i++;

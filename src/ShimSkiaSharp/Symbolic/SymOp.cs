@@ -18,5 +18,9 @@ public enum SymOp
 
     // (color) => the color with its RGB channels converted from sRGB to linear RGB.
     // Applied when an element resolves color-interpolation to linearRGB.
-    ToLinearRgb
+    ToLinearRgb,
+
+    // (colors[, offsets]) => the last of as many colours as both lists hold, as a gradient's bound
+    // stops are; transparent for none.
+    Last
 }

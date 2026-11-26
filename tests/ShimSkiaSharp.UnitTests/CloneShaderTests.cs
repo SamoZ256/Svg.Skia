@@ -117,6 +117,35 @@ public class CloneShaderTests
     }
 
     [Fact]
+    public void SKShader_DeepClone_ClonesSweepGradientShader()
+    {
+        var shader = new SweepGradientShader(
+            new SKPoint(1, 2),
+            45f,
+            270f,
+            new[] { new SKColorF(1f, 0f, 0f, 1f), new SKColorF(0f, 1f, 0f, 1f) },
+            SKColorSpace.SrgbLinear,
+            new[] { 0f, 1f },
+            SKShaderTileMode.Mirror,
+            SKMatrix.CreateRotationDegrees(30, 1, 2));
+
+        var clone = shader.DeepClone();
+        var typed = Assert.IsType<SweepGradientShader>(clone);
+
+        Assert.NotSame(shader, clone);
+        Assert.NotSame(shader.Colors, typed.Colors);
+        Assert.NotSame(shader.ColorPos, typed.ColorPos);
+        Assert.Equal(shader.Colors, typed.Colors);
+        Assert.Equal(shader.ColorPos, typed.ColorPos);
+        Assert.Equal(shader.Center, typed.Center);
+        Assert.Equal(shader.StartAngle, typed.StartAngle);
+        Assert.Equal(shader.EndAngle, typed.EndAngle);
+        Assert.Equal(shader.ColorSpace, typed.ColorSpace);
+        Assert.Equal(shader.Mode, typed.Mode);
+        Assert.Equal(shader.LocalMatrix, typed.LocalMatrix);
+    }
+
+    [Fact]
     public void SKShader_DeepClone_ClonesTwoPointConicalGradientShader()
     {
         var shader = new TwoPointConicalGradientShader(
@@ -145,5 +174,37 @@ public class CloneShaderTests
         Assert.Equal(shader.ColorSpace, typed.ColorSpace);
         Assert.Equal(shader.Mode, typed.Mode);
         Assert.Equal(shader.LocalMatrix, typed.LocalMatrix);
+    }
+
+    [Fact]
+    public void SKShader_DeepClone_KeepsTheListsGivingAGradientItsStops()
+    {
+        // Rewriting a paint clones it, so lists dropped here would be a binding lost to the copy.
+        var stops = new SymGradientStops(SymNode.Source("colors"), SymNode.Source("positions"), SymNode.Source("fade"), true);
+        var colors = new[] { new SKColorF(1f, 0f, 0f, 1f), new SKColorF(0f, 0f, 1f, 1f) };
+        var shaders = new SKShader[]
+        {
+            new LinearGradientShader(new SKPoint(0, 0), new SKPoint(1, 0), colors, SKColorSpace.Srgb, null, SKShaderTileMode.Clamp, null) { Stops = stops },
+            new RadialGradientShader(new SKPoint(0, 0), 1f, colors, SKColorSpace.Srgb, null, SKShaderTileMode.Clamp, null) { Stops = stops },
+            new TwoPointConicalGradientShader(new SKPoint(0, 0), 0f, new SKPoint(1, 1), 2f, colors, SKColorSpace.Srgb, null, SKShaderTileMode.Clamp, null) { Stops = stops },
+            new SweepGradientShader(new SKPoint(0, 0), 0f, 360f, colors, SKColorSpace.Srgb, null, SKShaderTileMode.Clamp, null) { Stops = stops }
+        };
+
+        foreach (var shader in shaders)
+        {
+            var clone = shader.DeepClone();
+
+            Assert.NotSame(shader, clone);
+            Assert.Same(stops, clone switch
+            {
+                LinearGradientShader linear => linear.Stops,
+                RadialGradientShader radial => radial.Stops,
+                TwoPointConicalGradientShader conical => conical.Stops,
+                SweepGradientShader sweep => sweep.Stops,
+                _ => null
+            });
+        }
+
+        Assert.Same(stops, stops.DeepClone());
     }
 }

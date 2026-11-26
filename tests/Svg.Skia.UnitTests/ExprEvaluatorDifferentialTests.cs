@@ -47,6 +47,11 @@ public class ExprEvaluatorDifferentialTests
             ExprType.Color => new SKColor(Value.Red, Value.Green, Value.Blue, Value.Alpha),
             ExprType.Boolean => Value.AsBoolean,
             ExprType.String => Value.AsString,
+
+            // An array, as a host might pass one; a List<T> is the other common shape and takes the
+            // same path through IReadOnlyList.
+            ExprType.NumberList => Value.AsNumberList.ToArray(),
+            ExprType.ColorList => Value.AsColorList.Select(c => new SKColor(c.Red, c.Green, c.Blue, c.Alpha)).ToList(),
             _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {Value.Type}.")
         };
     }
@@ -62,12 +67,37 @@ public class ExprEvaluatorDifferentialTests
 
     private static Argument Integer(string name, int value) => new(name, ExprValue.Integer(value));
 
+    private static Argument Numbers(string name, params float[] values) => new(name, ExprValue.NumberList(values));
+
+    private static Argument Colours(string name, params uint[] packed)
+        => new(name, ExprValue.ColorList(packed.Select(c => ExprValue.Color((byte)(c >> 24), (byte)(c >> 16), (byte)(c >> 8), (byte)c))));
+
+    /// <summary>The fields a compiler registered on the class its code lands in, as that class declares them.</summary>
+    private static void AppendMembers(StringBuilder source, SkiaCSharpCodeGenCounter? members)
+    {
+        if (members is null)
+        {
+            return;
+        }
+
+        foreach (var (type, name, value) in members.StaticFields)
+        {
+            source.AppendLine($"    private static readonly {type} s_{name} = {value};");
+        }
+
+        foreach (var (type, name) in members.ThreadStatics)
+        {
+            source.AppendLine("    [ThreadStatic]");
+            source.AppendLine($"    private static {type} s_{name};");
+        }
+    }
+
     /// <summary>Compiles <paramref name="code"/> into a method and invokes it.</summary>
     /// <remarks>
     /// Helper bodies are emitted unconditionally rather than selected by scanning the text, so one
     /// the generator would have failed to select is still exercised here.
     /// </remarks>
-    private static object Compiled(string code, ExprType resultType, IReadOnlyList<Argument> arguments)
+    private static object Compiled(string code, ExprType resultType, IReadOnlyList<Argument> arguments, SkiaCSharpCodeGenCounter? members)
     {
         var parameters = string.Join(
             ", ",
@@ -75,12 +105,14 @@ public class ExprEvaluatorDifferentialTests
 
         var source = new StringBuilder();
         source.AppendLine("using System;");
+        source.AppendLine("using System.Collections.Generic;");
         source.AppendLine("using SkiaSharp;");
         source.AppendLine();
         source.AppendLine($"namespace {Namespace};");
         source.AppendLine();
         source.AppendLine("public static class Probe");
         source.AppendLine("{");
+        AppendMembers(source, members);
         source.AppendLine($"    public static {ExprCompiler.CSharpTypeOf(resultType)} Run({parameters})");
         source.AppendLine($"        => {code};");
 
@@ -137,18 +169,26 @@ public class ExprEvaluatorDifferentialTests
         AssertSameValue(expression, fold: true, arguments);
     }
 
-    private static void AssertSameValue(string expression, bool fold, Argument[] arguments)
+    /// <param name="inClass">
+    /// Whether the code lands in a class that keeps its list literals' arrays, as the generator's
+    /// does, or is written by the public compiler, which has none.
+    /// </param>
+    private static void AssertSameValue(string expression, bool fold, Argument[] arguments, bool inClass = true)
     {
         var symbols = arguments.ToDictionary(a => a.Name, a => a.Type, StringComparer.Ordinal);
         var values = arguments.ToDictionary(a => a.Name, a => a.Value, StringComparer.Ordinal);
 
-        var (type, code) = new ExprCompiler(symbols, null, fold).Compile(expression);
+        var members = inClass ? new SkiaCSharpCodeGenCounter() : null;
+        var (type, code) = (inClass ? new ExprCompiler(symbols, null, fold, members) : new ExprCompiler(symbols, null, fold)).Compile(expression);
         var evaluated = new ExprEvaluator(symbols, values).Evaluate(expression);
 
         Assert.Equal(type, evaluated.Type);
 
-        var compiled = Compiled(code, type, arguments);
+        AssertSame(type, Compiled(code, type, arguments, members), evaluated);
+    }
 
+    private static void AssertSame(ExprType type, object compiled, ExprValue evaluated)
+    {
         switch (type)
         {
             case ExprType.Number:
@@ -191,6 +231,35 @@ public class ExprEvaluatorDifferentialTests
             case ExprType.String:
                 Assert.Equal((string)compiled, evaluated.AsString, StringComparer.Ordinal);
                 break;
+
+            // Element by element, each held to what a lone value of its type is held to.
+            case ExprType.NumberList:
+                {
+                    var expected = (IReadOnlyList<float>)compiled;
+
+                    Assert.Equal(expected.Count, evaluated.AsNumberList.Count);
+
+                    for (var i = 0; i < expected.Count; i++)
+                    {
+                        AssertSame(ExprType.Number, expected[i], ExprValue.Number(evaluated.AsNumberList[i]));
+                    }
+
+                    break;
+                }
+
+            case ExprType.ColorList:
+                {
+                    var expected = (IReadOnlyList<SKColor>)compiled;
+
+                    Assert.Equal(expected.Count, evaluated.AsColorList.Count);
+
+                    for (var i = 0; i < expected.Count; i++)
+                    {
+                        AssertSame(ExprType.Color, expected[i], evaluated.AsColorList[i]);
+                    }
+
+                    break;
+                }
 
             default:
                 throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
@@ -470,6 +539,93 @@ public class ExprEvaluatorDifferentialTests
     public void A_String_Expression_Evaluates_To_What_The_Generated_Code_Computes(string expression)
         => AssertSameValue(expression);
 
+    [Theory]
+    [InlineData(-2147483648)]
+    [InlineData(-5)]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(100)]
+    [InlineData(2147483647)]
+    public void An_Index_Is_Clamped_The_Same_Way_In_Both(int index)
+    {
+        var i = Integer("i", index);
+        var xs = Numbers("xs", 10f, 20.5f, -30f);
+        var cs = Colours("cs", 0x1e40afff, 0xdc262680);
+
+        AssertSameValue("xs[i]", xs, i);
+        AssertSameValue("cs[i]", cs, i);
+        AssertSameValue("xs[i]", Numbers("xs"), i);
+        AssertSameValue("cs[i]", Colours("cs"), i);
+        AssertSameValue("[1, 2, 3][i]", i);
+        AssertSameValue("[t, t * 2][i]", Number("t", 1.5f), i);
+        AssertSameValue("[#fff, tint][i]", Colour("tint", 0x1e, 0x40, 0xaf, 0xff), i);
+        AssertSameValue("xs[i + 1] - xs[i - 1]", xs, i);
+    }
+
+    [Fact]
+    public void A_List_Evaluates_To_What_The_Generated_Code_Computes()
+    {
+        var xs = Numbers("xs", 0f, 0.5f, 1f);
+        var ys = Numbers("ys", 4f);
+        var cs = Colours("cs", 0xff0000ff, 0x00ff0080, 0x0000ffff);
+        var t = Number("t", 0.25f);
+        var tint = Colour("tint", 0x1e, 0x40, 0xaf, 0xff);
+
+        // Whole lists, as written and as an argument hands them in.
+        AssertSameValue("[1, 2, 3]");
+        AssertSameValue("[0, 0.5, 1]");
+        AssertSameValue("[t, t * 2, 1]", t);
+        AssertSameValue("[pi, tau, sin(1), 1 / 0]");
+        AssertSameValue("[#fff, #00000080]");
+        AssertSameValue("[#fff, tint, mix(tint, #000, t)]", tint, t);
+        AssertSameValue("xs", xs);
+        AssertSameValue("cs", cs);
+        AssertSameValue("on ? xs : ys", Boolean("on", true), xs, ys);
+        AssertSameValue("on ? xs : ys", Boolean("on", false), xs, ys);
+        AssertSameValue("on ? xs : []", Boolean("on", false), xs);
+        AssertSameValue("on ? [] : cs", Boolean("on", false), cs);
+        AssertSameValue("on ? [t] : [1, t]", Boolean("on", false), t);
+
+        // Their lengths.
+        AssertSameValue("len(xs)", xs);
+        AssertSameValue("len(cs)", cs);
+        AssertSameValue("len(xs)", Numbers("xs"));
+        AssertSameValue("len([t, 1])", t);
+        AssertSameValue("len(on ? xs : [])", Boolean("on", false), xs);
+        AssertSameValue("len([#fff]) + len('ab')");
+
+        // Elements in the arithmetic around them.
+        AssertSameValue("-xs[1]", xs);
+        AssertSameValue("xs[0] + xs[2] * 2", xs);
+        AssertSameValue("xs[len(xs) - 1]", xs);
+        AssertSameValue("xs[int(t * 10)]", xs, t);
+        AssertSameValue("mix(cs[0], cs[2], xs[1])", cs, xs);
+        AssertSameValue("withAlpha(cs[1], 1)", cs);
+        AssertSameValue("(on ? xs : ys)[1]", Boolean("on", false), xs, ys);
+        AssertSameValue("(on ? [] : xs)[0]", Boolean("on", true), xs);
+        AssertSameValue("[sin(1), 2][0]");
+        AssertSameValue("[xs[2], ys[0]][1]", xs, ys);
+        AssertSameValue("str(xs[1])", xs);
+        AssertSameValue("xs[0] == 0", xs);
+        AssertSameValue("xs[0]", Numbers("xs", float.NaN));
+        AssertSameValue("cs[0] == cs[1]", Colours("cs", 0xffffffff, 0xffffffff));
+    }
+
+    [Theory]
+    [InlineData("len([t, 1])")]
+    [InlineData("len(on ? [] : [t])")]
+    [InlineData("len([#fff, #000])")]
+    [InlineData("[t, 1][1]")]
+    [InlineData("num(len([t, 1])) + [t, 2][len([t]) - 1]")]
+    public void A_List_The_Public_Compiler_Writes_Out_Is_Read_As_A_List(string expression)
+    {
+        AssertSameValue(expression, fold: false, new[] { Number("t", 0.25f), Boolean("on", true) }, inClass: false);
+        AssertSameValue(expression, fold: true, new[] { Number("t", 0.25f), Boolean("on", true) }, inClass: false);
+    }
+
     [Fact]
     public void Only_The_Taken_Branch_Of_A_Conditional_Is_Evaluated()
     {
@@ -496,20 +652,7 @@ public class ExprEvaluatorDifferentialTests
             """);
 
         var evaluated = ExprEvaluator.Create(declarations).Evaluate("faded");
-
-        // Resolve() grows the symbol table as it goes, exactly as the generator drives it, so
-        // CompileTo below sees every let.
-        var (compiler, lets) = declarations.Resolve();
-
-        var locals = new StringBuilder();
-        foreach (var let in lets)
-        {
-            locals.AppendLine($"        var {let.Name} = {let.Code};");
-        }
-
-        var arguments = new[] { Number("t", 0.25f) };
-        var code = compiler.CompileTo("faded", ExprType.Color, "The expression");
-        var expected = CompiledWithLocals(locals.ToString(), code, arguments);
+        var expected = CompiledLets(declarations, "faded", Number("t", 0.25f));
 
         Assert.Equal(ExprType.Color, evaluated.Type);
 
@@ -518,7 +661,73 @@ public class ExprEvaluatorDifferentialTests
             (evaluated.Red, evaluated.Green, evaluated.Blue, evaluated.Alpha));
     }
 
-    private static SKColor CompiledWithLocals(string locals, string code, IReadOnlyList<Argument> arguments)
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(9)]
+    public void A_List_Let_Chain_Evaluates_The_Same_Way_Round(int index)
+    {
+        var declarations = SvgExpressionDeclarations.Parse("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="10" height="10">
+              <defs><e:code>
+                <e:param name="t" type="number" default="0.25" />
+                <e:param name="i" type="integer" default="0" />
+                <e:param name="tints" type="color[]" default="[#1e40af, #dc2626]" />
+                <e:let name="stops">[0, t, 1]</e:let>
+                <e:let name="fixed">[0.1, 0.9]</e:let>
+                <e:let name="ramp">[tints[0], mix(#fff, #000, stops[i]), tints[1]]</e:let>
+                <e:let name="none" type="color[]">[]</e:let>
+                <e:let name="chosen">len(ramp) > i ? ramp : none</e:let>
+              </e:code></defs>
+            </svg>
+            """);
+
+        var values = new Dictionary<string, ExprValue>(StringComparer.Ordinal) { ["i"] = ExprValue.Integer(index) };
+        var evaluated = ExprEvaluator.Create(declarations, values).Evaluate("withAlpha(chosen[i], stops[1] + fixed[1])");
+        var expected = CompiledLets(
+            declarations,
+            "withAlpha(chosen[i], stops[1] + fixed[1])",
+            Number("t", 0.25f),
+            Integer("i", index),
+            Colours("tints", 0x1e40afff, 0xdc2626ff));
+
+        Assert.Equal(
+            (expected.Red, expected.Green, expected.Blue, expected.Alpha),
+            (evaluated.Red, evaluated.Green, evaluated.Blue, evaluated.Alpha));
+    }
+
+    /// <summary>
+    /// The lets compiled as the generator compiles them, into a class keeping what their list
+    /// literals need, then <paramref name="expression"/> over them as a colour.
+    /// </summary>
+    private static SKColor CompiledLets(SvgExpressionDeclarations declarations, string expression, params Argument[] arguments)
+    {
+        // Resolve grows the symbol table as it goes, exactly as the generator drives it, so
+        // CompileTo below sees every let.
+        var members = new SkiaCSharpCodeGenCounter();
+        var (compiler, lets) = declarations.Resolve(members);
+
+        var locals = new StringBuilder();
+
+        // What the body reads in place of a parameter that can arrive as null.
+        foreach (var (parameter, local, defaultCode, type) in declarations.ComputedDefaults())
+        {
+            locals.AppendLine($"        {ExprCompiler.CSharpTypeOf(type)} {local} = {parameter} ?? {defaultCode};");
+        }
+
+        foreach (var let in lets)
+        {
+            locals.AppendLine($"        var {let.Name} = {let.Code};");
+        }
+
+        var code = compiler.CompileTo(expression, ExprType.Color, "The expression");
+
+        return CompiledWithLocals(locals.ToString(), code, arguments, members);
+    }
+
+    private static SKColor CompiledWithLocals(string locals, string code, IReadOnlyList<Argument> arguments, SkiaCSharpCodeGenCounter members)
     {
         var parameters = string.Join(
             ", ",
@@ -526,12 +735,14 @@ public class ExprEvaluatorDifferentialTests
 
         var source = new StringBuilder();
         source.AppendLine("using System;");
+        source.AppendLine("using System.Collections.Generic;");
         source.AppendLine("using SkiaSharp;");
         source.AppendLine();
         source.AppendLine($"namespace {Namespace};");
         source.AppendLine();
         source.AppendLine("public static class Probe");
         source.AppendLine("{");
+        AppendMembers(source, members);
         source.AppendLine($"    public static SKColor Run({parameters})");
         source.AppendLine("    {");
         source.Append(locals);

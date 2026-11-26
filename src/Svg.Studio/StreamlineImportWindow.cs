@@ -104,7 +104,7 @@ public sealed class StreamlineImportWindow : Window
         });
         Styles.Add(new Style(x => x.OfType<ListBoxItem>().Class(":selected").Descendant().OfType<Border>().Class("card"))
         {
-            Setters = { new Setter(Border.BorderBrushProperty, new DynamicResourceExtension("TabItemHeaderSelectedPipeFill")) }
+            Setters = { new Setter(Border.BorderBrushProperty, new DynamicResourceExtension("StudioAccent")) }
         });
 
         // Sized to the header, so the chevron stays where it was clicked rather than following the content's width.
