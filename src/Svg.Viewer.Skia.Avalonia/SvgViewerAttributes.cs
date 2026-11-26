@@ -195,6 +195,10 @@ internal static class SvgViewerAttributes
             ("fill-rule", "Fill rule", Plain, "nonzero|evenodd", "path polygon polyline"),
             ("stop-color", "Stop colour", Colour, "currentColor", "stop"),
             ("stop-opacity", "Stop opacity", Fraction, "", "stop"),
+
+            // Offered unasked, or wiring a gradient to list parameters means writing the source.
+            ("e:stop-colors", "Stop colours", Plain, "", Gradients),
+            ("e:stop-offsets", "Stop offsets", Plain, "", Gradients),
             ("flood-color", "Flood colour", Colour, "currentColor", "feFlood feDropShadow"),
             ("flood-opacity", "Flood opacity", Fraction, "", "feFlood feDropShadow"),
             ("lighting-color", "Lighting colour", Colour, "currentColor", "feDiffuseLighting feSpecularLighting"),

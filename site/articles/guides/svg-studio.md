@@ -394,8 +394,9 @@ element's tag and its id; **Find an attribute** under it lists only the rows who
 typed, and finds the attributes the element does not usually list as well.
 
 Every attribute the element writes is listed, and beside them the ones an element of its kind usually
-has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, not a stop's stroke
-or a rectangle's font. **Show all** lists everything the parser would read on it instead, whether or
+has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, a gradient's
+`e:stop-colors` and `e:stop-offsets`, which take a `color[]` and a `number[]` parameter whole, not a
+stop's stroke or a rectangle's font. **Show all** lists everything the parser would read on it instead, whether or
 not an expression could drive it. A row the file sets is in bold, with a **×** that takes it away.
 
 A row's box holds the value itself, whatever it is. Typing `{%{{{ tint }}}%}` into `fill` writes that into

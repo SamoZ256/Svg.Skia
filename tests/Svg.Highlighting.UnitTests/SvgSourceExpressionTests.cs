@@ -89,6 +89,25 @@ public class SvgSourceExpressionTests
     }
 
     [Fact]
+    public void A_Bracket_Is_Punctuation_As_A_Parenthesis_Is()
+    {
+        Assert.Equal(
+            new[]
+            {
+                ("[", SvgSourceTokenKind.ExpressionPunctuation),
+                ("0", SvgSourceTokenKind.ExpressionNumber),
+                (",", SvgSourceTokenKind.ExpressionPunctuation),
+                (" ", SvgSourceTokenKind.Expression),
+                ("#fff", SvgSourceTokenKind.ExpressionColor),
+                ("]", SvgSourceTokenKind.ExpressionPunctuation),
+                ("[", SvgSourceTokenKind.ExpressionPunctuation),
+                ("i", SvgSourceTokenKind.ExpressionIdentifier),
+                ("]", SvgSourceTokenKind.ExpressionPunctuation),
+            },
+            Of("[0, #fff][i]"));
+    }
+
+    [Fact]
     public void Nothing_Is_Lost()
     {
         const string body = "clamp(t * tau, 0, 1) + lerp(0.45, 1, wave)";

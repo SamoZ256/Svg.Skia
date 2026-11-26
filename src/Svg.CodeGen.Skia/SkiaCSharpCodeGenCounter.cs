@@ -35,6 +35,9 @@ public class SkiaCSharpCodeGenCounter
 
     public int Matrix { get; set; } = -1;
 
+    /// <summary>The list literals an expression in the class wrote, each kept in a field of its own.</summary>
+    internal int List { get; set; } = -1;
+
     public string PictureVarName { get; set; } = "skPicture";
 
     public string PictureRecorderVarName { get; set; } = "skPictureRecorder";
@@ -69,6 +72,8 @@ public class SkiaCSharpCodeGenCounter
 
     public string MatrixVarName { get; set; } = "skMatrix";
 
+    internal string ListVarName { get; set; } = "skList";
+
     public string FontManagerVarName { get; set; } = "skFontManager";
 
     public string FontStyleVarName { get; set; } = "skFontStyle";
@@ -102,16 +107,23 @@ public class SkiaCSharpCodeGenCounter
     /// </summary>
     internal StringBuilder? Statics { get; set; }
 
-    /// <summary>What <see cref="Statics"/> built, each kept in a field named <c>s_</c> and the local's name.</summary>
-    internal List<(string Type, string Name)> StaticFields { get; } = new();
+    /// <summary>
+    /// What <see cref="Statics"/> built, each kept in a field named <c>s_</c> and the local's name,
+    /// and the fields initialised where they are declared, whose <c>Value</c> is that initialiser.
+    /// </summary>
+    internal List<(string Type, string Name, string? Value)> StaticFields { get; } = new();
 
     /// <summary>
-    /// What a direct drawing keeps per thread from one draw to the next, each in a field named
-    /// <c>s_</c> and the name: a gradient its arguments colour, and the colours it was built from.
+    /// What a drawing keeps per thread from one draw to the next, each in a field named <c>s_</c> and
+    /// the name: a gradient its arguments colour, the colours it was built from, and the array a list
+    /// literal reading an argument is filled into.
     /// </summary>
     internal List<(string Type, string Name)> ThreadStatics { get; } = new();
 
-    /// <summary>Each static's text with its locals renumbered, so a second copy reads the first's field.</summary>
+    /// <summary>
+    /// Each static's text with its locals renumbered, so a second copy reads the first's field; and
+    /// each list literal's, for the same reason.
+    /// </summary>
     internal Dictionary<string, string> StaticTexts { get; } = new();
 
     /// <summary>

@@ -86,6 +86,13 @@ A `number` parameter uses the `min`, `max` and `step` its author declared, falli
 
 Every row is seeded by *evaluating* the declared `default`, so `default="tau / 4"` works as well as a literal does.
 
+A `number[]` or `color[]` parameter is a row with an editor per element, a number field or a colour
+picker, each named for how an expression reads it (`colors[1]`), with `↑`, `↓` and `−` to move or
+remove it and `+ Add` under the lot, which appends a copy of the last element, or `0` or black to a
+list that has none. A list with no `default` starts empty and says so. Any of those changes the
+value, so the drawing follows each, and reset and `CommitParameterDefaults` treat the list as one
+value, writing it back as its literal.
+
 A `default` that will not evaluate, or a range whose ends are the wrong way round, does not stop the
 parameter being offered: the drawing still renders and the value is still bindable, the row falls back
 to a placeholder and the default range. What is wrong with it is said on the declaration panel, in

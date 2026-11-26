@@ -39,7 +39,8 @@
       <Setter Property="Opacity" Value="0.65" />
     </Style>
 
-    <Style Selector=":is(Panel).row:pointerover Button.edit">
+    <!-- Or tabbed into, which reaches these buttons without pointing at anything. -->
+    <Style Selector=":is(Panel).row:pointerover Button.edit, :is(Panel).row:focus-within Button.edit">
       <Setter Property="Opacity" Value="0.7" />
     </Style>
 
@@ -82,6 +83,26 @@
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Padding" Value="4,2" />
       <Setter Property="MinHeight" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- In sight whether or not the row is pointed at, unlike an element's own buttons: an empty
+         list has nothing else to point at. -->
+    <Style Selector="Button.add">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Padding" Value="6,1" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Margin" Value="20,2,0,0" />
+      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+
+    <Style Selector="TextBlock.index">
+      <Setter Property="FontFamily" Value="monospace" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Opacity" Value="0.55" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
   </UserControl.Styles>
@@ -248,6 +269,70 @@
                   ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
         </Grid>
       </StackPanel>
+    </DataTemplate>
+
+    <!-- A list is the number row's shape with an editor per element where the field was: what it
+         is called on one line, its elements under it, each named as an expression indexes it. One
+         row for either kind; an element's own type picks its editor, from the two templates below. -->
+    <DataTemplate DataType="viewer:SvgViewerListParameter">
+      <StackPanel>
+        <TextBlock Classes="origin" Text="{Binding OwnerLabel}" IsVisible="{Binding ShowsOwner}" />
+        <StackPanel Spacing="2" Margin="0,0,0,10" Classes="row">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+            <Border Grid.Column="0" Classes="grip" Width="20" Background="Transparent"
+                    PointerPressed="OnGripPressed"
+                    ToolTip.Tip="Drag to reorder. Generated code writes the parameters in this order.">
+              <TextBlock Text="⠿" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <Border Grid.Column="1" Classes="name" Background="Transparent"
+                    PointerPressed="OnNamePressed"
+                    ToolTip.Tip="Drag onto an attribute below to write this variable into it.">
+              <TextBlock Text="{Binding Name}" FontFamily="monospace"
+                         HorizontalAlignment="Left" VerticalAlignment="Center" />
+            </Border>
+            <TextBlock Grid.Column="2" Classes="index" Text="empty" Margin="8,0,0,0"
+                       IsVisible="{Binding IsEmpty}" />
+            <Button Grid.Column="3" Classes="edit" Content="⋯" Click="OnEditClick"
+                    ToolTip.Tip="Edit this parameter" />
+            <Button Grid.Column="4" Classes="edit" Content="✕" Click="OnRemoveClick"
+                    ToolTip.Tip="Remove this parameter. Refused while the drawing still uses it." />
+          </Grid>
+          <ItemsControl ItemsSource="{Binding Items}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="20,0,0,2">
+                  <TextBlock Grid.Column="0" Classes="index" Text="{Binding Index}" />
+                  <ContentControl Grid.Column="1" Content="{Binding}" />
+                  <Button Grid.Column="2" Classes="edit" Content="↑" Click="OnItemUpClick"
+                          IsEnabled="{Binding CanMoveUp}" ToolTip.Tip="Move up"
+                          AutomationProperties.Name="{Binding Label, StringFormat='Move {0} up'}" />
+                  <Button Grid.Column="3" Classes="edit" Content="↓" Click="OnItemDownClick"
+                          IsEnabled="{Binding CanMoveDown}" ToolTip.Tip="Move down"
+                          AutomationProperties.Name="{Binding Label, StringFormat='Move {0} down'}" />
+                  <Button Grid.Column="4" Classes="edit" Content="−" Click="OnItemRemoveClick"
+                          ToolTip.Tip="Remove"
+                          AutomationProperties.Name="{Binding Label, StringFormat='Remove {0}'}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Classes="add" Content="+ Add" Click="OnAddItemClick"
+                  ToolTip.Tip="Adds a copy of the last element, or 0 or black to an empty list."
+                  AutomationProperties.Name="{Binding Name, StringFormat='Add to {0}'}" />
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="viewer:SvgViewerNumberListItem">
+      <NumericUpDown Width="110"
+                     Value="{Binding Value, Mode=TwoWay}"
+                     Increment="0.1"
+                     ShowButtonSpinner="False"
+                     AutomationProperties.Name="{Binding Label}" />
+    </DataTemplate>
+
+    <DataTemplate DataType="viewer:SvgViewerColorListItem">
+      <ColorPicker Color="{Binding Value, Mode=TwoWay}" AutomationProperties.Name="{Binding Label}" />
     </DataTemplate>
 
     <!--

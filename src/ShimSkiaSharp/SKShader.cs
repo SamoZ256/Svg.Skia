@@ -57,13 +57,13 @@ public abstract record SKShader : IDeepCloneable<SKShader>
             SKShader clone = this switch
             {
                 ColorShader colorShader => new ColorShader(colorShader.Color, colorShader.ColorSpace),
-                LinearGradientShader linearGradientShader => new LinearGradientShader(linearGradientShader.Start, linearGradientShader.End, CloneHelpers.CloneArray(linearGradientShader.Colors, context), linearGradientShader.ColorSpace, CloneHelpers.CloneArray(linearGradientShader.ColorPos, context), linearGradientShader.Mode, linearGradientShader.LocalMatrix),
+                LinearGradientShader linearGradientShader => new LinearGradientShader(linearGradientShader.Start, linearGradientShader.End, CloneHelpers.CloneArray(linearGradientShader.Colors, context), linearGradientShader.ColorSpace, CloneHelpers.CloneArray(linearGradientShader.ColorPos, context), linearGradientShader.Mode, linearGradientShader.LocalMatrix) { Stops = linearGradientShader.Stops },
                 PerlinNoiseFractalNoiseShader perlinNoiseFractalNoiseShader => new PerlinNoiseFractalNoiseShader(perlinNoiseFractalNoiseShader.BaseFrequencyX, perlinNoiseFractalNoiseShader.BaseFrequencyY, perlinNoiseFractalNoiseShader.NumOctaves, perlinNoiseFractalNoiseShader.Seed, perlinNoiseFractalNoiseShader.TileSize),
                 PerlinNoiseTurbulenceShader perlinNoiseTurbulenceShader => new PerlinNoiseTurbulenceShader(perlinNoiseTurbulenceShader.BaseFrequencyX, perlinNoiseTurbulenceShader.BaseFrequencyY, perlinNoiseTurbulenceShader.NumOctaves, perlinNoiseTurbulenceShader.Seed, perlinNoiseTurbulenceShader.TileSize),
                 PictureShader pictureShader => new PictureShader(pictureShader.Src?.DeepClone(context), pictureShader.TmX, pictureShader.TmY, pictureShader.LocalMatrix, pictureShader.Tile),
-                RadialGradientShader radialGradientShader => new RadialGradientShader(radialGradientShader.Center, radialGradientShader.Radius, CloneHelpers.CloneArray(radialGradientShader.Colors, context), radialGradientShader.ColorSpace, CloneHelpers.CloneArray(radialGradientShader.ColorPos, context), radialGradientShader.Mode, radialGradientShader.LocalMatrix),
-                SweepGradientShader sweepGradientShader => new SweepGradientShader(sweepGradientShader.Center, sweepGradientShader.StartAngle, sweepGradientShader.EndAngle, CloneHelpers.CloneArray(sweepGradientShader.Colors, context), sweepGradientShader.ColorSpace, CloneHelpers.CloneArray(sweepGradientShader.ColorPos, context), sweepGradientShader.Mode, sweepGradientShader.LocalMatrix),
-                TwoPointConicalGradientShader twoPointConicalGradientShader => new TwoPointConicalGradientShader(twoPointConicalGradientShader.Start, twoPointConicalGradientShader.StartRadius, twoPointConicalGradientShader.End, twoPointConicalGradientShader.EndRadius, CloneHelpers.CloneArray(twoPointConicalGradientShader.Colors, context), twoPointConicalGradientShader.ColorSpace, CloneHelpers.CloneArray(twoPointConicalGradientShader.ColorPos, context), twoPointConicalGradientShader.Mode, twoPointConicalGradientShader.LocalMatrix),
+                RadialGradientShader radialGradientShader => new RadialGradientShader(radialGradientShader.Center, radialGradientShader.Radius, CloneHelpers.CloneArray(radialGradientShader.Colors, context), radialGradientShader.ColorSpace, CloneHelpers.CloneArray(radialGradientShader.ColorPos, context), radialGradientShader.Mode, radialGradientShader.LocalMatrix) { Stops = radialGradientShader.Stops },
+                SweepGradientShader sweepGradientShader => new SweepGradientShader(sweepGradientShader.Center, sweepGradientShader.StartAngle, sweepGradientShader.EndAngle, CloneHelpers.CloneArray(sweepGradientShader.Colors, context), sweepGradientShader.ColorSpace, CloneHelpers.CloneArray(sweepGradientShader.ColorPos, context), sweepGradientShader.Mode, sweepGradientShader.LocalMatrix) { Stops = sweepGradientShader.Stops },
+                TwoPointConicalGradientShader twoPointConicalGradientShader => new TwoPointConicalGradientShader(twoPointConicalGradientShader.Start, twoPointConicalGradientShader.StartRadius, twoPointConicalGradientShader.End, twoPointConicalGradientShader.EndRadius, CloneHelpers.CloneArray(twoPointConicalGradientShader.Colors, context), twoPointConicalGradientShader.ColorSpace, CloneHelpers.CloneArray(twoPointConicalGradientShader.ColorPos, context), twoPointConicalGradientShader.Mode, twoPointConicalGradientShader.LocalMatrix) { Stops = twoPointConicalGradientShader.Stops },
                 _ => throw new NotSupportedException($"Unsupported {nameof(SKShader)} type: {GetType().Name}.")
             };
 
@@ -79,7 +79,10 @@ public abstract record SKShader : IDeepCloneable<SKShader>
 
 public record ColorShader(SKColor Color, SKColorSpace ColorSpace) : SKShader;
 
-public record LinearGradientShader(SKPoint Start, SKPoint End, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader;
+public record LinearGradientShader(SKPoint Start, SKPoint End, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader
+{
+    public SymGradientStops? Stops { get; init; }
+}
 
 public record PerlinNoiseFractalNoiseShader(float BaseFrequencyX, float BaseFrequencyY, int NumOctaves, float Seed, SKPointI TileSize) : SKShader;
 
@@ -87,8 +90,17 @@ public record PerlinNoiseTurbulenceShader(float BaseFrequencyX, float BaseFreque
 
 public record PictureShader(SKPicture? Src, SKShaderTileMode TmX, SKShaderTileMode TmY, SKMatrix LocalMatrix, SKRect Tile) : SKShader;
 
-public record RadialGradientShader(SKPoint Center, float Radius, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader;
+public record RadialGradientShader(SKPoint Center, float Radius, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader
+{
+    public SymGradientStops? Stops { get; init; }
+}
 
-public record SweepGradientShader(SKPoint Center, float StartAngle, float EndAngle, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader;
+public record SweepGradientShader(SKPoint Center, float StartAngle, float EndAngle, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader
+{
+    public SymGradientStops? Stops { get; init; }
+}
 
-public record TwoPointConicalGradientShader(SKPoint Start, float StartRadius, SKPoint End, float EndRadius, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader;
+public record TwoPointConicalGradientShader(SKPoint Start, float StartRadius, SKPoint End, float EndRadius, SKColorF[]? Colors, SKColorSpace ColorSpace, float[]? ColorPos, SKShaderTileMode Mode, SKMatrix? LocalMatrix) : SKShader
+{
+    public SymGradientStops? Stops { get; init; }
+}

@@ -653,4 +653,81 @@ public class SvgSceneExpressionEvaluatorTests
 
         Assert.Contains("A visibility expression must be a boolean expression", error.Message);
     }
+
+    private const string Listed = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="colors" type="color[]" />
+              <e:param name="positions" type="number[]" />
+            </e:code>
+            <linearGradient id="g" e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+              <stop offset="0" stop-color="#F7DE77" /><stop offset="1" stop-color="#ACE3E3" />
+            </linearGradient>
+            <linearGradient id="even" href="#g" e:stop-offsets="" />
+          </defs>
+          <rect width="24" height="12" fill="url(#g)" />
+          <rect y="12" width="24" height="12" fill="url(#even)" />
+        </svg>
+        """;
+
+    private static ExprValue Colours(params uint[] colors)
+        => ExprValue.ColorList(colors.Select(color => ExprValue.Color((byte)(color >> 24), (byte)(color >> 16), (byte)(color >> 8), (byte)color)));
+
+    [Fact]
+    public void Lists_Replace_A_Gradients_Stops_By_The_Rule_Written_Ones_Follow()
+    {
+        var picture = BuildAndEvaluate(
+            Listed,
+            ("colors", Colours(0xdc2626ff, 0xfacc15ff, 0x1e40afff)),
+            ("positions", ExprValue.NumberList(new[] { 0.6f, float.NaN, 2f })));
+
+        var shaders = Paints(picture).Select(paint => Assert.IsType<LinearGradientShader>(paint.Shader)).ToList();
+
+        Assert.All(shaders, shader => Assert.Null(shader.Stops));
+        Assert.Equal(new SKColorF[] { new SKColor(0xdc, 0x26, 0x26, 0xff), new SKColor(0xfa, 0xcc, 0x15, 0xff), new SKColor(0x1e, 0x40, 0xaf, 0xff) }, shaders[0].Colors);
+
+        // Clamped, then raised to the one before; spaced evenly where no offsets are given.
+        Assert.Equal(new[] { 0.6f, 0.6f, 1f }, shaders[0].ColorPos);
+        Assert.Null(shaders[1].ColorPos);
+    }
+
+    [Theory]
+    [InlineData(new uint[0], new float[0], 0x00000000u)]
+    [InlineData(new uint[] { 0x1e40afff, 0xdc2626ff }, new[] { 0.5f }, 0x1e40afffu)]
+    public void Fewer_Than_Two_Listed_Stops_Are_A_Colour(uint[] colors, float[] positions, uint expected)
+    {
+        var picture = BuildAndEvaluate(Listed, ("colors", Colours(colors)), ("positions", ExprValue.NumberList(positions)));
+
+        var shader = Assert.IsType<ColorShader>(Paints(picture).First().Shader);
+        Assert.Equal(new SKColor((byte)(expected >> 24), (byte)(expected >> 16), (byte)(expected >> 8), (byte)expected), shader.Color);
+    }
+
+    [Theory]
+    [InlineData(new[] { 0f, 0.5f, 1f }, 0x0000ffffu)]
+    [InlineData(new[] { 0f, 1f }, 0x00ff00ffu)]
+    [InlineData(new float[0], 0x00000000u)]
+    public void A_Listed_Radial_Gradient_Of_No_Radius_Paints_The_Last_Of_The_Stops_The_Lists_Make(float[] positions, uint expected)
+    {
+        var picture = BuildAndEvaluate(
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="24" height="24">
+              <defs>
+                <e:code>
+                  <e:param name="colors" type="color[]" />
+                  <e:param name="positions" type="number[]" />
+                </e:code>
+                <radialGradient id="g" r="0" e:stop-colors="{{ colors }}" e:stop-offsets="{{ positions }}">
+                  <stop offset="0" stop-color="#F7DE77" /><stop offset="1" stop-color="#ACE3E3" />
+                </radialGradient>
+              </defs>
+              <rect width="24" height="24" fill="url(#g)" />
+            </svg>
+            """,
+            ("colors", Colours(0xff0000ff, 0x00ff00ff, 0x0000ffff)),
+            ("positions", ExprValue.NumberList(positions)));
+
+        var shader = Assert.IsType<ColorShader>(SinglePaint(picture).Shader);
+        Assert.Equal(new SKColor((byte)(expected >> 24), (byte)(expected >> 16), (byte)(expected >> 8), (byte)expected), shader.Color);
+    }
 }

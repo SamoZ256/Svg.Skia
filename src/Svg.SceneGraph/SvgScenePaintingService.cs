@@ -79,12 +79,13 @@ internal static class SvgScenePaintingService
             ColorPos = null;
         }
 
-        public GradientStopCacheEntry(SKColorF[] colors, float[] colorPos)
+        public GradientStopCacheEntry(SKColorF[] colors, float[] colorPos, SymGradientStops? stops = null)
         {
             HasStops = true;
             SingleColor = default;
             Colors = colors;
             ColorPos = colorPos;
+            Stops = stops;
         }
 
         public static GradientStopCacheEntry Empty { get; } = new();
@@ -96,6 +97,8 @@ internal static class SvgScenePaintingService
         public SKColorF[]? Colors { get; }
 
         public float[]? ColorPos { get; }
+
+        public SymGradientStops? Stops { get; }
     }
 
     private readonly struct GradientServerChain
@@ -848,18 +851,54 @@ internal static class SvgScenePaintingService
         GradientPaintCache? gradientPaintCache,
         out SKColor singleColor,
         out SKColorF[]? colors,
-        out float[]? colorPos)
+        out float[]? colorPos,
+        out SymGradientStops? listed)
     {
-        singleColor = default;
-        colors = null;
-        colorPos = null;
-
-        if (gradientPaintCache is not null &&
-            gradientPaintCache.TryGetStops(rootGradientServer, opacity, ignoreAttributes, isLinearRgb, out var cachedEntry))
+        if (gradientPaintCache is null ||
+            !gradientPaintCache.TryGetStops(rootGradientServer, opacity, ignoreAttributes, isLinearRgb, out var entry))
         {
-            return TryGetCachedGradientStops(cachedEntry, out singleColor, out colors, out colorPos);
+            entry = CreateGradientStops(svgReferencedGradientServers, opacity, ignoreAttributes, isLinearRgb);
+            gradientPaintCache?.SetStops(rootGradientServer, opacity, ignoreAttributes, isLinearRgb, entry);
         }
 
+        singleColor = entry.SingleColor;
+        colors = entry.Colors;
+        colorPos = entry.ColorPos;
+        listed = entry.Stops;
+        return entry.HasStops;
+    }
+
+    /// <summary>
+    /// The stops a gradient draws as written, and the lists that replace them once bound, where the
+    /// document gives them.
+    /// </summary>
+    /// <remarks>
+    /// A listed gradient is recorded as a gradient whatever its own stops come to, since how many the
+    /// lists hold is known only once they are bound: none written is two transparent ones, and one is
+    /// doubled.
+    /// </remarks>
+    private static GradientStopCacheEntry CreateGradientStops(
+        GradientServerChain svgReferencedGradientServers,
+        Sym<float> opacity,
+        DrawAttributes ignoreAttributes,
+        bool isLinearRgb)
+    {
+        var written = CreateWrittenGradientStops(svgReferencedGradientServers, opacity, ignoreAttributes, isLinearRgb);
+        if (Listed(svgReferencedGradientServers, opacity, ignoreAttributes, isLinearRgb) is not { } listed)
+        {
+            return written;
+        }
+
+        var single = (SKColorF)written.SingleColor;
+        return new GradientStopCacheEntry(written.Colors ?? new[] { single, single }, written.ColorPos ?? new[] { 0f, 1f }, listed);
+    }
+
+    private static GradientStopCacheEntry CreateWrittenGradientStops(
+        GradientServerChain svgReferencedGradientServers,
+        Sym<float> opacity,
+        DrawAttributes ignoreAttributes,
+        bool isLinearRgb)
+    {
         for (var i = 0; i < svgReferencedGradientServers.Count; i++)
         {
             var svgReferencedGradientServer = svgReferencedGradientServers[i];
@@ -871,42 +910,25 @@ internal static class SvgScenePaintingService
 
             if (stops.Count == 1)
             {
-                if (TryGetGradientStopColor(stops[0], opacity, ignoreAttributes, isLinearRgb, out singleColor))
+                if (TryGetGradientStopColor(stops[0], opacity, ignoreAttributes, isLinearRgb, out var singleColor))
                 {
-                    gradientPaintCache?.SetStops(
-                        rootGradientServer,
-                        opacity,
-                        ignoreAttributes,
-                        isLinearRgb,
-                        new GradientStopCacheEntry(singleColor));
-                    return true;
+                    return new GradientStopCacheEntry(singleColor);
                 }
 
                 continue;
             }
 
-            colors = new SKColorF[stops.Count];
-            colorPos = new float[stops.Count];
+            var colors = new SKColorF[stops.Count];
+            var colorPos = new float[stops.Count];
             var stopCount = FillGradientStops(stops, opacity, ignoreAttributes, isLinearRgb, colors, colorPos);
             if (stopCount == 0)
             {
-                colors = null;
-                colorPos = null;
                 continue;
             }
 
             if (stopCount == 1)
             {
-                singleColor = (SKColor)colors[0];
-                colors = null;
-                colorPos = null;
-                gradientPaintCache?.SetStops(
-                    rootGradientServer,
-                    opacity,
-                    ignoreAttributes,
-                    isLinearRgb,
-                    new GradientStopCacheEntry(singleColor));
-                return true;
+                return new GradientStopCacheEntry((SKColor)colors[0]);
             }
 
             if (stopCount != stops.Count)
@@ -916,34 +938,52 @@ internal static class SvgScenePaintingService
             }
 
             AdjustStopColorPos(colorPos);
-            gradientPaintCache?.SetStops(
-                rootGradientServer,
-                opacity,
-                ignoreAttributes,
-                isLinearRgb,
-                new GradientStopCacheEntry(colors, colorPos));
-            return true;
+            return new GradientStopCacheEntry(colors, colorPos);
         }
 
-        gradientPaintCache?.SetStops(
-            rootGradientServer,
-            opacity,
-            ignoreAttributes,
-            isLinearRgb,
-            GradientStopCacheEntry.Empty);
-        return false;
+        return GradientStopCacheEntry.Empty;
     }
 
-    private static bool TryGetCachedGradientStops(
-        GradientStopCacheEntry entry,
-        out SKColor singleColor,
-        out SKColorF[]? colors,
-        out float[]? colorPos)
+    /// <summary>
+    /// The gradient's <c>e:stop-colors</c> and <c>e:stop-offsets</c>, each found along href as the
+    /// gradient's other attributes are, but no further than the stops they replace, with the opacity
+    /// that scales each colour the way <see cref="GetColor"/> scales a stop's.
+    /// </summary>
+    private static SymGradientStops? Listed(
+        GradientServerChain svgReferencedGradientServers,
+        Sym<float> opacity,
+        DrawAttributes ignoreAttributes,
+        bool isLinearRgb)
     {
-        singleColor = entry.SingleColor;
-        colors = entry.Colors;
-        colorPos = entry.ColorPos;
-        return entry.HasStops;
+        var colors = Inherit(
+            svgReferencedGradientServers,
+            SvgExpressionAttributes.KeyFor(SvgExpressionAttributes.StopColors),
+            static (SvgGradientServer g) => SvgSceneExpressions.Braced(g, SvgExpressionAttributes.StopColors),
+            null,
+            shadowedByStops: true);
+        if (colors is null)
+        {
+            return null;
+        }
+
+        var offsets = Inherit(
+            svgReferencedGradientServers,
+            SvgExpressionAttributes.KeyFor(SvgExpressionAttributes.StopOffsets),
+            static (SvgGradientServer g) => SvgSceneExpressions.Braced(g, SvgExpressionAttributes.StopOffsets),
+            null,
+            shadowedByStops: true);
+        var factor = ignoreAttributes.Has(DrawAttributes.Opacity)
+            ? SymNode.One
+            : opacity.Expression ?? SymNode.Literal(opacity.Value);
+
+        return new SymGradientStops(colors, offsets, factor, isLinearRgb);
+    }
+
+    /// <summary>The colour the lists draw where a radial gradient has no radius: their last stop.</summary>
+    private static SymNode LastStop(SymGradientStops listed)
+    {
+        var faded = SymNode.ScaleAlpha(SymNode.Last(listed.Colors, listed.Offsets), listed.Opacity);
+        return listed.LinearRgb ? SymNode.ToLinearRgb(faded) : faded;
     }
 
     private static int FillGradientStops(
@@ -1033,7 +1073,7 @@ internal static class SvgScenePaintingService
         return isLinearRgb ? ToLinear(stopColor) : stopColor;
     }
 
-    private static void AdjustStopColorPos(float[] colorPos)
+    internal static void AdjustStopColorPos(float[] colorPos)
     {
         var maxPos = float.MinValue;
         for (var i = 0; i < colorPos.Length; i++)
@@ -1053,7 +1093,11 @@ internal static class SvgScenePaintingService
     private static float GetGradientStopOffset(SvgGradientStop svgGradientStop)
     {
         var offset = svgGradientStop.Offset;
-        var value = offset.Type == SvgUnitType.Percentage ? offset.Value / 100f : offset.Value;
+        return ClampStopOffset(offset.Type == SvgUnitType.Percentage ? offset.Value / 100f : offset.Value);
+    }
+
+    internal static float ClampStopOffset(float value)
+    {
         if (float.IsNaN(value) || float.IsNegativeInfinity(value))
         {
             return 0f;
@@ -1068,7 +1112,9 @@ internal static class SvgScenePaintingService
     }
 
     // A length of none counts as unset, leaving the attribute to the next gradient along href.
-    private static TValue Inherit<T, TValue>(GradientServerChain svgReferencedGradientServers, string attribute, Func<T, TValue> get, TValue fallback)
+    // Where shadowedByStops, the walk ends at the first gradient with stops of its own, past which
+    // stops are not inherited either.
+    private static TValue Inherit<T, TValue>(GradientServerChain svgReferencedGradientServers, string attribute, Func<T, TValue> get, TValue fallback, bool shadowedByStops = false)
         where T : SvgGradientServer
     {
         for (var i = 0; i < svgReferencedGradientServers.Count; i++)
@@ -1077,6 +1123,11 @@ internal static class SvgScenePaintingService
                 get(server) is var value && !(value is SvgUnit unit && unit == SvgUnit.None))
             {
                 return value;
+            }
+
+            if (shadowedByStops && svgReferencedGradientServers[i].Stops.Count > 0)
+            {
+                break;
             }
         }
 
@@ -1170,7 +1221,8 @@ internal static class SvgScenePaintingService
                 gradientPaintCache,
                 out var singleColor,
                 out var skColorsF,
-                out var skColorPos))
+                out var skColorPos,
+                out var listed))
         {
             return null;
         }
@@ -1182,7 +1234,7 @@ internal static class SvgScenePaintingService
 
         var skStart = new SKPoint(x1, y1);
         var skEnd = new SKPoint(x2, y2);
-        return new LinearGradientShader(skStart, skEnd, skColorsF, skColorSpace, skColorPos, shaderTileMode, GetGradientMatrix(svgGradientUnits, skBounds, svgGradientTransform));
+        return new LinearGradientShader(skStart, skEnd, skColorsF, skColorSpace, skColorPos, shaderTileMode, GetGradientMatrix(svgGradientUnits, skBounds, svgGradientTransform)) { Stops = listed };
     }
 
     private static SKShader? CreateTwoPointConicalGradient(
@@ -1228,7 +1280,8 @@ internal static class SvgScenePaintingService
                 gradientPaintCache,
                 out var singleColor,
                 out var skColorsF,
-                out var skColorPos))
+                out var skColorPos,
+                out var listed))
         {
             return null;
         }
@@ -1240,7 +1293,8 @@ internal static class SvgScenePaintingService
 
         if (radius == 0f)
         {
-            return SKShader.CreateColor((SKColor)skColorsF[skColorsF.Length - 1], skColorSpace);
+            var last = (SKColor)skColorsF[skColorsF.Length - 1];
+            return SKShader.CreateColor(listed is { } ? last.WithExpression(LastStop(listed)) : last, skColorSpace);
         }
 
         var skCenter = new SKPoint(centerX, centerY);
@@ -1254,8 +1308,8 @@ internal static class SvgScenePaintingService
         var isRadialGradient = focalRadius == 0f && skCenter.X == skFocal.X && skCenter.Y == skFocal.Y;
         var localMatrix = GetGradientMatrix(svgGradientUnits, skBounds, svgGradientTransform);
         return isRadialGradient
-            ? new RadialGradientShader(skCenter, radius, skColorsF, skColorSpace, skColorPos, shaderTileMode, localMatrix)
-            : new TwoPointConicalGradientShader(skFocal, focalRadius, skCenter, radius, skColorsF, skColorSpace, skColorPos, shaderTileMode, localMatrix);
+            ? new RadialGradientShader(skCenter, radius, skColorsF, skColorSpace, skColorPos, shaderTileMode, localMatrix) { Stops = listed }
+            : new TwoPointConicalGradientShader(skFocal, focalRadius, skCenter, radius, skColorsF, skColorSpace, skColorPos, shaderTileMode, localMatrix) { Stops = listed };
     }
 
     private static SKShader? CreateSweepGradient(
@@ -1295,7 +1349,8 @@ internal static class SvgScenePaintingService
                 gradientPaintCache,
                 out var singleColor,
                 out var skColorsF,
-                out var skColorPos))
+                out var skColorPos,
+                out var listed))
         {
             return null;
         }
@@ -1306,7 +1361,7 @@ internal static class SvgScenePaintingService
         }
 
         var skCenter = new SKPoint(centerX, centerY);
-        return new SweepGradientShader(skCenter, startAngle, endAngle, skColorsF, skColorSpace, skColorPos, shaderTileMode, GetGradientMatrix(svgGradientUnits, skBounds, svgGradientTransform));
+        return new SweepGradientShader(skCenter, startAngle, endAngle, skColorsF, skColorSpace, skColorPos, shaderTileMode, GetGradientMatrix(svgGradientUnits, skBounds, svgGradientTransform)) { Stops = listed };
     }
 
     private static SKShader? CreatePatternShader(

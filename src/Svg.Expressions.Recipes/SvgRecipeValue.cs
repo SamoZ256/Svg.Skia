@@ -78,9 +78,8 @@ public static class SvgRecipeValue
     {
         key = string.Empty;
 
-        // A rule's type comes from SvgExpressionAttributes, where no attribute is an integer, so
-        // the two types missing below are string -- which a rule cannot name -- and integer, which
-        // nothing can reach this with.
+        // A rule's type comes from SvgExpressionAttributes, where no attribute is an integer or a
+        // list. A string is one a rule cannot name.
         switch (type)
         {
             case ExprType.Color:
@@ -119,8 +118,16 @@ public static class SvgRecipeValue
                 key = text.ToLowerInvariant();
                 return true;
 
-            default:
+            case ExprType.String:
+            case ExprType.Integer:
                 return false;
+
+            case ExprType.NumberList:
+            case ExprType.ColorList:
+                throw new NotSupportedException($"No attribute a recipe rule names holds a {ExprFunctions.Describe(type)}.");
+
+            default:
+                throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.");
         }
     }
 
@@ -137,6 +144,7 @@ public static class SvgRecipeValue
             ExprType.Color => "colour",
             ExprType.Number => "number",
             ExprType.Boolean => "keyword",
-            _ => type.ToString().ToLowerInvariant()
+            ExprType.String or ExprType.Integer or ExprType.NumberList or ExprType.ColorList => ExprFunctions.Describe(type),
+            _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.")
         };
 }
