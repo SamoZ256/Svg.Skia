@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using Avalonia.Media;
 using Svg.Expressions;
 using Xunit;
 
@@ -36,6 +37,8 @@ public class SvgViewerParameterFactoryTests
     [InlineData("""<e:param name="p" type="color" default="#22c55e" />""")]
     [InlineData("""<e:param name="p" type="boolean" default="true" />""")]
     [InlineData("""<e:param name="p" type="string" default="'dark'" />""")]
+    [InlineData("""<e:param name="p" type="number[]" default="[0, 0.42, 1]" />""")]
+    [InlineData("""<e:param name="p" type="color[]" default="[#22c55e, #00000080]" />""")]
     public void A_Row_Takes_Back_What_It_Gave(string param)
     {
         var row = SvgViewerParameterFactory.Create(Declare(param));
@@ -51,6 +54,8 @@ public class SvgViewerParameterFactoryTests
     [InlineData("""<e:param name="p" type="color" default="#22c55e" />""")]
     [InlineData("""<e:param name="p" type="boolean" default="true" />""")]
     [InlineData("""<e:param name="p" type="string" default="'dark'" />""")]
+    [InlineData("""<e:param name="p" type="number[]" default="[0, 1]" />""")]
+    [InlineData("""<e:param name="p" type="color[]" default="[#22c55e]" />""")]
     public void A_Row_Refuses_A_Value_Of_Another_Type(string param)
     {
         var row = SvgViewerParameterFactory.Create(Declare(param));
@@ -65,6 +70,8 @@ public class SvgViewerParameterFactoryTests
                      ExprValue.Color(1, 2, 3, 4),
                      ExprValue.Boolean(false),
                      ExprValue.String("other"),
+                     ExprValue.NumberList(new[] { 9f }),
+                     ExprValue.ColorList(new[] { ExprValue.Color(1, 2, 3, 4) }),
                  })
         {
             if (other.Type == row.Type)
@@ -372,5 +379,196 @@ public class SvgViewerParameterFactoryTests
 
         Assert.False(row.IsModified);
         Assert.Equal(0.25f, row.ToExprValue().AsNumber, 4);
+    }
+
+    [Fact]
+    public void A_List_Is_Described_As_Its_Literal_In_The_Element_Spellings()
+    {
+        // A let can come to a list, and its readout spells each element as a lone value is spelled:
+        // three bytes for an opaque colour, round-trip digits for a number.
+        Assert.Equal(
+            "[0, 0.5, 1]",
+            SvgViewerParameterFactory.Describe(ExprValue.NumberList(new[] { 0f, 0.5f, 1f })));
+        Assert.Equal(
+            "[#ff0000, #00000080]",
+            SvgViewerParameterFactory.Describe(ExprValue.ColorList(new[] { ExprValue.Color(255, 0, 0, 255), ExprValue.Color(0, 0, 0, 0x80) })));
+        Assert.Equal("[]", SvgViewerParameterFactory.Describe(ExprValue.ColorList(Array.Empty<ExprValue>())));
+    }
+
+    // ---- lists ------------------------------------------------------------------------------
+
+    [Fact]
+    public void A_List_Gets_A_Row_Of_Its_Kind_Seeded_From_Its_Default()
+    {
+        var numbers = Assert.IsType<SvgViewerNumberListParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="positions" type="number[]" default="[0, 0.42, 1]" />""")));
+        var colours = Assert.IsType<SvgViewerColorListParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="colors" type="color[]" default="[#ff0000, rgba(0, 0, 255, 0.5)]" />""")));
+
+        Assert.Equal(new[] { 0d, 0.42d, 1d }, numbers.Items.Select(item => item.Value));
+        Assert.Equal(new[] { Color.FromArgb(0xFF, 0xFF, 0, 0), Color.FromArgb(0x80, 0, 0, 0xFF) }, colours.Items.Select(item => item.Value));
+        Assert.Equal(new[] { "colors[0]", "colors[1]" }, colours.Items.Select(item => item.Label));
+        Assert.False(numbers.IsModified);
+        Assert.False(colours.IsModified);
+    }
+
+    /// <summary>Nothing is invented for a list nobody gave a default: it starts empty.</summary>
+    [Fact]
+    public void A_List_Without_A_Default_Starts_Empty()
+    {
+        var row = Assert.IsType<SvgViewerColorListParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="colors" type="color[]" />""")));
+
+        Assert.True(row.IsEmpty);
+        Assert.Equal(ExprValue.ColorList(Array.Empty<ExprValue>()), row.ToExprValue());
+        Assert.Equal("[]", row.ToExpression());
+    }
+
+    [Fact]
+    public void Every_Change_To_A_List_Is_One_Change_And_A_Reset_Undoes_Them()
+    {
+        var row = Assert.IsType<SvgViewerNumberListParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="positions" type="number[]" default="[0, 1]" />""")));
+        var raised = 0;
+
+        row.ValueChanged += (_, _) => raised++;
+
+        // A copy of the last element, so a new stop starts where the gradient already ends.
+        row.Add();
+        Assert.Equal(new[] { 0d, 1d, 1d }, row.Items.Select(item => item.Value));
+
+        row.Items[1].Value = 0.5d;
+        row.Items[1].MoveUp();
+        Assert.Equal(new[] { 0.5d, 0d, 1d }, row.Items.Select(item => item.Value));
+        Assert.False(row.Items[0].CanMoveUp);
+        Assert.False(row.Items[2].CanMoveDown);
+
+        // Moving past either end is no change at all.
+        row.Items[0].MoveUp();
+        row.Items[2].MoveDown();
+
+        row.Items[2].Remove();
+
+        Assert.Equal(4, raised);
+        Assert.Equal(ExprValue.NumberList(new[] { 0.5f, 0f }), row.ToExprValue());
+        Assert.True(row.IsModified);
+
+        row.ResetToDefault();
+
+        Assert.Equal(5, raised);
+        Assert.False(row.IsModified);
+        Assert.Equal(new[] { "positions[0]", "positions[1]" }, row.Items.Select(item => item.Label));
+
+        // Back where it started, a reset is not a change.
+        row.ResetToDefault();
+        Assert.Equal(5, raised);
+    }
+
+    [Fact]
+    public void An_Empty_List_Grows_A_Zero_Or_A_Black()
+    {
+        var numbers = Assert.IsType<SvgViewerNumberListParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="positions" type="number[]" />""")));
+        var colours = Assert.IsType<SvgViewerColorListParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="colors" type="color[]" />""")));
+
+        numbers.Add();
+        colours.Add();
+
+        Assert.Equal(0d, Assert.Single(numbers.Items).Value);
+        Assert.Equal(Colors.Black, Assert.Single(colours.Items).Value);
+        Assert.False(numbers.IsEmpty);
+    }
+
+    /// <summary>What a commit writes for a list is a literal that declares the list it came from.</summary>
+    [Fact]
+    public void A_List_Is_Committed_As_A_Literal_The_Language_Reads_Back()
+    {
+        var numbers = Assert.IsType<SvgViewerNumberListParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="positions" type="number[]" default="[0, 1]" />""")));
+        var colours = Assert.IsType<SvgViewerColorListParameter>(
+            SvgViewerParameterFactory.Create(Declare("""<e:param name="colors" type="color[]" default="[#ff0000]" />""")));
+
+        numbers.Items[0].Value = 0.00001d;
+        numbers.Items[1].Value = 1E+20d;
+        colours.Add();
+        colours.Items[1].Value = Color.FromArgb(0x80, 0, 0, 0xFF);
+
+        Assert.Equal("[0.00001, 100000000000000000000]", numbers.ToExpression());
+        Assert.Equal("[#ff0000, #0000ff80]", colours.ToExpression());
+
+        foreach (SvgViewerParameter row in new SvgViewerParameter[] { numbers, colours })
+        {
+            Assert.Equal(row.ToExprValue(), ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(row.ToExpression(), row.Type, "The default"));
+        }
+    }
+
+    [Theory]
+    [InlineData(0.00001d, "0.00001")]
+    [InlineData(-1E+20d, "-100000000000000000000")]
+    public void A_Number_Is_Committed_In_Digits_The_Language_Reads_Back(double value, string written)
+    {
+        var row = Number("""<e:param name="t" type="number" default="0" />""");
+
+        row.Value = value;
+
+        Assert.Equal(written, row.ToExpression());
+        Assert.Equal(row.ToExprValue(), ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(written, ExprType.Number, "The default"));
+    }
+
+    /// <summary>An integer row with no range reaches int.MinValue, which a minus over 2147483648 is not.</summary>
+    [Fact]
+    public void An_Integer_At_Either_End_Is_Committed_So_That_It_Reads_Back()
+    {
+        var row = Integer("""<e:param name="n" type="integer" default="0" />""");
+
+        foreach (var value in new[] { row.Minimum, row.Maximum })
+        {
+            row.Value = value;
+
+            Assert.Equal(value, ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(row.ToExpression(), ExprType.Integer, "The default").AsInteger);
+        }
+    }
+
+    /// <summary>
+    /// A row holds the float it was given, digits a float needs eight or nine of, a negative zero and
+    /// a tiny number included, since a list commits every element whenever one is edited.
+    /// </summary>
+    [Fact]
+    public void A_Row_Holds_Every_Float_It_Is_Given()
+    {
+        const string defaults = "[0, 1 / 3, 0.12345679, 12345.678, 123456789, 1]";
+
+        var declared = ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(defaults, ExprType.NumberList, "The default").AsNumberList;
+        var list = Assert.IsType<SvgViewerNumberListParameter>(
+            SvgViewerParameterFactory.Create(Declare($"""<e:param name="xs" type="number[]" default="{defaults}" />""")));
+
+        Assert.Equal(declared, list.ToExprValue().AsNumberList);
+
+        // Only the last element is edited; what is committed is every other one as it was declared.
+        list.Items[5].Value = 0.9d;
+
+        Assert.Equal(
+            declared.Take(5).Append(0.9f),
+            ExprEvaluator.Create(SvgExpressionDeclarations.Empty, null).EvaluateTo(list.ToExpression(), ExprType.NumberList, "The default").AsNumberList);
+
+        var given = new[] { 0.1f, 1E-07f, 123456789f, -0f, 1E-30f, float.Epsilon, float.MaxValue, 7.038531E-26f };
+
+        Assert.True(list.TrySet(ExprValue.NumberList(given)));
+        Assert.Equal(given.Select(BitConverter.SingleToInt32Bits), list.ToExprValue().AsNumberList.Select(BitConverter.SingleToInt32Bits));
+        Assert.StartsWith("[0.1, 0.0000001, 123456790, -0, ", list.ToExpression());
+
+        // Still without the binary tail a plain widening gives 0.1, which is what a field shows.
+        Assert.Equal(0.1d, list.Items[0].Value);
+
+        var third = Number("""<e:param name="third" type="number" default="1 / 3" />""");
+
+        Assert.Equal(1f / 3f, third.ToExprValue().AsNumber);
+
+        foreach (var number in given)
+        {
+            Assert.True(third.TrySet(ExprValue.Number(number)));
+            Assert.Equal(BitConverter.SingleToInt32Bits(number), BitConverter.SingleToInt32Bits(third.ToExprValue().AsNumber));
+        }
     }
 }

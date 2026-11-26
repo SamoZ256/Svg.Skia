@@ -71,7 +71,14 @@ internal static class ExprCSharpBackend
     /// C# will not let a local shadow the parameter it is derived from. Empty for every other
     /// expression, including the defaults themselves.
     /// </param>
-    public static string Emit(TypedExpr node, IReadOnlyDictionary<string, string>? symbolNames = null)
+    /// <param name="members">
+    /// The class the code lands in, where a list literal keeps its array. Without one, as from the
+    /// public compiler, a list is written out where it stands and allocates each time it runs.
+    /// </param>
+    public static string Emit(
+        TypedExpr node,
+        IReadOnlyDictionary<string, string>? symbolNames = null,
+        SkiaCSharpCodeGenCounter? members = null)
         => node switch
         {
             TypedNumber number => Literal(number.Value),
@@ -81,11 +88,13 @@ internal static class ExprCSharpBackend
             TypedString text => Literal(text.Value),
             TypedSymbol symbol => Name(symbol, symbolNames),
             TypedConstant constant => EmitConstant(constant.Constant),
-            TypedUnary unary => EmitUnary(unary, symbolNames),
-            TypedBinary binary => EmitBinary(binary, symbolNames),
+            TypedUnary unary => EmitUnary(unary, symbolNames, members),
+            TypedBinary binary => EmitBinary(binary, symbolNames, members),
             TypedConditional conditional =>
-                $"({Emit(conditional.Condition, symbolNames)} ? {Emit(conditional.WhenTrue, symbolNames)} : {Emit(conditional.WhenFalse, symbolNames)})",
-            TypedCall call => EmitCall(call, symbolNames),
+                $"({Emit(conditional.Condition, symbolNames, members)} ? {Emit(conditional.WhenTrue, symbolNames, members)} : {Emit(conditional.WhenFalse, symbolNames, members)})",
+            TypedCall call => EmitCall(call, symbolNames, members),
+            TypedList list => EmitList(list, symbolNames, members),
+            TypedIndex index => $"{ExprHelpers.At}({Emit(index.List, symbolNames, members)}, {Emit(index.Index, symbolNames, members)})",
             _ => throw new NotSupportedException($"Unsupported {nameof(TypedExpr)}: {node.GetType().Name}.")
         };
 
@@ -100,7 +109,75 @@ internal static class ExprCSharpBackend
             ExprType.Color => "SKColor",
             ExprType.Boolean => "bool",
             ExprType.String => "string",
+
+            // What a host has already: a List<T> or an array passes as one without a copy.
+            ExprType.NumberList => "IReadOnlyList<float>",
+            ExprType.ColorList => "IReadOnlyList<SKColor>",
             _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}.")
+        };
+
+    /// <summary>A list of no elements, which allocates nothing.</summary>
+    public static string EmptyList(ExprType type) => $"Array.Empty<{ElementTypeOf(type)}>()";
+
+    private static string ElementTypeOf(ExprType type)
+        => CSharpTypeOf(type == ExprType.ColorList ? ExprType.Color : ExprType.Number);
+
+    /// <summary>
+    /// A list literal: one that reads nothing a draw passes is an array built once, and one that does
+    /// is filled into an array its site keeps per thread, so a repeated draw allocates nothing.
+    /// </summary>
+    /// <remarks>
+    /// Its static type is <c>IReadOnlyList</c> wherever it is written, as a parameter's is, so
+    /// <c>.Count</c> reads it: an array hides that property.
+    /// </remarks>
+    private static string EmitList(TypedList list, IReadOnlyDictionary<string, string>? symbolNames, SkiaCSharpCodeGenCounter? members)
+    {
+        var element = ElementTypeOf(list.Type);
+        var elements = string.Join(", ", list.Elements.Select(item => Emit(item, symbolNames, members)));
+        var array = list.Elements.Count == 0 ? EmptyList(list.Type) : $"new {element}[] {{ {elements} }}";
+
+        if (members is null)
+        {
+            return $"(({CSharpTypeOf(list.Type)}){array})";
+        }
+
+        var reads = list.Elements.Any(Reads);
+        var type = reads ? $"{element}[]" : CSharpTypeOf(list.Type);
+
+        // One field per spelling: two sites written alike fill alike, an expression reading nothing
+        // a draw changes once it has begun.
+        var key = $"list {type} {(reads ? elements : array)}";
+
+        if (!members.StaticTexts.TryGetValue(key, out var name))
+        {
+            name = $"{members.ListVarName}{++members.List}";
+            members.StaticTexts.Add(key, name);
+
+            if (reads)
+            {
+                members.ThreadStatics.Add((type, name));
+            }
+            else
+            {
+                members.StaticFields.Add((type, name, array));
+            }
+        }
+
+        return reads ? $"{ExprHelpers.ListOf}(ref s_{name}, stackalloc {element}[] {{ {elements} }})" : $"s_{name}";
+    }
+
+    /// <summary>Whether <paramref name="node"/> reads a parameter or a let.</summary>
+    private static bool Reads(TypedExpr node)
+        => node switch
+        {
+            TypedSymbol => true,
+            TypedUnary unary => Reads(unary.Operand),
+            TypedBinary binary => Reads(binary.Left) || Reads(binary.Right),
+            TypedConditional conditional => Reads(conditional.Condition) || Reads(conditional.WhenTrue) || Reads(conditional.WhenFalse),
+            TypedCall call => call.Arguments.Any(Reads),
+            TypedList list => list.Elements.Any(Reads),
+            TypedIndex index => Reads(index.List) || Reads(index.Index),
+            _ => false
         };
 
     private static string EmitConstant(ExprConstant constant)
@@ -115,10 +192,10 @@ internal static class ExprCSharpBackend
     /// between two ints throws where the language answers, and <c>+</c>, <c>-</c> and <c>*</c> wrap
     /// in both.
     /// </remarks>
-    private static string EmitBinary(TypedBinary binary, IReadOnlyDictionary<string, string>? symbolNames)
+    private static string EmitBinary(TypedBinary binary, IReadOnlyDictionary<string, string>? symbolNames, SkiaCSharpCodeGenCounter? members)
     {
-        var left = Emit(binary.Left, symbolNames);
-        var right = Emit(binary.Right, symbolNames);
+        var left = Emit(binary.Left, symbolNames, members);
+        var right = Emit(binary.Right, symbolNames, members);
 
         if (binary.Op == ExprBinaryOp.Divide && binary.Type == ExprType.Integer)
         {
@@ -128,14 +205,19 @@ internal static class ExprCSharpBackend
         return $"({left} {ExprFunctions.OperatorText(binary.Op)} {right})";
     }
 
-    private static string EmitUnary(TypedUnary unary, IReadOnlyDictionary<string, string>? symbolNames)
+    private static string EmitUnary(TypedUnary unary, IReadOnlyDictionary<string, string>? symbolNames, SkiaCSharpCodeGenCounter? members)
         => unary.Op == ExprUnaryOp.Negate
-            ? $"(-{Emit(unary.Operand, symbolNames)})"
-            : $"(!{Emit(unary.Operand, symbolNames)})";
+            ? $"(-{Emit(unary.Operand, symbolNames, members)})"
+            : $"(!{Emit(unary.Operand, symbolNames, members)})";
 
-    private static string EmitCall(TypedCall call, IReadOnlyDictionary<string, string>? symbolNames)
+    private static string EmitCall(TypedCall call, IReadOnlyDictionary<string, string>? symbolNames, SkiaCSharpCodeGenCounter? members)
     {
-        var arguments = call.Arguments.Select(argument => Emit(argument, symbolNames)).ToList();
+        var arguments = call.Arguments.Select(argument => Emit(argument, symbolNames, members)).ToList();
+
+        if (call.Function == ExprFunction.Len && call.Arguments[0].Type is ExprType.NumberList or ExprType.ColorList)
+        {
+            return $"{arguments[0]}.Count";
+        }
 
         // An integer call is spelled from its own table where the two differ. The result type
         // answers for it, every argument of an integer overload being an integer as well.

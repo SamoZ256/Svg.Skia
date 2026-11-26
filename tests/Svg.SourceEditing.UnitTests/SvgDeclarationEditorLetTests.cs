@@ -514,4 +514,27 @@ public class SvgDeclarationEditorLetTests
                   <e:let name="half">hue / 2</e:let>
             """.TrimEnd(), edited);
     }
+
+    [Fact]
+    public void A_Typed_Let_Is_Checked_As_What_It_Was_Declared()
+    {
+        // Untyped, [] cannot be checked at all, and the editor would refuse the let as one that
+        // leaves itself unresolved.
+        var source = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs><e:code><e:param name="tint" type="color" default="#ff0000" /></e:code></defs>
+            </svg>
+            """;
+
+        var edited = Apply(source, Run(source, source => SvgDeclarationEditor.AddLet(source, "none", "[]", ExprType.ColorList)));
+        edited = Apply(edited, Run(edited, source => SvgDeclarationEditor.AddLet(source, "ramp", "[tint, #fff]")));
+
+        Assert.Contains("<e:let name=\"none\" type=\"color[]\">[]</e:let>", edited);
+        Assert.Equal(ExprType.ColorList, Declared(edited, "none").DeclaredType);
+        Assert.Equal(new[] { "none", "ramp" }, Order(edited));
+
+        var refused = Run(edited, source => SvgDeclarationEditor.AddLet(source, "stray", "[]"));
+        Assert.False(refused.Succeeded);
+        Assert.Contains("An empty list needs a type.", refused.Refusal);
+    }
 }

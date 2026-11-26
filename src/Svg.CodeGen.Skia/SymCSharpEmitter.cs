@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Text;
 using ShimSkiaSharp;
 using Svg.CodeGen.Skia.Expressions;
@@ -98,6 +99,20 @@ public static class SymCSharpEmitter
                 sb.Append(')');
                 break;
 
+            case SymUnary { Op: SymOp.Last } unary:
+                sb.Append(ExprHelpers.Last).Append('(');
+                Emit(unary.Operand, sb, ExprType.ColorList);
+                sb.Append(", null)");
+                break;
+
+            case SymBinary { Op: SymOp.Last } binary:
+                sb.Append(ExprHelpers.Last).Append('(');
+                Emit(binary.Left, sb, ExprType.ColorList);
+                sb.Append(", ");
+                Emit(binary.Right, sb, ExprType.NumberList);
+                sb.Append(')');
+                break;
+
             case SymBinary { Op: SymOp.ScaleAlpha } binary:
                 sb.Append(ExprHelpers.ScaleAlpha).Append('(');
                 Emit(binary.Left, sb, ExprType.Color);
@@ -149,6 +164,16 @@ public static class SymCSharpEmitter
                 value = ExprColor.ToLinearRgb(color);
                 return true;
 
+            case SymUnary { Op: SymOp.Last } unary when TryConstant(unary.Operand, ExprType.ColorList, out var list):
+                value = Last(list.AsColorList, null);
+                return true;
+
+            case SymBinary { Op: SymOp.Last } binary
+                when TryConstant(binary.Left, ExprType.ColorList, out var list)
+                     && TryConstant(binary.Right, ExprType.NumberList, out var offsets):
+                value = Last(list.AsColorList, offsets.AsNumberList);
+                return true;
+
             // Unclamped, so a factor outside [0, 1] casts an out-of-range double to a byte, which
             // .NET answers differently by version and platform. Only the drawing's own runtime may.
             case SymBinary { Op: SymOp.ScaleAlpha } binary
@@ -173,6 +198,12 @@ public static class SymCSharpEmitter
             default:
                 return false;
         }
+    }
+
+    private static ExprValue Last(IReadOnlyList<ExprValue> colors, IReadOnlyList<float>? offsets)
+    {
+        var count = offsets is null ? colors.Count : Math.Min(colors.Count, offsets.Count);
+        return count == 0 ? ExprValue.Color(0, 0, 0, 0) : colors[count - 1];
     }
 
     private static string OperatorText(SymOp op)

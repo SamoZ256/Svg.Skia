@@ -445,6 +445,18 @@ public static class SvgSceneExpressionEvaluator
                         Color = ToColor(SvgSceneSymEvaluator.Evaluate(expression, ExprType.Color, _evaluator))
                     };
 
+                case LinearGradientShader { Stops: { } stops } gradient:
+                    return Listed(stops, gradient.ColorSpace, (colors, positions) => gradient with { Colors = colors, ColorPos = positions, Stops = null });
+
+                case RadialGradientShader { Stops: { } stops } gradient:
+                    return Listed(stops, gradient.ColorSpace, (colors, positions) => gradient with { Colors = colors, ColorPos = positions, Stops = null });
+
+                case TwoPointConicalGradientShader { Stops: { } stops } gradient:
+                    return Listed(stops, gradient.ColorSpace, (colors, positions) => gradient with { Colors = colors, ColorPos = positions, Stops = null });
+
+                case SweepGradientShader { Stops: { } stops } gradient:
+                    return Listed(stops, gradient.ColorSpace, (colors, positions) => gradient with { Colors = colors, ColorPos = positions, Stops = null });
+
                 case LinearGradientShader gradient when TryRewriteStops(gradient.Colors, out var colors):
                     return gradient with { Colors = colors };
 
@@ -669,6 +681,54 @@ public static class SvgSceneExpressionEvaluator
             }
 
             return rewritten is { };
+        }
+
+        /// <summary>
+        /// A gradient's stops bound from its lists, or the colour they come to where there are fewer
+        /// than two: none is transparent.
+        /// </summary>
+        /// <remarks>
+        /// <c>ExprHelpers.SvgStops</c> computes the same, and <c>SkiaCSharpRenderTests</c> diffs the two at
+        /// a zero threshold: each colour faded and made linear as a written stop's expression is, each
+        /// offset clamped and raised as a written stop's offset is, and as many as the shorter list.
+        /// </remarks>
+        private SKShader Listed(SymGradientStops stops, SKColorSpace colorSpace, Func<SKColorF[], float[]?, SKShader> rebuild)
+        {
+            var colors = SvgSceneSymEvaluator.Evaluate(stops.Colors, ExprType.ColorList, _evaluator).AsColorList;
+            var offsets = stops.Offsets is { } listed ? SvgSceneSymEvaluator.Evaluate(listed, ExprType.NumberList, _evaluator).AsNumberList : null;
+            var alpha = Number(stops.Opacity);
+            var count = offsets is null ? colors.Count : Math.Min(colors.Count, offsets.Count);
+
+            if (count < 2)
+            {
+                return SKShader.CreateColor(count == 0 ? new SKColor(0, 0, 0, 0) : Stop(colors[0]), colorSpace);
+            }
+
+            var stopColors = new SKColorF[count];
+            var positions = offsets is null ? null : new float[count];
+
+            for (var index = 0; index < count; index++)
+            {
+                stopColors[index] = Stop(colors[index]);
+
+                if (positions is { })
+                {
+                    positions[index] = Svg.Skia.SvgScenePaintingService.ClampStopOffset(offsets![index]);
+                }
+            }
+
+            if (positions is { })
+            {
+                Svg.Skia.SvgScenePaintingService.AdjustStopColorPos(positions);
+            }
+
+            return rebuild(stopColors, positions);
+
+            SKColor Stop(ExprValue color)
+            {
+                var faded = ExprColor.ScaleAlpha(color, alpha);
+                return ToColor(stops.LinearRgb ? ExprColor.ToLinearRgb(faded) : faded);
+            }
         }
 
         // The expression is gone from the result on purpose: it has been resolved, and a renderer

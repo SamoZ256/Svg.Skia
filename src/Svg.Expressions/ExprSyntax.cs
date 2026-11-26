@@ -62,3 +62,8 @@ internal sealed record BinaryExpr(int Position, ExprBinaryOp Op, ExprNode Left, 
 internal sealed record ConditionalExpr(int Position, ExprNode Condition, ExprNode WhenTrue, ExprNode WhenFalse) : ExprNode(Position);
 
 internal sealed record CallExpr(int Position, string Name, IReadOnlyList<ExprNode> Arguments) : ExprNode(Position);
+
+internal sealed record ListExpr(int Position, IReadOnlyList<ExprNode> Elements) : ExprNode(Position);
+
+/// <remarks>Positioned at its <c>[</c>, which is what an index that is not one points at.</remarks>
+internal sealed record IndexExpr(int Position, ExprNode Target, ExprNode Index) : ExprNode(Position);

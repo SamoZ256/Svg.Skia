@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Svg.Expressions;
 
@@ -29,6 +30,10 @@ internal static class ExprValueBackend
             TypedBinary binary => EvaluateBinary(binary, values),
             TypedConditional conditional => EvaluateConditional(conditional, values),
             TypedCall call => EvaluateCall(call, values),
+            TypedList list => list.Type == ExprType.ColorList
+                ? ExprValue.ColorList(list.Elements.Select(element => Evaluate(element, values)))
+                : ExprValue.NumberList(list.Elements.Select(element => Evaluate(element, values).AsNumber)),
+            TypedIndex index => Evaluate(index.List, values).At(Evaluate(index.Index, values).AsInteger),
             _ => throw new NotSupportedException($"Unsupported {nameof(TypedExpr)}: {node.GetType().Name}.")
         };
 
@@ -140,6 +145,8 @@ internal static class ExprValueBackend
                               && left.Alpha == right.Alpha,
             ExprType.Boolean => left.AsBoolean == right.AsBoolean,
             ExprType.String => string.Equals(left.AsString, right.AsString, StringComparison.Ordinal),
+            ExprType.NumberList or ExprType.ColorList
+                => throw new NotSupportedException("Lists are not compared: the checker refuses '==' between them."),
             _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {left.Type}.")
         };
 
@@ -247,7 +254,7 @@ internal static class ExprValueBackend
             case ExprFunction.Lower:
                 return ExprValue.String(arguments[0].AsString.ToLowerInvariant());
             case ExprFunction.Len:
-                return ExprValue.Integer(arguments[0].AsString.Length);
+                return ExprValue.Integer(arguments[0].Type == ExprType.String ? arguments[0].AsString.Length : arguments[0].Count);
 
             // Shortest round-trip, invariant: a whole number reads as one, with no point and no
             // trailing zero, which is what anyone writing a label expects to see.

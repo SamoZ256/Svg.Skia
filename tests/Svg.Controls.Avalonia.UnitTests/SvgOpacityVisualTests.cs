@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -8,6 +9,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Svg;
 using SkiaSharp;
+using Svg.Expressions;
+using Svg.SceneGraph;
 using Svg.Skia;
 using Xunit;
 
@@ -113,6 +116,77 @@ public class SvgOpacityVisualTests
             "<rect x='14' y='6' width='21' height='21' fill='url(#s)' />",
             (32, 16, Red), (24, 24, Yellow), (16, 16, Green), (24, 8, Blue), (29, 19, null), (18, 11, null));
 
+    // Bound, a gradient's lists reach the brush as the stops they come to, spaced evenly without offsets.
+    [AvaloniaTheory]
+    [InlineData("linearGradient", " e:stop-offsets='{{ positions }}'")]
+    [InlineData("linearGradient", "")]
+    [InlineData("sweepGradient", " e:stop-offsets='{{ positions }}'")]
+    [InlineData("sweepGradient", "")]
+    public void SvgImage_DrawsAGradientGivenItsStopsAsListsWhereSkiaModelDoes(string element, string offsets)
+    {
+        var svg = $$$"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="40" height="40">
+              <defs>
+                <e:code><e:param name="colors" type="color[]" /><e:param name="positions" type="number[]" /></e:code>
+                <{{{element}}} id="s" gradientUnits="userSpaceOnUse" x1="0" x2="40" cx="20.5" cy="20.5" e:stop-colors="{{ colors }}"{{{offsets}}}>
+                  <stop offset="0" stop-color="#ffffff" /><stop offset="1" stop-color="#000000" />
+                </{{{element}}}>
+              </defs>
+              <rect width="40" height="40" fill="url(#s)" />
+            </svg>
+            """;
+        var bound = SvgSceneExpressionEvaluator.Evaluate(
+            SvgSource.LoadPictureFromSvg(svg),
+            SvgExpressionDeclarations.Parse(svg),
+            new Dictionary<string, ExprValue>
+            {
+                ["colors"] = ExprValue.ColorList(new[] { ExprValue.Color(255, 0, 0, 255), ExprValue.Color(0, 255, 0, 255), ExprValue.Color(0, 0, 255, 255) }),
+                ["positions"] = ExprValue.NumberList(new[] { 0f, 0.2f, 1f })
+            });
+
+        AssertDrawsAsSkiaModel(
+            bound!,
+            (1, 20, null), (6, 20, null), (14, 20, null), (26, 20, null), (32, 20, null), (20, 32, null), (8, 28, null), (20, 8, null), (30, 10, null));
+    }
+
+    // Before the brushes turned their matrix about (0,0), this shape sat wholly past the red end and drew solid blue.
+    [AvaloniaFact]
+    public void SvgImage_DrawsABoundingBoxLinearGradientOnAShapeAwayFromTheOriginWhereSkiaModelDoes()
+        => AssertGradientDrawsAsSkiaModel(
+            $"<linearGradient id='s'>{RedToBlue}</linearGradient>",
+            "<rect x='14' y='6' width='21' height='21' fill='url(#s)' />",
+            (15, 16, null), (20, 16, null), (24, 16, null), (29, 16, null), (34, 16, null));
+
+    [AvaloniaFact]
+    public void SvgImage_TurnsABoundingBoxLinearGradientByItsGradientTransformWhereSkiaModelDoes()
+        => AssertGradientDrawsAsSkiaModel(
+            $"<linearGradient id='s' gradientTransform='rotate(45 0.5 0.5)'>{RedToBlue}</linearGradient>",
+            "<rect x='14' y='6' width='21' height='21' fill='url(#s)' />",
+            (15, 7, null), (24, 16, null), (34, 26, null), (34, 7, null), (15, 26, null), (20, 10, null));
+
+    // The box is not square, so a radius taken relative to the shape's width would draw an ellipse within the ellipse.
+    [AvaloniaFact]
+    public void SvgImage_DrawsABoundingBoxRadialGradientOnAShapeAwayFromTheOriginWhereSkiaModelDoes()
+        => AssertGradientDrawsAsSkiaModel(
+            $"<radialGradient id='s'>{RedToBlue}</radialGradient>",
+            "<rect x='6' y='10' width='28' height='14' fill='url(#s)' />",
+            (20, 17, null), (26, 17, null), (32, 17, null), (20, 20, null), (20, 23, null), (8, 11, null), (13, 21, null));
+
+    [AvaloniaFact]
+    public void SvgImage_DrawsAUserSpaceRadialGradientOnAShapeThatIsNotSquareWhereSkiaModelDoes()
+        => AssertGradientDrawsAsSkiaModel(
+            $"<radialGradient id='s' gradientUnits='userSpaceOnUse' cx='20' cy='20' r='15'>{RedToBlue}</radialGradient>",
+            "<rect x='0' y='10' width='40' height='20' fill='url(#s)' />",
+            (20, 20, null), (28, 20, null), (34, 20, null), (20, 25, null), (20, 29, null), (10, 14, null));
+
+    // A focus off the centre makes a two-point conical shader, whose radius the brush once fixed at half the shape.
+    [AvaloniaFact]
+    public void SvgImage_DrawsAFocalRadialGradientOnAShapeAwayFromTheOriginWhereSkiaModelDoes()
+        => AssertGradientDrawsAsSkiaModel(
+            $"<radialGradient id='s' fx='0.3' fy='0.35' r='0.4'>{RedToBlue}</radialGradient>",
+            "<rect x='12' y='8' width='24' height='24' fill='url(#s)' />",
+            (19, 16, null), (24, 20, null), (30, 20, null), (24, 27, null), (33, 29, null), (14, 10, null), (16, 22, null));
+
     // Centred on a pixel's centre, so a sample on an axis or a diagonal lies exactly on its angle.
     private const string AtCentre = "gradientUnits='userSpaceOnUse' cx='20.5' cy='20.5'";
     private const string Canvas = "<rect width='40' height='40' fill='url(#s)' />";
@@ -130,20 +204,28 @@ public class SvgOpacityVisualTests
     private static readonly Pixel Green = new(0, 255, 0);
     private static readonly Pixel Blue = new(0, 0, 255);
 
-    // A sample with no colour is held to SkiaModel's alone, which is how the rows check the blend between stops.
     private static void AssertSweepDrawsAsSkiaModel(string attributes, string stops, string shape, params (int X, int Y, Pixel? Colour)[] samples)
+        => AssertGradientDrawsAsSkiaModel($"<sweepGradient id='s' {attributes}>{stops}</sweepGradient>", shape, samples);
+
+    // A sample with no colour is held to SkiaModel's alone, which is how the rows check the blend between stops.
+    private static void AssertGradientDrawsAsSkiaModel(string gradient, string shape, params (int X, int Y, Pixel? Colour)[] samples)
     {
         var svg = $"""
             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
               <defs>
-                <sweepGradient id="s" {attributes}>{stops}</sweepGradient>
+                {gradient}
               </defs>
               {shape}
             </svg>
             """;
 
-        using var bitmap = RenderSvg(svg);
-        using var picture = new SkiaModel(new SKSvgSettings()).ToSKPicture(SvgSource.LoadPictureFromSvg(svg));
+        AssertDrawsAsSkiaModel(SvgSource.LoadPictureFromSvg(svg)!, samples);
+    }
+
+    private static void AssertDrawsAsSkiaModel(ShimSkiaSharp.SKPicture model, params (int X, int Y, Pixel? Colour)[] samples)
+    {
+        using var bitmap = RenderPicture(model);
+        using var picture = new SkiaModel(new SKSvgSettings()).ToSKPicture(model);
         using var expected = new SKBitmap(40, 40);
         using (var canvas = new SKCanvas(expected))
         {
@@ -165,9 +247,11 @@ public class SvgOpacityVisualTests
     }
 
     private static WriteableBitmap RenderSvg(string svg)
+        => RenderPicture(SvgSource.LoadPictureFromSvg(svg)!);
+
+    private static WriteableBitmap RenderPicture(ShimSkiaSharp.SKPicture picture)
     {
-        var source = SvgSource.LoadFromSvg(svg);
-        Assert.NotNull(source.Picture);
+        var source = new SvgSource { Picture = picture };
 
         var image = new Image
         {

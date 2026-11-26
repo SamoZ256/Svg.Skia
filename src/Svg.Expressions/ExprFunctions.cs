@@ -79,6 +79,8 @@ public static class ExprFunctions
     private const ExprType I = ExprType.Integer;
     private const ExprType C = ExprType.Color;
     private const ExprType S = ExprType.String;
+    private const ExprType NL = ExprType.NumberList;
+    private const ExprType CL = ExprType.ColorList;
 
     private static readonly Dictionary<string, ExprType> s_constants = new(StringComparer.Ordinal)
     {
@@ -130,8 +132,9 @@ public static class ExprFunctions
         ["lower"] = new[] { new ExprSignature(ExprFunction.Lower, S, S) },
 
         // A count of code units is whole, and now has a type that says so. It still reaches the
-        // arithmetic, through num() where the arithmetic is fractional.
-        ["len"] = new[] { new ExprSignature(ExprFunction.Len, I, S) },
+        // arithmetic, through num() where the arithmetic is fractional. A list's length is the same
+        // question, so it is the same name.
+        ["len"] = new[] { new ExprSignature(ExprFunction.Len, I, S), new ExprSignature(ExprFunction.Len, I, NL), new ExprSignature(ExprFunction.Len, I, CL) },
 
         // The other direction, and the only one: + never converts, so this is how a number reaches
         // the text of a <text> element.
@@ -181,16 +184,35 @@ public static class ExprFunctions
            name == "true" ||
            name == "false";
 
+    /// <remarks>
+    /// A list is written as its element's name and then <c>[]</c>, and only a number and a colour
+    /// have one: those are what a gradient's stops are made of, which is what lists are for.
+    /// </remarks>
     public static ExprType ParseType(string text, int position, SvgDeclarationPart? part = null)
-        => text switch
+    {
+        var list = text.EndsWith("[]", StringComparison.Ordinal);
+
+        ExprType? element = (list ? text.Substring(0, text.Length - 2) : text) switch
         {
             "number" => ExprType.Number,
             "integer" => ExprType.Integer,
             "color" => ExprType.Color,
             "boolean" => ExprType.Boolean,
             "string" => ExprType.String,
-            _ => throw new ExprException($"Unknown type '{text}'. Expected number, integer, color, boolean or string.", position, part: part)
+            _ => null
         };
+
+        return (list, element) switch
+        {
+            (false, { } scalar) => scalar,
+            (true, ExprType.Number) => ExprType.NumberList,
+            (true, ExprType.Color) => ExprType.ColorList,
+            _ => throw new ExprException(
+                $"Unknown type '{text}'. Expected number, integer, color, boolean, string, number[] or color[].",
+                position,
+                part: part)
+        };
+    }
 
     /// <summary>How a type is written in a document, which is the spelling <see cref="ParseType"/> takes.</summary>
     /// <remarks>
@@ -207,6 +229,8 @@ public static class ExprFunctions
             ExprType.Color => "color",
             ExprType.Boolean => "boolean",
             ExprType.String => "string",
+            ExprType.NumberList => "number[]",
+            ExprType.ColorList => "color[]",
             _ => throw Unknown(type)
         };
 
@@ -226,8 +250,11 @@ public static class ExprFunctions
         ExprType.Number => "An opacity expression",
         ExprType.String => "A text expression",
 
-        // Integer falls here rather than being named: no attribute holds one, so no expression is
-        // ever asked to produce one, and there is no use to describe.
+        // No attribute holds these, but an argument one drawing passes to another's parameter does,
+        // and is described by the parameter's type.
+        ExprType.Integer => "An integer expression",
+        ExprType.NumberList => "A number list expression",
+        ExprType.ColorList => "A colour list expression",
         _ => throw Unknown(expected),
     };
 
@@ -240,6 +267,8 @@ public static class ExprFunctions
             ExprType.Color => "colour",
             ExprType.Boolean => "boolean",
             ExprType.String => "string",
+            ExprType.NumberList => "list of numbers",
+            ExprType.ColorList => "list of colours",
             _ => throw Unknown(type)
         };
 

@@ -14,8 +14,10 @@ namespace Svg.Expressions;
 //   comparison  := additive ( ('<' | '<=' | '>' | '>=') additive )*
 //   additive    := multiplicative ( ('+' | '-') multiplicative )*
 //   multiplicative := unary ( ('*' | '/') unary )*
-//   unary       := ('-' | '!') unary | primary
-//   primary     := number | color | string | identifier | call | '(' conditional ')'
+//   unary       := ('-' | '!') unary | postfix
+//   postfix     := primary ( '[' conditional ']' )*
+//   primary     := number | color | string | identifier | call | '(' conditional ')' | list
+//   list        := '[' ( conditional ( ',' conditional )* )? ']'
 internal static class ExprParser
 {
     public static ExprNode Parse(string text)
@@ -176,7 +178,30 @@ internal static class ExprParser
             return new UnaryExpr(token.Position, ExprUnaryOp.Not, ParseUnary(tokens, ref index));
         }
 
-        return ParsePrimary(tokens, ref index);
+        return ParsePostfix(tokens, ref index);
+    }
+
+    private static ExprNode ParsePostfix(IReadOnlyList<ExprToken> tokens, ref int index)
+    {
+        var target = ParsePrimary(tokens, ref index);
+
+        while (tokens[index].Kind == ExprTokenKind.OpenBracket)
+        {
+            var position = tokens[index].Position;
+            index++;
+
+            var at = ParseConditional(tokens, ref index);
+
+            if (tokens[index].Kind != ExprTokenKind.CloseBracket)
+            {
+                throw new ExprException("Expected ']' to close the index.", tokens[index].Position);
+            }
+
+            index++;
+            target = new IndexExpr(position, target, at);
+        }
+
+        return target;
     }
 
     private static ExprNode ParsePrimary(IReadOnlyList<ExprToken> tokens, ref int index)
@@ -254,6 +279,35 @@ internal static class ExprParser
 
                 index++;
                 return inner;
+
+            case ExprTokenKind.OpenBracket:
+                {
+                    index++;
+                    var elements = new List<ExprNode>();
+
+                    if (tokens[index].Kind != ExprTokenKind.CloseBracket)
+                    {
+                        while (true)
+                        {
+                            elements.Add(ParseConditional(tokens, ref index));
+
+                            if (tokens[index].Kind != ExprTokenKind.Comma)
+                            {
+                                break;
+                            }
+
+                            index++;
+                        }
+                    }
+
+                    if (tokens[index].Kind != ExprTokenKind.CloseBracket)
+                    {
+                        throw new ExprException("Expected ']' to close the list.", tokens[index].Position);
+                    }
+
+                    index++;
+                    return new ListExpr(token.Position, elements);
+                }
 
             case ExprTokenKind.End:
                 throw new ExprException("The expression ends unexpectedly.", token.Position);

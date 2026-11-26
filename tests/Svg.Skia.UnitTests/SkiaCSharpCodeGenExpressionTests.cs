@@ -1,4 +1,5 @@
-﻿using ShimSkiaSharp;
+﻿using System.Linq;
+using ShimSkiaSharp;
 using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Expressions;
 using Svg.Expressions;
@@ -555,5 +556,142 @@ public class SkiaCSharpCodeGenExpressionTests
             """));
 
         Assert.Contains(error, exception.Message);
+    }
+
+    // ---- lists -------------------------------------------------------------------------------
+
+    [Fact]
+    public void A_List_Parameter_With_A_Default_Reads_A_Field_Built_Once()
+    {
+        // No `?`: a list is a reference, and like a string's the annotation would warn (CS8632)
+        // where nullable annotations are off. A host's List<float> passes as it is.
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code>
+                <e:param name="positions" type="number[]" default="[0, 0.5, 1]" />
+                <e:param name="i" type="integer" default="1" />
+              </e:code></defs>
+              <path d="M 0 0 L 10 0" stroke="#000" stroke-width="{{ positions[i] * 4 }}" />
+            </svg>
+            """);
+
+        Assert.Contains("using System.Collections.Generic;", code);
+        Assert.Contains("public static SKPicture Record(IReadOnlyList<float> positions = null, int i = 1)", code);
+        Assert.Contains("public static void Draw(SKCanvas skCanvas, IReadOnlyList<float> positions = null, int i = 1)", code);
+        Assert.Contains("private static readonly IReadOnlyList<float> s_skList0 = new float[] { 0f, 0.5f, 1f };", code);
+        Assert.Contains("IReadOnlyList<float> positions__default = positions ?? s_skList0;", code);
+        Assert.Contains("(SvgAt(positions__default, i) * 4f)", code);
+        Assert.Contains("private static T SvgAt<T>(IReadOnlyList<T> list, int index)", code);
+        Assert.DoesNotContain("SvgList", code);
+
+        // A field initialised where it is declared needs no static constructor to set it.
+        Assert.DoesNotContain("static Generated()", code);
+    }
+
+    [Fact]
+    public void A_List_Parameter_Without_A_Default_Is_Required_And_Null_Reads_As_Empty()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="colors" type="color[]" /></e:code></defs>
+              <path d="M 0 0 H 10 V 10 Z" fill="{{ colors[len(colors) - 1] }}" />
+            </svg>
+            """);
+
+        Assert.Contains("public static SKPicture Record(IReadOnlyList<SKColor> colors)", code);
+        Assert.Contains("IReadOnlyList<SKColor> colors__default = colors ?? Array.Empty<SKColor>();", code);
+        Assert.Contains("SvgAt(colors__default, (colors__default.Count - 1))", code);
+    }
+
+    [Fact]
+    public void A_Required_List_Keeps_Its_Default_For_A_Null()
+    {
+        // The defaults leave the signature, since t has none and follows; a null list still falls
+        // back to what the document declared.
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code>
+                <e:param name="positions" type="number[]" default="[0, 1]" />
+                <e:param name="t" type="number" />
+              </e:code></defs>
+              <path d="M 0 0 L 10 0" stroke="#000" stroke-width="{{ positions[1] + t }}" />
+            </svg>
+            """);
+
+        Assert.Contains("public static SKPicture Record(IReadOnlyList<float> positions, float t)", code);
+        Assert.Contains("private static readonly IReadOnlyList<float> s_skList0 = new float[] { 0f, 1f };", code);
+        Assert.Contains("IReadOnlyList<float> positions__default = positions ?? s_skList0;", code);
+    }
+
+    [Fact]
+    public void A_List_Let_Is_A_Typed_Local()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code>
+                <e:param name="tint" type="color" />
+                <e:param name="i" type="integer" />
+                <e:let name="ramp">[tint, mix(tint, #fff, 0.5)]</e:let>
+                <e:let name="none" type="color[]">[]</e:let>
+                <e:let name="chosen">i > 0 ? ramp : none</e:let>
+              </e:code></defs>
+              <path d="M 0 0 H 10 V 10 Z" fill="{{ chosen[i] }}" />
+            </svg>
+            """);
+
+        Assert.Contains("IReadOnlyList<SKColor> ramp = SvgList(ref s_skList0, stackalloc SKColor[] { tint, SvgMix(tint, new SKColor(255, 255, 255, 255), 0.5f) });", code);
+        Assert.Contains("IReadOnlyList<SKColor> chosen = ((i > 0) ? ramp : s_skList1);", code);
+        Assert.Contains("private static readonly IReadOnlyList<SKColor> s_skList1 = Array.Empty<SKColor>();", code);
+        Assert.Contains("[ThreadStatic]", code);
+        Assert.Contains("private static SKColor[] s_skList0;", code);
+        Assert.Contains("private static IReadOnlyList<T> SvgList<T>(ref T[] list, Span<T> elements)", code);
+    }
+
+    [Fact]
+    public void A_Constant_List_Is_One_Field_However_Often_It_Is_Written()
+    {
+        var code = Generate("""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code>
+                <e:param name="i" type="integer" default="0" />
+                <e:let name="stops">[1, 2, 3]</e:let>
+              </e:code></defs>
+              <path d="M 0 0 L 10 0" stroke="#000" stroke-width="{{ stops[i] }}" opacity="{{ [1, 2, 3][i] / 3 }}" />
+              <path d="M 0 5 L 10 5" stroke="#000" stroke-width="{{ stops[1] }}" />
+            </svg>
+            """);
+
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(code, @"new float\[\] \{ 1f, 2f, 3f \}"));
+        Assert.Contains("private static readonly IReadOnlyList<float> s_skList0 = new float[] { 1f, 2f, 3f };", code);
+        Assert.Contains("SvgAt(s_skList0, i)", code);
+
+        // A known index into a known list is its element.
+        Assert.Contains("StrokeWidth = 2f;", code);
+        Assert.DoesNotContain("stops", code);
+    }
+
+    [Fact]
+    public void A_Document_With_No_List_Needs_No_Collections()
+        => Assert.DoesNotContain("System.Collections.Generic", Generate(Plain));
+
+    [Fact]
+    public void A_Drawing_Named_Like_A_Generic_Helper_It_Calls_Is_Refused()
+    {
+        // The helper's name is followed by its type parameter rather than its arguments, which the
+        // reader of helper members has to see past.
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" width="100" height="100">
+              <defs><e:code><e:param name="xs" type="number[]" /></e:code></defs>
+              <path d="M 0 0 L 10 0" stroke="#000" stroke-width="{{ xs[0] }}" />
+            </svg>
+            """;
+        var document = SvgService.FromSvg(svg)!;
+        var picture = SvgSceneRuntime.CreateModel(document, new SkiaSvgAssetLoader(new SkiaModel(new SKSvgSettings())))!;
+
+        var error = Assert.Throws<ExprException>(
+            () => SkiaCSharpCodeGen.GenerateFile(new[] { new SkiaCSharpDrawing(picture, "Icons", "SvgAt", SvgExpressionDeclarations.Parse(svg)) }));
+
+        Assert.Contains("'SvgAt' is a helper", error.Message);
+        Assert.Equal(new[] { "SvgList" }, ExprHelpers.Members(ExprHelpers.All.First(helper => helper.Key == ExprHelpers.ListOf).Value));
     }
 }

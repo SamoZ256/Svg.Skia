@@ -388,6 +388,24 @@ public class SvgDeclarationEditorAddTests
         Assert.Equal(ExprType.Color, Declared(edited, "tint").Type);
     }
 
+    [Fact]
+    public void A_List_Is_Written_As_The_Type_The_Reader_Takes_Back()
+    {
+        var source = $"""
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="{Ns}" width="10" height="10">
+              <defs><e:code></e:code></defs>
+            </svg>
+            """;
+
+        var edited = Add(source, new SvgExpressionParameter("stops", ExprType.NumberList, "[0, 0.5, 1]"));
+        edited = Add(edited, new SvgExpressionParameter("colors", ExprType.ColorList, "[]"));
+
+        Assert.Contains("type=\"number[]\"", edited);
+        Assert.Contains("type=\"color[]\"", edited);
+        Assert.Equal(ExprType.NumberList, Declared(edited, "stops").Type);
+        Assert.Equal(ExprType.ColorList, Declared(edited, "colors").Type);
+    }
+
     // ---- what it will not do ----
 
     [Fact]

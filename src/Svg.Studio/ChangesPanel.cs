@@ -108,7 +108,7 @@ public sealed class ChangesPanel : UserControl
 
         _lists.Children.Add(Heading("Changes"));
         _lists.Children.Add(_list);
-        _lists.Children.Add(Heading("History"));
+        _lists.Children.Add(Heading("Commits"));
         _lists.Children.Add(_history);
 
         var body = new DockPanel();
@@ -963,7 +963,8 @@ public sealed class ChangesPanel : UserControl
         return Task.CompletedTask;
     }
 
-    private static TextBlock Heading(string text) => new()
+    /// <summary>A heading over a list of rows, as History has them too.</summary>
+    internal static TextBlock Heading(string text) => new()
     {
         Text = text,
         FontSize = 11,

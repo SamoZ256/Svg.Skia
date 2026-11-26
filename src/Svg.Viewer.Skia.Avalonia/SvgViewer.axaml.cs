@@ -2153,6 +2153,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         if (_workspace is { })
         {
             _unreadable = null;
+            _workspace.Changed += (_, _) => SourceChanged?.Invoke(this, EventArgs.Empty);
         }
 
         if (previous is { Path: { } was } && was == document.Path)
@@ -2636,6 +2637,9 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
 
     /// <summary>Raised when <see cref="IsSourceModified"/> changes, for a host that marks its chrome.</summary>
     public event EventHandler<bool>? SourceModifiedChanged;
+
+    /// <summary>Raised after every edit, undo and redo of the drawing, for a host that lists its history.</summary>
+    public event EventHandler? SourceChanged;
 
     private void RaiseModified()
     {

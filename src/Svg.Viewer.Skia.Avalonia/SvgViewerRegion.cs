@@ -30,6 +30,9 @@ public sealed class SvgViewerRegion
 
     public Control Content { get; }
 
+    /// <summary>Whether its tab offers Close: only where the host has a way to bring it back.</summary>
+    public bool Closable { get; init; }
+
     /// <summary>An id for a host's pane, which has a header and nothing else to be known by.</summary>
     /// <remarks>
     /// Lowered and stripped of everything a layout uses as punctuation, so "Project" is <c>project</c>

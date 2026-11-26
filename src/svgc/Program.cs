@@ -4,7 +4,6 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Linq;
 using System.Threading.Tasks;
-using Svg.CodeGen.Skia;
 using Svg.CodeGen.Skia.Projects;
 using Svg.Expressions;
 using Svg.Expressions.Recipes;
@@ -251,16 +250,18 @@ class Program
                     ? SvgcProject.Load(projectPath)
                     : null;
 
+                var build = project is { } ? SvgcBuildSettings.For(project) : new SvgcBuildSettings();
+
                 // A flag beats the project file, which beats the built-in default — the ordinary
                 // convention, and the reason every one of these is nullable up to this point.
-                var emit = settings.Emit is { } ? SvgcProject.ParseEmit(settings.Emit) : project?.Emit ?? SvgEmit.CSharp;
-                var scope = settings.HelperScope is { } ? SvgcProject.ParseHelperScope(settings.HelperScope) : project?.HelperScope ?? SvgHelperScope.FileLocal;
-                var skiaSharp = settings.SkiaSharp is { } ? SvgcProject.ParseSkiaSharpTarget(settings.SkiaSharp) : project?.SkiaSharp ?? SkiaSharpTarget.V4;
-                var textLayout = SvgcProject.ParseTextLayout(settings.TextLayout);
-                var namespaceName = flagNamespace ?? project?.Namespace ?? "Svg";
-                var className = settings.Class ?? project?.Class ?? "Generated";
-                var recipePath = settings.RecipeFile?.FullName ?? project?.Recipe;
-                var singleFilePath = settings.SingleFile?.FullName ?? project?.SingleFile;
+                build.Emit = settings.Emit is { } emit ? SvgcProject.ParseEmit(emit) : build.Emit;
+                build.HelperScope = settings.HelperScope is { } scope ? SvgcProject.ParseHelperScope(scope) : build.HelperScope;
+                build.SkiaSharp = settings.SkiaSharp is { } skiaSharp ? SvgcProject.ParseSkiaSharpTarget(skiaSharp) : build.SkiaSharp;
+                build.TextLayout = settings.TextLayout is { } textLayout ? SvgcProject.ParseTextLayout(textLayout) : build.TextLayout;
+                build.Namespace = flagNamespace ?? build.Namespace;
+                build.Class = settings.Class ?? build.Class;
+                build.Recipe = settings.RecipeFile?.FullName ?? build.Recipe;
+                build.SingleFile = settings.SingleFile?.FullName ?? build.SingleFile;
 
                 // The three sizing options are one group rather than three settings, so a command
                 // line that names any of them replaces the project's sizing outright. Merging them
@@ -268,28 +269,15 @@ class Program
                 // than an override.
                 // Padding is not one of that group: it says how much room to leave rather than what
                 // size to be, so a command line naming only it keeps the project's sizing.
-                var padding = SvgPadding.Parse(settings.Padding ?? project?.Padding);
+                var padding = settings.Padding is { } text ? SvgPadding.Parse(text) : build.Size.Padding;
 
-                var size = settings.Width is { } || settings.Height is { } || settings.Scale is { }
+                build.Size = settings.Width is { } || settings.Height is { } || settings.Scale is { }
                     ? new SvgSizeRequest(
                         SvgcProject.ParseLength(settings.Width, "width"),
                         SvgcProject.ParseLength(settings.Height, "height"),
                         SvgcProject.ParseScale(settings.Scale),
                         padding)
-                    : new SvgSizeRequest(project?.Width, project?.Height, project?.Scale, padding);
-
-                var build = new SvgcBuildSettings
-                {
-                    Emit = emit,
-                    HelperScope = scope,
-                    SkiaSharp = skiaSharp,
-                    TextLayout = textLayout,
-                    Namespace = namespaceName,
-                    Class = className,
-                    Recipe = recipePath,
-                    SingleFile = singleFilePath,
-                    Size = size
-                };
+                    : new SvgSizeRequest(build.Size.Width, build.Size.Height, build.Size.Scale, padding);
 
                 if (project is { })
                 {
@@ -299,7 +287,7 @@ class Program
                 {
                     // Without a recipe there is nothing to convert, so the output would be a copy
                     // of the input — which is never what was meant.
-                    if (emit == SvgEmit.Svg && recipePath is null)
+                    if (build.Emit == SvgEmit.Svg && build.Recipe is null)
                     {
                         throw new ArgumentException("Emitting svg needs a recipe. Pass -r, name one in the project, or emit csharp.");
                     }

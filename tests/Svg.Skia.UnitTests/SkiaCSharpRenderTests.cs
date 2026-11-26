@@ -226,11 +226,12 @@ public partial class SkiaCSharpRenderTests
         }
     }
 
-    private static string Code(ShimPicture model, string name, SvgBody body, SvgExpressionDeclarations? declarations = null)
+    private static string Code(ShimPicture model, string name, SvgBody body, SvgExpressionDeclarations? declarations = null, SkiaSharpTarget skiaSharp = SkiaSharpTarget.V4, bool bake = true)
         => SkiaCSharpCodeGen.GenerateFile(
             new[] { new SkiaCSharpDrawing(model, Namespace, name, declarations ?? SvgExpressionDeclarations.Empty) },
             SvgHelperScope.PerClass,
-            style: new SvgCodeStyle { Body = body });
+            skiaSharp: skiaSharp,
+            style: new SvgCodeStyle { Body = body, Bake = bake });
 
     private static SKPicture Transformed(SKRect cull, Action<SKCanvas> draw)
         => Recorded(cull, canvas =>
@@ -314,9 +315,9 @@ public partial class SkiaCSharpRenderTests
 
         for (var index = 0; index < arguments.Length; index++)
         {
-            // A null argument is a parameter left to its default -- a colour or a string, the two
-            // that reach the body through a local -- which leaving the name unbound is on the
-            // evaluator's side.
+            // A null argument is a parameter left to its default -- a colour, a string or a list,
+            // the ones that reach the body through a local -- which leaving the name unbound is on
+            // the evaluator's side.
             if (arguments[index] is null)
             {
                 continue;
@@ -329,6 +330,8 @@ public partial class SkiaCSharpRenderTests
                 bool boolean => ExprValue.Boolean(boolean),
                 SKColor color => ExprValue.Color(color.Red, color.Green, color.Blue, color.Alpha),
                 string text => ExprValue.String(text),
+                IReadOnlyList<float> numbers => ExprValue.NumberList(numbers),
+                IReadOnlyList<SKColor> colors => ExprValue.ColorList(colors.Select(color => ExprValue.Color(color.Red, color.Green, color.Blue, color.Alpha))),
                 var other => throw new NotSupportedException($"Unsupported argument type: {other!.GetType().Name}.")
             };
         }
