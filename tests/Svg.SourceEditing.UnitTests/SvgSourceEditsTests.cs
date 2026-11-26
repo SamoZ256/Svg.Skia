@@ -26,7 +26,7 @@ public class SvgSourceEditsTests
     }
 
     private static SvgSourceEdits Edits(params (string Key, string X)[] members)
-        => new("move", Array.ConvertAll(members, member => (SvgSourceEdit)new SvgSourceEdit.SetAttributes(member.Key, new[] { ("x", member.X) })));
+        => new("move", Array.ConvertAll(members, member => (SvgSourceEdit)new SvgSourceEdit.SetAttributes(member.Key, [("x", member.X)])));
 
     [Fact]
     public void Every_Write_Of_Every_Member_Is_Made()
@@ -103,7 +103,7 @@ public class SvgSourceEditsTests
     public void A_Step_Naming_What_An_Earlier_Step_Removed_Is_Refused()
     {
         var workspace = SvgSourceWorkspace.Open(Three, out _)!;
-        var plan = Plan(new SvgSourceEdit.Remove("1"), new SvgSourceEdit.SetAttributes("1/0", new[] { ("r", "4") }));
+        var plan = Plan(new SvgSourceEdit.Remove("1"), new SvgSourceEdit.SetAttributes("1/0", [("r", "4")]));
 
         Assert.Equal("There is no element at 1/0 in this drawing.", workspace.Commit("edit", source => Apply(source, plan)));
         Assert.Equal(Three, workspace.Text);
@@ -192,11 +192,11 @@ public class SvgSourceEditsTests
     {
         var source = Read(Three);
         var plan = Plan(
-            new SvgSourceEdit.SetAttributes("0", new[] { ("x", "3") }),
-            new SvgSourceEdit.SetAttributes("2", new[] { ("x", "9") }),
+            new SvgSourceEdit.SetAttributes("0", [("x", "3")]),
+            new SvgSourceEdit.SetAttributes("2", [("x", "9")]),
             new SvgSourceEdit.Insert("0", SvgElementDrop.After, new XElement("path")),
             new SvgSourceEdit.Move("1/0", "2", SvgElementDrop.After),
-            new SvgSourceEdit.SetAttributes("2", new[] { ("y", "9") }),
+            new SvgSourceEdit.SetAttributes("2", [("y", "9")]),
             new SvgSourceEdit.Remove("0"));
 
         Assert.Null(plan.Apply(source, key => key, out var landed));
@@ -204,7 +204,7 @@ public class SvgSourceEditsTests
         Assert.Equal(new[] { "path", "b", "d", "c" }, Ids(source));
         Assert.Equal(new[] { "2", "0", "3" }, landed);
 
-        Assert.NotNull(Plan(new SvgSourceEdit.SetAttributes("0", new[] { ("x", "1") }), new SvgSourceEdit.Remove("")).Apply(Read(Three), key => key, out var refused));
+        Assert.NotNull(Plan(new SvgSourceEdit.SetAttributes("0", [("x", "1")]), new SvgSourceEdit.Remove("")).Apply(Read(Three), key => key, out var refused));
         Assert.Empty(refused);
     }
 
@@ -212,7 +212,7 @@ public class SvgSourceEditsTests
     [Fact]
     public void A_Step_Naming_What_Was_Removed_Is_Said_Of_The_File()
     {
-        var plan = Plan(new SvgSourceEdit.Remove("row"), new SvgSourceEdit.SetAttributes("child", new[] { ("r", "4") }));
+        var plan = Plan(new SvgSourceEdit.Remove("row"), new SvgSourceEdit.SetAttributes("child", [("r", "4")]));
 
         Assert.Equal("There is no element at 1/0 in this drawing.", plan.Apply(Read(Three), key => key == "row" ? "1" : "1/0"));
     }

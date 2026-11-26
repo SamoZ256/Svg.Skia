@@ -551,7 +551,7 @@ public sealed class SvgViewerPoints
             : null;
 
     private SvgSourceEdits Edit(string label, IReadOnlyList<(string Name, string Value)> writes)
-        => new(label, new SvgSourceEdit[] { new SvgSourceEdit.SetAttributes(_member!.Value.Key, writes) });
+        => new(label, new SvgSourceEdit[] { new SvgSourceEdit.SetAttributes(_member!.Value.Key, [.. writes]) });
 
     /// <summary>Recompiles the one element the points belong to, and draws the frame.</summary>
     private void Redraw()
