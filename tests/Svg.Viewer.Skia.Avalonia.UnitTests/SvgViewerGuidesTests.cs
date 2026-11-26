@@ -341,6 +341,8 @@ public class SvgViewerGuidesTests
               <pattern id="dots" width="4" height="4" patternUnits="userSpaceOnUse"><rect x="41" y="41" width="2" height="2" /></pattern>
               <rect x="23" y="23" width="2" height="2" display="none" />
               <rect x="29" y="29" width="2" height="2" visibility="hidden" />
+              <g display="none"><rect x="47" y="47" width="2" height="2" /></g>
+              <g requiredExtensions="http://example.com/nothing"><rect x="59" y="59" width="2" height="2" /></g>
               <rect x="63" y="70" width="6" height="10" clip-path="url(#clip)" />
               <rect x="74" y="70" width="6" height="10" mask="url(#mask)" fill="url(#dots)" />
             </svg>
@@ -360,6 +362,8 @@ public class SvgViewerGuidesTests
         Assert.DoesNotContain(29f, lines);
         Assert.DoesNotContain(35f, lines);
         Assert.DoesNotContain(41f, lines);
+        Assert.DoesNotContain(47f, lines);
+        Assert.DoesNotContain(59f, lines);
 
         window.Close();
     }
