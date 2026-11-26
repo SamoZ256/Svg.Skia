@@ -989,14 +989,17 @@ A whole build — the drawings and the settings they share — is described by o
 ```
 
 The settings are `recipe`, `namespace`, `class`, `emit`, `helperScope`, `singleFile`,
-`skiaSharp`, `width`, `height` and `scale`; an `<svg>` takes `input`, `output`, `namespace`,
-`class`, `recipe`, `width`, `height` and `scale`. Paths resolve against the project's own
-directory, so it describes the same build wherever it is run from.
+`skiaSharp`, `width`, `height`, `scale` and `padding`, and the ones that
+[shape the generated file](site/articles/packages/svg-codegen-skia.md#shaping-the-generated-file),
+which have no flag: `body`, `typeface`, `api`, `resizing`, `context` and `order`. An `<svg>` takes
+`input`, `output`, `namespace`, `class`, `recipe`, `width`, `height`, `scale`, `padding`, `method`
+and `parameters`. Paths resolve against the project's own directory, so it describes the same build
+wherever it is run from.
 
-A `<group>` puts a setting somewhere between the project and one drawing. It carries what an
-`<svg>` carries less `input` and `output`, every drawing inside reads those as if it had named
-them itself, and groups nest — the nearest one wins. A group holds `<svg>` and `<group>` and
-nothing else; its own settings are attributes on it. Drawings keep their declared order across
+A `<group>` puts a setting somewhere between the project and one drawing. It carries what an `<svg>`
+carries less `input`, `output`, `method` and `parameters`, every drawing inside reads those as if it
+had named them itself, and groups nest — the nearest one wins. A group holds `<svg>` and `<group>`
+and nothing else; its own settings are attributes on it. Drawings keep their declared order across
 groups, so a `singleFile` build is emitted in the order the project reads.
 
 A command line option overrides the project's own settings, but a drawing or a group is more

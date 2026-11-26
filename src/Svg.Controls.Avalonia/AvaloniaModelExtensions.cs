@@ -314,6 +314,10 @@ public static class AvaloniaModelExtensions
         }
     }
 
+    // A brush's Transform applies about TransformOrigin, which Avalonia reads as the shape's top-left when null;
+    // Skia's local matrix applies about (0,0), and a bounding-box gradient on a shape away from it lands elsewhere.
+    private static readonly A.RelativePoint s_skiaOrigin = new(0, 0, A.RelativeUnit.Absolute);
+
     // None spaces the colours evenly, as Skia does.
     private static float[] ToGradientPositions(SKColorF[] colors, float[]? positions)
     {
@@ -367,9 +371,7 @@ public static class AvaloniaModelExtensions
             ToGradientStops(linearGradientShader.Colors, linearGradientShader.ColorPos),
             1,
             transform,
-            // Avalonia reads no origin as the shape's top-left, which misplaces a bounding-box gradient
-            // on a shape away from (0,0), here and in both radial brushes; the conic brush passes (0,0).
-            null,
+            s_skiaOrigin,
             spreadMethod,
             startPoint,
             endPoint);
@@ -394,16 +396,17 @@ public static class AvaloniaModelExtensions
 
         var gradientOriginPoint = new A.RelativePoint(gradientOrigin, A.RelativeUnit.Absolute);
         var centerPoint = new A.RelativePoint(center, A.RelativeUnit.Absolute);
-        var radius = radialGradientShader.Radius / bounds.Width;
+        var radius = new A.RelativeScalar(radialGradientShader.Radius, A.RelativeUnit.Absolute);
 
         return new AMII.ImmutableRadialGradientBrush(
             ToGradientStops(radialGradientShader.Colors, radialGradientShader.ColorPos),
             1,
             transform,
-            null,
+            s_skiaOrigin,
             spreadMethod,
             centerPoint,
             gradientOriginPoint,
+            radius,
             radius);
     }
 
@@ -427,22 +430,18 @@ public static class AvaloniaModelExtensions
         var gradientOriginPoint = new A.RelativePoint(gradientOrigin, A.RelativeUnit.Absolute);
         var centerPoint = new A.RelativePoint(center, A.RelativeUnit.Absolute);
 
-        // NOTE: twoPointConicalGradientShader.StartRadius is always 0.0
-        var startRadius = twoPointConicalGradientShader.StartRadius;
-
-        // TODO: Avalonia is passing 'radius' to 'SKShader.CreateTwoPointConicalGradient' as 'startRadius'
-        // TODO: but we need to pass it as 'endRadius' to 'SKShader.CreateTwoPointConicalGradient'
-        var endRadius = twoPointConicalGradientShader.EndRadius / bounds.Width;
-        var radius = 0.5; // endRadius
+        // The brush always starts its cone at a point, so a focal radius (fr) is drawn as 0.
+        var radius = new A.RelativeScalar(twoPointConicalGradientShader.EndRadius, A.RelativeUnit.Absolute);
 
         return new AMII.ImmutableRadialGradientBrush(
             ToGradientStops(twoPointConicalGradientShader.Colors, twoPointConicalGradientShader.ColorPos),
             1,
             transform,
-            null,
+            s_skiaOrigin,
             spreadMethod,
             centerPoint,
             gradientOriginPoint,
+            radius,
             radius);
     }
 
@@ -484,13 +483,12 @@ public static class AvaloniaModelExtensions
             stops.Add(StopAt(1f));
         }
 
-        // Avalonia.Skia 12.1.3 turns the gradient by Angle - 90 about its centre, and applies Transform
-        // about TransformOrigin: 90 and an absolute (0,0) leave Skia's angles and local matrix as they are.
+        // Avalonia.Skia 12.1.3 turns the gradient by Angle - 90 about its centre, so 90 leaves Skia's angles as they are.
         return new AMII.ImmutableConicGradientBrush(
             stops,
             1,
             transform,
-            new A.RelativePoint(0, 0, A.RelativeUnit.Absolute),
+            s_skiaOrigin,
             AM.GradientSpreadMethod.Pad,
             new A.RelativePoint(sweepGradientShader.Center.ToPoint(), A.RelativeUnit.Absolute),
             90);
