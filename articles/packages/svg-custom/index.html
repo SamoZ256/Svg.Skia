@@ -269,6 +269,10 @@ transform, and angles grow clockwise on screen. Nothing wraps: a direction is me
 so under the default <code>pad</code>, <code>startAngle=&quot;-90&quot;</code> leaves the first stops unused rather than turning the
 gradient. Turn it with <code>gradientTransform</code>. CSS's <code>conic-gradient(from A at X Y, …)</code> starts at 12 o'clock, so it is written
 <code>cx=&quot;X&quot; cy=&quot;Y&quot; gradientTransform=&quot;rotate(A−90 X Y)&quot;</code>.</p>
+<p><strong>The seam.</strong> A full turn whose first and last stops differ shows a hard edge where they meet, at
+3 o'clock untransformed, as it does in CSS and every design tool: end on the first colour, as the
+example above does, or for a dial with a gap, turn the seam into the gap and spread the stops over
+the arc, as in <code>startAngle=&quot;0&quot; endAngle=&quot;300&quot; gradientTransform=&quot;rotate(120 X Y)&quot;</code>.</p>
 <p><strong>Bounding-box units.</strong> Under the default <code>objectBoundingBox</code> the angles are measured in the box's
 unit square, so a box that is not square skews them, as it turns a <code>radialGradient</code> into an ellipse.
 Write <code>userSpaceOnUse</code> where the angles have to be true.</p>
