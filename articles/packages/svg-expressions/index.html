@@ -221,6 +221,7 @@ renderers ignore:</p>
     &lt;e:param name=&quot;tint&quot;  type=&quot;color&quot;   /&gt;
     &lt;e:param name=&quot;bold&quot;  type=&quot;boolean&quot; default=&quot;false&quot; /&gt;
     &lt;e:param name=&quot;theme&quot; type=&quot;string&quot;  default=&quot;'dark'&quot; /&gt;
+    &lt;e:param name=&quot;stops&quot; type=&quot;color[]&quot; default=&quot;[#f7de77, #ace3e3]&quot; /&gt;
 
     &lt;e:let name=&quot;wave&quot;&gt;(sin(t * tau) + 1) / 2&lt;/e:let&gt;
     &lt;e:let name=&quot;shade&quot;&gt;mix(tint, #000000, wave)&lt;/e:let&gt;
@@ -235,7 +236,9 @@ and multiple blocks are merged in document order. A name declared twice across t
 and every drawing under it is built with that block written in front of its own — outermost group
 first — so the family shares one declaration rather than a copy of it each. A <code>svgc</code> recipe splices
 its block the same way.</p>
-<p><strong><code>&lt;e:param&gt;</code></strong> declares a parameter. <code>name</code> and <code>type</code> are required.</p>
+<p><strong><code>&lt;e:param&gt;</code></strong> declares a parameter. <code>name</code> and <code>type</code> are required, and <code>type</code> is one of the
+types in <a href="#31-types">§3.1</a>: <code>number</code>, <code>integer</code>, <code>color</code>, <code>boolean</code>, <code>string</code>, <code>number[]</code> or
+<code>color[]</code>.</p>
 <p><code>default</code> is an expression, and makes the parameter optional. With no <code>default</code> the parameter is
 <strong>required</strong> — nothing is invented, so a value never appears that is written nowhere in the document.</p>
 <p>Two rules follow:</p>
@@ -259,10 +262,12 @@ integer's bounds are themselves integers, so <code>max=&quot;tau&quot;</code> on
 time is accepted wherever it lies, and a <code>default</code> outside its own range is legal.</p>
 <p><strong><code>&lt;e:let&gt;</code></strong> declares a local. Its type is <strong>inferred</strong> from the expression. Lets resolve in document
 order, so a let may reference parameters and earlier lets, but not later ones — and not itself.</p>
-<p><code>type</code> is optional on a let, and the only thing it is really for is the numeric types: an inferred
-whole literal is a number (<a href="#32-literals">§3.2</a>), so <code>&lt;e:let name=&quot;n&quot;&gt;3&lt;/e:let&gt;</code> is a number and
-<code>&lt;e:let name=&quot;n&quot; type=&quot;integer&quot;&gt;3&lt;/e:let&gt;</code> is how to ask for the other. Written anywhere else it is a
-check rather than a choice — the expression has to produce that type or the block is refused.</p>
+<p><code>type</code> is optional on a let, and the only things it is really for are the numeric types and the
+empty list: an inferred whole literal is a number (<a href="#32-literals">§3.2</a>), so
+<code>&lt;e:let name=&quot;n&quot;&gt;3&lt;/e:let&gt;</code> is a number and <code>&lt;e:let name=&quot;n&quot; type=&quot;integer&quot;&gt;3&lt;/e:let&gt;</code> is how to ask
+for the other, and <code>[]</code> is no list until something says which, so <code>&lt;e:let name=&quot;xs&quot; type=&quot;number[]&quot;&gt;[]&lt;/e:let&gt;</code>
+is how to write an empty one. Written anywhere else it is a check rather than a choice — the
+expression has to produce that type or the block is refused.</p>
 <p>Names must be valid identifiers (letter or <code>_</code>, then letters, digits or <code>_</code>), must not collide with a
 built-in constant, function or operator word (<a href="#33-operators">§3.3</a>), and must be unique across
 params and lets.</p>
@@ -505,6 +510,28 @@ too: what a hit meets, and the clip the outline shows, are the clip as it is bou
 expression is scaled by a literal opacity, and where both are expressions the alpha is scaled by
 whatever the number one yields. <code>color-interpolation=&quot;linearRGB&quot;</code> converts the result, exactly as it
 would a literal.</p>
+<h3 id="a-gradients-stops-as-lists">A gradient's stops as lists</h3>
+<p>A gradient can take all of its stops from lists the host passes, rather than one <code>stop-color</code> at a
+time: <code>e:stop-colors</code> gives it a <code>color[]</code>, and <code>e:stop-offsets</code> a <code>number[]</code>, on a
+<code>&lt;linearGradient&gt;</code>, a <code>&lt;radialGradient&gt;</code> or a <code>&lt;sweepGradient&gt;</code>. Each is found along <code>href</code> as the
+gradient's other attributes are, but no further than the first gradient with <code>&lt;stop&gt;</code>s of its own:
+the lists replace those stops, and a gradient's own stops are never replaced by lists it inherits.</p>
+<pre><code class="language-xml">&lt;e:param name=&quot;colors&quot; type=&quot;color[]&quot; default=&quot;[#f7de77, #ffffff, #ace3e3]&quot; /&gt;
+&lt;e:param name=&quot;positions&quot; type=&quot;number[]&quot; default=&quot;[0, 0.42, 1]&quot; /&gt;
+
+&lt;linearGradient id=&quot;g&quot; gradientUnits=&quot;userSpaceOnUse&quot; x1=&quot;0&quot; y1=&quot;2&quot; x2=&quot;0&quot; y2=&quot;28&quot;
+                e:stop-colors=&quot;{{ colors }}&quot; e:stop-offsets=&quot;{{ positions }}&quot;&gt;
+  &lt;stop offset=&quot;0&quot; stop-color=&quot;#f7de77&quot; /&gt;
+  &lt;stop offset=&quot;0.42&quot; stop-color=&quot;#ffffff&quot; /&gt;
+  &lt;stop offset=&quot;1&quot; stop-color=&quot;#ace3e3&quot; /&gt;
+&lt;/linearGradient&gt;
+</code></pre>
+<p>The <code>&lt;stop&gt;</code>s are what a browser and an unbound document draw, and the lists replace them once bound.
+There are as many stops as the shorter list holds, or as there are colours where no offsets are
+given, which spaces them evenly. Each offset is ruled on as a written one is, clamped to 0 to 1 and
+raised to the one before it, and each colour is scaled by the element's <code>fill-opacity</code> or
+<code>stroke-opacity</code> and converted by <code>color-interpolation</code>, as a written stop's is. One stop paints its
+colour, none paints nothing, and a radial gradient of no radius paints the last stop.</p>
 <h3 id="driving-a-clip">Driving a clip</h3>
 <p>A clip is recorded as geometry, kept beside the expressions that drive it, so a level indicator says
 what it means: the sector its level sweeps, clipping what it shows.</p>
@@ -574,7 +601,7 @@ filter measures goes through one.</li>
 <h2 id="3-language-reference">3. Language reference</h2>
 <h3 id="31-types">3.1 Types</h3>
 <p><code>number</code> (single-precision float), <code>integer</code> (32-bit, wrapping), <code>color</code> (RGBA, 8 bits per channel),
-<code>boolean</code>, <code>string</code>.</p>
+<code>boolean</code>, <code>string</code>, and two lists: <code>number[]</code> and <code>color[]</code>.</p>
 <p>There are no implicit conversions between them. In particular <code>+</code> never turns a number into text:
 between a string and anything else it is an error, not a conversion — and it does not turn an integer
 into a number either. <code>num(i)</code> and <code>int(x)</code> are the crossing, and they are functions for the same
@@ -597,6 +624,20 @@ of a <code>&lt;text&gt;</code>, and as the thing that chooses between values the
 &lt;circle fill=&quot;{{ theme == 'dark' ? #ffffff : #101010 }}&quot; /&gt;
 &lt;text font-family=&quot;{{ theme == 'dark' ? 'Inter' : 'Georgia' }}&quot;&gt;{{ theme }}&lt;/text&gt;
 </code></pre>
+<p>A list is how a host hands a drawing a run of values whose length it decides — a gradient's colours
+and their offsets (<a href="#a-gradients-stops-as-lists">A gradient's stops as lists</a>), which is the one
+place a whole list is taken. Only a number and a colour have one. Anywhere else a list is read an
+element at a time: <code>xs[i]</code> is one element and <code>len(xs)</code> how many there are. A list does no
+arithmetic, is compared with nothing, and is no condition, each refused with a message saying what
+to write instead — index it, or test its length.</p>
+<pre><code class="language-xml">&lt;e:param name=&quot;colors&quot; type=&quot;color[]&quot; default=&quot;[#f7de77, #ffffff, #ace3e3]&quot; /&gt;
+&lt;e:param name=&quot;level&quot; type=&quot;integer&quot; default=&quot;0&quot; /&gt;
+
+&lt;rect fill=&quot;{{ colors[level] }}&quot; visibility=&quot;{{ len(colors) &gt; 0 }}&quot; /&gt;
+</code></pre>
+<p>An index is an integer, and it is <strong>clamped</strong> into the list rather than refused, because a drawing
+has to draw whatever index it is handed: <code>colors[-1]</code> is the first colour and <code>colors[99]</code> the last,
+and an empty list answers <code>0</code> or transparent.</p>
 <h3 id="32-literals">3.2 Literals</h3>
 <table class="table">
 <thead>
@@ -651,6 +692,21 @@ of a <code>&lt;text&gt;</code>, and as the thing that chooses between values the
 <td><code>'dark'</code>, <code>&quot;dark&quot;</code></td>
 <td>string</td>
 <td>Either quote; the one that opened the literal closes it.</td>
+</tr>
+<tr>
+<td><code>[0, 0.42, 1]</code></td>
+<td>number[]</td>
+<td>Every element a number, a whole literal among them counting as one. Each element is an expression.</td>
+</tr>
+<tr>
+<td><code>[#ff0000, #00ff00]</code></td>
+<td>color[]</td>
+<td>Every element a colour.</td>
+</tr>
+<tr>
+<td><code>[]</code></td>
+<td>either list</td>
+<td>Only where one is declared: a parameter's <code>default</code>, a typed let, or a branch of <code>?:</code> beside a list.</td>
 </tr>
 </tbody>
 </table>
@@ -780,6 +836,13 @@ listed alongside:</p>
 <td><code>not x</code></td>
 <td>boolean</td>
 <td>boolean</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>xs[i]</code> (postfix)</td>
+<td></td>
+<td>a list, and an integer</td>
+<td>its element</td>
 </tr>
 </tbody>
 </table>
@@ -946,7 +1009,7 @@ always meant; <code>int(min(1, 2))</code> asks for the other.
 </tr>
 <tr>
 <td><code>len(s)</code></td>
-<td>Number of UTF-16 code units, as an <strong>integer</strong> — which is how a string reaches the arithmetic.</td>
+<td>Number of UTF-16 code units, as an <strong>integer</strong> — which is how a string reaches the arithmetic. <code>len(xs)</code> of a list is how many elements it holds.</td>
 </tr>
 <tr>
 <td><code>str(x)</code></td>
@@ -987,11 +1050,13 @@ equality       := comparison ( ( '==' | '!=' | 'eq' | 'ne' ) comparison )*
 comparison     := additive ( ( '&lt;' | '&lt;=' | '&gt;' | '&gt;=' | 'lt' | 'le' | 'gt' | 'ge' ) additive )*
 additive       := multiplicative ( ( '+' | '-' ) multiplicative )*
 multiplicative := unary ( ( '*' | '/' ) unary )*
-unary          := ( '-' | '!' | 'not' ) unary | primary
+unary          := ( '-' | '!' | 'not' ) unary | postfix
+postfix        := primary ( '[' conditional ']' )*
 primary        := number | color | string | 'true' | 'false'
                 | identifier
                 | identifier '(' ( conditional ( ',' conditional )* )? ')'
                 | '(' conditional ')'
+                | '[' ( conditional ( ',' conditional )* )? ']'
 </code></pre>
 <p>The grammar is unchanged by the integer, and deliberately so: <code>3</code> and <code>3.0</code> are one production, and
 which numeric type each is belongs to the checker rather than the parser. There is no suffix to

@@ -337,6 +337,12 @@
 <pre><code class="language-xml">&lt;e:param name=&quot;hue&quot; type=&quot;number&quot; default=&quot;217&quot; min=&quot;0&quot; max=&quot;360&quot; step=&quot;1&quot; /&gt;
 </code></pre>
 <p>Every row is seeded by <em>evaluating</em> the declared <code>default</code>, so <code>default=&quot;tau / 4&quot;</code> works as well as a literal does.</p>
+<p>A <code>number[]</code> or <code>color[]</code> parameter is a row with an editor per element, a number field or a colour
+picker, each named for how an expression reads it (<code>colors[1]</code>), with <code>↑</code>, <code>↓</code> and <code>−</code> to move or
+remove it and <code>+ Add</code> under the lot, which appends a copy of the last element, or <code>0</code> or black to a
+list that has none. A list with no <code>default</code> starts empty and says so. Any of those changes the
+value, so the drawing follows each, and reset and <code>CommitParameterDefaults</code> treat the list as one
+value, writing it back as its literal.</p>
 <p>A <code>default</code> that will not evaluate, or a range whose ends are the wrong way round, does not stop the
 parameter being offered: the drawing still renders and the value is still bindable, the row falls back
 to a placeholder and the default range. What is wrong with it is said on the declaration panel, in

@@ -459,8 +459,9 @@ file writes it. A section folds away and stays folded from one pick to the next.
 element's tag and its id; <strong>Find an attribute</strong> under it lists only the rows whose name holds what is
 typed, and finds the attributes the element does not usually list as well.</p>
 <p>Every attribute the element writes is listed, and beside them the ones an element of its kind usually
-has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, not a stop's stroke
-or a rectangle's font. <strong>Show all</strong> lists everything the parser would read on it instead, whether or
+has — a rectangle's corner radii and stroke, a gradient stop's colour and offset, a gradient's
+<code>e:stop-colors</code> and <code>e:stop-offsets</code>, which take a <code>color[]</code> and a <code>number[]</code> parameter whole, not a
+stop's stroke or a rectangle's font. <strong>Show all</strong> lists everything the parser would read on it instead, whether or
 not an expression could drive it. A row the file sets is in bold, with a <strong>×</strong> that takes it away.</p>
 <p>A row's box holds the value itself, whatever it is. Typing <code>{{ tint }}</code> into <code>fill</code> writes that into
 the drawing; typing <code>#00ff00</code> back writes that. Binding and unbinding are the same gesture, so
