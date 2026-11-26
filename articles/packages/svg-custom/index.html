@@ -204,7 +204,9 @@ if (document is not null)
 <li>typed <code>pointer-events</code> support used by the shared hit-test and interaction layers,</li>
 <li><code>SvgElementNames.NameOf</code> and <code>SvgElementAddress</code>, which answer the two questions the vendored
 <code>SvgElement</code> cannot: what an element is called, and which element it is,</li>
-<li><code>&lt;sweepGradient&gt;</code>, a gradient that turns around a centre.</li>
+<li><code>&lt;sweepGradient&gt;</code>, a gradient that turns around a centre,</li>
+<li><code>SvgElementState</code>, <code>SvgValueSpelling</code> and <code>SvgFreshElementWriter</code>, which write what a parsed element
+holds back into a drawing's text.</li>
 </ul>
 <p>The rendering behavior still lives above this package, not inside it.</p>
 <h3 id="naming-and-addressing-an-element">Naming and addressing an element</h3>
@@ -218,6 +220,35 @@ a host reloading a drawing from edited text gets a new <code>SvgDocument</code> 
 a reference taken a moment ago names nothing. <code>SvgSceneNode.ElementAddressKey</code> spells the same path,
 and so does <code>SvgSourceElements</code> in <code>Svg.Highlighting</code>, which is what lets a scene node, a row of text
 and an element all be talked about as the same thing.</p>
+<h3 id="writing-a-value-back">Writing a value back</h3>
+<p>An editor that runs a command on the parsed document has to put the result back into the file, and
+SVG.NET's own writer cannot be what does it. It writes numbers in seven digits, so a float written
+and read again is another float; it drops <code>ex</code> and <code>pc</code>, <code>defer</code>, a skew of both angles and the odd
+number at the end of a point list; it writes a colour as a name on one target and as hex on another;
+and it moves fill and stroke into a generated <code>style</code>. Its <code>Equals</code> is no better: an empty transform
+list equals every list, and a paint's fallback is ignored.</p>
+<p><code>SvgElementState.Capture</code> records what each element holds of its own — its typed values, the style
+declarations no attribute holds, its custom attributes, its text and its children — as copies, so a
+value edited in place afterwards still reads as a change. Comparing two captures is how a change is
+found: an element's <code>AttributeChanged</code> cannot be, since editing a path segment or a matrix's numbers
+in place raises nothing.</p>
+<p><code>SvgValueSpelling.Precise</code> says whether two values are the same, to the bit, and <code>Spell</code> writes one
+as text. A number is written in the fewest digits that read back, laid out as JavaScript writes one,
+and the same on every target: <code>&quot;R&quot;</code> cannot be used, because on .NET Framework it is &quot;G7, else G9&quot;.
+What <code>Spell</code> returns has been read back through the element's own converter and found equal, so a
+value it cannot write exactly is refused rather than guessed; the author's own text is kept while it
+still says the value, unless the loader reads it otherwise than the converter does — a <code>var()</code>, or
+an attribute it finds malformed. Over the W3C and resvg suites, read as the app reads them, it
+writes back 167,542 values in 2,938 drawings and refuses none.</p>
+<p><code>SvgFreshElementWriter</code> writes an element that is not in the file — a copy a command made, a path it
+computed — as markup in no namespace, which the source editor's insert step moves into its parent's
+namespace and indents where it lands. An expression is written back as the braces it was lifted
+from, in the attribute or the <code>style</code> declaration it came from; nothing the parser keeps for itself
+is written. In a drawing with a <code>&lt;style&gt;</code> sheet every presentation value goes in the style, where a
+rule matching the copy cannot beat it as it would an attribute. Text is written as it runs, and
+nothing is indented under <code>xml:space=&quot;preserve&quot;</code>. Every
+top-level element of those suites written fresh in place of itself reads back holding what it held:
+12,542 of them, and six refused, each holding an element of another namespace.</p>
 <h3 id="sweep-gradients">Sweep gradients</h3>
 <p><code>&lt;sweepGradient&gt;</code> is Skia's sweep gradient: the colour turns around a centre instead of running
 along a line or out from a point. No SVG specification has it, so it is read as an element of the
