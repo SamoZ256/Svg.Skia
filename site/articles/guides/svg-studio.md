@@ -137,50 +137,72 @@ held at either end of a strip with more tabs than fit scrolls the strip the same
 an `.svg` file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
 clipboard. Adding, removing and moving edit the project; nothing reaches the folder until you save it.
 
-Panels sit round the tabs: the **Project** tree, **Changes** and **History**; the **Variables** a
-drawing declares and the **Properties** of whatever is in front; the **Attributes** of the element
-picked in it, the **Elements** those come from, and the **Assistant**; and **Streamline**. They belong
-to the window rather than to a tab, and show whatever tab is in front — so the arrangement holds still
-while you move between drawings, and the tree that names them stays beside all of them.
+### The window
 
-They come up in the **Drawing** layout: down the left the tree, with Changes and History behind it,
-over the variables and the properties; Streamline folded under the drawing, which its tab opens; down
-the right the attributes over the element tree and the assistant. The variables and the attributes are apart on purpose — a
-variable is dragged onto an attribute, and behind a tab each would hide the other. **Board** puts
-Streamline under the tree and gives a group's board the window's whole height; **Review** puts
-Changes and History wide on the left. Pick one in the control bar's picker, at its right end, or in
-the **Window** menu. The picker names the layout you are in, and says *Custom* once the panels are
+From the top: the menus (in the menu bar on macOS), the **control bar**, the panels arranged round the
+tabs, and the **status bar**. Both bars are about whichever tab is in front.
+
+The control bar names what is picked — `rect #a`, *3 objects*, *Page* — and holds **Reset
+parameters**, **Lock ratio**, **Snap**, **Invisible** and **Captions**, with the layout picker and
+**Search** at its right end. The status bar zooms (**−**, a percentage to type, **+**, **Fit**), says
+the drawing's name, how many parameters it has and the tool in hand with how it is used, reads the
+pointer in the drawing's own units, and carries the note about anything wrong with the drawing.
+**Snap** lands what is dragged on the grid and **Grid** draws the grid's lines; each works without
+the other. The same switches are in **View**.
+
+**Settings → Theme** picks the machine's colours, Light or Dark. Either way the drawing sits on a grey
+darker than the panels round it.
+
+### The panels
+
+The panels belong to the window rather than to a tab, and show whatever tab is in front, so the
+arrangement holds still while you move between drawings:
+
+| Panel | What it shows |
+|---|---|
+| **Project** | The tree, while a project is open. |
+| **Changes** | The project's place in its repository: the branch, what has changed, the remote and the **Commits**. Also only while a project is open. |
+| **History** | What **Edit → Undo** would take back, in the order it would: the drawing in front first, then the project. Clicking a row takes back that step and everything above it. |
+| **Properties** | The tab in front: a drawing's or a group's own settings. |
+| **Variables** | The parameters the drawing declares. |
+| **Attributes** | The element picked in the drawing. |
+| **Elements** | The drawing's elements, as a tree. |
+| **Assistant** | Claude, with the same tools [Claude Code](#connecting-claude-code) gets. |
+| **Streamline** | Streamline's icons, searched and brought into the project through its templates. |
+
+### Layouts
+
+The panels come up in the **Drawing** layout. Down the left are the tree, with Changes and History
+behind it, over the variables and the properties. Streamline sits folded under the drawing, and its
+tab opens it. Down the right are the attributes, over the element tree and the assistant. The
+variables and the attributes are apart on purpose: a variable is dragged onto an attribute, and
+behind a tab each would hide the other.
+
+**Board** puts Streamline under the tree and gives a group's board the window's whole height.
+**Review** puts Changes and History wide on the left. Pick one in the control bar's picker or in the
+**Window** menu. The picker names the layout you are in, and says *Custom* once the panels are
 arranged as none of them.
 
-**History** lists what **Edit → Undo** would take back, in the order it would: the drawing in front
-first, then the project. Clicking a row takes back that step and everything above it.
+### Arranging the panels
 
-**Arrange them as you like.** The chevron on a header folds that panel away, and a click on a folded
-run's tab opens it again. Drag the gap between two panels, which lights up under the pointer, to
-resize them. Take a panel by its
-header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
-Drop it against the foot of the drawing and it sits under the drawing; drop it against the **edge of
-the window** and it runs under everything, taking nothing from the strip beside it. Where it would
-land is drawn while you carry it. A tab's own menu, on a right-click, moves it left or right along its
-run or into a run of its own below it, and closes it where the **Window** menu can bring it back;
-clicking a tab leaves the keyboard with the drawing, and once a tab has it the arrow keys walk the run's tabs, and a run too
-narrow for its tabs offers the rest under the **»** at its end. The arrangement is remembered, so it
-is there again next time, and **Window → Reset Layout** puts it back for when it has gone somewhere
-you would rather it had not. The
-**Window** menu also takes a panel off or puts it back for this session — all but the project tree and
-**Changes**, which come and go with the project — and moves between tabs
-(⌃⇥ and ⌃⇧⇥); **Help → Keyboard Shortcuts** lists every key Studio answers to, and **Help → Search
+- **Fold** a panel with the chevron on its header; a click on a folded run's tab opens it again.
+- **Resize** two panels by dragging the gap between them, which lights up under the pointer.
+- **Move** a panel by its header. Drop it on another header to sit behind that panel, or on the edge
+  of a panel to split it. Dropped against the foot of the drawing, it sits under the drawing; dropped
+  against the **edge of the window**, it runs under everything, taking nothing from the strip beside
+  it. Where it would land is drawn while you carry it.
+- **Right-click a tab** to move it left or right along its run or into a run of its own below, or to
+  close it — all but the project tree and Changes; the **Window** menu brings a closed panel back.
+- **Keys:** clicking a tab leaves the keyboard with the drawing. Once a tab has the focus, the arrow
+  keys, Home and End walk the run's tabs. A run too narrow for its tabs offers the rest under the
+  **»** at its end.
+
+The arrangement is remembered, so it is there again next time. **Window → Reset Layout** puts the
+Drawing layout back. The **Window** menu also takes a panel off or puts it back for this session —
+all but the project tree and Changes, which come and go with the project — and moves between tabs
+(⌃⇥ and ⌃⇧⇥). **Help → Keyboard Shortcuts** lists every key Studio answers to, and **Help → Search
 Commands…** (⌘K, Ctrl+K elsewhere) finds a command, a tool, or a drawing or group of the project by
 name, and runs or opens it.
-
-Two bars run across the window and are about whichever tab is in front. The **control bar**, under
-the menus, names what is picked — `rect #a`, *3 objects*, *Page* — and holds **Reset parameters**,
-**Lock ratio**, **Snap**, **Invisible** and **Captions**, with **Search** at its right end. The
-**status bar** at the foot zooms (**−**, a percentage to type, **+**, **Fit**), says the drawing's
-name, how many parameters it has and the tool in hand with how it is used, reads the pointer in the
-drawing's own units, and carries the note about anything wrong with the drawing. **Snap** lands what
-is dragged on the grid, and **Grid** draws the grid's lines; each works without the other. The same
-switches are in **View**.
 
 ## A group's tab: several icons at once
 
