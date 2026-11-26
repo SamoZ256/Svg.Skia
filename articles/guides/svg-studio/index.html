@@ -262,46 +262,97 @@ other pane scrolls it, faster the nearer the edge, so a row out of sight can sti
 held at either end of a strip with more tabs than fit scrolls the strip the same way. Adding
 an <code>.svg</code> file reads it in; so does pasting one, or pasting the SVG a drawing program puts on the
 clipboard. Adding, removing and moving edit the project; nothing reaches the folder until you save it.</p>
-<p>Panels sit round the tabs: the <strong>Project</strong> tree, <strong>Changes</strong> and <strong>History</strong>; the <strong>Variables</strong> a
-drawing declares and the <strong>Properties</strong> of whatever is in front; the <strong>Attributes</strong> of the element
-picked in it, the <strong>Elements</strong> those come from, and the <strong>Assistant</strong>; and <strong>Streamline</strong>. They belong
-to the window rather than to a tab, and show whatever tab is in front — so the arrangement holds still
-while you move between drawings, and the tree that names them stays beside all of them.</p>
-<p>They come up in the <strong>Drawing</strong> layout: down the left the tree, with Changes and History behind it,
-over the variables and the properties; Streamline folded under the drawing, which its tab opens; down
-the right the attributes over the element tree and the assistant. The variables and the attributes are apart on purpose — a
-variable is dragged onto an attribute, and behind a tab each would hide the other. <strong>Board</strong> puts
-Streamline under the tree and gives a group's board the window's whole height; <strong>Review</strong> puts
-Changes and History wide on the left. Pick one in the control bar's picker, at its right end, or in
-the <strong>Window</strong> menu. The picker names the layout you are in, and says <em>Custom</em> once the panels are
+<h3 id="the-window">The window</h3>
+<p>From the top: the menus (in the menu bar on macOS), the <strong>control bar</strong>, the panels arranged round the
+tabs, and the <strong>status bar</strong>. Both bars are about whichever tab is in front.</p>
+<p>The control bar names what is picked — <code>rect #a</code>, <em>3 objects</em>, <em>Page</em> — and holds <strong>Reset
+parameters</strong>, <strong>Lock ratio</strong>, <strong>Snap</strong>, <strong>Invisible</strong> and <strong>Captions</strong>, with the layout picker and
+<strong>Search</strong> at its right end. The status bar zooms (<strong>−</strong>, a percentage to type, <strong>+</strong>, <strong>Fit</strong>), says
+the drawing's name, how many parameters it has and the tool in hand with how it is used, reads the
+pointer in the drawing's own units, and carries the note about anything wrong with the drawing.
+<strong>Snap</strong> lands what is dragged on the grid and <strong>Grid</strong> draws the grid's lines; each works without
+the other. The same switches are in <strong>View</strong>.</p>
+<p><strong>Settings → Theme</strong> picks the machine's colours, Light or Dark. Either way the drawing sits on a grey
+darker than the panels round it.</p>
+<h3 id="the-panels">The panels</h3>
+<p>The panels belong to the window rather than to a tab, and show whatever tab is in front, so the
+arrangement holds still while you move between drawings:</p>
+<table class="table">
+<thead>
+<tr>
+<th>Panel</th>
+<th>What it shows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Project</strong></td>
+<td>The tree, while a project is open.</td>
+</tr>
+<tr>
+<td><strong>Changes</strong></td>
+<td>The project's place in its repository: the branch, what has changed, the remote and the <strong>Commits</strong>. Also only while a project is open.</td>
+</tr>
+<tr>
+<td><strong>History</strong></td>
+<td>What <strong>Edit → Undo</strong> would take back, in the order it would: the drawing in front first, then the project. Clicking a row takes back that step and everything above it.</td>
+</tr>
+<tr>
+<td><strong>Properties</strong></td>
+<td>The tab in front: a drawing's or a group's own settings.</td>
+</tr>
+<tr>
+<td><strong>Variables</strong></td>
+<td>The parameters the drawing declares.</td>
+</tr>
+<tr>
+<td><strong>Attributes</strong></td>
+<td>The element picked in the drawing.</td>
+</tr>
+<tr>
+<td><strong>Elements</strong></td>
+<td>The drawing's elements, as a tree.</td>
+</tr>
+<tr>
+<td><strong>Assistant</strong></td>
+<td>Claude, with the same tools <a href="#connecting-claude-code">Claude Code</a> gets.</td>
+</tr>
+<tr>
+<td><strong>Streamline</strong></td>
+<td>Streamline's icons, searched and brought into the project through its templates.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="layouts">Layouts</h3>
+<p>The panels come up in the <strong>Drawing</strong> layout. Down the left are the tree, with Changes and History
+behind it, over the variables and the properties. Streamline sits folded under the drawing, and its
+tab opens it. Down the right are the attributes, over the element tree and the assistant. The
+variables and the attributes are apart on purpose: a variable is dragged onto an attribute, and
+behind a tab each would hide the other.</p>
+<p><strong>Board</strong> puts Streamline under the tree and gives a group's board the window's whole height.
+<strong>Review</strong> puts Changes and History wide on the left. Pick one in the control bar's picker or in the
+<strong>Window</strong> menu. The picker names the layout you are in, and says <em>Custom</em> once the panels are
 arranged as none of them.</p>
-<p><strong>History</strong> lists what <strong>Edit → Undo</strong> would take back, in the order it would: the drawing in front
-first, then the project. Clicking a row takes back that step and everything above it.</p>
-<p><strong>Arrange them as you like.</strong> The chevron on a header folds that panel away, and a click on a folded
-run's tab opens it again. Drag the gap between two panels, which lights up under the pointer, to
-resize them. Take a panel by its
-header and drop it on another header to sit behind it, or on the edge of a panel to split that panel.
-Drop it against the foot of the drawing and it sits under the drawing; drop it against the <strong>edge of
-the window</strong> and it runs under everything, taking nothing from the strip beside it. Where it would
-land is drawn while you carry it. A tab's own menu, on a right-click, moves it left or right along its
-run or into a run of its own below it, and closes it where the <strong>Window</strong> menu can bring it back;
-clicking a tab leaves the keyboard with the drawing, and once a tab has it the arrow keys walk the run's tabs, and a run too
-narrow for its tabs offers the rest under the <strong>»</strong> at its end. The arrangement is remembered, so it
-is there again next time, and <strong>Window → Reset Layout</strong> puts it back for when it has gone somewhere
-you would rather it had not. The
-<strong>Window</strong> menu also takes a panel off or puts it back for this session — all but the project tree and
-<strong>Changes</strong>, which come and go with the project — and moves between tabs
-(⌃⇥ and ⌃⇧⇥); <strong>Help → Keyboard Shortcuts</strong> lists every key Studio answers to, and <strong>Help → Search
+<h3 id="arranging-the-panels">Arranging the panels</h3>
+<ul>
+<li><strong>Fold</strong> a panel with the chevron on its header; a click on a folded run's tab opens it again.</li>
+<li><strong>Resize</strong> two panels by dragging the gap between them, which lights up under the pointer.</li>
+<li><strong>Move</strong> a panel by its header. Drop it on another header to sit behind that panel, or on the edge
+of a panel to split it. Dropped against the foot of the drawing, it sits under the drawing; dropped
+against the <strong>edge of the window</strong>, it runs under everything, taking nothing from the strip beside
+it. Where it would land is drawn while you carry it.</li>
+<li><strong>Right-click a tab</strong> to move it left or right along its run or into a run of its own below, or to
+close it — all but the project tree and Changes; the <strong>Window</strong> menu brings a closed panel back.</li>
+<li><strong>Keys:</strong> clicking a tab leaves the keyboard with the drawing. Once a tab has the focus, the arrow
+keys, Home and End walk the run's tabs. A run too narrow for its tabs offers the rest under the
+<strong>»</strong> at its end.</li>
+</ul>
+<p>The arrangement is remembered, so it is there again next time. <strong>Window → Reset Layout</strong> puts the
+Drawing layout back. The <strong>Window</strong> menu also takes a panel off or puts it back for this session —
+all but the project tree and Changes, which come and go with the project — and moves between tabs
+(⌃⇥ and ⌃⇧⇥). <strong>Help → Keyboard Shortcuts</strong> lists every key Studio answers to, and <strong>Help → Search
 Commands…</strong> (⌘K, Ctrl+K elsewhere) finds a command, a tool, or a drawing or group of the project by
 name, and runs or opens it.</p>
-<p>Two bars run across the window and are about whichever tab is in front. The <strong>control bar</strong>, under
-the menus, names what is picked — <code>rect #a</code>, <em>3 objects</em>, <em>Page</em> — and holds <strong>Reset parameters</strong>,
-<strong>Lock ratio</strong>, <strong>Snap</strong>, <strong>Invisible</strong> and <strong>Captions</strong>, with <strong>Search</strong> at its right end. The
-<strong>status bar</strong> at the foot zooms (<strong>−</strong>, a percentage to type, <strong>+</strong>, <strong>Fit</strong>), says the drawing's
-name, how many parameters it has and the tool in hand with how it is used, reads the pointer in the
-drawing's own units, and carries the note about anything wrong with the drawing. <strong>Snap</strong> lands what
-is dragged on the grid, and <strong>Grid</strong> draws the grid's lines; each works without the other. The same
-switches are in <strong>View</strong>.</p>
 <h2 id="a-groups-tab-several-icons-at-once">A group's tab: several icons at once</h2>
 <p>A group's tab is a canvas of <strong>every drawing under it</strong>, built the way the project builds them.
 Clicking a shape on it — or a row in the <strong>element tree</strong> beside it — picks that drawing, and the
