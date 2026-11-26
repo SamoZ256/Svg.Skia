@@ -36,6 +36,49 @@ public class SvgElementEditorDocumentTests
         return source!;
     }
 
+    /// <summary>Whitespace in text is text, and moving it, or what holds it, leaves it as written.</summary>
+    [Fact]
+    public void Whitespace_In_Text_Is_Not_Reindented()
+    {
+        const string text = "<svg xmlns=\"http://www.w3.org/2000/svg\">\n  <text id=\"a\">\n    <tspan>A</tspan>\n  </text>\n  <g id=\"b\">\n  </g>\n</svg>";
+        var source = Read(text);
+
+        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside, out _));
+
+        Assert.Contains("<text id=\"a\">\n    <tspan>A</tspan>\n  </text>", source.ToText(), StringComparison.Ordinal);
+    }
+
+    /// <summary>What is inserted under an xml:space="preserve" the drawing already has keeps its whitespace.</summary>
+    [Fact]
+    public void An_Insert_Under_Preserve_Keeps_Its_Whitespace()
+    {
+        var source = Read("<svg xmlns=\"http://www.w3.org/2000/svg\" xml:space=\"preserve\">\n  <g>\n  </g>\n</svg>");
+
+        Assert.Null(SvgElementEditor.Insert(source, "0", SvgElementDrop.Inside, new XElement("g", new XText("\n  "), new XElement("rect"), new XText("\n")), out _));
+
+        Assert.Contains("<g>\n  <rect />\n</g>", source.ToText(), StringComparison.Ordinal);
+    }
+
+    /// <summary>Under xml:space="preserve" whitespace is content, and moving the element leaves it as it was written.</summary>
+    [Fact]
+    public void Whitespace_Under_Preserve_Is_Not_Reindented()
+    {
+        const string text = """
+            <svg xmlns="http://www.w3.org/2000/svg">
+              <g id="a" xml:space="preserve">
+                <rect />
+              </g>
+              <g id="b">
+              </g>
+            </svg>
+            """;
+        var source = Read(text);
+
+        Assert.Null(SvgElementEditor.Move(source, "0", "1", SvgElementDrop.Inside, out _));
+
+        Assert.Contains("<g id=\"a\" xml:space=\"preserve\">\n    <rect />\n  </g>", source.ToText(), StringComparison.Ordinal);
+    }
+
     /// <summary>A key named twice, as two rows spelling one element can name it, is one element to act on.</summary>
     [Fact]
     public void An_Element_Named_Twice_Is_Removed_And_Copied_Once()

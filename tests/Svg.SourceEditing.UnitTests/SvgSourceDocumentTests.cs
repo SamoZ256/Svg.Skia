@@ -548,7 +548,7 @@ public class SvgSourceDocumentTests
         Assert.Equal(Inlined, source.ToText());
     }
 
-    private static IEnumerable<string> Suites()
+    internal static IEnumerable<string> Suites()
     {
         foreach (var suite in new[] { "W3C_SVG_11_TestSuite", "resvg" })
         {

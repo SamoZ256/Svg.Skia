@@ -6,11 +6,13 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Threading;
+using SkiaSharp;
 using Svg.Expressions;
 using Svg.Skia;
 using Xunit;
@@ -81,6 +83,69 @@ public class SvgViewerInvisibleTests
             MouseButton.Left));
 
         Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>On a host's mid grey, a box's dashes and name and the page's own edge are darkened until they stand out from it.</summary>
+    /// <remarks>
+    /// Their colours were picked for the canvas's own near-white ground: on Svg.Studio's #BABABA the box's
+    /// cyan stood at 1.2:1 and the page's grey at 2:1. Read as the strongest pixel of a patch holding only
+    /// that mark: 1.23 and 2.03 before, 3.7 and 4.0 now.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task Marks_Stand_Out_From_A_Mid_Grey_Ground()
+    {
+        var (window, viewer) = await Host();
+        var ground = new SKColor(0xBA, 0xBA, 0xBA);
+        var canvas = viewer.Canvas;
+
+        canvas.Background = ground;
+        Dispatcher.UIThread.RunJobs(DispatcherPriority.Render);
+
+        using var stream = new System.IO.MemoryStream();
+
+        window.CaptureRenderedFrame()!.Save(stream);
+        stream.Position = 0;
+
+        using var shot = SKBitmap.Decode(stream);
+
+        // The box's corner, where its edges and its name are and no ink is; and the page's left edge, clear of both.
+        var box = Strongest(1.5d, 5.5d, 11d, 11d);
+        var edge = Strongest(-0.5d, 10d, 0.8d, 20d);
+
+        Assert.True(box >= 3d, $"the box is {box:0.00}:1 against its ground");
+        Assert.True(edge >= 3d, $"the page's edge is {edge:0.00}:1 against its ground");
+
+        window.Close();
+
+        double Strongest(double left, double top, double right, double bottom)
+        {
+            var from = canvas.TranslatePoint(Over(canvas, left, top), window)!.Value;
+            var to = canvas.TranslatePoint(Over(canvas, right, bottom), window)!.Value;
+            var strongest = 0d;
+
+            for (var x = (int)from.X; x <= (int)to.X; x++)
+            {
+                for (var y = (int)from.Y; y <= (int)to.Y; y++)
+                {
+                    strongest = Math.Max(strongest, Contrast(shot.GetPixel(x, y), ground));
+                }
+            }
+
+            return strongest;
+        }
+
+        static double Contrast(SKColor one, SKColor other)
+        {
+            var (a, b) = (Luminance(one), Luminance(other));
+
+            return (Math.Max(a, b) + 0.05d) / (Math.Min(a, b) + 0.05d);
+        }
+
+        static double Luminance(SKColor colour)
+            => (0.2126d * Linear(colour.Red)) + (0.7152d * Linear(colour.Green)) + (0.0722d * Linear(colour.Blue));
+
+        static double Linear(byte channel)
+            => channel / 255d <= 0.04045d ? channel / 255d / 12.92d : Math.Pow(((channel / 255d) + 0.055d) / 1.055d, 2.4d);
     }
 
     [AvaloniaFact]

@@ -14,9 +14,18 @@
     Svg.Studio builds the same body, and two strips meant to look alike would not stay that way.
   -->
 
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Svg.Viewer.Skia.Avalonia/SvgViewerPalette.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+
   <Style Selector="Border.slot">
+    <Setter Property="Background" Value="{DynamicResource StudioHeader}" />
     <Setter Property="BorderThickness" Value="0,0,0,1" />
-    <Setter Property="BorderBrush" Value="#18808080" />
+    <Setter Property="BorderBrush" Value="{DynamicResource StudioDivider}" />
     <Setter Property="MinHeight" Value="26" />
   </Style>
 
@@ -33,10 +42,9 @@
     <Setter Property="FontSize" Value="12" />
   </Style>
 
-  <!-- The brush Fluent paints a selected tab's pipe with, so only the line's position has changed. -->
   <Style Selector="Border.pane.selected">
     <Setter Property="Opacity" Value="1" />
-    <Setter Property="BorderBrush" Value="{DynamicResource TabItemHeaderSelectedPipeFill}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource StudioAccent}" />
   </Style>
 
   <Style Selector="Border.pane:pointerover">
@@ -46,7 +54,7 @@
   <!-- Reached by the arrow keys, so it has to show where the keyboard is. -->
   <Style Selector="Border.pane:focus-visible">
     <Setter Property="Opacity" Value="1" />
-    <Setter Property="Background" Value="#18808080" />
+    <Setter Property="Background" Value="{DynamicResource StudioSelection}" />
   </Style>
 
   <!-- The rest of a run too narrow for its tabs: quiet like the chevron, since it is the same kind of thing. -->
@@ -69,7 +77,12 @@
   </Style>
 
   <Style Selector="GridSplitter.gap:pointerover, GridSplitter.gap:pressed">
-    <Setter Property="Background" Value="{DynamicResource TabItemHeaderSelectedPipeFill}" />
+    <Setter Property="Background" Value="{DynamicResource StudioAccent}" />
+  </Style>
+
+  <!-- The line between one pane and the next. -->
+  <Style Selector="Border.divider">
+    <Setter Property="BorderBrush" Value="{DynamicResource StudioDivider}" />
   </Style>
 
   <Style Selector="Border.chevron">
