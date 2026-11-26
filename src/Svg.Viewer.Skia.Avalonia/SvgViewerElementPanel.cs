@@ -1227,12 +1227,15 @@ public sealed class SvgViewerElementPanel : UserControl
             return SvgExpressionAttributes.WhyNotBox(box, ClassName?.Invoke(), OtherBoxes());
         }
 
-        // A value the use gives the drawing it calls, of whatever type that drawing's parameter is.
-        if (name.StartsWith(ArgumentRow, StringComparison.Ordinal))
+        // A value the use gives the drawing it calls, of whatever type that drawing's parameter is, or
+        // a gradient's list: anything but braces does nothing.
+        if (name.StartsWith(ArgumentRow, StringComparison.Ordinal) || SvgExpressionAttributes.ListTypeFor(name) is { })
         {
-            return written.Trim().Length == 0 || SvgExpressionAttributes.TryUnwrap(written, out _)
+            return written.Trim().Length == 0
                 ? null
-                : $"'{name}' is written as one expression in double braces.";
+                : !SvgExpressionAttributes.TryUnwrap(written, out var braced)
+                    ? $"'{name}' is written as one expression in double braces."
+                    : Typed(name) is { } listed ? Checked(braced, listed) : null;
         }
 
         if (SvgExpressionAttributes.IsInArguments(name))
@@ -1428,7 +1431,8 @@ public sealed class SvgViewerElementPanel : UserControl
     private ExprType? Typed(string name)
         => IsText(name)
             ? SvgExpressionAttributes.ContentType
-            : SvgExpressionAttributes.WhyUnsupported(name, null, _element, _clipped) is null ? SvgExpressionAttributes.TypeFor(name) : null;
+            : SvgExpressionAttributes.ListTypeFor(name)
+              ?? (SvgExpressionAttributes.WhyUnsupported(name, null, _element, _clipped) is null ? SvgExpressionAttributes.TypeFor(name) : null);
 
     /// <summary>A line saying why an element's text is not one value to edit.</summary>
     private static Control Told(string why)

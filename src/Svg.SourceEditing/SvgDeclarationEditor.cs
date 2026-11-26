@@ -756,7 +756,7 @@ public static class SvgDeclarationEditor
         {
             try
             {
-                symbols[let.Name] = checker.Check(let.Expression).Type;
+                symbols[let.Name] = checker.CheckLet(let.Name, let.Expression, let.DeclaredType).Type;
             }
             catch (ExprException failure)
             {

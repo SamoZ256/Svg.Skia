@@ -33,6 +33,9 @@ public partial class SvgLetFormView : UserControl
 
     private bool _editing;
 
+    /// <summary>The type the let being edited declares, which its body is held to.</summary>
+    private ExprType? _declared;
+
     public SvgLetFormView()
     {
         InitializeComponent();
@@ -88,6 +91,7 @@ public partial class SvgLetFormView : UserControl
 
         _name.Text = existing.Name;
         _expression.Text = existing.Expression;
+        _declared = existing.DeclaredType;
 
         _editing = true;
         _hint.IsVisible = false;
@@ -141,7 +145,7 @@ public partial class SvgLetFormView : UserControl
 
         try
         {
-            new ExprChecker(_scope).Check(expression);
+            new ExprChecker(_scope).CheckLet(name, expression, _declared);
         }
         catch (ExprException bad)
         {
@@ -152,7 +156,7 @@ public partial class SvgLetFormView : UserControl
 
         trouble = null;
 
-        return new SvgExpressionLet(name, expression);
+        return new SvgExpressionLet(name, expression, _declared);
     }
 
     private void OnAccept(object? sender, RoutedEventArgs e)

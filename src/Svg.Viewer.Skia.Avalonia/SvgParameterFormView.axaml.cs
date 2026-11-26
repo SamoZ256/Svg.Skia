@@ -13,8 +13,8 @@ namespace Svg.Viewer.Skia.Avalonia;
 /// <summary>The fields of a parameter, and whether the language will have them.</summary>
 /// <remarks>
 /// A control rather than a window, so the fields can be tested without a modal. It decides nothing
-/// about what is legal: a proposal goes through <see cref="SvgExpressionDeclarations.Builder"/> and
-/// what comes back is shown as it was written.
+/// about what is legal: a proposal goes through <see cref="SvgExpressionDeclarations.Builder"/>, its
+/// default through the evaluator, and what comes back is shown as it was written.
 /// </remarks>
 public partial class SvgParameterFormView : UserControl
 {
@@ -35,6 +35,19 @@ public partial class SvgParameterFormView : UserControl
     /// guess worth making within a run is not one worth carrying into the next.
     /// </remarks>
     private static ExprType _remembered = ExprType.Number;
+
+    /// <summary>The type each item of the picker stands for, in the order they are listed.</summary>
+    /// <remarks>Named here rather than read from the item, which says "number list" where the language says number[].</remarks>
+    private static readonly ExprType[] s_types =
+    {
+        ExprType.Number,
+        ExprType.Integer,
+        ExprType.Color,
+        ExprType.Boolean,
+        ExprType.String,
+        ExprType.NumberList,
+        ExprType.ColorList
+    };
 
     private IReadOnlyCollection<string> _taken = Array.Empty<string>();
 
@@ -108,19 +121,7 @@ public partial class SvgParameterFormView : UserControl
     /// </remarks>
     public SvgExpressionParameter? TryBuild(out string? trouble)
     {
-        var type = ExprType.Number;
-
-        try
-        {
-            type = ExprFunctions.ParseType(Selected(), 0, SvgDeclarationPart.Type);
-        }
-        catch (ExprException bad)
-        {
-            trouble = bad.Message;
-
-            return null;
-        }
-
+        var type = Selected();
         var ranged = type is ExprType.Number or ExprType.Integer;
 
         var parameter = new SvgExpressionParameter(
@@ -157,9 +158,10 @@ public partial class SvgParameterFormView : UserControl
             return null;
         }
 
-        trouble = null;
+        // The builder only looks, and what a default comes to, a list's literal above all, needs it run.
+        SvgViewerParameterFactory.Seed(parameter, out trouble);
 
-        return parameter;
+        return trouble is null ? parameter : null;
     }
 
     private void OnAdd(object? sender, RoutedEventArgs e)
@@ -180,22 +182,21 @@ public partial class SvgParameterFormView : UserControl
         }
     }
 
-    private void ShowRange() => _range.IsVisible = Selected() is "number" or "integer";
+    private void ShowRange()
+    {
+        var type = Selected();
 
-    // The order of the items in the ComboBox, which is the enum's order.
-    private void Select(ExprType type)
-        => _type.SelectedIndex = type switch
-        {
-            ExprType.Number => 0,
-            ExprType.Integer => 1,
-            ExprType.Color => 2,
-            ExprType.Boolean => 3,
-            ExprType.String => 4,
-            _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {type}."),
-        };
+        _range.IsVisible = type is ExprType.Number or ExprType.Integer;
 
-    private string Selected()
-        => (_type.SelectedItem as ComboBoxItem)?.Content as string ?? "number";
+        // A list literal is the one shape nobody has seen written in a default before.
+        _default.PlaceholderText = type == ExprType.NumberList ? "[0, 0.5, 1]"
+            : type == ExprType.ColorList ? "[#ff0000, #0000ff]"
+            : "217";
+    }
+
+    private void Select(ExprType type) => _type.SelectedIndex = Array.IndexOf(s_types, type);
+
+    private ExprType Selected() => _type.SelectedIndex >= 0 ? s_types[_type.SelectedIndex] : ExprType.Number;
 
     private static string? Empty(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value!.Trim();

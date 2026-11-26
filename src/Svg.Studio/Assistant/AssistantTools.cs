@@ -997,7 +997,7 @@ public sealed class AssistantTools
 
                             // Written as a default is, so a colour is #ff0000 and a string 'quoted'.
                             bound[name] = ExprEvaluator.Create(SvgExpressionDeclarations.Empty).EvaluateTo(
-                                value.ValueKind == JsonValueKind.String ? value.GetString()! : value.GetRawText(),
+                                Written(value),
                                 parameter.Type,
                                 $"The value for '{name}'");
                         }
@@ -1097,6 +1097,19 @@ public sealed class AssistantTools
                 return (png.ToArray(), said.ToString());
             }
         });
+
+    /// <summary>A value as the expression it is written as: a JSON array as a list literal, since ["#ff0000"] reads as a list of strings.</summary>
+    /// <remarks>
+    /// A JSON number is its own text, so an integer is not narrowed through a float, except where a
+    /// serializer wrote an exponent, 1E-05, which the language has none of.
+    /// </remarks>
+    private static string Written(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString()!,
+        JsonValueKind.Array => "[" + string.Join(", ", value.EnumerateArray().Select(Written)) + "]",
+        JsonValueKind.Number when value.GetRawText().IndexOfAny(['e', 'E']) >= 0 => ExprValue.Number((float)value.GetDouble()).ToString(),
+        _ => value.GetRawText()
+    };
 
     /// <summary>A page of Streamline's icons as one sheet of their previews and a line for each; or no sheet and why, refused where the search was not made or failed, but not where nothing matched.</summary>
     /// <remarks>
@@ -2950,8 +2963,8 @@ public sealed class AssistantTools
         [Description("The parameter's or let's name; to rename one, the name it has now.")] string name,
         [Description("A few words saying what this does, shown in the Edit menu.")] string summary,
         [Description("The node path of the drawing, the group or (project) declaring it; empty for the drawing in front.")] string? node = null,
-        [Description("A new parameter's type, or a new let's to hold it to one; a parameter's type is not changed, but removed and declared again.")] ExprType? type = null,
-        [Description("A parameter's default, written as an expression such as #ff0000, 2 or 'text'; empty clears it.")] string? @default = null,
+        [Description("A new parameter's type, or a new let's to hold it to one, NumberList and ColorList being number[] and color[]; a parameter's type is not changed, but removed and declared again.")] ExprType? type = null,
+        [Description("A parameter's default, written as an expression such as #ff0000, 2, 'text', [0, 0.5, 1] or [#ff0000, #00ff00]; empty clears it.")] string? @default = null,
         [Description("A parameter's lowest value; empty clears it.")] string? min = null,
         [Description("A parameter's highest value; empty clears it.")] string? max = null,
         [Description("How far a parameter's slider moves at a time; empty clears it.")] string? step = null,

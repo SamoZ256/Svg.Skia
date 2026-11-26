@@ -731,6 +731,83 @@ public class SvgViewerLetEditingTests
         window.Close();
     }
 
+    // ---- a let declared with a type ----
+
+    private const string Typed = """
+        <svg xmlns="http://www.w3.org/2000/svg" xmlns:e="https://svg.skia/expr/1.0" viewBox="0 0 24 24" width="24" height="24">
+          <defs>
+            <e:code>
+              <e:param name="steps" type="integer" default="4" />
+              <e:let name="extra" type="number[]">[0.5]</e:let>
+              <e:let name="n" type="integer">3</e:let>
+              <e:let name="total">n + steps + len(extra)</e:let>
+            </e:code>
+          </defs>
+          <rect x="0" y="0" width="24" height="24" fill="#ff0000" opacity="{{ num(total) / 10 }}" />
+        </svg>
+        """;
+
+    /// <summary>
+    /// A let's body is checked as the type it declares, in its row, in the scope below it and in the form.
+    /// </summary>
+    /// <remarks>
+    /// Checked alone, <c>[]</c> has no type at all and a whole literal is a number, so an empty list
+    /// in a typed let was refused as it was typed, and an integer let put a number in scope that
+    /// <c>n + steps</c> could not add to an integer.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task A_Typed_Let_Is_Checked_As_The_Type_It_Declares()
+    {
+        var (window, viewer) = await HostLoaded(Typed);
+
+        Assert.All(viewer.Lets, let => Assert.False(let.HasTrouble, let.Trouble));
+
+        var extra = Row(viewer, "extra");
+
+        extra.Expression = "[]";
+
+        Assert.False(extra.HasTrouble, extra.Trouble);
+        Assert.False(Row(viewer, "total").HasTrouble, Row(viewer, "total").Trouble);
+        Assert.True(viewer.CommitLet(extra));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("""<e:let name="extra" type="number[]">[]</e:let>""", viewer.Source);
+
+        // Held to its type, a colour list is wrong for it however well it reads on its own.
+        Row(viewer, "extra").Expression = "[#ff0000]";
+
+        Assert.True(Row(viewer, "extra").HasTrouble);
+
+        var scope = viewer.GetVisualDescendants().OfType<SvgViewerDeclarationPanel>().First().ScopeFor(Row(viewer, "total"));
+
+        Assert.Equal(ExprType.Integer, scope["n"]);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void The_Form_Checks_A_Body_As_The_Type_Its_Let_Declares()
+    {
+        var form = Form();
+        var window = new Window { Width = 400, Height = 400, Content = form };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        form.Initialize(new SvgExpressionLet("extra", "[0.5]", ExprType.NumberList));
+        Fill(form, "extra", "[]");
+
+        Assert.Equal(ExprType.NumberList, form.TryBuild(out var trouble)?.DeclaredType);
+        Assert.Null(trouble);
+
+        Fill(form, "extra", "[tint]");
+
+        Assert.Null(form.TryBuild(out trouble));
+        Assert.Contains("list of numbers", trouble);
+
+        window.Close();
+    }
+
     /// <summary>A form over a drawing declaring one colour, which is what Grouped declares.</summary>
     private static SvgLetFormView Form()
         => new()

@@ -21,6 +21,7 @@ public sealed class ExprCompiler
 {
     private readonly ExprChecker _checker;
     private readonly IReadOnlyDictionary<string, string>? _symbolNames;
+    private readonly SkiaCSharpCodeGenCounter? _members;
 
     // Null when not folding, which is what keeps the C# back end exercised on constants.
     private readonly Dictionary<string, ExprValue>? _constants;
@@ -39,10 +40,24 @@ public sealed class ExprCompiler
         IReadOnlyDictionary<string, ExprType> symbols,
         IReadOnlyDictionary<string, string>? symbolNames,
         bool fold = false)
+        : this(symbols, symbolNames, fold, null)
+    {
+    }
+
+    /// <param name="members">
+    /// The class the code is emitted into, which keeps the arrays its list literals need. See
+    /// <see cref="ExprCSharpBackend.Emit"/>.
+    /// </param>
+    internal ExprCompiler(
+        IReadOnlyDictionary<string, ExprType> symbols,
+        IReadOnlyDictionary<string, string>? symbolNames,
+        bool fold,
+        SkiaCSharpCodeGenCounter? members)
     {
         // Not copied. Callers add to the table between calls — see ExprChecker.
         _checker = new ExprChecker(symbols);
         _symbolNames = symbolNames;
+        _members = members;
         _constants = fold ? new Dictionary<string, ExprValue>(StringComparer.Ordinal) : null;
     }
 
@@ -56,13 +71,13 @@ public sealed class ExprCompiler
     /// Compiles <paramref name="text"/> and requires it to produce <paramref name="expected"/>.
     /// </summary>
     public string CompileTo(string text, ExprType expected, string what)
-        => ExprCSharpBackend.Emit(Fold(_checker.CheckAs(text, expected, what)), _symbolNames);
+        => ExprCSharpBackend.Emit(Fold(_checker.CheckAs(text, expected, what)), _symbolNames, _members);
 
     public (ExprType Type, string Code) Compile(string text)
     {
         var checked_ = Fold(_checker.Check(text));
 
-        return (checked_.Type, ExprCSharpBackend.Emit(checked_, _symbolNames));
+        return (checked_.Type, ExprCSharpBackend.Emit(checked_, _symbolNames, _members));
     }
 
     /// <summary>

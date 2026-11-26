@@ -187,6 +187,10 @@ public static class SvgExpressionSubstitution
         // A colour is the one whose attribute spelling and whose literal are the same six or eight
         // hex digits, so it is the one that can be taken from ToString.
         ExprType.Color => value.ToString(),
+
+        // TypeOf never answers one: no attribute this writes takes a list.
+        ExprType.NumberList or ExprType.ColorList
+            => throw new NotSupportedException($"A {ExprFunctions.Describe(value.Type)} has no spelling as an attribute value."),
         _ => throw new NotSupportedException($"Unsupported {nameof(ExprType)}: {value.Type}.")
     };
 
