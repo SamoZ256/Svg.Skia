@@ -165,6 +165,26 @@ public class SvgDomEditTests
     }
 
     [Fact]
+    public void A_Term_Put_After_A_Written_Transform_Keeps_How_It_Was_Written()
+    {
+        var outcome = Written(
+            Drawing("""<rect id="r" width="3" height="4" transform="translate(20,0)" />"""),
+            document => Get<SvgRectangle>(document, "r").Transforms.Add(new SvgScale(2)));
+
+        Assert.Contains("""transform="translate(20,0) scale(2)" """, outcome.Text);
+    }
+
+    [Fact]
+    public void A_Transform_That_Read_As_Nothing_Is_Written_Afresh()
+    {
+        var outcome = Written(
+            Drawing("""<rect id="r" width="3" height="4" transform="qwe" />"""),
+            document => Get<SvgRectangle>(document, "r").Transforms.Add(new SvgScale(2)));
+
+        Assert.Contains("""transform="scale(2)" """, outcome.Text);
+    }
+
+    [Fact]
     public void A_Driven_Transform_Replaced_Is_Refused()
     {
         var outcome = Edit(

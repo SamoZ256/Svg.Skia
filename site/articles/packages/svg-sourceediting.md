@@ -109,8 +109,9 @@ command runs on both. A value that comes out different was worked out from a sta
 one expression's stand-in in both, it was copied whole, and it is written as that expression: a fill
 copied to a stroke becomes `stroke="{%{{{ accent }}}%}"`. Anything else worked out from one is refused,
 since the number it would freeze into the file is not what the drawing shows. A value an expression
-sets is not overwritten, with one exception: terms a command puts in front of or after a driven
-`transform` are written around the author's text, as the gizmo does. A literal written under a group
+sets is not overwritten, with one exception: terms a command puts in front of or after a
+`transform` are written around the author's text, as the gizmo does for a driven one; a literal
+keeps its spelling too, while that text still reads as what it held. A literal written under a group
 whose expression it now hides says so. A command that does not do the same thing on both readings is
 refused, and so is one whose two runs differ in a drawing with no expressions to explain it.
 
