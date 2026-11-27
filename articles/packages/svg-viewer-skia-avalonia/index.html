@@ -608,6 +608,12 @@ step to take back.</p>
 the picked rows fill and stroke with, and their two opacities, as written and as one step: an
 expression travels with its paint, and a value in <code>style</code> stays there. A host wires it through
 <code>SwapRequested</code>, as it wires Duplicate and Delete.</p>
+<p><strong>Transform</strong> on the same menu, or <code>Shift</code> <code>H</code> and <code>Shift</code> <code>V</code>, flips the picked rows across the
+middle of them all, and turns them a quarter either way, as one step: a host wires <code>FlipRequested</code>
+and <code>RotateRequested</code>, and the viewer's own <code>Flip</code> and <code>Rotate</code> are what it wires them to. They are
+worked out by <code>SvgViewerCommands</code> on the drawing as it is drawn and written through <code>SvgDomEdit</code>,
+each element given a term after its transform, so a driven transform is kept and goes on applying
+first.</p>
 <p>A <code>&lt;clipPath&gt;</code>, a <code>&lt;mask&gt;</code> or a shape kept in <code>&lt;defs&gt;</code> dropped on a drawn row is <strong>applied</strong> to it
 rather than moved: the row is outlined green for a clip and violet for a mask, the colours of the
 canvas's outlines of their content, with the word beside it. A clip path or a mask is pointed at as it
