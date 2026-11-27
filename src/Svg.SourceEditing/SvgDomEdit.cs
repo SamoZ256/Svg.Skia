@@ -408,16 +408,31 @@ public static class SvgDomEdit
 
                     text = null;
                 }
+                else if (name == SvgTransformExpression.Name
+                         && before is SvgTransformCollection prior
+                         && (expression ?? Written(file, name)) is { } authored
+                         && Compose(element, prior, (SvgTransformCollection)after, Own(twin, name) as SvgTransformCollection, authored) is { } composed)
+                {
+                    // Terms put around what was there are written around the text it was written as:
+                    // an expression's stand-ins differ between the runs, and a literal keeps its
+                    // spelling while the whole still reads as what the command made.
+                    if (expression is { })
+                    {
+                        text = composed;
+                        element.CustomAttributes[SvgExpressionAttributes.KeyFor(name)] = composed;
+                    }
+                    else if (SvgValueSpelling.Spell(element, name, after, composed, out var why) is { } spelt)
+                    {
+                        text = spelt;
+                    }
+                    else
+                    {
+                        return why;
+                    }
+                }
                 else if (expression is { } && name == SvgTransformExpression.Name)
                 {
-                    // Its own stand-ins differ between the runs; what was put around them may not.
-                    if (Compose(element, (SvgTransformCollection)before!, (SvgTransformCollection)after, Own(twin, name) as SvgTransformCollection, expression) is not { } composed)
-                    {
-                        return Driven(name, tag, expression);
-                    }
-
-                    text = composed;
-                    element.CustomAttributes[SvgExpressionAttributes.KeyFor(name)] = composed;
+                    return Driven(name, tag, expression);
                 }
                 else if (!SvgValueSpelling.Precise(after, Own(twin, name)))
                 {
@@ -939,6 +954,10 @@ public static class SvgDomEdit
             _ => name
         };
     }
+
+    /// <summary>The attribute <paramref name="name"/> as <paramref name="file"/> writes it, or null.</summary>
+    /// <remarks>Not a style declaration's: a CSS transform is spelt otherwise, and writing one is refused anyway.</remarks>
+    private static string? Written(XElement file, string name) => (string?)file.Attribute(name);
 
     /// <summary>A name in a namespace as <paramref name="file"/> spells it, or null where nothing above it declares one.</summary>
     private static string? Prefixed(XElement file, string ns, string local)

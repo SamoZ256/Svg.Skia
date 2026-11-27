@@ -168,6 +168,12 @@ public partial class SvgViewerElementTree : UserControl
     /// <summary>Swaps the fill and stroke of the rows named, for the same kind of host.</summary>
     public Func<IReadOnlyList<string>, bool>? SwapRequested { get; set; }
 
+    /// <summary>Mirrors the rows named, horizontally where the flag says so, for the same kind of host.</summary>
+    public Func<IReadOnlyList<string>, bool, bool>? FlipRequested { get; set; }
+
+    /// <summary>Turns the rows named by the degrees given, clockwise, for the same kind of host.</summary>
+    public Func<IReadOnlyList<string>, float, bool>? RotateRequested { get; set; }
+
     /// <summary>
     /// Clips or masks a row with another, for any host that writes: the content's row, the
     /// target's, then <c>clip-path</c> or <c>mask</c>. Asked by the menu and by a drop.
@@ -199,6 +205,20 @@ public partial class SvgViewerElementTree : UserControl
         var duplicate = Item("Duplicate", () => DuplicateRequested is { } write && write(_selectedAddresses.ToList()));
         var delete = Item("Delete", () => DeleteRequested is { } write && write(_selectedAddresses.ToList()));
         var swap = Item("Swap Fill and Stroke", () => SwapRequested is { } write && write(_selectedAddresses.ToList()));
+        var flipH = Item("Flip Horizontal", () => FlipRequested is { } write && write(_selectedAddresses.ToList(), true));
+        var flipV = Item("Flip Vertical", () => FlipRequested is { } write && write(_selectedAddresses.ToList(), false));
+        var transform = new MenuItem
+        {
+            Header = "Transform",
+            ItemsSource = new object[]
+            {
+                flipH,
+                flipV,
+                new Separator(),
+                Item("Rotate 90° Right", () => RotateRequested is { } write && write(_selectedAddresses.ToList(), 90f)),
+                Item("Rotate 90° Left", () => RotateRequested is { } write && write(_selectedAddresses.ToList(), -90f))
+            }
+        };
         var all = Item("All", () => Select(SvgElementSelect.All));
         var none = Item("Deselect", () => Select(SvgElementSelect.None));
         var same = new MenuItem
@@ -220,7 +240,7 @@ public partial class SvgViewerElementTree : UserControl
             Header = "Select",
             ItemsSource = new object[] { all, none, Item("Inverse", () => Select(SvgElementSelect.Inverse)), new Separator(), same, uses }
         };
-        var menu = new ContextMenu { ItemsSource = new object[] { group, clip, mask, clipWith, maskWith, duplicate, delete, swap, rule, select } };
+        var menu = new ContextMenu { ItemsSource = new object[] { group, clip, mask, clipWith, maskWith, duplicate, delete, swap, transform, rule, select } };
 
         menu.Opening += (_, e) =>
         {
@@ -234,12 +254,13 @@ public partial class SvgViewerElementTree : UserControl
             duplicate.IsVisible = DuplicateRequested is { };
             delete.IsVisible = DeleteRequested is { };
             swap.IsVisible = SwapRequested is { };
+            transform.IsVisible = FlipRequested is { } && RotateRequested is { };
             select.IsVisible = rule.IsVisible = SelectRequested is { };
 
             group.IsEnabled = SelectedNode is { };
             clip.IsEnabled = One("clip-path");
             mask.IsEnabled = One("mask");
-            duplicate.IsEnabled = delete.IsEnabled = swap.IsEnabled = same.IsEnabled = _selectedAddresses.Count > 0;
+            duplicate.IsEnabled = delete.IsEnabled = swap.IsEnabled = transform.IsEnabled = same.IsEnabled = _selectedAddresses.Count > 0;
 
             // A text block for a header, as below: a name's first underscore would be an access key.
             uses.ItemsSource = (Declared?.Invoke() ?? Enumerable.Empty<string>())
@@ -262,11 +283,13 @@ public partial class SvgViewerElementTree : UserControl
             duplicate.InputGesture = new KeyGesture(Key.D, command);
             delete.InputGesture = new KeyGesture(Key.Delete);
             swap.InputGesture = new KeyGesture(Key.X, KeyModifiers.Shift);
+            flipH.InputGesture = new KeyGesture(Key.H, KeyModifiers.Shift);
+            flipV.InputGesture = new KeyGesture(Key.V, KeyModifiers.Shift);
             all.InputGesture = new KeyGesture(Key.A, command);
             none.InputGesture = new KeyGesture(Key.A, command | KeyModifiers.Shift);
 
             e.Cancel = _document is null
-                       || !(group.IsVisible || clip.IsVisible || clipWith.IsVisible || maskWith.IsVisible || duplicate.IsVisible || delete.IsVisible || swap.IsVisible || select.IsVisible);
+                       || !(group.IsVisible || clip.IsVisible || clipWith.IsVisible || maskWith.IsVisible || duplicate.IsVisible || delete.IsVisible || swap.IsVisible || transform.IsVisible || select.IsVisible);
         };
 
         return menu;
@@ -366,6 +389,12 @@ public partial class SvgViewerElementTree : UserControl
             e.Handled = true;
 
             swap(_selectedAddresses.ToList());
+        }
+        else if (e.Key is Key.H or Key.V && e.KeyModifiers == KeyModifiers.Shift && FlipRequested is { } flip)
+        {
+            e.Handled = true;
+
+            flip(_selectedAddresses.ToList(), e.Key == Key.H);
         }
     }
 

@@ -3624,6 +3624,19 @@ public partial class MainWindow : Window
             ? viewer.SwapPaints(viewer.Elements.SelectedAddresses.ToList())
             : Board()?.SwapPaints() == true;
 
+    /// <summary>Mirrors what the selected tab has picked across the middle of it, as one edit.</summary>
+    /// <remarks>Run by the menu only; the canvas and the tree answer Shift+H and Shift+V themselves.</remarks>
+    public bool Flip(bool horizontal)
+        => Selected() is { } viewer
+            ? viewer.Flip(viewer.Elements.SelectedAddresses.ToList(), horizontal)
+            : Board()?.Flip(horizontal) == true;
+
+    /// <summary>Turns what the selected tab has picked about the middle of it, clockwise by <paramref name="degrees"/>.</summary>
+    public bool Rotate(float degrees)
+        => Selected() is { } viewer
+            ? viewer.Rotate(viewer.Elements.SelectedAddresses.ToList(), degrees)
+            : Board()?.Rotate(degrees) == true;
+
     /// <inheritdoc cref="Duplicate"/>
     /// <summary>Takes what the selected tab has picked out of its drawing.</summary>
     public bool Delete()
@@ -3670,6 +3683,7 @@ public partial class MainWindow : Window
 
         yield return ("File", new[] { "open", StudioCommands.RecentSlot, "close", rule, "save", "saveas", rule, "export", rule, "preferences" });
         yield return ("Edit", new[] { "undo", "redo", rule, "duplicate", "delete", "swappaints", rule, "resize" });
+        yield return ("Object", new[] { "fliph", "flipv", rule, "rotateright", "rotateleft" });
         yield return ("Select", new[] { "selectall", "deselect", "selectinverse", rule, "samefill", "samestroke", "samestrokeweight", "sameopacity", "sametype" });
         yield return ("View", new[] { "fit", "fitselection", "zoom100", "zoomin", "zoomout", rule, "snapgrid", "show-invisible", "lock-ratio", "show-grid", "captions", rule, "workspace-rulers", "guides", "smartguides", rule, "reset-parameters", rule, "wireframe", "background-theme", "background-checker", "background-light", "background-dark", rule, "zen", "fullscreen" });
         yield return ("Window", _dock.Regions.Where(region => region.Closable).Select(Panel).Concat(new[] { rule, "next-document", "previous-document", rule, "reset-layout" })
@@ -3778,6 +3792,11 @@ public partial class MainWindow : Window
             Modifiers = shift,
             CanExecute = Picks
         };
+        // The flips' letters are Shift-letters for the same reason; the turns have none.
+        yield return new("fliph", "Flip Horizontal", "Object", Done(() => Flip(true))) { Scope = picked, Key = SvgEditorShortcutKey.H, Modifiers = shift, CanExecute = Picks };
+        yield return new("flipv", "Flip Vertical", "Object", Done(() => Flip(false))) { Scope = picked, Key = SvgEditorShortcutKey.V, Modifiers = shift, CanExecute = Picks };
+        yield return new("rotateright", "Rotate 90° Right", "Object", Done(() => Rotate(90f))) { Scope = picked, CanExecute = Picks };
+        yield return new("rotateleft", "Rotate 90° Left", "Object", Done(() => Rotate(-90f))) { Scope = picked, CanExecute = Picks };
         yield return new("resize", "Resize…", "Edit", () => Selected() is { } viewer ? viewer.ResizeAsync() : Task.CompletedTask)
         {
             CanExecute = () => Selected() is { Document: { } }

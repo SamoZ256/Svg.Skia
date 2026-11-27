@@ -200,6 +200,8 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _elementTree.DeleteRequested = Delete;
         _elementTree.DuplicateRequested = Duplicate;
         _elementTree.SwapRequested = SwapPaints;
+        _elementTree.FlipRequested = Flip;
+        _elementTree.RotateRequested = Rotate;
         _elementTree.ClipRequested = ApplyClip;
         _elementTree.NewClipRequested = NewClip;
         _elementTree.SelectRequested = Select;
@@ -1078,6 +1080,48 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         return true;
     }
 
+    /// <summary>Mirrors the rows at <paramref name="addressKeys"/> across the middle of them all, as one edit.</summary>
+    public bool Flip(IReadOnlyList<string> addressKeys, bool horizontal)
+        => Commanded(
+            addressKeys,
+            count => (count == 1 ? "flip" : $"flip {count} elements") + (horizontal ? " horizontally" : " vertically"),
+            (bound, elements) => SvgViewerCommands.Flip(bound, elements, horizontal));
+
+    /// <summary>Turns the rows at <paramref name="addressKeys"/> clockwise about the middle of them all, as one edit.</summary>
+    public bool Rotate(IReadOnlyList<string> addressKeys, float degrees)
+        => Commanded(
+            addressKeys,
+            count => $"rotate {(count == 1 ? string.Empty : $"{count} elements ")}{(degrees < 0f ? "left" : "right")}",
+            (bound, elements) => SvgViewerCommands.Rotate(bound, elements, degrees));
+
+    /// <summary>Runs a command worked out on the drawing as drawn, and writes what it changed into the file.</summary>
+    /// <remarks>The rows stay picked: the edit moves no element to another address.</remarks>
+    private bool Commanded(
+        IReadOnlyList<string> addressKeys,
+        Func<int, string> label,
+        Func<SKSvg, IReadOnlyList<(string File, string Built)>, Func<SvgDomEditContext, string?>> command)
+    {
+        if (_document is not { } open || Spelt(addressKeys) is not { } mine)
+        {
+            return false;
+        }
+
+        var edit = command(open.Svg, mine.Zip(addressKeys, (file, built) => (file, built)).ToList());
+        string? note = null;
+
+        if (!Rewritten(label(mine.Count), source => SvgDomEdit.Apply(source, edit, out _, out note), () => addressKeys))
+        {
+            return false;
+        }
+
+        if (note is { })
+        {
+            ShowNote(note);
+        }
+
+        return true;
+    }
+
     /// <summary>Writes a copy of each row at <paramref name="addressKeys"/> after it, and selects the copies.</summary>
     public bool Duplicate(IReadOnlyList<string> addressKeys)
     {
@@ -1353,6 +1397,12 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             e.Handled = true;
 
             SwapPaints(_elementTree.SelectedAddresses.ToList());
+        }
+        else if (e.Key is Key.H or Key.V && e.KeyModifiers == KeyModifiers.Shift)
+        {
+            e.Handled = true;
+
+            Flip(_elementTree.SelectedAddresses.ToList(), e.Key == Key.H);
         }
     }
 

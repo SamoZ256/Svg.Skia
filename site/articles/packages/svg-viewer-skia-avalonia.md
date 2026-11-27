@@ -379,6 +379,13 @@ the picked rows fill and stroke with, and their two opacities, as written and as
 expression travels with its paint, and a value in `style` stays there. A host wires it through
 `SwapRequested`, as it wires Duplicate and Delete.
 
+**Transform** on the same menu, or `Shift` `H` and `Shift` `V`, flips the picked rows across the
+middle of them all, and turns them a quarter either way, as one step: a host wires `FlipRequested`
+and `RotateRequested`, and the viewer's own `Flip` and `Rotate` are what it wires them to. They are
+worked out by `SvgViewerCommands` on the drawing as it is drawn and written through `SvgDomEdit`,
+each element given a term after its transform, so a driven transform is kept and goes on applying
+first.
+
 A `<clipPath>`, a `<mask>` or a shape kept in `<defs>` dropped on a drawn row is **applied** to it
 rather than moved: the row is outlined green for a clip and violet for a mask, the colours of the
 canvas's outlines of their content, with the word beside it. A clip path or a mask is pointed at as it

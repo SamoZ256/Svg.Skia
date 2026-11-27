@@ -357,6 +357,14 @@ paint otherwise, and where that shadows a group's expression the canvas says so.
 nothing to swap, a shape in a `<clipPath>` paints nothing, and a paint a `<style>` sheet may set, or
 a `<use>` gives what a `<symbol>` holds, is not guessed at; each is refused before anything is written.
 
+The **Object** menu mirrors and turns what is picked, about the middle of all of it in the drawing's
+own units: **Flip Horizontal** (⇧H on the canvas or in the element tree), **Flip Vertical** (⇧V),
+**Rotate 90° Right** and **Rotate 90° Left**, under **Transform** in the rows' menu too. Each element
+is given a term at the end of its transform — `translate(14) scale(-1 1)`, or `rotate(90 7 7)` for a
+quarter turn — so its geometry is written as before, and the transform it had keeps the way it was
+written, `{%{{{ angle }}}%}` and all, going on applying first. A group turns with what is in it. What draws
+nothing, such as a shape kept in `<defs>`, has no middle to turn about and is refused.
+
 ## The View menu
 
 **Rulers** (⌘R, Ctrl+R elsewhere) runs a ruler along the top and the left of the canvas. They count
@@ -540,7 +548,7 @@ click on a `<use>` reshapes the shape it draws, which changes it everywhere it i
 Claude Code can drive Studio from outside, with the same tools the Assistant panel uses: it reads the
 project, its drawings and each node's own and inherited settings, lists every problem in them, reads
 the C# a drawing is built into, sets attributes and text, renames an element's id with what points at
-it, swaps fill and stroke, adds, removes, moves and copies elements,
+it, swaps fill and stroke, flips and rotates elements, adds, removes, moves and copies them,
 selects them by key or as the Select menu does, reads and changes a group's declarations, declares
 or renames one parameter or let with every use of it, finds where a name, an id or a value is, adds, moves and renames nodes, and saves or commits.
 `measure` says where an element is drawn, in its drawing's own units, and with a second element the
