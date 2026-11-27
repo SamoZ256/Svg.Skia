@@ -304,6 +304,43 @@ public class SvgViewerGuidesTests
         window.Close();
     }
 
+    /// <summary>A click is cancelled as a press before it is a click, so what the press gathered has to outlast it.</summary>
+    [AvaloniaFact]
+    public async Task A_Point_Put_Down_By_A_Click_Lands_On_Another_Shape()
+    {
+        var (window, viewer) = await Host(Alone);
+
+        viewer.Drafting.Arm("polyline");
+
+        Click(window, viewer, 12f, 62f);
+        Click(window, viewer, 40.6f, 75f);
+        Click(window, viewer, 40.6f, 75f);
+
+        var points = viewer.Source[(viewer.Source.IndexOf("points=\"", StringComparison.Ordinal) + 8)..];
+        var second = points[..points.IndexOf('"', StringComparison.Ordinal)].Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries)[2];
+
+        Assert.Equal(40f, float.Parse(second, System.Globalization.CultureInfo.InvariantCulture), 2);
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Text_Placed_By_A_Click_Lands_On_Another_Shape()
+    {
+        var (window, viewer) = await Host(Alone);
+
+        viewer.Drafting.Arm("text");
+
+        Click(window, viewer, 40.6f, 75f);
+
+        Assert.Equal(40f, Number(viewer.Source[viewer.Source.LastIndexOf("<text", StringComparison.Ordinal)..], "x"), 2);
+
+        // Written, the tool is put away, and what the press gathered goes with it.
+        Assert.Null(viewer.Canvas.Grid.Uprights);
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task The_Page_Edge_Pulls()
     {

@@ -222,6 +222,38 @@ public class ViewMenuTests : IDisposable
         window.Close();
     }
 
+    /// <summary>A point a board's polyline puts down with a click lines up with a shape, as one put down with a drag does.</summary>
+    [AvaloniaFact]
+    public async Task A_Point_Clicked_On_A_Board_Lines_Up_With_A_Shape()
+    {
+        var window = await Host(Write("icons.svgstudio", Project));
+        var board = (GroupPanel)Front(window)!;
+        var canvas = Canvas(board);
+        var home = Placed(canvas, "home");
+
+        // The home shape's left edge is 4 in, where no page line is; the click is six pixels past it.
+        var x = home.At.X + 4f + (float)(6d / canvas.Scale);
+        var y = home.At.Y + 19.6f;
+
+        Click(window, canvas, home.At.X + 8f, home.At.Y + 8f);
+        board.Drafting.Arm("polyline");
+
+        Click(window, canvas, home.At.X + 1.6f, y);
+        Click(window, canvas, x, y);
+        Click(window, canvas, x, y);
+
+        var text = window.Workspace!.Document.Root.Children.OfType<ProjectDrawing>().Single(drawing => drawing.Text.Contains("id=\"home\"", StringComparison.Ordinal)).Text;
+        var points = text[(text.IndexOf("points=\"", StringComparison.Ordinal) + 8)..];
+        var second = points[..points.IndexOf('"', StringComparison.Ordinal)].Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries)[2];
+
+        Assert.Equal(4f, float.Parse(second, System.Globalization.CultureInfo.InvariantCulture), 2);
+
+        // Written, the tool is put away, and a carry would otherwise land on what its press gathered.
+        Assert.Null(canvas.Grid.Uprights);
+
+        window.Close();
+    }
+
     /// <summary>A drawing carried about a board lands on a ruler guide, as it does on the grid.</summary>
     [AvaloniaFact]
     public async Task A_Drawing_Carried_On_A_Board_Lands_On_A_Guide()

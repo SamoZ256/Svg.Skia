@@ -54,6 +54,19 @@ public class SvgViewerMarqueeTests
         </svg>
         """;
 
+    /// <summary>Shapes whose own flags are clear in groups that are not drawn, and one that is.</summary>
+    private const string HeldBack = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <g display="none">
+            <rect id="gone" x="10" y="10" width="20" height="20" />
+          </g>
+          <g requiredExtensions="http://example.com/nothing">
+            <rect id="failed" x="40" y="10" width="20" height="20" />
+          </g>
+          <rect id="drawn" x="70" y="10" width="20" height="20" fill="#3366cc" />
+        </svg>
+        """;
+
     private const RawInputModifiers Held = RawInputModifiers.LeftMouseButton;
 
     private static (Window Window, SvgViewerCanvas Canvas, SvgViewerDocument Document) Host(string markup = Pair)
@@ -221,6 +234,17 @@ public class SvgViewerMarqueeTests
     public void What_Is_Not_Drawn_Is_Not_Caught()
     {
         var (window, canvas, document) = Host(Unseen);
+
+        Assert.Equal("drawn", Caught(canvas, new SKRect(0f, 0f, 100f, 100f)));
+
+        window.Close();
+        document.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void What_A_Group_Holds_Back_Is_Not_Caught()
+    {
+        var (window, canvas, document) = Host(HeldBack);
 
         Assert.Equal("drawn", Caught(canvas, new SKRect(0f, 0f, 100f, 100f)));
 

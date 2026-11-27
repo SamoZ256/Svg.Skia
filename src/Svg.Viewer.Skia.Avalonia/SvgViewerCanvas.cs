@@ -2098,7 +2098,7 @@ public class SvgViewerCanvas : SKCanvasControl
                 }
 
                 // The rectangle walk does not drop what is not drawn, though the point walk does.
-                if (node.IsDisplayNone || !node.IsVisible)
+                if (!SvgViewerOutline.Drawn(node))
                 {
                     continue;
                 }
