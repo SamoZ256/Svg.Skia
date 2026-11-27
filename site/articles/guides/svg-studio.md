@@ -394,8 +394,8 @@ Ctrl+Y is Redo) shows every shape as its outline alone. The canvas stands on the
 background, on **Checker** — behind each drawing's page, where it shows what the drawing leaves
 transparent — or on **Light** or **Dark** whatever the theme is. **Focus Mode** (F, with the
 canvas in hand) hides every panel, and F again brings them back exactly as they were, as does
-showing a panel from Window or Reset Layout. **Full Screen** is ⌃⌘F, F11 elsewhere. The
-background is remembered; Outline lasts until Studio quits.
+showing a panel from Window, Reset Layout, or a save that brings the Changes panel. **Full
+Screen** is ⌃⌘F, F11 elsewhere. The background is remembered; Outline lasts until Studio quits.
 
 ## The Attributes tab
 

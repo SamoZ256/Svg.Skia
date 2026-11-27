@@ -1015,9 +1015,17 @@ public partial class MainWindow : Window
     {
         var tracked = await _changes.Track(path, notes).ConfigureAwait(true);
         var joining = !_dock.Shows(ChangesPanelId);
+        var shown = tracked && _workspace is { };
+
+        // A save as arranges the panels without being asked to: one added while all are hidden
+        // would be news only on leaving Focus Mode.
+        if (joining && shown)
+        {
+            Unfocus();
+        }
 
         // A project closed while git was being asked has no panel to show.
-        _dock.Show(ChangesPanelId, tracked && _workspace is { });
+        _dock.Show(ChangesPanelId, shown);
 
         // A panel put beside another comes up in front of it, and a project opens on its tree.
         if (joining && _dock.Selected(ProjectTreePanel) == ChangesPanelId)

@@ -88,6 +88,28 @@ public class ChangesPanelTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_Save_That_Brings_The_Panel_Leaves_Focus_Mode()
+    {
+        Directory.CreateDirectory(Work);
+
+        var window = Empty();
+
+        Assert.True(await window.NewProjectAsync());
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain("changes", window.Layout, StringComparison.Ordinal);
+
+        Assert.True(await window.Registry.Run("zen"));
+        Assert.True(window.Registry["zen"].IsChecked!());
+
+        await Call(window, "save", new() { ["path"] = File });
+
+        Assert.Contains("changes", window.Layout, StringComparison.Ordinal);
+        Assert.False(window.Registry["zen"].IsChecked!());
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Creating_A_Repository_Commits_The_Project()
     {
         Put(Project);
