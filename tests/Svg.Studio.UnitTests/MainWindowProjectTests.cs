@@ -1742,6 +1742,26 @@ public class MainWindowProjectTests : IDisposable
         Assert.Equal(new[] { "0" }, Elements(panel).SelectedAddresses);
     }
 
+    [AvaloniaFact]
+    public async Task The_Board_Flips_And_Turns_What_Is_Picked()
+    {
+        var window = await Host(Write("icons.svgstudio", Board()));
+        var panel = Panel(window, "Project");
+
+        Pick(window, panel, 1);
+        Assert.True(await window.Registry.Run("selectall"));
+
+        Assert.True(await window.Registry.Run("fliph"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(await window.Registry.Run("rotateright"));
+        Dispatcher.UIThread.RunJobs();
+
+        var ink = (ProjectDrawing)window.Workspace!.Document.Root.Children[1];
+
+        Assert.Contains("""<rect width="24" height="24" fill="#00ff00" transform="translate(24) scale(-1 1) rotate(-90 12 12)" />""", ink.Text);
+        Assert.Equal(new[] { "0" }, Elements(panel).SelectedAddresses);
+    }
+
     /// <summary>Deselect on a board lets go of what is picked and not of the drawing being read, so All has one to pick in.</summary>
     [AvaloniaFact]
     public async Task Deselect_On_The_Board_Keeps_The_Drawing_All_Picks_In()

@@ -109,7 +109,7 @@ public class MainWindowMenuTests : IDisposable
         var window = await Host();
 
         Assert.Equal(
-            new[] { "File", "Edit", "Select", "View", "Window", "Project", "Help" },
+            new[] { "File", "Edit", "Object", "Select", "View", "Window", "Project", "Help" },
             NativeMenu.GetMenu(window)!.Items.OfType<NativeMenuItem>().Select(item => item.Header));
 
         window.Close();

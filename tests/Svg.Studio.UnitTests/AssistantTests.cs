@@ -2837,6 +2837,26 @@ public class AssistantTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Flip_And_Rotate_Are_A_Step_Each_About_The_Middle_Of_What_They_Name()
+    {
+        var window = await Host(Write("parts.svg", Parts));
+        var viewer = Viewer(window);
+
+        var chat = new ScriptedChat(
+            Call("flip", new() { ["keys"] = new[] { "1/0" }, ["horizontal"] = true, ["summary"] = "mirror the box" }),
+            Call("rotate", new() { ["keys"] = new[] { "1/0", "2" }, ["degrees"] = 90, ["summary"] = "turn them" }),
+            Call("flip", new() { ["keys"] = new[] { "9" }, ["horizontal"] = false, ["summary"] = "nothing" }),
+            Say("Done."));
+
+        await Send(window, chat, "mirror the box, then turn both");
+
+        Assert.Contains("""<rect id="box" width="24" height="24" transform="translate(24) scale(-1 1) rotate(-90 12 12)" />""", viewer.Source);
+        Assert.Contains("""<circle id="dot" cx="12" cy="12" r="4" transform="rotate(90 12 12)" />""", viewer.Source);
+        Assert.Equal("There is no element 9. get_drawing lists the keys.", chat.Results[2]);
+        Assert.Equal("Assistant: turn them", viewer.UndoLabel);
+    }
+
+    [AvaloniaFact]
     public async Task Setting_An_Id_Renames_It_With_What_Points_At_It()
     {
         var window = await Host(Write("parts.svg", Parts.Replace("<rect id=\"box\"", "<rect id=\"box\" fill=\"url(#shade)\" stroke=\"url(#shade)\"", StringComparison.Ordinal)));

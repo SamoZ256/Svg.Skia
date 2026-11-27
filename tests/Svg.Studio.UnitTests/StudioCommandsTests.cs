@@ -158,6 +158,22 @@ public class StudioCommandsTests
         window.Close();
     }
 
+    /// <summary>The flips are Shift+H and Shift+V where Shift+X is, and the turns have no key; all four are the Object menu's.</summary>
+    [AvaloniaFact]
+    public void The_Flips_Are_Shift_H_And_Shift_V_And_The_Turns_Have_No_Key()
+    {
+        var window = new MainWindow();
+
+        Assert.Equal(
+            (SvgEditorShortcutKey.H, SvgEditorShortcutModifiers.Shift, SvgEditorShortcutScope.CanvasOrDocumentTree, false),
+            (window.Registry["fliph"].Key, window.Registry["fliph"].Modifiers, window.Registry["fliph"].Scope, window.Registry["fliph"].ShownOnMac));
+        Assert.Equal((SvgEditorShortcutKey.V, SvgEditorShortcutModifiers.Shift), (window.Registry["flipv"].Key, window.Registry["flipv"].Modifiers));
+        Assert.Null(window.Registry["rotateright"].Key);
+        Assert.All(new[] { "fliph", "flipv", "rotateright", "rotateleft" }, id => Assert.Equal("Object", window.Registry[id].Category));
+
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void A_Menu_Leaves_Out_What_Has_No_Command_And_Every_Stray_Rule()
     {

@@ -422,6 +422,8 @@ public sealed class GroupPanel : UserControl
         _tree.DeleteRequested = _ => Delete();
         _tree.DuplicateRequested = _ => Duplicate();
         _tree.SwapRequested = _ => SwapPaints();
+        _tree.FlipRequested = (_, horizontal) => Flip(horizontal);
+        _tree.RotateRequested = (_, degrees) => Rotate(degrees);
         _tree.ClipRequested = ApplyClip;
         _tree.NewClipRequested = NewClip;
         _tree.SelectRequested = Select;
@@ -3388,6 +3390,51 @@ public sealed class GroupPanel : UserControl
         return true;
     }
 
+    /// <summary>Mirrors the picked elements across the middle of them all, as one edit.</summary>
+    public bool Flip(bool horizontal)
+        => Commanded(
+            count => (count == 1 ? "flip" : $"flip {count} elements") + (horizontal ? " horizontally" : " vertically"),
+            (bound, elements) => SvgViewerCommands.Flip(bound, elements, horizontal));
+
+    /// <summary>Turns the picked elements clockwise about the middle of them all, as one edit.</summary>
+    public bool Rotate(float degrees)
+        => Commanded(
+            count => $"rotate {(count == 1 ? string.Empty : $"{count} elements ")}{(degrees < 0f ? "left" : "right")}",
+            (bound, elements) => SvgViewerCommands.Rotate(bound, elements, degrees));
+
+    /// <summary>Runs a command worked out on the drawing as the board drew it, and writes what it changed.</summary>
+    private bool Commanded(
+        Func<int, string> label,
+        Func<Svg.Skia.SKSvg, IReadOnlyList<(string File, string Built)>, Func<SvgDomEditContext, string?>> command)
+    {
+        string? note = null;
+        var kept = new List<string>();
+
+        // The picked rows, in the order the edit is handed their addresses in the file.
+        var picked = _picked.ToList();
+
+        if (_inspecting?.Built.Document is not { } built
+            || !Rewritten(
+                label,
+                (source, mine) =>
+                {
+                    kept.AddRange(mine);
+
+                    return SvgDomEdit.Apply(source, command(built.Svg, mine.Zip(picked, (file, row) => (file, row)).ToList()), out _, out note);
+                },
+                kept))
+        {
+            return false;
+        }
+
+        if (note is { })
+        {
+            Says(note);
+        }
+
+        return true;
+    }
+
     /// <summary>Writes a copy of each picked element after it, and picks the copies.</summary>
     public bool Duplicate()
     {
@@ -3703,6 +3750,12 @@ public sealed class GroupPanel : UserControl
             e.Handled = true;
 
             SwapPaints();
+        }
+        else if (e.Key is Key.H or Key.V && e.KeyModifiers == KeyModifiers.Shift)
+        {
+            e.Handled = true;
+
+            Flip(e.Key == Key.H);
         }
     }
 

@@ -191,6 +191,8 @@ public sealed partial class AssistantTools
         ["move_element"] = "Move an element",
         ["duplicate_elements"] = "Duplicate elements",
         ["swap_paints"] = "Swap fill and stroke",
+        ["flip"] = "Flip",
+        ["rotate"] = "Rotate",
         ["select"] = "Select elements",
         ["measure"] = "Measure elements",
         ["open"] = "Open a node",
@@ -269,6 +271,8 @@ public sealed partial class AssistantTools
         Add(RemoveElements, "remove_elements", "Removes elements of a drawing, with everything inside them, as a single undo step.");
         Add(MoveElement, "move_element", "Moves an element of a drawing inside or beside another, as a single undo step, and says the key it lands at. A move into itself, or across a <defs>, <clipPath> or <mask>, is refused.");
         Add(DuplicateElements, "duplicate_elements", "Copies elements of a drawing, each right after itself with every id in it renamed, as a single undo step, and says the copies' keys and ids.");
+        Add(Flip, "flip", "Mirrors elements of a drawing across the middle of them all, left to right or top to bottom, as a single undo step. Each is given a term at the end of its transform, translate(…) scale(-1 1), after any {{ }} expression in it, so what it is drawn with is written as before.");
+        Add(Rotate, "rotate", "Turns elements of a drawing about the middle of them all, clockwise by the degrees given, as a single undo step. Each is given a term at the end of its transform, rotate(90 x y) for a quarter turn, after any {{ }} expression in it.");
         Add(SwapPaints, "swap_paints", "Swaps the fill and stroke of elements of a drawing, with their fill-opacity and stroke-opacity, as a single undo step. What each paints with moves as written, {{ }} expressions included, and a value set in style stays in style; an unset fill swaps as black and an unset stroke as none.");
         Add(Select, "select", "Selects elements of the drawing in front so the person sees them: by address key, or as Studio's Select menu does — all, none, the inverse of keys, those whose fill, stroke, stroke-width or opacity is written as the first key's is, every element of a kind, or what reads a declared name — and names the keys it selected.");
         Add(Measure, "measure", "Says where an element of a drawing is drawn, in the drawing's own user units: its box, size and centre, and with a second element the gaps between the two and the distance and angle between their centres.");
