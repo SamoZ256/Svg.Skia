@@ -333,15 +333,25 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
             BeginEdit(at);
         };
         _canvas.EditMoved += (_, at) => DragEdit(at);
+        // A shape tool keeps what its press gathered: a click is told it was cancelled before it
+        // is a click, and the band between points pulls too. Its next press gathers afresh.
         _canvas.EditEnded += (_, at) =>
         {
             EndEdit(at);
-            Unguide();
+
+            if (_draw.Shape is null)
+            {
+                Unguide();
+            }
         };
         _canvas.EditCancelled += (_, _) =>
         {
             CancelEdit();
-            Unguide();
+
+            if (_draw.Shape is null)
+            {
+                Unguide();
+            }
         };
         _canvas.GuidesChanged += (_, _) => Regrid();
 
@@ -363,6 +373,7 @@ public partial class SvgViewer : UserControl, ISvgViewerDeclarationTarget
         _draw.Changed += (_, _) =>
         {
             _canvas.Cursor = _draw.Cursor;
+            Unguide();
 
             // The keys that finish a shape or change the tool are the canvas's, and pressing a
             // button in the strip would otherwise leave the focus on the button.
